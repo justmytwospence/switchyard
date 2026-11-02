@@ -96,10 +96,10 @@ test.describe("shared behavior", () => {
     const interactionId = pending[0].id as string;
     const deepLink = `/code/${state.sessions.question}?interaction=${interactionId}`;
 
-    // Not enrolled: the app redirects to /enroll and remembers the link.
+    // Not enrolled: the app redirects to /enroll (sign-in) and remembers the link.
     await page.goto(deepLink);
     await expect(page).toHaveURL(/\/enroll\?next=/);
-    await expect(page.getByText("This device is not enrolled.")).toBeVisible();
+    await expect(page.getByText("Sign in to Switchyard")).toBeVisible();
 
     // Open an enrollment link (as from a QR code on another device).
     const e = await api<{ token: string }>("POST", "/api/devices/enrollments");

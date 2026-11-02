@@ -143,6 +143,8 @@ export default async function globalSetup(): Promise<void> {
     trustedOrigins: [E2E_URL, `http://localhost:${E2E_PORT}`],
     webDist,
     rateLimits: false,
+    // Initialized through /api/admin/init right below.
+    setupHint: false,
     logger: createLogger({ level: "info", destination: createWriteStream(logFile) }),
   });
   await coordinator.start();
@@ -163,6 +165,9 @@ export default async function globalSetup(): Promise<void> {
     return json;
   };
 
+  // Set the server up the way `switchyard init` does, so /enroll offers sign-in.
+  await api("POST", "/api/admin/init");
+
   // Host enrollment with the admin token.
   const enrollment = await api("POST", "/api/hosts/enrollments");
   const hostRes = await fetch(`${E2E_URL}/api/hosts/enroll`, {
@@ -180,7 +185,8 @@ export default async function globalSetup(): Promise<void> {
     piBin: piBin(),
     env: pi.env,
     extraExtensions: [fixtureExtensionPath(), join(here, "fixtures", "ask-extension.js")],
-    ownerAdapterDir: join(root, "owner-adapters"),
+    // Core bundles no adapters: the e2e ask-user-question adapter is an owner adapter.
+    ownerAdapterDir: join(here, "fixtures", "adapters"),
     handleSignals: false,
     backoffMs: [100, 200, 500],
     logger: hostLogger as never,
