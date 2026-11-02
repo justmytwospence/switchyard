@@ -27,6 +27,7 @@ export const ERROR_CODES = [
   "too_large",
   "ui_tree_too_large",
   "timeout",
+  "rate_limited",
   "internal",
 ] as const;
 
@@ -78,6 +79,8 @@ export function httpStatusFor(code: ErrorCode): number {
     case "enrollment_expired":
     case "enrollment_used":
       return 410;
+    case "rate_limited":
+      return 429;
     case "too_large":
       return 413;
     case "host_unreachable":

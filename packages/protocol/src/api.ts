@@ -2,14 +2,17 @@ import { z } from "zod";
 import {
   CompletionPolicy,
   ContinuationPolicy,
+  Device,
   ExtraArg,
   Interaction,
+  Passkey,
   Priority,
   TaskPolicy,
   TaskState,
   TaskTemplate,
   ThinkingLevel,
   Trigger,
+  WorktreeDir,
 } from "./entities.js";
 import { InteractionResponseSchema } from "./ui.js";
 
@@ -31,11 +34,18 @@ export const CreateEnrollmentResponse = z.object({
   command: z.string().nullable(),
 });
 
-export const HostEnrollRequest = z.object({
-  token: z.string().min(1),
-  name: z.string().min(1).max(80),
-  platform: z.enum(["darwin", "linux"]),
-});
+export const HostEnrollRequest = z.union([
+  z.object({
+    token: z.string().min(1),
+    name: z.string().min(1).max(80),
+    platform: z.enum(["darwin", "linux"]),
+  }),
+  z.object({
+    secret: z.string().min(1),
+    name: z.string().min(1).max(80),
+    platform: z.enum(["darwin", "linux"]),
+  }),
+]);
 export const HostEnrollResponse = z.object({ hostId: z.string(), credential: z.string() });
 
 export const CreateProjectRequest = z.object({
@@ -46,6 +56,7 @@ export const CreateProjectRequest = z.object({
   setupCommand: z.string().nullable().optional(),
   checks: z.array(z.string()).optional(),
   maxConcurrentRuns: z.number().int().min(1).max(32).optional(),
+  worktreeDir: WorktreeDir.optional(),
 });
 export const UpdateProjectRequest = z.object({
   name: z.string().min(1).optional(),
@@ -56,6 +67,7 @@ export const UpdateProjectRequest = z.object({
   setupCommand: z.string().nullable().optional(),
   checks: z.array(z.string()).optional(),
   workspaceSharing: z.enum(["single_writer", "shared"]).optional(),
+  worktreeDir: WorktreeDir.optional(),
 });
 export const AddCheckoutRequest = z.object({ hostId: z.string(), path: z.string().min(1) });
 
@@ -245,3 +257,82 @@ export const PushPayload = z.union([
   z.object({ type: z.literal("clear"), tag: z.string() }),
 ]);
 export type PushPayload = z.infer<typeof PushPayload>;
+
+/** Owner sign-in (see docs/auth.md). */
+export const SetupState = z.object({
+  initialized: z.boolean(),
+  passkey: z.object({
+    available: z.boolean(),
+    registered: z.boolean(),
+    reason: z.string().nullable(),
+  }),
+  oidc: z.object({ label: z.string() }).nullable(),
+});
+export type SetupState = z.infer<typeof SetupState>;
+
+export const InitResponse = z.object({
+  alreadyInitialized: z.boolean(),
+  enrollment: CreateEnrollmentResponse,
+});
+export type InitResponse = z.infer<typeof InitResponse>;
+
+export const PasskeyRegisterOptionsResponse = z.object({
+  challengeId: z.string(),
+  options: z.unknown(),
+});
+export const PasskeyRegisterVerifyRequest = z.object({
+  challengeId: z.string(),
+  name: z.string().min(1).max(80),
+  response: z.unknown(),
+});
+export const PasskeySignInOptionsResponse = z.object({
+  challengeId: z.string(),
+  options: z.unknown(),
+});
+export const PasskeySignInVerifyRequest = z.object({
+  challengeId: z.string(),
+  response: z.unknown(),
+  deviceName: z.string().min(1).max(80),
+  kind: z.enum(["browser", "pwa"]),
+});
+
+export const OidcBeginRequest = z.object({
+  deviceName: z.string().min(1).max(80),
+  kind: z.enum(["browser", "pwa"]),
+  next: z.string().default("/"),
+  handoff: z.boolean().default(false),
+});
+export const OidcBeginResponse = z.object({
+  authorizeUrl: z.string(),
+  flowId: z.string().nullable(),
+  pollToken: z.string().nullable(),
+});
+export type OidcBeginResponse = z.infer<typeof OidcBeginResponse>;
+export const OidcClaimRequest = z.object({ flowId: z.string(), pollToken: z.string() });
+export const OidcClaimResponse = z.union([
+  z.object({ status: z.literal("pending") }),
+  z.object({ status: z.literal("done"), deviceId: z.string() }),
+]);
+export type OidcClaimResponse = z.infer<typeof OidcClaimResponse>;
+
+export const AuthMethods = z.object({
+  passkeys: z.array(Passkey),
+  passkeyAvailability: z.object({ available: z.boolean(), reason: z.string().nullable() }),
+  oidc: z
+    .object({
+      issuer: z.string(),
+      label: z.string(),
+      ownerMatch: z.string(),
+      status: z.enum(["ready", "error"]),
+      error: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type AuthMethods = z.infer<typeof AuthMethods>;
+
+export const MeResponse = z.object({
+  device: Device,
+  admin: z.boolean(),
+  publicUrl: z.string(),
+});
+export type MeResponse = z.infer<typeof MeResponse>;

@@ -68,13 +68,18 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.readNative"), sessionFile: z.string() }),
   z.object({ type: z.literal("session.snapshot"), sessionId: z.string() }),
   z.object({ type: z.literal("checkout.inspect"), path: z.string() }),
-  z.object({ type: z.literal("workspace.discover"), checkoutPath: z.string() }),
+  z.object({
+    type: z.literal("workspace.discover"),
+    checkoutPath: z.string(),
+    worktreeDir: z.string().default(".worktrees"),
+  }),
   z.object({
     type: z.literal("workspace.create"),
     checkoutPath: z.string(),
     branch: z.string(),
     base: z.string(),
     setupCommand: z.string().nullable(),
+    worktreeDir: z.string().default(".worktrees"),
   }),
   z.object({ type: z.literal("workspace.status"), path: z.string(), base: z.string().nullable() }),
   z.object({
@@ -108,6 +113,7 @@ export const HostCommand = z.discriminatedUnion("type", [
           branch: z.string(),
           base: z.string(),
           setupCommand: z.string().nullable(),
+          worktreeDir: z.string().default(".worktrees"),
         }),
       }),
     ]),

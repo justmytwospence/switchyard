@@ -57,6 +57,17 @@ export const Host = z.object({
 });
 export type Host = z.infer<typeof Host>;
 
+/** Managed worktree folder, relative to the checkout root (repo-local by design). */
+export const WorktreeDir = z
+  .string()
+  .min(1)
+  .refine((d) => !d.startsWith("/") && !d.includes("\\"), "must be a relative path")
+  .refine((d) => !d.split("/").includes(".."), "must stay inside the repository")
+  .refine(
+    (d) => d.split("/").every((s) => s.length > 0 && s !== "."),
+    "must be a plain relative path",
+  );
+
 export const Project = z.object({
   id: Id,
   name: z.string().min(1),
@@ -68,6 +79,7 @@ export const Project = z.object({
   setupCommand: z.string().nullable(),
   checks: z.array(z.string()),
   workspaceSharing: z.enum(["single_writer", "shared"]),
+  worktreeDir: WorktreeDir.default(".worktrees"),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -459,6 +471,7 @@ export const Device = z.object({
     permission: z.enum(["granted", "denied", "default", "unknown"]),
   }),
   preferredMobile: z.boolean(),
+  enrolledVia: z.enum(["enrollment", "passkey", "oidc", "admin"]).default("enrollment"),
 });
 export type Device = z.infer<typeof Device>;
 
@@ -586,3 +599,13 @@ export const AdapterInfo = z.object({
   detail: z.string().nullable(),
 });
 export type AdapterInfo = z.infer<typeof AdapterInfo>;
+
+/** Public view of a registered owner passkey (key material stays in the database). */
+export const Passkey = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: Iso,
+  lastUsedAt: Iso.nullable(),
+  transports: z.array(z.string()),
+});
+export type Passkey = z.infer<typeof Passkey>;
