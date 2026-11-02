@@ -1,0 +1,51 @@
+# Switchyard hub: the coordinator in Docker Compose with persistent state.
+#
+#   cd deploy
+#   export SWITCHYARD_PUBLIC_URL=https://switchyard.example.com
+#   mkdir -p data && sudo chown 1000:1000 data   # the container runs as uid 1000 (user "node")
+#   docker compose up -d --build
+#
+# The coordinator only stores state and serves the web app and the client/host sockets. Pi
+# processes run on native host agents that connect outbound, so this service needs no Docker
+# socket and no mount of any host home directory. Do not add either.
+services:
+  switchyard:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: switchyard:latest
+    restart: unless-stopped
+    volumes:
+      # coordinator.db (+ WAL), admin.token (0600) and coordinator.lock. Protect this directory:
+      # admin.token grants full access.
+      - ./data:/data
+    ports:
+      # Remove this mapping when only Traefik (or another proxy on a shared network) should
+      # reach the coordinator.
+      - "7400:7400"
+    environment:
+      # The URL clients and hosts use to reach this coordinator. Used for enrollment links, the
+      # Secure cookie flag (https) and the default trusted origin. Compose reads it from the
+      # shell or from deploy/.env.
+      - SWITCHYARD_PUBLIC_URL=${SWITCHYARD_PUBLIC_URL:-http://localhost:7400}
+      # Comma-separated browser origins allowed to call the API and open sockets. Defaults to the
+      # origin of SWITCHYARD_PUBLIC_URL; set it only when browsers also use other origins.
+      # - SWITCHYARD_TRUSTED_ORIGINS=https://switchyard.example.com,https://switchyard.lan
+      # Optional pino level: trace, debug, info (default), warn, error, fatal, silent.
+      # - SWITCHYARD_LOG_LEVEL=info
+    # Traefik, using the Docker provider. Uncomment these together with the `proxy` network below
+    # (or see traefik.example.yaml for the file-provider alternative).
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.switchyard.rule=Host(`switchyard.example.com`)
+    #   - traefik.http.routers.switchyard.entrypoints=websecure
+    #   - traefik.http.routers.switchyard.tls=true
+    #   - traefik.http.routers.switchyard.tls.certresolver=letsencrypt
+    #   - traefik.http.services.switchyard.loadbalancer.server.port=7400
+    # networks:
+    #   - proxy
+
+# The network Traefik is attached to. It must already exist (docker network create proxy).
+# networks:
+#   proxy:
+#     external: true

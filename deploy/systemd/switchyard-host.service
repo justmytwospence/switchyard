@@ -1,0 +1,18 @@
+# Switchyard host agent (systemd user unit). Written by `switchyard host install-service`.
+[Unit]
+Description=Switchyard host agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart="{{NODE}}" "{{CLI}}" host run --config "{{CONFIG}}"
+Environment="PATH={{PATH}}"
+WorkingDirectory={{HOME}}
+Restart=on-failure
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

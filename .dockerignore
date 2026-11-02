@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.github
+data
+.tmp*
+coverage
+playwright-report
+test-results
+.env
+plans
+.worktrees
+**/.DS_Store

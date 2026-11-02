@@ -1,0 +1,95 @@
+# Switchyard coordinator image (hub mode). Build from the repo root:
+#   docker build -t switchyard:latest .
+#
+# The image runs only the coordinator. Pi never runs here: native host agents run it on the
+# machines that own the repositories and credentials, and connect to this coordinator outbound.
+# So there is no Docker socket, no home directory mount and no Pi in the image.
+
+# ---- build: install everything, compile every package and the web bundle ----------------------
+FROM node:26-bookworm-slim AS build
+
+# Node 25+ no longer bundles corepack; install it so the pnpm pinned in package.json is used.
+RUN npm install -g corepack@latest && corepack enable
+
+ENV PNPM_HOME=/pnpm \
+    npm_config_store_dir=/pnpm/store \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ENV PATH=$PNPM_HOME:$PATH
+WORKDIR /app
+
+COPY . .
+
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+# `tsc -b` for every TS package, then the Vite bundle into packages/web/dist.
+RUN pnpm build
+
+# Production tree without `pnpm deploy`: workspace `dist/` directories are gitignored and the
+# packages have no `files` field, so a pack-based deploy would drop them. Instead drop the dev
+# install and reinstall only the CLI's production dependency closure; the workspace links stay
+# relative, so the tree can be copied as is.
+RUN rm -rf node_modules packages/*/node_modules
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    CI=true pnpm install --frozen-lockfile --prod --filter "@switchyard/cli..."
+
+# ---- runtime ----------------------------------------------------------------------------------
+FROM node:26-bookworm-slim AS runtime
+
+ENV NODE_ENV=production \
+    SWITCHYARD_WEB_DIST=/app/packages/web/dist
+WORKDIR /app
+
+COPY --from=build --chown=node:node /app/package.json /app/pnpm-workspace.yaml ./
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+
+# Each workspace package needs its manifest (`exports` point at dist), compiled dist and links.
+COPY --from=build --chown=node:node /app/packages/protocol/package.json /app/packages/protocol/package.json
+COPY --from=build --chown=node:node /app/packages/protocol/dist /app/packages/protocol/dist
+COPY --from=build --chown=node:node /app/packages/protocol/node_modules /app/packages/protocol/node_modules
+
+# pi-runtime's dist contains the compiled bridge extension.
+COPY --from=build --chown=node:node /app/packages/pi-runtime/package.json /app/packages/pi-runtime/package.json
+COPY --from=build --chown=node:node /app/packages/pi-runtime/dist /app/packages/pi-runtime/dist
+COPY --from=build --chown=node:node /app/packages/pi-runtime/node_modules /app/packages/pi-runtime/node_modules
+
+COPY --from=build --chown=node:node /app/packages/adapter-sdk/package.json /app/packages/adapter-sdk/package.json
+COPY --from=build --chown=node:node /app/packages/adapter-sdk/dist /app/packages/adapter-sdk/dist
+COPY --from=build --chown=node:node /app/packages/adapter-sdk/node_modules /app/packages/adapter-sdk/node_modules
+
+# adapter-examples resolves the bg web renderer from `src/bg/web` (tsc does not copy HTML), so
+# its `src` tree ships next to `dist`.
+COPY --from=build --chown=node:node /app/packages/adapter-examples/package.json /app/packages/adapter-examples/package.json
+COPY --from=build --chown=node:node /app/packages/adapter-examples/dist /app/packages/adapter-examples/dist
+COPY --from=build --chown=node:node /app/packages/adapter-examples/src /app/packages/adapter-examples/src
+COPY --from=build --chown=node:node /app/packages/adapter-examples/node_modules /app/packages/adapter-examples/node_modules
+
+COPY --from=build --chown=node:node /app/packages/host-agent/package.json /app/packages/host-agent/package.json
+COPY --from=build --chown=node:node /app/packages/host-agent/dist /app/packages/host-agent/dist
+COPY --from=build --chown=node:node /app/packages/host-agent/node_modules /app/packages/host-agent/node_modules
+
+COPY --from=build --chown=node:node /app/packages/coordinator/package.json /app/packages/coordinator/package.json
+COPY --from=build --chown=node:node /app/packages/coordinator/dist /app/packages/coordinator/dist
+COPY --from=build --chown=node:node /app/packages/coordinator/node_modules /app/packages/coordinator/node_modules
+
+COPY --from=build --chown=node:node /app/packages/terminal/package.json /app/packages/terminal/package.json
+COPY --from=build --chown=node:node /app/packages/terminal/dist /app/packages/terminal/dist
+COPY --from=build --chown=node:node /app/packages/terminal/node_modules /app/packages/terminal/node_modules
+
+COPY --from=build --chown=node:node /app/packages/cli/package.json /app/packages/cli/package.json
+COPY --from=build --chown=node:node /app/packages/cli/dist /app/packages/cli/dist
+COPY --from=build --chown=node:node /app/packages/cli/node_modules /app/packages/cli/node_modules
+
+# The web bundle served by the coordinator (SWITCHYARD_WEB_DIST).
+COPY --from=build --chown=node:node /app/packages/web/dist /app/packages/web/dist
+
+# Persistent state: coordinator.db, admin.token and coordinator.lock live here.
+RUN mkdir -p /data && chown node:node /data
+USER node
+EXPOSE 7400
+VOLUME /data
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
+  CMD node -e "fetch('http://127.0.0.1:7400/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["node", "/app/packages/cli/dist/main.js"]
+CMD ["coordinator", "start", "--data-dir", "/data", "--listen", "0.0.0.0:7400"]

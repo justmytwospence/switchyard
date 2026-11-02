@@ -1,0 +1,27 @@
+# Traefik file-provider dynamic configuration for Switchyard: the alternative to the Docker
+# labels in compose.yaml. Put it in the directory Traefik watches (providers.file.directory).
+#
+# - WebSocket: Traefik forwards Upgrade requests automatically, so /ws/client (browsers and
+#   terminals) and /ws/host (host agents) need no extra middleware.
+# - Do not add buffering, compression or retry middlewares: streamed transcript output and the
+#   long-lived sockets must pass through unchanged.
+# - Connections are long-lived. Leave the entrypoint read/idle timeouts generous (or unset);
+#   the host agent and clients reconnect on their own if a proxy drops one.
+http:
+  routers:
+    switchyard:
+      rule: Host(`switchyard.example.com`)
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      service: switchyard
+
+  services:
+    switchyard:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          # The compose service name when Traefik shares a Docker network with it, otherwise
+          # the host IP and the published port (for example http://192.168.1.10:7400).
+          - url: http://switchyard:7400
