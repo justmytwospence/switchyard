@@ -20,7 +20,8 @@
     "@switchyard/pi-runtime": "workspace:*",
     "@switchyard/protocol": "workspace:*",
     "pino": "^10.4.0",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@switchyard/test-fixtures": "workspace:*",
