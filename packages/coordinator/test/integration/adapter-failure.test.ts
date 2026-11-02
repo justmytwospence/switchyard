@@ -19,9 +19,8 @@ export default {
 `;
 
 /**
- * A project-tier adapter committed to the repo, so every task worktree carries it. It reuses the
- * id of the bundled `tool-gate` adapter, which it overrides (project tier wins), so a failure
- * leaves only the generic renderer.
+ * A project-tier adapter committed to the repo, so every task worktree carries it. It is the only
+ * adapter on the host, so a failure leaves only the generic renderer.
  */
 function addProjectAdapter(repo: string): void {
   const dir = join(repo, ".switchyard", "adapters", "gatekeeper");
@@ -77,15 +76,12 @@ describe("project adapter failure", { timeout: 120_000 }, () => {
     const pid = await env.livePi(sid);
     const pending = await env.pendingInteraction(sid);
 
-    // Generic fallback: no adapter owns the request; it is the plain select. The bundled
-    // tool-gate adapter was overridden by the project one, so nothing else claims it.
+    // Generic fallback: no adapter owns the request; it is the plain select. The project adapter
+    // is the only one on the host, so nothing else claims it.
     const host = await env.ok("GET", `/api/hosts/${env.hostId}`);
-    expect(host.adapters).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "tool-gate", tier: "project", status: "active" }),
-        expect.objectContaining({ id: "tool-gate", tier: "bundled", status: "disabled" }),
-      ]),
-    );
+    expect(host.adapters).toEqual([
+      expect.objectContaining({ id: "tool-gate", tier: "project", status: "active" }),
+    ]);
     expect(pending.title).toBe("Allow this call?");
     expect(pending.adapterId).toBeNull();
     expect(pending.source).toMatchObject({ kind: "extension_ui", method: "select" });

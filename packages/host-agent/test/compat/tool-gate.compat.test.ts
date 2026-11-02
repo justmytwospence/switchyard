@@ -102,6 +102,8 @@ describe.skipIf(skip !== null)(`tool-gate compat${skip ? ` (${skip})` : ""}`, ()
       title: "Allow this call? bash",
       presentation: { t: "section", title: "Allow this call?" },
     });
+    // Claimed by the adapter pi-tool-gate ships, loaded through the plugin tier.
+    expect(h.adapter("tool-gate")).toMatchObject({ tier: "plugin" });
     const children = (card!.presentation as any).children as any[];
     const table = children.find((c) => c.t === "table");
     const rows = Object.fromEntries(table.rows as [string, string][]);

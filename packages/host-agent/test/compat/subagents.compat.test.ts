@@ -89,6 +89,8 @@ describe.skipIf(skip !== null)(`subagents compat${skip ? ` (${skip})` : ""}`, ()
       label: expect.any(String),
       linkedSessionId: null,
     });
+    // Linked by the adapter pi-subagents ships, loaded through the plugin tier.
+    expect(h.adapter("subagents")).toMatchObject({ tier: "plugin" });
     expect(item.data.sessionFile).toMatch(/\.jsonl$/);
     expect(existsSync(item.data.sessionFile!)).toBe(true);
     expect(["done", "running"]).toContain(item.data.status);

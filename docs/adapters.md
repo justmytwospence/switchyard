@@ -10,17 +10,17 @@ Every adapter is a directory with a `switchyard-adapter.json`:
 
 ```json
 {
-  "id": "tool-gate",
+  "id": "hello",
   "version": "0.1.0",
   "target": {
-    "extension": "@justmytwospence/pi-tool-gate",
-    "versionRange": ">=0.1.0 <0.2.0",
-    "testedVersions": ["0.1.2"]
+    "extension": "pi-hello",
+    "versionRange": ">=0.1.0 <1.0.0",
+    "testedVersions": ["0.1.0"]
   },
   "protocolVersion": 1,
   "server": "server.js",
   "webRenderer": null,
-  "capabilities": ["interactions"]
+  "capabilities": ["toolCards", "panels", "progress"]
 }
 ```
 
@@ -32,7 +32,7 @@ Every adapter is a directory with a `switchyard-adapter.json`:
 | `target.versionRange` | Semver range of that package. When the installed version is outside it, the adapter stays active, Settings shows a warning, and unmatched dialogs fall back to generic. |
 | `target.testedVersions` | Versions verified by compatibility tests. |
 | `protocolVersion` | Must be `1`. |
-| `server` | ESM module, relative to the manifest, whose default export is a `ServerAdapter` or a factory `({manifest, dir}) => ServerAdapter`. |
+| `server` | ESM module, relative to the manifest, whose default export is a `ServerAdapter` or a factory `({manifest, dir}) => ServerAdapter`. A `.ts` file works too: Node (24 or later) strips its types on import, so it may use only erasable syntax (see [Shipping an adapter with your Pi package](#shipping-an-adapter-with-your-pi-package)). |
 | `webRenderer` | Relative path to an HTML file for the custom web renderer, or `null`. |
 | `capabilities` | Any of `toolCards`, `interactions`, `panels`, `commands`, `progress`, `subagents`, `attention`, `state`. |
 
@@ -45,14 +45,13 @@ Adapters are consulted in this order:
 1. **Project:** `<project root>/.switchyard/adapters/<name>/switchyard-adapter.json`.
 2. **Owner:** `~/.config/switchyard/adapters/<name>/switchyard-adapter.json`.
 3. **Plugin:** Pi packages that ship their own adapter. The host reads `packages` from `<PI_CODING_AGENT_DIR or ~/.pi/agent>/settings.json` and resolves each source the way Pi installs it: `npm:` sources under `<agentDir>/npm/node_modules/<name>`, git sources under `<agentDir>/git/<host>/<path>`, local paths relative to the agent dir. A package whose `package.json` has `"switchyard": {"adapter": "<dir>"}` (a path or a list of paths) contributes that adapter. Sources that cannot be resolved produce a diagnostic and are skipped. Project-scope Pi settings (`.pi/settings.json`) are not read.
-4. **Bundled:** the adapters in `@switchyard/adapter-examples`.
+4. **Bundled:** adapters the embedding code passes in (`AdapterCatalog`'s `bundled` option). The host agent bundles none: adapters ship with the Pi packages that own them.
 5. **Generic renderer** for anything no adapter handles.
 
 Within a tier, adapter directories load in name order. When two tiers provide the same `id`, only the higher one is active; Settings > Adapters lists the other as disabled ("overridden by ...").
 
 ```ts
 import { AdapterRegistry, discoverPiPackages } from "@switchyard/adapter-sdk";
-import { bundledAdapters } from "@switchyard/adapter-examples";
 
 const pi = await discoverPiPackages();
 const registry = new AdapterRegistry({ onDiagnostic: report });
@@ -60,9 +59,30 @@ await registry.load({
   projectRoot: "/work/repo",
   pluginPackageDirs: pi.pluginPackageDirs,
   installedPackages: pi.packages,
-  bundled: bundledAdapters(),
 });
 ```
+
+## Shipping an adapter with your Pi package
+
+The usual home for an adapter is the Pi package whose extension it understands, so the two change and version together. Put the adapter directory (manifest plus server module) anywhere in the package and list it in the package's `package.json`:
+
+```json
+{
+  "name": "pi-hello",
+  "pi": { "extensions": ["./src/index.ts"] },
+  "switchyard": { "adapter": "./src/switchyard" }
+}
+```
+
+`switchyard.adapter` is a path or a list of paths, relative to the package root, so a suite of several extensions can declare one adapter per package from its root `package.json`. When the owner installs the package with Pi (`pi install npm:...`, `git:...` or a local path), every host that reads that agent dir's `settings.json` loads the adapter in the plugin tier. Nothing is installed into Switchyard.
+
+The server module may be TypeScript (`"server": "adapter.ts"`), loaded with Node's built-in type stripping:
+
+- **Erasable syntax only:** type annotations, interfaces, type aliases, `as` and `satisfies`, and `import type`. No `enum`, `namespace`, parameter properties or other syntax that needs code generation.
+- **No runtime imports.** The `@switchyard/*` packages are not published, and Pi packages should not depend on Switchyard. Declare the few types the adapter needs (`UINode`, `Claim`, `AdapterContext`, ...) locally, copied structurally from `@switchyard/protocol` and `@switchyard/adapter-sdk`, and build nodes and claims as plain objects.
+- **Not inside `node_modules`.** Node refuses to strip types there. Git and local installs live outside it (`<agentDir>/git/<host>/<path>`); an npm install of a package with a `.ts` adapter fails to load, and the host reports the load error as a diagnostic in Settings > Adapters. Ship compiled `.js` if the package is installed from npm.
+
+The real-world example is [pi-plugins](https://github.com/justmytwospence/pi-plugins): each package keeps its adapter in `packages/<pkg>/src/switchyard/{adapter.ts, switchyard-adapter.json}` with a test beside the package's other tests, and the root `package.json` lists all of them in `switchyard.adapter`. Switchyard's compatibility tests (`packages/host-agent/test/compat/`) load that suite through the plugin tier against real Pi (see [compatibility.md](compatibility.md#plugin-compatibility)).
 
 ## Hooks
 
@@ -159,58 +179,59 @@ A `webRenderer` HTML file is served to browsers in `<iframe sandbox="allow-scrip
 | frame to parent | `{type: "action", actionId, payload}`: forwarded to the adapter's `onAction` through the adapter action API |
 | frame to parent | `{type: "resize", height}`: requested frame height (at most 4000) |
 
-The parent validates every frame message with `parseFrameMessage` and ignores messages from other sources. Renderers should set a restrictive Content-Security-Policy and must render a usable fallback from `node` when `state` is missing. Clients without frames (terminal, constrained mobile) render `node` or `mobileFallback`. See `packages/adapter-examples/src/bg/web/bg-renderer.html`.
+The parent validates every frame message with `parseFrameMessage` and ignores messages from other sources. Renderers should set a restrictive Content-Security-Policy and must render a usable fallback from `node` when `state` is missing. Clients without frames (terminal, constrained mobile) render `node` or `mobileFallback`. See the pi-bg adapter's renderer in pi-plugins, `packages/pi-bg/src/switchyard/bg-renderer.html`.
 
-## Bundled adapters
+## Adapters for the pi-plugins suite
+
+These ship in [pi-plugins](https://github.com/justmytwospence/pi-plugins) (`packages/<pkg>/src/switchyard/`), not in Switchyard:
 
 | Adapter | Target | Behavior |
 |---|---|---|
-| `ask-user-question` | `@justmytwospence/pi-ask-user-question` (tested 0.1.2) | Claims the first question dialog and shows every question in one form; answers Pi's one-dialog-at-a-time sequence from it. |
+| `ask-user-question` | `@justmytwospence/pi-ask-user-question` (tested 0.1.2) | Claims the first question dialog and shows every question in one form; answers Pi's one-dialog-at-a-time sequence from it (a claim with a `{sequence}` response, see above). |
 | `tool-gate` | `@justmytwospence/pi-tool-gate` (tested 0.1.2) | Approval card: field table, note, one action per option. Follow-up message and rule-edit dialogs stay generic. |
 | `plan-mode` | `@justmytwospence/pi-plan-mode` | `plan-mode-plan` message to the `plan` panel; `workflow-mode`, `plan`, `plan-exec` statuses to `plan-status`. |
 | `subagents` | `@justmytwospence/pi-subagents` | `subagents:run` entries and `subagent` results to subagent links (view only). |
 | `todo` | `@justmytwospence/pi-todo` | `todo` results (`details.tasks`) to the `todo` panel. |
-| `bg` | `@justmytwospence/pi-bg` | `bg` status and widget to the `bg` panel, with the example web renderer. |
+| `bg` | `@justmytwospence/pi-bg` | `bg` status and widget to the `bg` panel, with a custom web renderer. |
 
-## Worked example: ask-user-question
+## Worked example: hello
 
-The plugin's tool takes `questions[1..6]`, each `{question, header, options[2..4] {label, description, preview?}, multiSelect?, showIf?: {header, answers}}`. In RPC mode it asks one dialog per question:
+`@switchyard/adapter-examples` holds one documented example, `hello` (`packages/adapter-examples/src/hello/`), for a fictional extension `pi-hello` that registers a `hello` tool and reports progress with `ctx.ui.setStatus("hello", text)`. Switchyard does not load it; `exampleAdapters()` returns it for tests and experiments.
 
-- single select: `select("[Fruit] Which fruit?" + preview blocks, ["1. Apple - Red", "2. Banana - Yellow", "3. Type something."])`; choosing the last opens `input("<title>\n\nType your answer:")`;
-- multi select: one `input` listing the numbered options, answered `"1,3"`;
-- a question whose `showIf` is unmet gets no dialog.
-
-The adapter (`packages/adapter-examples/src/ask-user-question/server.ts`):
+The manifest is the one at the top of this page. The server module (`server.ts`) has no runtime imports, only `import type`, so the same file would work shipped inside a Pi package:
 
 ```ts
-export default defineAdapter({
-  onToolStart(e, ctx) {
-    // Remember the questions of each ask_user_question call.
-    if (e.name === "ask_user_question") ctx.state.set(`pending:${e.toolCallId}`, {...});
+import type { AdapterContext, ServerAdapter, ToolInfo } from "@switchyard/adapter-sdk";
+import type { UINode } from "@switchyard/protocol";
+
+const adapter: ServerAdapter = {
+  // The hello tool becomes a section with a table of its arguments (plus the result text once
+  // it finished). Other tools return undefined and keep the generic card.
+  toolCard(tool) {
+    return tool.name === "hello" ? helloCard(tool) : undefined;
   },
-  claimInteraction(req, ctx) {
-    // Claim the dialog of the first question: title starts with "[<header>]" and the
-    // options are numbered to match. Present one form with a field per question:
-    // select (allowOther "Type something.") or multiselect, previews kept, showIf mapped
-    // to Field.showIf {field: "q<n>", values}.
-    return buildClaim(pending);
+
+  // The "hello" status becomes the "hello" panel: progress when the text has a fraction ("2/5")
+  // or a percentage ("40%"), plain text otherwise. An empty status clears the panel.
+  onStatus(key: string, text: string | undefined, ctx: AdapterContext) {
+    if (key !== "hello") return false;
+    const shown = text?.trim() ? text : null;
+    ctx.setPanel("hello", shown ? helloPanel(shown) : null, { title: "Hello", mobileFallback: shown });
+    return true;
   },
-  onToolEnd(e, ctx) {
-    ctx.state.delete(`pending:${e.toolCallId}`);
-  },
-});
+};
+
+export default adapter;
 ```
 
-The form is submitted once, for example `{q1: {other: "Durian"}, q2: ["Cream", "Syrup"]}`. `toPiResponse` turns it into the plugin's sequence:
+with
 
 ```ts
-{ sequence: [
-  { match: select of Fruit, response: (req) => ({ value: "3. Type something." }) },
-  { match: input "Type your answer", response: { value: "Durian" } },
-  { match: input of Toppings, response: { value: "1,3" } },
-] }
+helloCard({ name: "hello", args: { name: "Pi", times: 2 } })
+// { t: "section", title: "Hello", children: [
+//     { t: "table", columns: ["Argument", "Value"], rows: [["name", "Pi"], ["times", "2"]] } ] }
+helloPanel("greeting 2/4") // { t: "progress", label: "greeting 2/4", value: 0.5, status: "running" }
+helloPanel("resting")      // { t: "text", text: "resting" }
 ```
 
-The first step answers the claimed dialog; the next two answer Pi's follow-up dialogs as they arrive, so the user never types comma-separated numbers. If the plugin asks something the sequence does not expect, the queue is dropped and the remaining questions are shown individually.
-
-Tests with recorded request payloads live in `packages/adapter-examples/test/`.
+To try it on a host, copy the emitted `packages/adapter-examples/dist/hello` directory to `~/.config/switchyard/adapters/hello` (owner tier). Its tests are in `packages/adapter-examples/test/hello.test.ts`. For interactions and dialog sequences, read the `ask-user-question` and `tool-gate` adapters in pi-plugins.

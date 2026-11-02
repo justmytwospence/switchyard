@@ -63,6 +63,8 @@ describe.skipIf(skip !== null)(`todo panel compat${skip ? ` (${skip})` : ""}`, (
     const panel = s.panels().find((p) => p.adapterId === "todo" && p.slot === "todo");
     results.panel = panel;
     expect(panel).toBeTruthy();
+    // Published by the adapter pi-todo ships, loaded through the plugin tier.
+    expect(h.adapter("todo")).toMatchObject({ tier: "plugin" });
     expect(panel!.title).toBe("Todo");
     expect(panel!.node).toMatchObject({
       t: "list",

@@ -1,6 +1,6 @@
 {
   "name": "@switchyard/adapter-examples",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,9 +17,5 @@
   "dependencies": {
     "@switchyard/adapter-sdk": "workspace:*",
     "@switchyard/protocol": "workspace:*"
-  },
-  "devDependencies": {
-    "@switchyard/pi-runtime": "workspace:*",
-    "@switchyard/test-fixtures": "workspace:*"
   }
 }

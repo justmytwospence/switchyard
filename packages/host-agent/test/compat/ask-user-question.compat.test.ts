@@ -75,6 +75,8 @@ describe.skipIf(skip !== null)(`ask-user-question compat${skip ? ` (${skip})` : 
     const pending = await askAndClaim(s);
     results.formRequests = structuredClone(s.uiRequests);
     expect(pending.adapterId).toBe("ask-user-question");
+    // Claimed by the adapter pi-ask-user-question ships, loaded through the plugin tier.
+    expect(h.adapter("ask-user-question")).toMatchObject({ tier: "plugin" });
     expect(pending.presentation).toMatchObject({
       t: "form",
       fields: [

@@ -1,8 +1,8 @@
 /**
  * E2E-only Pi extension that registers `ask_user_question` with the same RPC dialog shape as
- * @justmytwospence/pi-ask-user-question, so the bundled ask-user-question adapter claims it and
- * the web app renders a structured form (single select as radio cards, multi select as
- * checkboxes) instead of comma-separated numbers.
+ * @justmytwospence/pi-ask-user-question, so the e2e owner adapter in `adapters/ask-user-question`
+ * claims it and the web app renders a structured form (single select as radio cards, multi select
+ * as checkboxes) instead of comma-separated numbers.
  *
  * - single select: `select("[header] question", ["1. label - description", ..., "N. Type something."])`
  * - multi select: one `input("[header] question\n1. label\n...")` answered with "1,3"

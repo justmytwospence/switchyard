@@ -28,7 +28,7 @@ await agent.stop(); // every Pi stopped gracefully (runtime `stopped`), link and
 | `link.ts` | `CoordinatorLink`: hello, welcome, outbox replay, cumulative acks, reconnect backoff (1, 2, 5, 10, 20, 30 s, +-20% jitter), keepalive |
 | `commands.ts` | `CommandRouter`: receipt dedupe, per-session serial queues, `stale_control`, every `HostCommand` |
 | `supervisor.ts` | `SessionSupervisor`: one `ManagedSession` per session, adapters, interactions, panels, event mapping, restart recovery |
-| `adapters.ts` | `AdapterCatalog`: owner, plugin and bundled tiers at startup, project tier (`<workspace>/.switchyard/adapters`) per session |
+| `adapters.ts` | `AdapterCatalog`: owner, plugin and bundled (none by default) tiers at startup, project tier (`<workspace>/.switchyard/adapters`) per session |
 | `dispatch.ts` | `Dispatcher`: idempotent `dispatch.start` and `dispatch.reconcile` |
 | `workspaces.ts`, `git.ts` | worktrees (`<root>/.worktrees/<branch-slug>`), discovery, status, diff, removal, setup streaming; git only through `execFile` |
 | `files.ts` | `listDir` / `readWorkspaceFile`, confined to the workspace realpath, 1 MB cap (`too_large`) |

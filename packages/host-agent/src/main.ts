@@ -186,7 +186,10 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   try {
     await catalog.init();
   } catch (err) {
-    log.warn({ err: (err as Error).message }, "adapter discovery failed; bundled adapters only");
+    log.warn(
+      { err: (err as Error).message },
+      "adapter discovery failed; Pi package adapters are not loaded",
+    );
   }
   supervisor.emitAdapters();
   link.start();

@@ -1,10 +1,10 @@
 {
   "id": "ask-user-question",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "target": {
-    "extension": "@justmytwospence/pi-ask-user-question",
-    "versionRange": ">=0.1.0 <0.2.0",
-    "testedVersions": ["0.1.2"]
+    "extension": "e2e-ask-extension",
+    "versionRange": "*",
+    "testedVersions": []
   },
   "protocolVersion": 1,
   "server": "server.js",

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
+  AdapterInfo,
   HostCommand,
   HostEvent,
   Interaction,
@@ -21,14 +22,9 @@ import {
   startMockModel,
 } from "@switchyard/test-fixtures";
 // The compatibility tests drive the real host agent (supervisor, adapter catalog, interactions)
-// through the same fake coordinator the host-agent tests use.
-import { type HostAgentHandle, runHostAgent, silentLogger } from "../../../host-agent/src/index.js";
-import {
-  FakeCoordinator,
-  startCommand,
-  tempDir,
-  waitFor,
-} from "../../../host-agent/test/helpers.js";
+// through the same fake coordinator the other host-agent tests use.
+import { type HostAgentHandle, runHostAgent, silentLogger } from "../../src/index.js";
+import { FakeCoordinator, startCommand, tempDir, waitFor } from "../helpers.js";
 
 export { waitFor };
 
@@ -44,6 +40,27 @@ export type PluginName =
   | "pi-subagents";
 
 export const pluginDir = (name: PluginName) => join(PLUGINS_DIR, "packages", name);
+
+/** A plugin's extension entry, relative to the pi-plugins root (pi-todo keeps it at the top). */
+export const pluginExtension = (name: PluginName) =>
+  name === "pi-todo" ? `packages/${name}/index.ts` : `packages/${name}/src/index.ts`;
+
+/**
+ * The `settings.json` `packages` entry that loads `plugins` from the pi-plugins checkout, the way
+ * an installed suite is found in production: Pi loads only these extensions (no skills, prompts
+ * or themes), and the host's plugin tier reads the adapters from the root `switchyard.adapter`.
+ */
+export function pluginPackages(plugins: PluginName[]) {
+  return [
+    {
+      source: PLUGINS_DIR,
+      extensions: plugins.map(pluginExtension),
+      skills: [],
+      prompts: [],
+      themes: [],
+    },
+  ];
+}
 
 /** Why the compat tests skip, or null when they must run. */
 export function compatSkipReason(): string | null {
@@ -110,6 +127,8 @@ export interface CompatHarness {
   agent: HostAgentHandle;
   mock: MockModelServer;
   pi: PiEnv;
+  /** The active adapter `id` from the host's latest `adapters.updated` event. */
+  adapter(id: string): AdapterInfo | undefined;
   /** Start a session in the isolated Pi cwd, recording every raw Pi UI request. */
   startSession(): Promise<CompatSession>;
   dispose(): Promise<void>;
@@ -169,7 +188,10 @@ export async function startCompatHarness(opts: {
   const coord = await FakeCoordinator.start();
   const state = tempDir("switchyard-compat-");
   const mock = await startMockModel(opts.script);
-  const pi = makePiEnv({ mockUrl: mock.url, settings: opts.settings });
+  const pi = makePiEnv({
+    mockUrl: mock.url,
+    settings: { ...opts.settings, packages: pluginPackages(opts.plugins) },
+  });
   for (const [rel, content] of Object.entries(opts.agentFiles ?? {})) {
     const p = join(pi.agentDir, rel);
     mkdirSync(join(p, ".."), { recursive: true });
@@ -182,6 +204,8 @@ export async function startCompatHarness(opts: {
     mkdirSync(home, { recursive: true });
     pi.env.HOME = home;
   }
+  // No `-e` extensions and no bundled adapters: Pi loads the plugins from the settings.json
+  // package entry and the host loads their adapters through the plugin tier.
   const agent = await runHostAgent({
     config: {
       coordinatorUrl: coord.url,
@@ -192,7 +216,6 @@ export async function startCompatHarness(opts: {
     stateDir: state.path,
     piBin: piBin(),
     env: pi.env,
-    extraExtensions: opts.plugins.map(pluginDir),
     ownerAdapterDir: join(state.path, "owner-adapters"),
     handleSignals: false,
     backoffMs: [50, 100, 200],
@@ -213,6 +236,12 @@ export async function startCompatHarness(opts: {
     agent,
     mock,
     pi,
+    adapter(id) {
+      const last = coord.eventsOf("adapters.updated").at(-1)?.data as
+        | { adapters: AdapterInfo[] }
+        | undefined;
+      return last?.adapters.find((a) => a.id === id && a.status === "active");
+    },
     async startSession() {
       const id = `ses_compat${Date.now()}${++n}`;
       await coord.ok(startCommand(id, pi.cwd));

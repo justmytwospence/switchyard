@@ -5,7 +5,6 @@
   "references": [
     { "path": "../protocol" },
     { "path": "../pi-runtime" },
-    { "path": "../adapter-sdk" },
-    { "path": "../adapter-examples" }
+    { "path": "../adapter-sdk" }
   ]
 }

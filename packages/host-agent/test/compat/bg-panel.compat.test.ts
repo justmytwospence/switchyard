@@ -60,6 +60,8 @@ describe.skipIf(skip !== null)(`bg panel compat${skip ? ` (${skip})` : ""}`, () 
     await waitFor(() => updates().length > 0, 10000, "bg panel");
     const running = updates()[0];
     results.runningPanel = running;
+    // Published by the adapter pi-bg ships, loaded through the plugin tier (with its renderer).
+    expect(h.adapter("bg")).toMatchObject({ tier: "plugin", webRenderer: true });
     expect(running).toMatchObject({
       title: "Background",
       webRenderer: true,

@@ -49,10 +49,8 @@ describe("coordinator link", () => {
     const adapters = h.coord.eventsOf("adapters.updated").at(-1)!.data as {
       adapters: { id: string; tier: string; status: string }[];
     };
-    expect(adapters.adapters.map((a) => a.id)).toContain("tool-gate");
-    expect(adapters.adapters.every((a) => a.tier === "bundled" && a.status === "active")).toBe(
-      true,
-    );
+    // No Pi packages and no owner adapters, and nothing is bundled by default.
+    expect(adapters.adapters).toEqual([]);
   });
 
   it("replays outbox rows written while disconnected, in order, exactly once after ack", async () => {

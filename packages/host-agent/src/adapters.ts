@@ -1,4 +1,3 @@
-import { bundledAdapters } from "@switchyard/adapter-examples";
 import {
   type AdapterDiagnostic,
   AdapterRegistry,
@@ -14,7 +13,7 @@ export interface AdapterCatalogOptions {
   env?: NodeJS.ProcessEnv;
   /** Owner adapters (default `~/.config/switchyard/adapters`). */
   ownerDir?: string;
-  /** Bundled adapters (default `bundledAdapters()`). */
+  /** Bundled adapters (default none: adapters ship with the Pi packages that own them). */
   bundled?: LoadedAdapter[];
   hookTimeoutMs?: number;
   /** Load-time diagnostics, each reported once. */
@@ -54,7 +53,7 @@ export class AdapterCatalog {
       ownerDir: this.opts.ownerDir ?? defaultOwnerAdapterDir(),
       pluginPackageDirs: this.discovery?.pluginPackageDirs ?? [],
       installedPackages: this.discovery?.packages ?? [],
-      bundled: this.opts.bundled ?? bundledAdapters(),
+      bundled: this.opts.bundled ?? [],
     });
     for (const info of registry.info()) this.known.set(`${info.tier}\u0000${info.id}`, info);
     return registry;

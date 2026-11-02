@@ -232,13 +232,6 @@ importers:
       '@switchyard/protocol':
         specifier: workspace:*
         version: link:../protocol
-    devDependencies:
-      '@switchyard/pi-runtime':
-        specifier: workspace:*
-        version: link:../pi-runtime
-      '@switchyard/test-fixtures':
-        specifier: workspace:*
-        version: link:../test-fixtures
 
   packages/adapter-sdk:
     dependencies:
@@ -344,9 +337,6 @@ importers:
 
   packages/host-agent:
     dependencies:
-      '@switchyard/adapter-examples':
-        specifier: workspace:*
-        version: link:../adapter-examples
       '@switchyard/adapter-sdk':
         specifier: workspace:*
         version: link:../adapter-sdk

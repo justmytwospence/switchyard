@@ -6,69 +6,38 @@ import {
   parseManifest,
   type ServerAdapter,
 } from "@switchyard/adapter-sdk";
-import askUserQuestion from "./ask-user-question/server.js";
-import askManifest from "./ask-user-question/switchyard-adapter.json" with { type: "json" };
-import bg from "./bg/server.js";
-import bgManifest from "./bg/switchyard-adapter.json" with { type: "json" };
-import planMode from "./plan-mode/server.js";
-import planManifest from "./plan-mode/switchyard-adapter.json" with { type: "json" };
-import subagents from "./subagents/server.js";
-import subagentsManifest from "./subagents/switchyard-adapter.json" with { type: "json" };
-import todo from "./todo/server.js";
-import todoManifest from "./todo/switchyard-adapter.json" with { type: "json" };
-import toolGate from "./tool-gate/server.js";
-import toolGateManifest from "./tool-gate/switchyard-adapter.json" with { type: "json" };
-
-export const BUNDLED_ADAPTER_NAMES = [
-  "ask-user-question",
-  "tool-gate",
-  "plan-mode",
-  "subagents",
-  "todo",
-  "bg",
-] as const;
-export type BundledAdapterName = (typeof BUNDLED_ADAPTER_NAMES)[number];
+import hello from "./hello/server.js";
+import helloManifest from "./hello/switchyard-adapter.json" with { type: "json" };
 
 /**
- * Absolute path of the bg adapter's custom web renderer. It lives in the source tree
- * (`src/bg/web/`) because `tsc -b` does not copy HTML; this resolves from both `src` and `dist`.
+ * Example adapters for adapter authors. Switchyard does not load them: real adapters ship with the
+ * Pi packages that own them (see docs/adapters.md).
  */
-export const BG_RENDERER_PATH = fileURLToPath(
-  new URL("../src/bg/web/bg-renderer.html", import.meta.url),
-);
+export const EXAMPLE_ADAPTER_NAMES = ["hello"] as const;
+export type ExampleAdapterName = (typeof EXAMPLE_ADAPTER_NAMES)[number];
 
-const table: Record<BundledAdapterName, { manifest: unknown; server: ServerAdapter }> = {
-  "ask-user-question": { manifest: askManifest, server: askUserQuestion },
-  "tool-gate": { manifest: toolGateManifest, server: toolGate },
-  "plan-mode": { manifest: planManifest, server: planMode },
-  subagents: { manifest: subagentsManifest, server: subagents },
-  todo: { manifest: todoManifest, server: todo },
-  bg: { manifest: bgManifest, server: bg },
+const table: Record<ExampleAdapterName, { manifest: unknown; server: ServerAdapter }> = {
+  hello: { manifest: helloManifest, server: hello },
 };
 
-/** Directory holding a bundled adapter's emitted manifest and server module. */
-export function bundledAdapterDir(name: BundledAdapterName): string {
+/** Directory holding an example adapter's manifest and server module. */
+export function exampleAdapterDir(name: ExampleAdapterName): string {
   return fileURLToPath(new URL(`./${name}`, import.meta.url));
 }
 
-/** The bundled adapters (tier "bundled"), in a stable order. */
-export function bundledAdapters(): LoadedAdapter[] {
-  return BUNDLED_ADAPTER_NAMES.map((name) => {
-    const dir = bundledAdapterDir(name);
+/** The example adapters, ready for `AdapterRegistry.setAdapters` (tier "bundled"). */
+export function exampleAdapters(): LoadedAdapter[] {
+  return EXAMPLE_ADAPTER_NAMES.map((name) => {
+    const dir = exampleAdapterDir(name);
     return {
       manifest: parseManifest(table[name].manifest, `${name}/${MANIFEST_FILE}`),
       tier: "bundled",
       dir,
       manifestPath: join(dir, MANIFEST_FILE),
-      webRendererPath: name === "bg" ? BG_RENDERER_PATH : null,
+      webRendererPath: null,
       server: table[name].server,
     };
   });
 }
 
-export * as askUserQuestion from "./ask-user-question/server.js";
-export * as bg from "./bg/server.js";
-export * as planMode from "./plan-mode/server.js";
-export * as subagents from "./subagents/server.js";
-export * as todo from "./todo/server.js";
-export * as toolGate from "./tool-gate/server.js";
+export * as hello from "./hello/server.js";
