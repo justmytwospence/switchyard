@@ -1,13 +1,19 @@
-import { SquareKanban } from "lucide-react";
-import { EmptyState } from "../../components/ui/states";
+import { useParams } from "react-router";
+import { useBreakpoint } from "../../app/useBreakpoint";
+import { BoardDesktop } from "./BoardDesktop";
+import { TaskDetailPage } from "./BoardMobile";
+import { MoveProvider } from "./MoveProvider";
 
-/** Placeholder: replaced by the TaskView implementation. */
+/**
+ * /tasks/:taskId: on desktop and compact widths the board with the task
+ * drawer open (deep link); on mobile a full-screen task detail.
+ */
 export default function TaskView() {
+  const { taskId = "" } = useParams();
+  const bp = useBreakpoint();
   return (
-    <EmptyState
-      icon={<SquareKanban className="size-8" />}
-      title="Task"
-      description="Task details, runs and review."
-    />
+    <MoveProvider>
+      {bp === "mobile" ? <TaskDetailPage taskId={taskId} /> : <BoardDesktop taskId={taskId} />}
+    </MoveProvider>
   );
 }

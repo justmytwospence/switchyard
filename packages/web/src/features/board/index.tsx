@@ -1,13 +1,10 @@
-import { SquareKanban } from "lucide-react";
-import { EmptyState } from "../../components/ui/states";
+import { useBreakpoint } from "../../app/useBreakpoint";
+import { BoardDesktop } from "./BoardDesktop";
+import { BoardMobile } from "./BoardMobile";
+import { MoveProvider } from "./MoveProvider";
 
-/** Placeholder: replaced by the BoardView implementation. */
+/** /board: columns on desktop and compact widths, status tabs on mobile (spec 13, 14). */
 export default function BoardView() {
-  return (
-    <EmptyState
-      icon={<SquareKanban className="size-8" />}
-      title="Board"
-      description="Tasks by state: Backlog, Ready, In progress, Review and Done."
-    />
-  );
+  const bp = useBreakpoint();
+  return <MoveProvider>{bp === "mobile" ? <BoardMobile /> : <BoardDesktop />}</MoveProvider>;
 }
