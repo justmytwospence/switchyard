@@ -30,6 +30,11 @@ const HOST = JSON.stringify({
 function healthy(over: Record<string, (c: unknown) => unknown> = {}) {
   return stubFetch({
     "GET /healthz": () => ({ ok: true }),
+    "GET /api/setup": () => ({
+      initialized: true,
+      passkey: { available: true, registered: true, reason: null },
+      oidc: { label: "Sign in with SSO" },
+    }),
     "GET /api/me": () => ({
       device: { id: "dev_1", name: "term", kind: "terminal" },
       admin: false,
@@ -52,12 +57,32 @@ describe("doctor", () => {
       ["Pi", "PASS"],
       ["git", "PASS"],
       ["Coordinator", "PASS"],
+      ["Sign-in", "PASS"],
       ["Client credential", "PASS"],
       ["Host link", "PASS"],
       ["Push", "PASS"],
     ]);
     expect(printDoctor(ctx, results)).toBe(0);
     expect(ctx.lines[0]).toBe("PASS  Node.js: v26.13.0 (>=24)");
+    expect(results.find((r) => r.name === "Sign-in")?.detail).toBe(
+      "set up (passkey: registered, single sign-on: on (Sign in with SSO))",
+    );
+  });
+
+  it("fails the sign-in check on a server that is not set up", async () => {
+    const { fetch } = healthy({
+      "GET /api/setup": () => ({
+        initialized: false,
+        passkey: { available: false, registered: false, reason: "Passkeys need HTTPS" },
+        oidc: null,
+      }),
+    });
+    const results = await runDoctor(testCtx(fetch), deps({}, HOST), flags);
+    expect(results.find((r) => r.name === "Sign-in")).toEqual({
+      status: "FAIL",
+      name: "Sign-in",
+      detail: "not set up: run `switchyard init` on the server",
+    });
   });
 
   it("fails old Node, out-of-range Pi and an unreachable coordinator", async () => {

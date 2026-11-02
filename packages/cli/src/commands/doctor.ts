@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { defaultConfigPath } from "@switchyard/host-agent";
 import { detectPi, type PiDetection, SUPPORTED_RANGE } from "@switchyard/pi-runtime";
+import type { SetupState } from "@switchyard/protocol";
 import { ApiClient, ApiRequestError } from "@switchyard/terminal";
 import { DEFAULT_LOCAL_URL, readEndpoint, resolveConnection, trimUrl } from "../config.js";
 import type { Ctx } from "../context.js";
@@ -119,6 +120,7 @@ export async function runDoctor(
   } catch (err) {
     add("FAIL", "Coordinator", `${url} is not reachable: ${(err as Error).message}`);
   }
+  if (reachable) await checkSignIn(ctx, url, add);
 
   let api: ApiClient | null = null;
   if (!conn) {
@@ -204,6 +206,31 @@ export async function runDoctor(
     add("WARN", "Push", "not checked: no valid credential");
   }
   return results;
+}
+
+/** The coordinator's owner setup (`GET /api/setup`, public). */
+async function checkSignIn(
+  ctx: Ctx,
+  url: string,
+  add: (status: CheckStatus, name: string, detail: string) => void,
+): Promise<void> {
+  try {
+    const api = new ApiClient({ coordinatorUrl: url, credential: null, fetch: ctx.fetch });
+    const s = await api.get<SetupState>("/api/setup");
+    if (!s.initialized) {
+      add("FAIL", "Sign-in", "not set up: run `switchyard init` on the server");
+      return;
+    }
+    const passkey = !s.passkey.available
+      ? `unavailable, ${s.passkey.reason ?? "unsupported"}`
+      : s.passkey.registered
+        ? "registered"
+        : "none registered yet";
+    const sso = s.oidc ? `on (${s.oidc.label})` : "off";
+    add("PASS", "Sign-in", `set up (passkey: ${passkey}, single sign-on: ${sso})`);
+  } catch (err) {
+    add("WARN", "Sign-in", `could not read the setup state: ${(err as Error).message}`);
+  }
 }
 
 export function printDoctor(ctx: Ctx, results: CheckResult[]): number {

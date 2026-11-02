@@ -18,16 +18,22 @@ import { serviceFilePath, serviceKindFor } from "./service.js";
 
 export interface HostEnrollFlags {
   coordinator: string;
-  token: string;
+  /** Single-use host enrollment token; exactly one of `token` or `secret`. */
+  token?: string;
+  /** Shared host enrollment secret (`SWITCHYARD_HOST_ENROLL_SECRET` on the coordinator). */
+  secret?: string;
   name?: string;
   config?: string;
 }
 
 export async function hostEnroll(ctx: Ctx, flags: HostEnrollFlags): Promise<void> {
+  if (!flags.token === !flags.secret) {
+    throw new CliError("Pass exactly one of --token or --secret");
+  }
   const name = flags.name ?? hostname().replace(/\.local$/, "");
   const cfg = await enroll({
     coordinatorUrl: flags.coordinator,
-    token: flags.token,
+    ...(flags.token ? { token: flags.token } : { secret: flags.secret! }),
     name,
     configPath: flags.config ?? defaultConfigPath(ctx.env),
     fetch: ctx.fetch as typeof fetch,
@@ -43,8 +49,15 @@ export async function hostRun(
   ctx: Ctx,
   flags: { config?: string; stateDir?: string },
 ): Promise<void> {
+  const configPath = flags.config ?? defaultConfigPath(ctx.env);
+  if (!existsSync(configPath)) {
+    ctx.err(
+      `No host config at ${configPath} yet: waiting for it (with SWITCHYARD_HOST_ENROLL_SECRET and SWITCHYARD_COORDINATOR_URL set, the host enrolls itself).`,
+    );
+  }
+  // Without host.json the agent waits (self-enrolling with the shared secret when configured).
   const agent = await runHostAgent({
-    configPath: flags.config ?? defaultConfigPath(ctx.env),
+    configPath,
     stateDir: flags.stateDir,
     handleSignals: false,
   });

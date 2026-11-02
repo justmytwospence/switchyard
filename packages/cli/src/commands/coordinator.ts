@@ -57,6 +57,53 @@ export function parseOrigins(v: string | undefined): string[] | undefined {
     .filter(Boolean);
 }
 
+export const DEFAULT_OIDC_LABEL = "Sign in with single sign-on";
+export const DEFAULT_OIDC_SCOPES = "openid profile email groups";
+
+function envValue(env: Env, key: string): string | undefined {
+  const v = env[key]?.trim();
+  return v ? v : undefined;
+}
+
+/**
+ * Auth settings from env: the shared host secret, trusted proxies and OIDC (enabled when
+ * `SWITCHYARD_OIDC_ISSUER` and `SWITCHYARD_OIDC_CLIENT_ID` are both set). The coordinator
+ * validates them (secret length, mandatory owner match) and refuses to start when unsafe.
+ */
+export function authOptionsFromEnv(
+  env: Env,
+): Pick<CreateCoordinatorOptions, "hostEnrollSecret" | "trustedProxies" | "oidc"> {
+  const out: Pick<CreateCoordinatorOptions, "hostEnrollSecret" | "trustedProxies" | "oidc"> = {};
+  const secret = envValue(env, "SWITCHYARD_HOST_ENROLL_SECRET");
+  if (secret) out.hostEnrollSecret = secret;
+  const proxies = parseOrigins(env.SWITCHYARD_TRUSTED_PROXIES);
+  if (proxies) out.trustedProxies = proxies;
+  const issuer = envValue(env, "SWITCHYARD_OIDC_ISSUER");
+  const clientId = envValue(env, "SWITCHYARD_OIDC_CLIENT_ID");
+  if (issuer && clientId) {
+    if (!/^https?:\/\//.test(issuer)) {
+      throw new CliError(`SWITCHYARD_OIDC_ISSUER must be an http(s) URL, got "${issuer}"`);
+    }
+    out.oidc = {
+      issuer,
+      clientId,
+      clientSecret: envValue(env, "SWITCHYARD_OIDC_CLIENT_SECRET") ?? null,
+      label: envValue(env, "SWITCHYARD_OIDC_LABEL") ?? DEFAULT_OIDC_LABEL,
+      scopes: envValue(env, "SWITCHYARD_OIDC_SCOPES") ?? DEFAULT_OIDC_SCOPES,
+      owner: {
+        subject: envValue(env, "SWITCHYARD_OIDC_OWNER_SUBJECT") ?? null,
+        email: envValue(env, "SWITCHYARD_OIDC_OWNER_EMAIL") ?? null,
+        group: envValue(env, "SWITCHYARD_OIDC_OWNER_GROUP") ?? null,
+      },
+    };
+  } else if (issuer || clientId) {
+    throw new CliError(
+      "Single sign-on needs both SWITCHYARD_OIDC_ISSUER and SWITCHYARD_OIDC_CLIENT_ID",
+    );
+  }
+  return out;
+}
+
 /** Coordinator options from flags with env fallbacks (`SWITCHYARD_*`). */
 export function coordinatorOptions(flags: CoordinatorFlags, env: Env): CreateCoordinatorOptions {
   const dataDir = flags.dataDir ? resolve(flags.dataDir) : defaultDataDir(env);
@@ -72,6 +119,7 @@ export function coordinatorOptions(flags: CoordinatorFlags, env: Env): CreateCoo
     publicUrl,
     trustedOrigins,
     webDist: resolveWebDist(flags.webDist, env),
+    ...authOptionsFromEnv(env),
   };
 }
 

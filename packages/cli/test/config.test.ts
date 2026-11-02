@@ -1,8 +1,14 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { login, pair, parseEnrollmentInput } from "../src/commands/auth.js";
-import { coordinatorOptions, localUrlFor, parseListen } from "../src/commands/coordinator.js";
+import { clockTime, init, login, pair, parseEnrollmentInput } from "../src/commands/auth.js";
+import {
+  authOptionsFromEnv,
+  coordinatorOptions,
+  localUrlFor,
+  parseListen,
+} from "../src/commands/coordinator.js";
+import { hostEnroll } from "../src/commands/host.js";
 import { DEV_ORIGINS, upOptions } from "../src/commands/up.js";
 import { resolveConnection, writeClientConfig, writeEndpoint } from "../src/config.js";
 import { defaultDataDir } from "../src/paths.js";
@@ -50,11 +56,54 @@ describe("paths and options", () => {
     expect(() => coordinatorOptions({ publicUrl: "sy.example.com" }, {})).toThrow(/http/);
   });
 
-  it("standalone defaults to a loopback public URL and trusts localhost too", () => {
+  it("reads the host secret, trusted proxies and OIDC from env", () => {
+    expect(authOptionsFromEnv({})).toEqual({});
+    const env = {
+      SWITCHYARD_HOST_ENROLL_SECRET: "s".repeat(40),
+      SWITCHYARD_TRUSTED_PROXIES: "172.18.0.0/16, 10.0.0.2",
+      SWITCHYARD_OIDC_ISSUER: "https://auth.example.com",
+      SWITCHYARD_OIDC_CLIENT_ID: "switchyard",
+      SWITCHYARD_OIDC_CLIENT_SECRET: "cs",
+      SWITCHYARD_OIDC_OWNER_EMAIL: "me@example.com",
+    };
+    expect(coordinatorOptions({}, { ...env, SWITCHYARD_DATA_DIR: "/data" })).toMatchObject({
+      hostEnrollSecret: "s".repeat(40),
+      trustedProxies: ["172.18.0.0/16", "10.0.0.2"],
+      oidc: {
+        issuer: "https://auth.example.com",
+        clientId: "switchyard",
+        clientSecret: "cs",
+        label: "Sign in with single sign-on",
+        scopes: "openid profile email groups",
+        owner: { subject: null, email: "me@example.com", group: null },
+      },
+    });
+    const custom = authOptionsFromEnv({
+      SWITCHYARD_OIDC_ISSUER: "https://auth.example.com",
+      SWITCHYARD_OIDC_CLIENT_ID: "switchyard",
+      SWITCHYARD_OIDC_LABEL: "Sign in with Authelia",
+      SWITCHYARD_OIDC_SCOPES: "openid email",
+      SWITCHYARD_OIDC_OWNER_SUBJECT: "abc",
+      SWITCHYARD_OIDC_OWNER_GROUP: "admins",
+    });
+    expect(custom.oidc).toEqual({
+      issuer: "https://auth.example.com",
+      clientId: "switchyard",
+      clientSecret: null,
+      label: "Sign in with Authelia",
+      scopes: "openid email",
+      owner: { subject: "abc", email: null, group: "admins" },
+    });
+    expect(() => authOptionsFromEnv({ SWITCHYARD_OIDC_ISSUER: "https://a" })).toThrow(
+      /SWITCHYARD_OIDC_CLIENT_ID/,
+    );
+  });
+
+  it("standalone defaults to a localhost public URL (passkeys need a name) and trusts 127.0.0.1 too", () => {
     const o = upOptions({ port: "7499", dataDir: "/d", webDist: "/w" }, {});
-    expect(o.publicUrl).toBe("http://127.0.0.1:7499");
+    expect(o.publicUrl).toBe("http://localhost:7499");
     expect(o.listen).toEqual({ host: "0.0.0.0", port: 7499 });
-    expect(o.trustedOrigins).toEqual(["http://127.0.0.1:7499", "http://localhost:7499"]);
+    expect(o.trustedOrigins).toEqual(["http://localhost:7499", "http://127.0.0.1:7499"]);
     const dev = upOptions({ dataDir: "/d", publicUrl: "http://192.168.1.5:7400", dev: true }, {});
     expect(dev.trustedOrigins).toEqual(["http://192.168.1.5:7400", ...DEV_ORIGINS]);
   });
@@ -155,6 +204,77 @@ describe("credentials", () => {
     await pair(host, { host: true });
     expect(calls[1]?.body).toEqual({ kind: "host" });
     expect(host.lines).toContain("  switchyard host enroll ...");
+  });
+
+  it("init sets the server up and prints the first link with a QR", async () => {
+    const enrollment = {
+      token: "t1",
+      url: "http://localhost:7400/enroll#token=t1",
+      expiresAt: "2026-11-02T10:10:00.000Z",
+      qrSvg: "<svg/>",
+      command: null,
+    };
+    let already = false;
+    const { fetch, calls } = stubFetch({
+      "POST /api/admin/init": () => {
+        const r = { alreadyInitialized: already, enrollment };
+        already = true;
+        return r;
+      },
+    });
+    const ctx = testCtx(fetch, { SWITCHYARD_ADMIN_TOKEN: "admintok" });
+    const first = await init(ctx, {});
+    expect(first.alreadyInitialized).toBe(false);
+    expect(calls[0]).toMatchObject({
+      method: "POST",
+      path: "/api/admin/init",
+      auth: "Bearer admintok",
+    });
+    expect(ctx.lines[0]).toBe(
+      `Switchyard is set up. Open this single-use link on your first device (expires ${clockTime(enrollment.expiresAt)}):`,
+    );
+    expect(ctx.lines).toContain("  http://localhost:7400/enroll#token=t1");
+    expect(ctx.lines.some((l) => l.includes("▄") || l.includes("█"))).toBe(true);
+    expect(ctx.lines.at(-1)).toBe(
+      "Then add a passkey in Settings › Sign-in so other devices can sign in without a link.",
+    );
+
+    const again = testCtx(fetch, { SWITCHYARD_ADMIN_TOKEN: "admintok" });
+    await init(again, {});
+    expect(again.lines[0]).toBe("Already set up. New single-use sign-in link for one device:");
+    expect(again.lines).toContain("  http://localhost:7400/enroll#token=t1");
+    expect(again.lines.some((l) => l.includes("passkey"))).toBe(false);
+    expect(clockTime("2026-11-02T10:10:00.000Z")).toMatch(/^\d\d:\d\d$/);
+  });
+
+  it("init needs the admin token", async () => {
+    await expect(init(testCtx(fetch), {})).rejects.toThrow(/No admin token/);
+  });
+
+  it("host enroll takes exactly one of --token or --secret", async () => {
+    const { fetch, calls } = stubFetch({
+      "POST /api/hosts/enroll": () => ({ status: 201, body: { hostId: "hst_1", credential: "c" } }),
+    });
+    const ctx = testCtx(fetch);
+    const config = join(ctx.dir, "host.json");
+    await hostEnroll(ctx, {
+      coordinator: "http://coord:7400",
+      secret: "s".repeat(40),
+      name: "nuc",
+      config,
+    });
+    expect(calls[0]).toMatchObject({
+      path: "/api/hosts/enroll",
+      body: { secret: "s".repeat(40), name: "nuc" },
+    });
+    expect(calls[0]?.body).not.toHaveProperty("token");
+    expect(JSON.parse(readFileSync(config, "utf8"))).toMatchObject({ hostId: "hst_1" });
+    await expect(
+      hostEnroll(ctx, { coordinator: "http://coord", name: "x", config }),
+    ).rejects.toThrow(/exactly one of --token or --secret/);
+    await expect(
+      hostEnroll(ctx, { coordinator: "http://coord", token: "t", secret: "s", name: "x", config }),
+    ).rejects.toThrow(/exactly one of --token or --secret/);
   });
 
   it("pair refuses without an admin token", async () => {

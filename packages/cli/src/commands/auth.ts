@@ -12,6 +12,17 @@ import {
 import type { Ctx } from "../context.js";
 import { clientConfigPath, defaultDataDir } from "../paths.js";
 
+export interface InitFlags {
+  coordinator?: string;
+  dataDir?: string;
+  json?: boolean;
+}
+
+export interface InitResult {
+  alreadyInitialized: boolean;
+  enrollment: EnrollmentResponse;
+}
+
 export interface PairFlags {
   host?: boolean;
   coordinator?: string;
@@ -26,12 +37,8 @@ interface EnrollmentResponse {
   command: string | null;
 }
 
-/**
- * Create a single-use device (or host) enrollment with the local admin token and print the
- * URL with a terminal QR code. The QR only carries the URL and token: the device must already
- * be able to reach that URL (LAN, VPN or reverse proxy).
- */
-export async function pair(ctx: Ctx, flags: PairFlags): Promise<EnrollmentResponse> {
+/** An API client authenticated with this machine's local admin token. */
+function adminApi(ctx: Ctx, flags: { coordinator?: string; dataDir?: string }): ApiClient {
   const dataDir = flags.dataDir ?? ctx.paths?.dataDir ?? defaultDataDir(ctx.env);
   const token = readAdminToken(dataDir, ctx.env);
   if (!token) {
@@ -40,7 +47,62 @@ export async function pair(ctx: Ctx, flags: PairFlags): Promise<EnrollmentRespon
     );
   }
   const url = trimUrl(flags.coordinator ?? readEndpoint(dataDir)?.localUrl ?? DEFAULT_LOCAL_URL);
-  const api = new ApiClient({ coordinatorUrl: url, credential: token, fetch: ctx.fetch });
+  return new ApiClient({ coordinatorUrl: url, credential: token, fetch: ctx.fetch });
+}
+
+/** `HH:MM` in local time. */
+export function clockTime(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Print a device sign-in link with its terminal QR code. */
+export async function printDeviceLink(ctx: Ctx, url: string): Promise<void> {
+  const qr = await QRCode.toString(url, { type: "terminal", small: true });
+  ctx.out("");
+  ctx.out(`  ${url}`);
+  ctx.out("");
+  ctx.out(qr.trimEnd());
+  ctx.out("");
+}
+
+/** Print the outcome of `switchyard init` (or `up`'s first start). */
+export async function printInit(ctx: Ctx, r: InitResult): Promise<void> {
+  if (r.alreadyInitialized) {
+    ctx.out("Already set up. New single-use sign-in link for one device:");
+    await printDeviceLink(ctx, r.enrollment.url);
+    return;
+  }
+  ctx.out(
+    `Switchyard is set up. Open this single-use link on your first device (expires ${clockTime(r.enrollment.expiresAt)}):`,
+  );
+  await printDeviceLink(ctx, r.enrollment.url);
+  ctx.out("Then add a passkey in Settings › Sign-in so other devices can sign in without a link.");
+}
+
+/**
+ * Set up this server (server access proves ownership): mark it initialized and print a
+ * single-use sign-in link with a QR code for the first device. Run again for another link.
+ */
+export async function init(ctx: Ctx, flags: InitFlags): Promise<InitResult> {
+  const api = adminApi(ctx, flags);
+  const r = await api.post<InitResult>("/api/admin/init", {});
+  if (flags.json) {
+    ctx.out(JSON.stringify(r, null, 2));
+    return r;
+  }
+  await printInit(ctx, r);
+  return r;
+}
+
+/**
+ * Create a single-use device (or host) enrollment with the local admin token and print the
+ * URL with a terminal QR code. The QR only carries the URL and token: the device must already
+ * be able to reach that URL (LAN, VPN or reverse proxy). Also the recovery path when every
+ * signed-in device is lost.
+ */
+export async function pair(ctx: Ctx, flags: PairFlags): Promise<EnrollmentResponse> {
+  const api = adminApi(ctx, flags);
   const kind = flags.host ? "host" : "device";
   const e = await api.post<EnrollmentResponse>("/api/enrollments", { kind });
   if (flags.json) {

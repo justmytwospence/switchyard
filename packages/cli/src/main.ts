@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { SwitchyardError } from "@switchyard/protocol";
 import { ApiRequestError, runTerminal } from "@switchyard/terminal";
 import { Command, Option } from "commander";
-import { login, pair } from "./commands/auth.js";
+import { init, login, pair } from "./commands/auth.js";
 import {
   coordinatorBackup,
   coordinatorMigrate,
@@ -67,7 +67,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--port <port>", "port", "7400")
     .option("--host <addr>", "bind address", "0.0.0.0")
     .option("--data-dir <dir>", "data dir (default: SWITCHYARD_DATA_DIR or the platform default)")
-    .option("--public-url <url>", "URL clients use (default: http://127.0.0.1:<port>)")
+    .option("--public-url <url>", "URL clients use (default: http://localhost:<port>)")
     .option("--trusted-origins <list>", "comma-separated browser origins to trust")
     .option(
       "--web-dist <dir>",
@@ -75,6 +75,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     )
     .option("--name <name>", "name of the local host (first start only)")
     .option("--dev", "development: trust the Vite dev server origins, debug logs")
+    .option("--open", "open the first sign-in link in a browser (default: when interactive)")
+    .option("--no-open", "never open a browser")
     .action((o) => up(ctx, o));
 
   const coordinator = program.command("coordinator").description("Hub coordinator");
@@ -108,13 +110,14 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .command("enroll")
     .description("Enroll this machine as a host (writes ~/.config/switchyard/host.json)")
     .requiredOption("--coordinator <url>", "coordinator URL")
-    .requiredOption("--token <token>", "host enrollment token (switchyard pair --host)")
+    .option("--token <token>", "host enrollment token (switchyard pair --host)")
+    .option("--secret <secret>", "shared host enrollment secret (SWITCHYARD_HOST_ENROLL_SECRET)")
     .option("--name <name>", "host name (default: hostname)")
     .option("--config <path>", "host.json path")
     .action((o) => hostEnroll(ctx, o));
   host
     .command("run")
-    .description("Run the host agent in the foreground")
+    .description("Run the host agent in the foreground (waits for host.json when not enrolled)")
     .option("--config <path>", "host.json path (env SWITCHYARD_HOST_CONFIG)")
     .option("--state-dir <dir>", "state dir (env SWITCHYARD_STATE_DIR)")
     .action((o) => hostRun(ctx, o));
@@ -141,8 +144,20 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .action((o) => hostStatus(ctx, o));
 
   program
+    .command("init")
+    .description("Set up this server and print a single-use sign-in link for your first device")
+    .option("--coordinator <url>", "local coordinator URL (default: the running one)")
+    .option("--data-dir <dir>", "data dir holding admin.token")
+    .option("--json", "JSON output")
+    .action(async (o) => {
+      await init(ctx, o);
+    });
+
+  program
     .command("pair")
-    .description("Create a single-use enrollment link and QR for a device (or --host)")
+    .description(
+      "Create a single-use link and QR for another device (or --host); also the recovery path when every device is lost",
+    )
     .option("--host", "enroll a host instead of a device")
     .option("--coordinator <url>", "local coordinator URL (default: the running one)")
     .option("--data-dir <dir>", "data dir holding admin.token")

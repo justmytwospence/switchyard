@@ -1,6 +1,7 @@
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { hostname } from "node:os";
-import { type Coordinator, createCoordinator } from "@switchyard/coordinator";
+import { ADMIN_DEVICE_ID, type Coordinator, createCoordinator } from "@switchyard/coordinator";
 import {
   enroll,
   type HostAgentHandle,
@@ -13,6 +14,7 @@ import { ApiClient } from "@switchyard/terminal";
 import { CliError, writeEndpoint } from "../config.js";
 import type { Ctx } from "../context.js";
 import { defaultDataDir, type Env, resolveWebDist, standaloneHostPaths } from "../paths.js";
+import { printInit } from "./auth.js";
 import { localUrlFor, parseOrigins, waitForSignal } from "./coordinator.js";
 
 export interface UpFlags {
@@ -24,6 +26,8 @@ export interface UpFlags {
   webDist?: string;
   name?: string;
   dev?: boolean;
+  /** Open the first sign-in link in a browser (default: when stdout is a TTY). */
+  open?: boolean;
 }
 
 /** Vite's dev server origins, trusted with `--dev`. */
@@ -38,15 +42,16 @@ export function upOptions(flags: UpFlags, env: Env) {
   const dataDir = flags.dataDir ?? defaultDataDir(env);
   const explicitPublic = (flags.publicUrl ?? env.SWITCHYARD_PUBLIC_URL)?.trim();
   // Port 0 (tests): the coordinator derives the URL and origins once it is listening.
+  // `localhost` rather than 127.0.0.1: passkeys need a host name.
   const publicUrl =
     explicitPublic || port !== 0
-      ? (explicitPublic || `http://127.0.0.1:${port}`).replace(/\/+$/, "")
+      ? (explicitPublic || `http://localhost:${port}`).replace(/\/+$/, "")
       : undefined;
   let trusted = parseOrigins(flags.trustedOrigins ?? env.SWITCHYARD_TRUSTED_ORIGINS);
   if (!trusted && publicUrl) {
     trusted = [new URL(publicUrl).origin];
-    // The default loopback URL is also reached as localhost.
-    if (!explicitPublic) trusted.push(`http://localhost:${port}`);
+    // The default URL is also reached over loopback.
+    if (!explicitPublic) trusted.push(`http://127.0.0.1:${port}`);
   }
   if (flags.dev && trusted) trusted = [...new Set([...trusted, ...DEV_ORIGINS])];
   return {
@@ -98,21 +103,75 @@ export interface StandaloneHandle {
   coordinator: Coordinator;
   host: HostAgentHandle;
   localUrl: string;
+  /** The first sign-in link when this start set the server up, else null. */
+  firstLink: string | null;
   stop(): Promise<void>;
 }
 
+/** Open a URL in the default browser (macOS `open`, Linux `xdg-open`); errors are ignored. */
+export function openBrowser(
+  url: string,
+  platform: NodeJS.Platform = process.platform,
+  spawnFn: typeof spawn = spawn,
+): void {
+  const cmd = platform === "darwin" ? "open" : platform === "linux" ? "xdg-open" : null;
+  if (!cmd) return;
+  try {
+    const child = spawnFn(cmd, [url], { detached: true, stdio: "ignore" });
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    // no browser: the link is printed anyway
+  }
+}
+
+export interface StandaloneDeps {
+  /** Browser opener (default `openBrowser`). */
+  open?: (url: string) => void;
+}
+
+/**
+ * First start: set the server up in-process (local server access proves ownership), print the
+ * single-use sign-in link with a QR code and open it in the browser when asked to.
+ */
+async function initializeLocally(
+  ctx: Ctx,
+  coordinator: Coordinator,
+  open: boolean,
+  opener: (url: string) => void,
+): Promise<string | null> {
+  if (coordinator.owner.isInitialized()) return null;
+  coordinator.owner.markInitialized();
+  const e = coordinator.auth.createEnrollment("device", ADMIN_DEVICE_ID);
+  // The link carries a token: it goes to this terminal (stdout), never to the log.
+  await printInit(ctx, { alreadyInitialized: false, enrollment: e });
+  if (open) opener(e.url);
+  return e.url;
+}
+
 /** Start the coordinator and the local host agent in this process. */
-export async function startStandalone(ctx: Ctx, flags: UpFlags): Promise<StandaloneHandle> {
+export async function startStandalone(
+  ctx: Ctx,
+  flags: UpFlags,
+  deps: StandaloneDeps = {},
+): Promise<StandaloneHandle> {
   if (flags.dev && !ctx.env.SWITCHYARD_LOG_LEVEL) process.env.SWITCHYARD_LOG_LEVEL = "debug";
   const opts = upOptions(flags, ctx.env);
-  const coordinator = createCoordinator({
-    ...opts,
-    bootstrap: (info) =>
-      ctx.err(
-        `\nEnroll your first device (single use, expires ${info.expiresAt}):\n${info.url}\n${info.qrTerminal}\nRun \`switchyard pair\` for a new link.\n`,
-      ),
-  });
+  // `up` sets the server up itself below, so no "run switchyard init" hint.
+  const coordinator = createCoordinator({ ...opts, setupHint: false });
   await coordinator.start();
+  let firstLink: string | null;
+  try {
+    firstLink = await initializeLocally(
+      ctx,
+      coordinator,
+      flags.open ?? process.stdout.isTTY === true,
+      deps.open ?? ((url) => openBrowser(url)),
+    );
+  } catch (err) {
+    await coordinator.stop();
+    throw err;
+  }
   const localUrl = localUrlFor(opts.listen, coordinator.port);
   writeEndpoint(opts.dataDir, { localUrl, publicUrl: coordinator.config.publicUrl });
   let host: HostAgentHandle;
@@ -134,6 +193,7 @@ export async function startStandalone(ctx: Ctx, flags: UpFlags): Promise<Standal
     coordinator,
     host,
     localUrl,
+    firstLink,
     async stop() {
       await host.stop();
       await coordinator.stop();
@@ -149,7 +209,7 @@ export async function up(ctx: Ctx, flags: UpFlags): Promise<void> {
       `Switchyard is up: ${c.config.publicUrl} (listening on port ${c.port})`,
       `Data: ${c.config.dataDir}`,
       c.config.webDist ? null : "Web app bundle not found: API only (run `pnpm build`)",
-      "Pair a device: switchyard pair    Terminal: switchyard attach",
+      "Another device: switchyard pair    Terminal: switchyard attach",
       "Schedules run only while this process is running.",
     ]
       .filter(Boolean)
