@@ -82,3 +82,19 @@ These are upstream limits, disclosed in the product rather than hidden:
 - Pi writes a new session file only at the first assistant message. A session stopped before any reply cannot be resumed; it fails with `native_session_missing` instead of silently starting a new conversation.
 - Subagent sessions are view-only.
 - Web Push delivery, replacement and clearing are best effort per platform.
+
+## 0.2.0 bootstrap and sign-in (2026-11-02)
+
+Recorded against v0.2.0 (`ghcr.io/justmytwospence/switchyard:0.2.0`, linux/amd64 and linux/arm64), pi-plugins `ca7f9e22`.
+
+| Item | Status | Evidence |
+|---|---|---|
+| No ownerless state: a fresh server mints nothing and shows only "isn't set up yet" | Verified | `coordinator/test/auth.test.ts`; `web/e2e/sign-in.spec.ts` |
+| `switchyard init` / `pair` set the server up (admin token only) | Verified | `coordinator/test/auth.test.ts`; `cli/test/config.test.ts` |
+| Passkey registration and sign-in on a new device | Verified, virtual authenticator | `coordinator/test/passkeys.test.ts`; `web/e2e/sign-in.spec.ts` (Chromium CDP authenticator) |
+| OIDC sign-in with owner match, claims from userinfo, non-owner refused, PWA handoff | Verified, mock IdP | `coordinator/test/oidc.test.ts`; `web/e2e/sign-in.spec.ts` |
+| Host self-enrollment with a shared secret; host waits without config | Verified | `integration/enrollment.test.ts`; `host-agent/test/wait-for-config.test.ts` |
+| Per-project worktree folder | Verified | `host-agent/test/git.test.ts`; `integration/worktrees.test.ts` |
+| Plugin adapters loaded from pi-plugins through the plugin tier | Verified | `host-agent/test/compat/*` (real Pi 1.4.0, real plugins) |
+| Homelab deploy: published image, owned at first start through the declared OIDC owner, host connected, Authelia accepts the `switchyard` client (authorize URL reaches Authelia's sign-in flow), OIDC discovery `ready` | Verified | live checks on the NUC |
+| Real Authelia sign-in with 2FA on phone and Mac, passkey on a real device, iOS PWA handoff | **Unverified** | needs the owner's own sign-in |
