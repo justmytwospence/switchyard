@@ -9,6 +9,7 @@ import type { Logger } from "pino";
 import QRCode from "qrcode";
 import { AttentionService } from "./attention.js";
 import { Auth } from "./auth.js";
+import { type BuiltinOptions, installBuiltins } from "./builtins.js";
 import { ClientHub } from "./client-hub.js";
 import type { CoordinatorConfig, CoordinatorContext } from "./context.js";
 import { type Db, migrate, openDb } from "./db/index.js";
@@ -37,7 +38,7 @@ export interface BootstrapInfo {
   qrTerminal: string;
 }
 
-export interface CreateCoordinatorOptions {
+export interface CreateCoordinatorOptions extends BuiltinOptions {
   dataDir: string;
   /** Public base URL. Defaults to `http://localhost:<port>` once listening. */
   publicUrl?: string;
@@ -177,6 +178,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
   registerSessionRoutes(app, ctx);
   registerInteractionRoutes(app, ctx);
   registerAttentionRoutes(app, ctx);
+  const builtins = installBuiltins(app, ctx, opts);
   const staticReady = registerStaticRoutes(app, ctx);
 
   let retentionTimer: NodeJS.Timeout | null = null;
@@ -205,6 +207,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
       if (started) return;
       started = true;
       await staticReady;
+      builtins.start();
       for (const plugin of opts.plugins ?? []) await plugin(coordinator);
       hostHub.start();
       clientHub.start();
@@ -253,6 +256,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
       if (stopped) return;
       stopped = true;
       if (retentionTimer) clearInterval(retentionTimer);
+      builtins.stop();
       hostHub.stop();
       clientHub.stop();
       await app.close();

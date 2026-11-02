@@ -1,5 +1,6 @@
 import { type Run, type Session, SwitchyardError } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
+import { getService } from "../services.js";
 
 /**
  * Session control routes. The tasks/runs worker extends these (continuation checks,
@@ -51,14 +52,58 @@ async function setControl(
   return { session, run };
 }
 
-/** Human takes control: `controlRevision++`, `controlMode = human`. */
+/**
+ * Human takes control: `controlRevision++`, `controlMode = human`. Continuations, infra retries
+ * and successor dispatch all check `controlMode` before acting, and the host rejects automated
+ * commands carrying an older revision (`stale_control`).
+ */
 export function takeover(ctx: CoordinatorContext, sessionId: string) {
   return setControl(ctx, sessionId, "human");
 }
 
-/** Return control to automation: `controlRevision++`, `controlMode = automation`. */
-export function returnToAutomation(ctx: CoordinatorContext, sessionId: string) {
-  return setControl(ctx, sessionId, "automation");
+/**
+ * Take over a run that may not have a live session yet (queued retry, launch in flight): bumps
+ * the revision and sets human control; tells the host when a session exists.
+ */
+export async function takeoverRun(ctx: CoordinatorContext, runId: string): Promise<Run> {
+  const run = ctx.store.runs.require(runId);
+  if (run.sessionId && ctx.store.sessions.get(run.sessionId)?.runId === run.id) {
+    return (await takeover(ctx, run.sessionId)).run;
+  }
+  return ctx.store.tx(() => {
+    const cur = ctx.store.runs.require(runId);
+    const task = ctx.store.tasks.get(cur.taskId);
+    return ctx.store.putRun(
+      {
+        ...cur,
+        controlMode: "human",
+        controlRevision: cur.controlRevision + 1,
+        updatedAt: ctx.store.nowIso(),
+      },
+      task?.projectId,
+    );
+  });
+}
+
+/**
+ * Return control to automation: `controlRevision++`, `controlMode = automation`. When the
+ * session is idle the run is re-evaluated right away (markers, continuation, checks).
+ */
+export async function returnToAutomation(ctx: CoordinatorContext, sessionId: string) {
+  const result = await setControl(ctx, sessionId, "automation");
+  const session = ctx.store.sessions.require(sessionId);
+  if (session.runtime === "idle") {
+    const runs = getService(ctx, "runs");
+    void runs
+      ?.onSessionSettled({
+        session,
+        aborted: false,
+        lastAssistantText: session.lastAssistantText,
+      })
+      .catch((err) => ctx.log.error({ err, sessionId }, "re-evaluation failed"));
+  }
+  getService(ctx, "dispatcher")?.schedule();
+  return result;
 }
 
 /**
@@ -68,6 +113,13 @@ export function returnToAutomation(ctx: CoordinatorContext, sessionId: string) {
  */
 export async function stopSession(ctx: CoordinatorContext, sessionId: string): Promise<Session> {
   const session = ctx.store.sessions.require(sessionId);
+  const pre = ctx.store.runForSession(session);
+  if (pre && (pre.state === "dispatching" || pre.state === "uncertain")) {
+    throw new SwitchyardError(
+      "conflict",
+      "The launch is not confirmed yet; wait for the host or pause automation instead",
+    );
+  }
   await ctx.hostHub.request(session.hostId, {
     type: "session.abort",
     sessionId,
@@ -82,7 +134,7 @@ export async function stopSession(ctx: CoordinatorContext, sessionId: string): P
         session.projectId ?? undefined,
       );
       const task = ctx.store.tasks.get(run.taskId);
-      if (task) {
+      if (task && task.currentRunId === run.id) {
         ctx.store.putTask({
           ...task,
           blocked: { reason: "Stopped by user" },

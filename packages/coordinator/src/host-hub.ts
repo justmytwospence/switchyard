@@ -1,5 +1,6 @@
 import {
   AdapterInfo,
+  AttentionReason,
   type CoordinatorToHost,
   Diagnostic,
   type Host,
@@ -523,15 +524,34 @@ export class HostHub {
       case "diagnostic": {
         const d = Diagnostic.parse({ sessionId: null, adapterId: null, at: ev.at, ...raw });
         this.store.appendEvent("diagnostic", { hostId, sessionId: d.sessionId ?? undefined }, d);
+        // Adapter `attention(reason, summary)` arrives as an extra `attention` key.
+        const att = raw.attention as { reason?: unknown; summary?: unknown } | undefined;
+        const sessionId = d.sessionId ?? ev.sessionId ?? null;
+        if (att && typeof att === "object" && sessionId && this.ownedSession(hostId, sessionId)) {
+          const given = att.reason ?? "needs_input";
+          const reason = AttentionReason.safeParse(given);
+          this.attention.raise({
+            reason: reason.success ? reason.data : "unsupported_interaction",
+            sessionId,
+            summary:
+              typeof att.summary === "string" && att.summary.trim()
+                ? att.summary.slice(0, 500)
+                : d.message,
+          });
+        }
         return;
       }
       case "workspace.updated":
         this.projectWorkspace(hostId, raw);
         return;
       case "workspace.removed": {
-        const key = String(raw.id ?? raw.path ?? "");
+        // Hosts send `{id: <path>, path}`: match by path first, then by workspace id.
+        const path = typeof raw.path === "string" ? raw.path : null;
+        const key = String(raw.id ?? "");
         const ws =
-          this.store.workspaces.get(key) ?? this.store.workspaceByPath(hostId, key) ?? undefined;
+          (path ? this.store.workspaceByPath(hostId, path) : undefined) ??
+          this.store.workspaceByPath(hostId, key) ??
+          this.store.workspaces.get(key);
         if (!ws) return;
         if (ws.hostId !== hostId)
           throw new SwitchyardError("forbidden", "Workspace of another host");
