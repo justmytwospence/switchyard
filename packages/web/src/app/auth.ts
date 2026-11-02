@@ -1,4 +1,4 @@
-import type { Device } from "@switchyard/protocol";
+import type { MeResponse } from "@switchyard/protocol";
 import { create } from "zustand";
 import { startPresence } from "../presence";
 import { ApiClientError, apiGet, onUnauthorized } from "../sync/api";
@@ -6,14 +6,8 @@ import { clearCache } from "../sync/cache";
 import { syncClient } from "../sync/client";
 import { syncStore } from "../sync/store";
 
-/** Response of GET /api/me: `{device, admin, publicUrl}` (coordinator routes/auth.ts). */
-export interface Me {
-  device: Device;
-  /** The local admin token (CLI), not a browser device. */
-  admin: boolean;
-  /** The coordinator's public URL (enrollment links, push deep links). */
-  publicUrl: string;
-}
+/** Response of GET /api/me (protocol `MeResponse`). */
+export type Me = MeResponse;
 
 export type AuthStatus = "checking" | "authenticated" | "unauthenticated" | "error";
 

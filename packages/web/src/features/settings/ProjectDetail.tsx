@@ -24,6 +24,7 @@ import {
   validateAbsolutePath,
 } from "./shared";
 import { WorkspacesCard } from "./WorkspacesCard";
+import { WORKTREE_DIR_HINT, worktreeDirProblem } from "./worktreeDir";
 
 interface RefreshResponse {
   errors?: { checkoutId: string; code: string; message: string }[];
@@ -132,6 +133,7 @@ function ProjectForm({
   const [sharing, setSharing] = useState(project.workspaceSharing);
   const [profileId, setProfileId] = useState(project.defaultProfileId ?? "");
   const [hostId, setHostId] = useState(project.defaultHostId ?? "");
+  const [worktreeDir, setWorktreeDir] = useState(project.worktreeDir ?? ".worktrees");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -140,9 +142,11 @@ function ProjectForm({
   const runsError =
     Number.isInteger(runs) && runs >= 1 && runs <= 32 ? null : "Use a whole number from 1 to 32.";
 
+  const worktreeDirError = worktreeDirProblem(worktreeDir);
+
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    if (nameError || runsError) return;
+    if (nameError || runsError || worktreeDirError) return;
     setBusy(true);
     setError(null);
     try {
@@ -155,6 +159,7 @@ function ProjectForm({
         workspaceSharing: sharing,
         defaultProfileId: profileId || null,
         defaultHostId: hostId || null,
+        worktreeDir: worktreeDir.trim(),
       });
       toast.success("Project settings saved");
     } catch (err) {
@@ -227,6 +232,25 @@ function ProjectForm({
             onChange={(e) => setMaxRuns(e.target.value)}
             className="max-w-32"
             {...describedBy(`${ids}-runs`, { hint: true, error: runsError })}
+          />
+        </Field>
+        <Field
+          id={`${ids}-worktree`}
+          label="Worktree folder"
+          hint={WORKTREE_DIR_HINT}
+          error={worktreeDirError}
+        >
+          <TextInput
+            id={`${ids}-worktree`}
+            data-testid="project-worktree-dir"
+            value={worktreeDir}
+            onChange={(e) => setWorktreeDir(e.target.value)}
+            placeholder=".worktrees"
+            className="font-mono"
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            {...describedBy(`${ids}-worktree`, { hint: true, error: worktreeDirError })}
           />
         </Field>
         <Toggle

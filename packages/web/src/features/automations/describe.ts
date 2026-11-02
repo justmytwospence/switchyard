@@ -475,7 +475,7 @@ function triggerClause(input: SummaryInput, ctx: SummaryContext): string {
 
 /**
  * One-paragraph description of what the automation does, e.g. 'Every weekday
- * at 09:00 (America/Denver), create a fresh task "Triage" in Web on nuc; skip
+ * at 09:00 (America/Denver), create a fresh task "Triage" in Web on my-server; skip
  * if previous work is still open; skip missed runs; requires human review'.
  */
 export function summarizeAutomation(input: SummaryInput, ctx: SummaryContext = {}): string {

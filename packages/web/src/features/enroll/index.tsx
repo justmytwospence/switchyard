@@ -1,39 +1,26 @@
-import { KeyRound } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { startAuthentication } from "@simplewebauthn/browser";
+import type { OidcBeginResponse, OidcClaimResponse, SetupState } from "@switchyard/protocol";
+import { KeyRound, LogIn, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { checkAuth, takeReturnTo, useAuth } from "../../app/auth";
 import { Button } from "../../components/ui/Button";
-import { LoadingState } from "../../components/ui/states";
+import { ErrorState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { isStandalone } from "../../push";
-import { apiPost, isApiError } from "../../sync/api";
+import { apiGet, apiPost, isApiError } from "../../sync/api";
+import {
+  defaultDeviceName,
+  ERROR_TEXT,
+  enrollErrorText,
+  HANDOFF_POLL_MS,
+  type HandoffState,
+  handoffReduce,
+  shouldPoll,
+  startHandoff,
+} from "./logic";
 
-/** A readable default device name from the user agent, e.g. "Safari on iPhone". */
-export function defaultDeviceName(ua: string = navigator.userAgent): string {
-  const device = /iPhone/.test(ua)
-    ? "iPhone"
-    : /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
-      ? "iPad"
-      : /Android/.test(ua)
-        ? "Android"
-        : /Macintosh|Mac OS X/.test(ua)
-          ? "Mac"
-          : /Windows/.test(ua)
-            ? "Windows"
-            : /Linux/.test(ua)
-              ? "Linux"
-              : "device";
-  const browser = /Edg\//.test(ua)
-    ? "Edge"
-    : /Firefox\/|FxiOS/.test(ua)
-      ? "Firefox"
-      : /Chrome\/|CriOS/.test(ua)
-        ? "Chrome"
-        : /Safari\//.test(ua)
-          ? "Safari"
-          : "Browser";
-  return `${browser} on ${device}`;
-}
+export { defaultDeviceName };
 
 function readToken(): string | null {
   const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
@@ -41,18 +28,10 @@ function readToken(): string | null {
   return hash.get("token") ?? query.get("token");
 }
 
-const ERROR_TEXT: Record<string, string> = {
-  enrollment_expired:
-    "This enrollment link has expired. Links are valid for 10 minutes. Create a new one from Settings › Devices › Add device on an enrolled device, or run `switchyard pair` on the server.",
-  enrollment_used:
-    "This enrollment link was already used. Each link enrolls one device. Create a new one from Settings › Devices › Add device, or run `switchyard pair`.",
-  invalid_request: "The enrollment request was rejected. Check the device name and try again.",
-  network: "Could not reach the coordinator. Check your connection and try again.",
-};
-
 /**
- * /enroll: redeem a single-use enrollment token from `#token=`, name this
- * device, then return to the deep link that required authentication.
+ * /enroll: redeem a single-use enrollment token from `#token=`, or (without
+ * one) sign in with a passkey or single sign-on, name this device, then
+ * return to the deep link that required authentication.
  */
 export default function EnrollView() {
   const navigate = useNavigate();
@@ -113,7 +92,7 @@ export default function EnrollView() {
           <img src="/icon.svg" alt="" className="size-10 rounded-lg" />
           <div>
             <h1 className="text-lg font-semibold">Switchyard</h1>
-            <p className="text-sm text-muted">Enroll this device</p>
+            <p className="text-sm text-muted">{token ? "Enroll this device" : "Sign in"}</p>
           </div>
         </div>
         {signedOutReason && (
@@ -169,15 +148,357 @@ export default function EnrollView() {
             </Button>
           </form>
         ) : (
-          <div className="flex flex-col gap-2 text-sm">
-            <p className="font-medium">This device is not enrolled.</p>
-            <p className="text-muted">
-              Open an enrollment link or scan its QR code. Create one from Settings › Devices › Add
-              device on an enrolled device, or run <code>switchyard pair</code> on the server.
-            </p>
-          </div>
+          <SignInPanel name={name} onName={setName} next={next} />
         )}
       </div>
+    </div>
+  );
+}
+
+interface ChallengeResponse {
+  challengeId: string;
+  options: unknown;
+}
+
+const kindOf = () => (isStandalone() ? "pwa" : "browser");
+
+function AlertBox({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div role="alert" className="rounded-md border border-border bg-danger-soft px-3 py-2 text-sm">
+      <div className="flex items-center gap-1.5 font-medium">
+        <TriangleAlert aria-hidden className="size-4 shrink-0" />
+        {title}
+      </div>
+      <div className="break-words text-muted">{children}</div>
+    </div>
+  );
+}
+
+/** The no-token screen: not-initialized notice, or the sign-in options. */
+function SignInPanel({
+  name,
+  onName,
+  next,
+}: {
+  name: string;
+  onName: (v: string) => void;
+  next: string | null;
+}) {
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const [setup, setSetup] = useState<SetupState | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [nonce, setNonce] = useState(0);
+  const [busy, setBusy] = useState<"passkey" | "oidc" | null>(null);
+  const [notice, setNotice] = useState<{ code: string; message: string } | null>(() => {
+    const code = params.get("error");
+    return code ? { code, message: enrollErrorText(code, params.get("detail")) } : null;
+  });
+  const [handoff, setHandoff] = useState<{ flowId: string; pollToken: string } | null>(null);
+  const authorizeUrlRef = useRef<string | null>(null);
+
+  // Show a callback error once, then drop it from the address bar.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once on mount
+  useEffect(() => {
+    if (!params.has("error") && !params.has("detail")) return;
+    const rest = new URLSearchParams(params);
+    rest.delete("error");
+    rest.delete("detail");
+    setParams(rest, { replace: true });
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `nonce` reloads
+  useEffect(() => {
+    const ac = new AbortController();
+    setLoadError(null);
+    apiGet<SetupState>("/api/setup", undefined, ac.signal)
+      .then((v) => !ac.signal.aborted && setSetup(v))
+      .catch((e: unknown) => !ac.signal.aborted && setLoadError(e));
+    return () => ac.abort();
+  }, [nonce]);
+
+  const fail = (err: unknown) => {
+    const code = isApiError(err) ? err.code : "internal";
+    // A cancelled or dismissed WebAuthn prompt is not an error worth shouting about.
+    if (err instanceof Error && err.name === "NotAllowedError") {
+      setNotice({ code, message: "Passkey sign-in was cancelled or timed out." });
+      return;
+    }
+    setNotice({
+      code,
+      message: isApiError(err)
+        ? enrollErrorText(code, err.message)
+        : err instanceof Error
+          ? err.message
+          : String(err),
+    });
+  };
+
+  const finish = useCallback(async () => {
+    const result = await checkAuth();
+    if (result === "authenticated") navigate(takeReturnTo(next), { replace: true });
+    else
+      setNotice({
+        code: "internal",
+        message: "Signed in, but the coordinator did not accept the new credential. Try again.",
+      });
+  }, [navigate, next]);
+
+  const deviceName = name.trim().slice(0, 80);
+
+  const signInWithPasskey = async () => {
+    if (!deviceName) return;
+    setBusy("passkey");
+    setNotice(null);
+    try {
+      const { challengeId, options } = await apiPost<ChallengeResponse>(
+        "/api/auth/passkey/options",
+      );
+      const response = await startAuthentication({
+        optionsJSON: options as Parameters<typeof startAuthentication>[0]["optionsJSON"],
+      });
+      await apiPost("/api/auth/passkey/verify", {
+        challengeId,
+        response,
+        deviceName,
+        kind: kindOf(),
+      });
+      await finish();
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const signInWithOidc = async () => {
+    if (!deviceName) return;
+    setBusy("oidc");
+    setNotice(null);
+    const standalone = isStandalone();
+    try {
+      const res = await apiPost<OidcBeginResponse>("/api/auth/oidc/begin", {
+        deviceName,
+        kind: kindOf(),
+        next: takeReturnTo(next),
+        handoff: standalone,
+      });
+      if (standalone && res.flowId && res.pollToken) {
+        // Home Screen apps have their own cookie jar: finish in the browser, claim here.
+        authorizeUrlRef.current = res.authorizeUrl;
+        setHandoff({ flowId: res.flowId, pollToken: res.pollToken });
+        window.open(res.authorizeUrl, "_blank");
+      } else {
+        location.assign(res.authorizeUrl);
+        return; // leaving the page; keep the button busy
+      }
+    } catch (err) {
+      fail(err);
+    }
+    setBusy(null);
+  };
+
+  if (loadError) {
+    return (
+      <ErrorState
+        title="Cannot reach Switchyard"
+        error={loadError}
+        onRetry={() => setNonce((n) => n + 1)}
+      />
+    );
+  }
+  if (!setup) return <LoadingState label="Checking this server…" />;
+
+  if (!setup.initialized) {
+    return (
+      <div data-testid="setup-not-initialized" className="flex flex-col gap-2 text-sm">
+        <p className="font-medium">Switchyard isn't set up yet</p>
+        <p className="text-muted">
+          Run <code>switchyard init</code> on the server to create the first sign-in link. With
+          Docker: <code>docker exec &lt;container&gt; switchyard init</code>.
+        </p>
+      </div>
+    );
+  }
+
+  if (handoff) {
+    return (
+      <HandoffScreen
+        flowId={handoff.flowId}
+        pollToken={handoff.pollToken}
+        authorizeUrl={authorizeUrlRef.current}
+        onDone={finish}
+        onExit={() => setHandoff(null)}
+      />
+    );
+  }
+
+  const passkeyReady = setup.passkey.registered && setup.passkey.available;
+  return (
+    <div className="flex flex-col gap-4 text-sm">
+      <p className="text-base font-medium">Sign in to Switchyard</p>
+      {notice && <AlertBox title="Sign-in failed">{notice.message}</AlertBox>}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="device-name" className="text-sm font-medium">
+          Device name
+        </label>
+        <TextInput
+          id="device-name"
+          value={name}
+          maxLength={80}
+          autoComplete="off"
+          onChange={(e) => onName(e.target.value)}
+          aria-describedby="device-name-hint"
+        />
+        <p id="device-name-hint" className="text-xs text-muted">
+          Shown in Settings › Devices, where you can revoke it later.
+        </p>
+      </div>
+      <div className="flex flex-col gap-2">
+        {passkeyReady && (
+          <Button
+            data-testid="signin-passkey"
+            variant="primary"
+            busy={busy === "passkey"}
+            disabled={!deviceName || busy !== null}
+            icon={<KeyRound className="size-4" />}
+            onClick={signInWithPasskey}
+          >
+            Sign in with a passkey
+          </Button>
+        )}
+        {setup.oidc && (
+          <Button
+            data-testid="signin-oidc"
+            variant={passkeyReady ? "secondary" : "primary"}
+            busy={busy === "oidc"}
+            disabled={!deviceName || busy !== null}
+            icon={<LogIn className="size-4" />}
+            onClick={signInWithOidc}
+          >
+            {setup.oidc.label}
+          </Button>
+        )}
+        {setup.passkey.registered && !setup.passkey.available && setup.passkey.reason && (
+          <p className="text-xs text-muted">Passkeys are unavailable: {setup.passkey.reason}.</p>
+        )}
+        {!deviceName && (passkeyReady || setup.oidc) && (
+          <p className="text-xs text-muted">Enter a device name to sign in.</p>
+        )}
+      </div>
+      <p className="text-muted">
+        Or open a pairing link from a device you already use: Settings › Devices › Add device.
+      </p>
+      <p className="text-xs text-muted">
+        Lost every device? Run <code>switchyard pair</code> on the server.
+      </p>
+    </div>
+  );
+}
+
+/** PWA single sign-on handoff: finish in the browser, claim the credential here. */
+function HandoffScreen({
+  flowId,
+  pollToken,
+  authorizeUrl,
+  onDone,
+  onExit,
+}: {
+  flowId: string;
+  pollToken: string;
+  authorizeUrl: string | null;
+  onDone: () => Promise<void>;
+  onExit: () => void;
+}) {
+  const [state, setState] = useState<HandoffState>(() => startHandoff(Date.now()));
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const inFlight = useRef(false);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+
+  const apply = useCallback((event: Parameters<typeof handoffReduce>[1]) => {
+    const next = handoffReduce(stateRef.current, event);
+    stateRef.current = next;
+    setState(next);
+    return next;
+  }, []);
+
+  const poll = useCallback(async () => {
+    if (inFlight.current || stateRef.current.phase !== "waiting") return;
+    inFlight.current = true;
+    try {
+      const result = await apiPost<OidcClaimResponse>("/api/auth/oidc/claim", {
+        flowId,
+        pollToken,
+      });
+      const next = apply({ type: "claim", result, now: Date.now() });
+      if (next.phase === "done") await doneRef.current();
+    } catch (err) {
+      apply({
+        type: "claim_error",
+        code: isApiError(err) ? err.code : "network",
+        message: "This sign-in expired or was already used. Start again.",
+        now: Date.now(),
+      });
+    } finally {
+      inFlight.current = false;
+    }
+  }, [flowId, pollToken, apply]);
+
+  useEffect(() => {
+    const visible = () => document.visibilityState === "visible";
+    const timer = setInterval(() => {
+      apply({ type: "tick", now: Date.now() });
+      if (shouldPoll(stateRef.current, visible())) void poll();
+    }, HANDOFF_POLL_MS);
+    const onVisible = () => {
+      if (shouldPoll(stateRef.current, visible())) void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [poll, apply]);
+
+  if (state.phase === "timeout" || state.phase === "failed" || state.phase === "cancelled") {
+    return (
+      <div data-testid="signin-handoff" className="flex flex-col gap-3 text-sm">
+        <AlertBox title={state.phase === "timeout" ? "Sign-in timed out" : "Sign-in stopped"}>
+          {state.phase === "timeout"
+            ? "The sign-in was not finished in time. Start again."
+            : (state.message ?? "Start again.")}
+        </AlertBox>
+        <Button onClick={onExit}>Back to sign-in</Button>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="signin-handoff" role="status" className="flex flex-col gap-3 text-sm">
+      <p className="font-medium">Finish signing in, then come back here</p>
+      <p className="text-muted">
+        Complete single sign-on in the page that opened, then return to this app. This screen
+        continues on its own.
+      </p>
+      {authorizeUrl && (
+        <a
+          href={authorizeUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-accent underline"
+        >
+          Open the sign-in page again
+        </a>
+      )}
+      <Button
+        onClick={() => {
+          apply({ type: "cancel" });
+          onExit();
+        }}
+      >
+        Cancel
+      </Button>
     </div>
   );
 }

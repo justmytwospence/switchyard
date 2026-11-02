@@ -132,7 +132,7 @@ function useNewSessionForm(open: boolean) {
         ? { branch: workspaceLabel(workspace), path: workspace.path }
         : null
       : checkout && branch.trim()
-        ? { branch: branch.trim(), path: worktreePath(checkout.path, branch) }
+        ? { branch: branch.trim(), path: worktreePath(checkout.path, branch, project?.worktreeDir) }
         : null;
 
   return {

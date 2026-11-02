@@ -38,9 +38,16 @@ export function branchSlug(branch: string): string {
   return branch.replaceAll("/", "-");
 }
 
-/** `<checkout>/.worktrees/<branch with / replaced by ->`. */
-export function worktreePath(checkoutPath: string, branch: string): string {
-  return `${checkoutPath.replace(/\/+$/, "")}/.worktrees/${branchSlug(branch.trim())}`;
+/** The default managed worktree folder (`Project.worktreeDir`). */
+const DEFAULT_WORKTREE_DIR = ".worktrees";
+
+/** `<checkout>/<worktreeDir>/<branch with / replaced by ->`. */
+export function worktreePath(
+  checkoutPath: string,
+  branch: string,
+  worktreeDir: string = DEFAULT_WORKTREE_DIR,
+): string {
+  return `${checkoutPath.replace(/\/+$/, "")}/${worktreeDir}/${branchSlug(branch.trim())}`;
 }
 
 /** Client-side branch name check (the host validates again). Returns a reason or null. */

@@ -15,6 +15,7 @@ import { NotificationsSection } from "./NotificationsSection";
 import { ProfilesSection } from "./ProfilesSection";
 import { ProjectDetail } from "./ProjectDetail";
 import { ProjectCreate, ProjectsSection } from "./ProjectsSection";
+import { SignInSection } from "./SignInSection";
 import { LastKnownNote, SECTIONS, SectionPage, settingsPath } from "./shared";
 
 /**
@@ -32,6 +33,7 @@ export default function SettingsView() {
       <Route path="hosts" element={<HostsSection />} />
       <Route path="hosts/:hostId" element={<HostDetail />} />
       <Route path="devices" element={<DevicesSection />} />
+      <Route path="sign-in" element={<SignInSection />} />
       <Route path="projects" element={<ProjectsSection />} />
       <Route path="projects/new" element={<ProjectCreate />} />
       <Route path="projects/:projectId" element={<ProjectDetail />} />

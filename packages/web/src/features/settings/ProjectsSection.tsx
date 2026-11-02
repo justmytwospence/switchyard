@@ -21,6 +21,7 @@ import {
   useHydrated,
   validateAbsolutePath,
 } from "./shared";
+import { WORKTREE_DIR_HINT, worktreeDirProblem } from "./worktreeDir";
 
 export const projectPath = (id: string) => settingsPath(`projects/${encodeURIComponent(id)}`);
 
@@ -124,6 +125,7 @@ export function ProjectCreate() {
   const [hostId, setHostId] = useState("");
   const [path, setPath] = useState("");
   const [profileId, setProfileId] = useState("");
+  const [worktreeDir, setWorktreeDir] = useState(".worktrees");
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -132,11 +134,12 @@ export function ProjectCreate() {
   const nameError = submitted && !name.trim() ? "Enter a project name." : null;
   const hostError = submitted && !effectiveHost ? "Choose a connected host." : null;
   const pathError = submitted || path ? validateAbsolutePath(path) : null;
+  const worktreeDirError = worktreeDirProblem(worktreeDir);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitted(true);
-    if (!name.trim() || !effectiveHost || validateAbsolutePath(path)) return;
+    if (!name.trim() || !effectiveHost || validateAbsolutePath(path) || worktreeDirError) return;
     setBusy(true);
     setError(null);
     try {
@@ -145,6 +148,7 @@ export function ProjectCreate() {
         hostId: effectiveHost,
         path: path.trim(),
         defaultProfileId: profileId || null,
+        worktreeDir: worktreeDir.trim(),
       });
       toast.success(`Project ${name.trim()} created`);
       navigate(res?.id ? projectPath(res.id) : settingsPath("projects"));
@@ -232,6 +236,24 @@ export function ProjectCreate() {
               spellCheck={false}
               className="font-mono"
               {...describedBy(`${ids}-path`, { hint: true, error: pathError })}
+            />
+          </Field>
+          <Field
+            id={`${ids}-worktree`}
+            label="Worktree folder"
+            hint={WORKTREE_DIR_HINT}
+            error={worktreeDirError}
+          >
+            <TextInput
+              id={`${ids}-worktree`}
+              value={worktreeDir}
+              onChange={(e) => setWorktreeDir(e.target.value)}
+              placeholder=".worktrees"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              className="font-mono"
+              {...describedBy(`${ids}-worktree`, { hint: true, error: worktreeDirError })}
             />
           </Field>
           <Field id={`${ids}-profile`} label="Default Pi profile (optional)">

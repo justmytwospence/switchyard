@@ -10,6 +10,7 @@ import {
   FolderGit2,
   History,
   Keyboard,
+  KeyRound,
   type LucideIcon,
   MonitorSmartphone,
   Puzzle,
@@ -53,6 +54,12 @@ export const SECTIONS: SectionDef[] = [
     label: "Devices",
     description: "Signed-in browsers, apps and terminals",
     icon: MonitorSmartphone,
+  },
+  {
+    path: "sign-in",
+    label: "Sign-in",
+    description: "Passkeys, single sign-on and signing out",
+    icon: KeyRound,
   },
   {
     path: "projects",
@@ -445,6 +452,13 @@ export function validateAbsolutePath(path: string): string | null {
   if (!p) return "Enter the path of the checkout on the host.";
   if (!p.startsWith("/")) return "Use an absolute path that starts with /, e.g. /Users/me/src/app.";
   return null;
+}
+
+/** Shape check for GET /api/auth/methods. */
+export function isAuthMethods(v: unknown): boolean {
+  if (typeof v !== "object" || v === null) return false;
+  const m = v as { passkeys?: unknown; passkeyAvailability?: unknown };
+  return Array.isArray(m.passkeys) && typeof m.passkeyAvailability === "object";
 }
 
 /** Split a textarea into trimmed non-empty lines. */

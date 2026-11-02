@@ -48,6 +48,7 @@ function project(id: string, name: string): Project {
     setupCommand: null,
     checks: [],
     workspaceSharing: "single_writer",
+    worktreeDir: ".worktrees",
     createdAt: T0,
     updatedAt: T0,
   };
@@ -89,6 +90,14 @@ describe("worktree preview", () => {
     expect(worktreePath("/Users/me/repo/", "feat/login/retry")).toBe(
       "/Users/me/repo/.worktrees/feat-login-retry",
     );
+  });
+
+  it("uses the project's worktree folder, defaulting to .worktrees", () => {
+    expect(worktreePath("/r", "feat/x", "wt")).toBe("/r/wt/feat-x");
+    expect(worktreePath("/r/", "feat/x", ".git/worktrees-switchyard")).toBe(
+      "/r/.git/worktrees-switchyard/feat-x",
+    );
+    expect(worktreePath("/r", "feat/x", undefined)).toBe("/r/.worktrees/feat-x");
   });
 
   it("flags invalid branch names", () => {
