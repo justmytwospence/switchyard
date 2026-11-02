@@ -4,7 +4,7 @@
   "target": {
     "extension": "@justmytwospence/pi-bg",
     "versionRange": ">=0.1.0 <1.0.0",
-    "testedVersions": []
+    "testedVersions": ["0.1.2"]
   },
   "protocolVersion": 1,
   "server": "server.js",

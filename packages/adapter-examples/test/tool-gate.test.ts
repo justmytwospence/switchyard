@@ -1,6 +1,6 @@
 import { validateUINode } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
-import { gateMessageInput, gateSelect, harness } from "./fixtures.js";
+import { gateMessageInput, gateSelect, harness, recordedGateSelect } from "./fixtures.js";
 
 describe("tool-gate adapter", () => {
   it("renders the approval as a table, note and one action per option", async () => {
@@ -80,6 +80,40 @@ describe("tool-gate adapter", () => {
       kind: "claim",
       adapterId: null,
       claim: { title: "Message for the agent" },
+    });
+  });
+
+  it("parses the payload recorded from pi-tool-gate 0.1.2", async () => {
+    const { session } = harness();
+    const out = await session.onUiRequest(recordedGateSelect);
+    if (out.kind !== "claim") throw new Error("expected claim");
+    expect(out.claim.title).toBe("Allow this call? bash");
+    expect(validateUINode(out.claim.presentation)).toEqual({
+      t: "section",
+      title: "Allow this call?",
+      children: [
+        {
+          t: "table",
+          columns: ["Field", "Value"],
+          rows: [
+            ["Action", "bash"],
+            ["Target", "echo hello"],
+            ["Held", "matches the ask rule Bash(echo:*) (session)"],
+            ["Agent", "(gave no reason)"],
+          ],
+        },
+        {
+          t: "actions",
+          actions: [
+            { id: "option:0", label: "Allow once", tone: "primary" },
+            { id: "option:1", label: "Block", tone: "danger" },
+            { id: "option:2", label: "Block with a message", tone: "danger" },
+          ],
+        },
+      ],
+    });
+    expect(await session.respond(out, { kind: "action", actionId: "option:1" })).toMatchObject({
+      response: { value: "Block" },
     });
   });
 

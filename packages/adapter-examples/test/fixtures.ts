@@ -57,11 +57,13 @@ export const fruitOtherInput: PiUiRequest = {
   title: `${fruitSelect.title}\n\nType your answer:`,
 };
 
+/** Format recorded from pi-ask-user-question 0.1.2 (test/compat/ask-user-question.compat.test.ts). */
 export const toppingsInput: PiUiRequest = {
   id: "aq-3",
   method: "input",
   title:
-    "[Toppings] Which toppings?\n\n--- 1. Cream ---\n```\ncream\n```\n\n1. Cream - Whipped\n2. Nuts - Crunchy\n3. Syrup - Sweet\n\nEnter the numbers of your choices, separated by commas (e.g. 1,3):",
+    "[Toppings] Which toppings?\n\n1. Cream - Whipped\n2. Nuts - Crunchy\n3. Syrup - Sweet\n\nEnter the numbers of all that apply, comma-separated (e.g. 1,3), or type an answer of your own.",
+  placeholder: "1,3",
 };
 
 export const sizeSelect: PiUiRequest = {
@@ -93,6 +95,15 @@ export const gateSelect: PiUiRequest = {
     "Block",
     "Block with a message",
   ],
+};
+
+/** Recorded from pi-tool-gate 0.1.2 for a bash call held by a session ask rule. */
+export const recordedGateSelect: PiUiRequest = {
+  id: "tg-3",
+  method: "select",
+  title:
+    "Allow this call?\nAction: bash\nTarget: echo hello\nHeld: matches the ask rule Bash(echo:*) (session)\nAgent: (gave no reason)",
+  options: ["Allow once", "Block", "Block with a message"],
 };
 
 export const gateMessageInput: PiUiRequest = {
