@@ -1,4 +1,14 @@
 {
   "files": [],
-  "references": [{ "path": "packages/protocol" }]
+  "references": [
+    { "path": "packages/protocol" },
+    { "path": "packages/test-fixtures" },
+    { "path": "packages/pi-runtime" },
+    { "path": "packages/adapter-sdk" },
+    { "path": "packages/adapter-examples" },
+    { "path": "packages/host-agent" },
+    { "path": "packages/coordinator" },
+    { "path": "packages/terminal" },
+    { "path": "packages/cli" }
+  ]
 }
