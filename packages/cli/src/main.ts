@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SwitchyardError } from "@switchyard/protocol";
 import { ApiRequestError, runTerminal } from "@switchyard/terminal";
@@ -27,7 +27,11 @@ import {
 import { CliError } from "./config.js";
 import { type Ctx, connect, defaultCtx } from "./context.js";
 
-export const CLI_VERSION = "0.1.0";
+export const CLI_VERSION: string = (
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    version: string;
+  }
+).version;
 
 /** Turn any thrown error into a message and exit code. */
 export function describeError(err: unknown): { message: string; code: number } {
