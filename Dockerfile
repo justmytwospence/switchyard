@@ -43,8 +43,11 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates openssh-client \
  && rm -rf /var/lib/apt/lists/*
 
+LABEL org.opencontainers.image.source="https://github.com/justmytwospence/switchyard"
+
 ENV NODE_ENV=production \
-    SWITCHYARD_WEB_DIST=/app/packages/web/dist
+    SWITCHYARD_WEB_DIST=/app/packages/web/dist \
+    SWITCHYARD_DATA_DIR=/data
 WORKDIR /app
 
 COPY --from=build --chown=node:node /app/package.json /app/pnpm-workspace.yaml ./
@@ -63,13 +66,6 @@ COPY --from=build --chown=node:node /app/packages/pi-runtime/node_modules /app/p
 COPY --from=build --chown=node:node /app/packages/adapter-sdk/package.json /app/packages/adapter-sdk/package.json
 COPY --from=build --chown=node:node /app/packages/adapter-sdk/dist /app/packages/adapter-sdk/dist
 COPY --from=build --chown=node:node /app/packages/adapter-sdk/node_modules /app/packages/adapter-sdk/node_modules
-
-# adapter-examples resolves the bg web renderer from `src/bg/web` (tsc does not copy HTML), so
-# its `src` tree ships next to `dist`.
-COPY --from=build --chown=node:node /app/packages/adapter-examples/package.json /app/packages/adapter-examples/package.json
-COPY --from=build --chown=node:node /app/packages/adapter-examples/dist /app/packages/adapter-examples/dist
-COPY --from=build --chown=node:node /app/packages/adapter-examples/src /app/packages/adapter-examples/src
-COPY --from=build --chown=node:node /app/packages/adapter-examples/node_modules /app/packages/adapter-examples/node_modules
 
 COPY --from=build --chown=node:node /app/packages/host-agent/package.json /app/packages/host-agent/package.json
 COPY --from=build --chown=node:node /app/packages/host-agent/dist /app/packages/host-agent/dist
