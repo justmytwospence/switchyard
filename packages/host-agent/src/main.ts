@@ -97,7 +97,10 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
       protocolVersion: PROTOCOL_VERSION,
     }),
     onCommand: (commandId, command) => {
-      void router.handle(commandId, command);
+      // A command still in flight when stop() closes the DB must not crash the process.
+      router.handle(commandId, command).catch((err: unknown) => {
+        log.warn({ commandId, err: (err as Error)?.message }, "command aborted");
+      });
     },
   });
 

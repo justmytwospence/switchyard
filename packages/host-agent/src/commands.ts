@@ -166,9 +166,11 @@ export class CommandRouter {
     const p = prev.catch(() => {}).then(work);
     this.queues.set(key, p);
     this.inflight.set(commandId, p);
-    void p.finally(() => {
+    p.finally(() => {
       this.inflight.delete(commandId);
       if (this.queues.get(key) === p) this.queues.delete(key);
+    }).catch(() => {
+      // The caller handles the rejection of `p`; this derived promise must not go unhandled.
     });
     return p;
   }
