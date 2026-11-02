@@ -1,0 +1,17 @@
+# Caddy reverse proxy for Switchyard. Replace the host name with the one in SWITCHYARD_PUBLIC_URL.
+#
+# - Caddy obtains and renews the certificate for the name by itself (the name must resolve to
+#   this machine and ports 80 and 443 must be reachable; see the Caddy docs for DNS challenges
+#   on a private network).
+# - WebSocket upgrades (/ws/client for browsers and terminals, /ws/host for host agents) are
+#   forwarded automatically. Do not add buffering, a timeout shorter than a few minutes, or a
+#   login gate (basic auth, forward auth) in front: host agents, webhooks and the installed
+#   app cannot pass one, and Switchyard has its own sign-in.
+# - Caddy sets X-Forwarded-For. Tell the coordinator to trust it, so rate limits count real
+#   clients and not the proxy: SWITCHYARD_TRUSTED_PROXIES=<Caddy's address or Docker subnet>.
+switchyard.example.com {
+	# Disable response buffering so streamed output reaches clients immediately.
+	reverse_proxy switchyard:7400 {
+		flush_interval -1
+	}
+}

@@ -1,40 +1,63 @@
-# Switchyard hub: the coordinator in Docker Compose with persistent state.
+# Switchyard server: the coordinator in Docker Compose with persistent state.
 #
 #   cd deploy
-#   export SWITCHYARD_PUBLIC_URL=https://switchyard.example.com
+#   export SWITCHYARD_PUBLIC_URL=https://switchyard.example.com   # the URL people will open
 #   mkdir -p data && sudo chown 1000:1000 data   # the container runs as uid 1000 (user "node")
-#   docker compose up -d --build
+#   docker compose up -d
+#   docker compose exec switchyard switchyard init   # prints your first sign-in link
+#
+# If the image is not public, `docker login ghcr.io` first with a token that can read packages.
 #
 # The coordinator only stores state and serves the web app and the client/host sockets. Pi
-# processes run on native host agents that connect outbound, so this service needs no Docker
-# socket and no mount of any host home directory. Do not add either.
+# processes run on host agents that connect outbound, so this service needs no Docker socket
+# and no mount of any home directory. Do not add either. See docs/deployment.md and docs/auth.md.
 services:
   switchyard:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: switchyard:latest
+    image: ghcr.io/justmytwospence/switchyard:0.2.0
     restart: unless-stopped
     volumes:
       # coordinator.db (+ WAL), admin.token (0600) and coordinator.lock. Protect this directory:
-      # admin.token grants full access.
+      # admin.token grants full access. The image sets SWITCHYARD_DATA_DIR=/data.
       - ./data:/data
     ports:
-      # Remove this mapping when only Traefik (or another proxy on a shared network) should
-      # reach the coordinator.
-      - "7400:7400"
+      # Published on loopback only: a reverse proxy on this machine (or `tailscale serve`)
+      # reaches it, nothing else does. Use "7400:7400" to serve plain HTTP on every interface
+      # (LAN or VPN), or remove the mapping when the proxy shares a Docker network with this
+      # service.
+      - "127.0.0.1:7400:7400"
     environment:
-      # The URL clients and hosts use to reach this coordinator. Used for enrollment links, the
-      # Secure cookie flag (https) and the default trusted origin. Compose reads it from the
-      # shell or from deploy/.env.
+      # The URL clients and hosts use to reach this coordinator, exactly as typed in a browser.
+      # Drives enrollment links, the OIDC redirect URI, the Secure cookie flag (https) and the
+      # passkey relying party (its host name). Compose reads it from the shell or deploy/.env.
       - SWITCHYARD_PUBLIC_URL=${SWITCHYARD_PUBLIC_URL:-http://localhost:7400}
       # Comma-separated browser origins allowed to call the API and open sockets. Defaults to the
       # origin of SWITCHYARD_PUBLIC_URL; set it only when browsers also use other origins.
       # - SWITCHYARD_TRUSTED_ORIGINS=https://switchyard.example.com,https://switchyard.lan
+      # Reverse proxies (IPs or CIDRs, comma-separated) whose X-Forwarded-For is trusted for the
+      # client IP. Default none. Set it to the proxy's address or Docker network subnet when one
+      # sits in front, or every client shares one rate-limit bucket.
+      # - SWITCHYARD_TRUSTED_PROXIES=172.18.0.0/16
       # Optional pino level: trace, debug, info (default), warn, error, fatal, silent.
       # - SWITCHYARD_LOG_LEVEL=info
+      #
+      # Single sign-on (any OpenID Connect provider). Declaring an owner makes the server owned
+      # at start, so no `switchyard init` is needed. Redirect URI at the provider:
+      # ${SWITCHYARD_PUBLIC_URL}/api/auth/oidc/callback. At least one OWNER_* match is required.
+      # - SWITCHYARD_OIDC_ISSUER=https://idp.example.com
+      # - SWITCHYARD_OIDC_CLIENT_ID=switchyard
+      # - SWITCHYARD_OIDC_CLIENT_SECRET=${SWITCHYARD_OIDC_CLIENT_SECRET}
+      # - SWITCHYARD_OIDC_LABEL=Sign in with single sign-on
+      # - SWITCHYARD_OIDC_SCOPES=openid profile email groups
+      # - SWITCHYARD_OIDC_OWNER_EMAIL=you@example.com
+      # - SWITCHYARD_OIDC_OWNER_SUBJECT=
+      # - SWITCHYARD_OIDC_OWNER_GROUP=
+      #
+      # Shared host enrollment secret (at least 32 characters, for example
+      # `openssl rand -base64 48`). Lets hosts started with the same secret enroll themselves.
+      # - SWITCHYARD_HOST_ENROLL_SECRET=${SWITCHYARD_HOST_ENROLL_SECRET}
     # Traefik, using the Docker provider. Uncomment these together with the `proxy` network below
-    # (or see traefik.example.yaml for the file-provider alternative).
+    # (or see traefik.example.yaml for the file-provider alternative, Caddyfile.example for
+    # Caddy). Then drop the `ports` mapping above.
     # labels:
     #   - traefik.enable=true
     #   - traefik.http.routers.switchyard.rule=Host(`switchyard.example.com`)
@@ -45,7 +68,37 @@ services:
     # networks:
     #   - proxy
 
-# The network Traefik is attached to. It must already exist (docker network create proxy).
+  # A host agent in a container, using the same image. Most people run the host natively
+  # (`switchyard host install-service`, see docs/deployment.md); use this only when the machine
+  # that owns your repositories is itself best run through Compose. It needs, from the machine:
+  #   - Pi on PATH. The image does not include it: build a small image FROM this one that
+  #     installs Pi, or set SWITCHYARD_PI_BIN to a mounted Pi.
+  #   - git (included) and the user's home directory, mounted at the SAME path it has on the
+  #     machine (repositories, Pi's credentials and sessions, ~/.config/switchyard/host.json
+  #     and the host state live there).
+  #   - the same uid as that home's owner, so files keep their ownership.
+  # Pi then runs with that user's full privileges: see the privilege model in the docs. It
+  # needs no Docker socket either.
+  #
+  # switchyard-host:
+  #   image: ghcr.io/justmytwospence/switchyard:0.2.0   # or your derived image that adds Pi
+  #   restart: unless-stopped
+  #   user: "1000:1000"                  # the owner of the home below
+  #   command: ["host", "run"]
+  #   working_dir: /home/me
+  #   volumes:
+  #     - /home/me:/home/me
+  #   environment:
+  #     - HOME=/home/me
+  #     # With the secret and URL set, a host with no host.json enrolls itself and waits for the
+  #     # coordinator if it is not up yet. Without them it logs how to enroll it by hand.
+  #     - SWITCHYARD_COORDINATOR_URL=http://switchyard:7400
+  #     - SWITCHYARD_HOST_ENROLL_SECRET=${SWITCHYARD_HOST_ENROLL_SECRET}
+  #     - SWITCHYARD_HOST_NAME=my-server
+  #   depends_on:
+  #     - switchyard
+
+# The network a Traefik instance is attached to. It must already exist (docker network create proxy).
 # networks:
 #   proxy:
 #     external: true

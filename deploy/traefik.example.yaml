@@ -5,6 +5,10 @@
 #   terminals) and /ws/host (host agents) need no extra middleware.
 # - Do not add buffering, compression or retry middlewares: streamed transcript output and the
 #   long-lived sockets must pass through unchanged.
+# - Do not put a login middleware (basic auth, forward auth) on this router: host agents,
+#   webhooks and installed apps cannot pass it, and Switchyard has its own sign-in.
+# - Set SWITCHYARD_TRUSTED_PROXIES on the coordinator to Traefik's address (or the Docker
+#   network subnet) so rate limits count real clients and not the proxy.
 # - Connections are long-lived. Leave the entrypoint read/idle timeouts generous (or unset);
 #   the host agent and clients reconnect on their own if a proxy drops one.
 http:
