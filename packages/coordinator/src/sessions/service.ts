@@ -1,5 +1,4 @@
 import {
-  branchSlug,
   type Checkout,
   type HostCommandOf,
   type NativeHandle,
@@ -12,7 +11,7 @@ import {
   type Workspace,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
-import { recordCreatedWorkspace } from "../workspaces.js";
+import { predictedWorktreePath, recordCreatedWorkspace, worktreeDirOf } from "../workspaces.js";
 
 export const LIVE_RUNTIMES: Session["runtime"][] = ["starting", "idle", "running", "waiting_input"];
 
@@ -164,8 +163,9 @@ export async function createWorkspace(
     branch,
     base: baseBranch,
     setupCommand: project.setupCommand,
+    worktreeDir: worktreeDirOf(project),
   });
-  const predicted = `${checkout.path}/.worktrees/${branchSlug(branch)}`;
+  const predicted = predictedWorktreePath(checkout, project, branch);
   return recordCreatedWorkspace(ctx, project, checkout, {
     path: typeof result?.path === "string" ? result.path : predicted,
     branch: typeof result?.branch === "string" ? result.branch : branch,
@@ -220,7 +220,11 @@ export function createSession(
     projectId: project.id,
     cwd:
       workspace?.path ??
-      `${checkout!.path}/.worktrees/${branchSlug((input.workspace as { newBranch: string }).newBranch)}`,
+      predictedWorktreePath(
+        checkout!,
+        project,
+        (input.workspace as { newBranch: string }).newBranch,
+      ),
     nativeHandle: null,
     profileSnapshot: profile,
     runtime: "starting",

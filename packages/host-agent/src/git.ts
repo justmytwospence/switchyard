@@ -10,6 +10,7 @@ import {
   type DiscoveredWorktree,
   type GitState,
   SwitchyardError,
+  WorktreeDir,
 } from "@switchyard/protocol";
 import { spawnShell, tailBytes } from "./checks.js";
 
@@ -239,12 +240,13 @@ async function listWorktrees(root: string): Promise<(PorcelainWorktree & { real:
 /** All worktrees of the checkout at `checkoutPath`, with provenance and (optionally) git status. */
 export async function discoverWorktrees(
   checkoutPath: string,
-  opts: { withStatus?: boolean; base?: string | null } = {},
+  opts: { withStatus?: boolean; base?: string | null; worktreeDir?: string } = {},
 ): Promise<DiscoveredWorktree[]> {
+  const worktreeDir = checkWorktreeDir(opts.worktreeDir ?? DEFAULT_WORKTREE_DIR);
   const info = await inspectCheckout(checkoutPath);
   const withStatus = opts.withStatus ?? true;
   const base = opts.base ?? info.defaultBranch;
-  const managedDir = join(info.root, ".worktrees");
+  const managedDir = join(info.root, worktreeDir);
   const worktrees = await listWorktrees(info.root);
   return Promise.all(
     worktrees.map(async (w): Promise<DiscoveredWorktree> => {
@@ -277,13 +279,32 @@ export async function validateBranch(name: string): Promise<void> {
   if (res.code !== 0 || res.stdout.trim() !== name) throw invalid();
 }
 
-/** Where Switchyard creates the worktree for `branch`. */
-export function managedWorktreePath(root: string, branch: string): string {
-  return join(root, ".worktrees", branchSlug(branch));
+export const DEFAULT_WORKTREE_DIR = ".worktrees";
+
+/** Re-validate a project's worktree folder: a plain relative path inside the checkout. */
+export function checkWorktreeDir(worktreeDir: string): string {
+  const parsed = WorktreeDir.safeParse(worktreeDir);
+  if (!parsed.success) {
+    const reason = parsed.error.issues[0]?.message ?? "invalid";
+    throw new SwitchyardError(
+      "invalid_request",
+      `Invalid worktree folder ${JSON.stringify(worktreeDir)}: ${reason}`,
+    );
+  }
+  return parsed.data;
 }
 
-/** Make sure `.worktrees/` is ignored through the repository's `info/exclude`. */
-async function ensureExcluded(commonDir: string): Promise<void> {
+/** Where Switchyard creates the worktree for `branch`. */
+export function managedWorktreePath(
+  root: string,
+  branch: string,
+  worktreeDir: string = DEFAULT_WORKTREE_DIR,
+): string {
+  return join(root, checkWorktreeDir(worktreeDir), branchSlug(branch));
+}
+
+/** Make sure `<worktreeDir>/` is ignored through the repository's `info/exclude`. */
+async function ensureExcluded(commonDir: string, worktreeDir: string): Promise<void> {
   const infoDir = join(commonDir, "info");
   const excludePath = join(infoDir, "exclude");
   await mkdir(infoDir, { recursive: true });
@@ -294,9 +315,12 @@ async function ensureExcluded(commonDir: string): Promise<void> {
     current = "";
   }
   const lines = current.split(/\r?\n/).map((l) => l.trim());
-  if (lines.includes(".worktrees/") || lines.includes("/.worktrees/")) return;
+  const line = `/${worktreeDir}/`;
+  if (lines.includes(line) || (!worktreeDir.includes("/") && lines.includes(`${worktreeDir}/`))) {
+    return;
+  }
   const prefix = current !== "" && !current.endsWith("\n") ? "\n" : "";
-  await appendFile(excludePath, `${prefix}/.worktrees/\n`);
+  await appendFile(excludePath, `${prefix}${line}\n`);
 }
 
 /** Create a managed worktree for `branch` (from `base` when the branch does not exist yet). */
@@ -304,13 +328,15 @@ export async function createWorktree(
   checkoutPath: string,
   branch: string,
   base: string,
+  worktreeDir: string = DEFAULT_WORKTREE_DIR,
 ): Promise<{ path: string; branch: string; baseBranch: string; root: string }> {
+  const dir = checkWorktreeDir(worktreeDir);
   const info = await inspectCheckout(checkoutPath);
   await validateBranch(branch);
   if (base === "" || base.startsWith("-")) {
     throw new SwitchyardError("invalid_request", `Invalid base: ${base}`);
   }
-  const path = managedWorktreePath(info.root, branch);
+  const path = managedWorktreePath(info.root, branch, dir);
   if (await exists(path)) throw new SwitchyardError("path_collision", `${path} already exists`);
 
   const slug = branchSlug(branch);
@@ -332,7 +358,7 @@ export async function createWorktree(
     }
   }
 
-  await ensureExcluded(info.commonDir);
+  await ensureExcluded(info.commonDir, dir);
 
   const known = await runGit(
     info.root,

@@ -60,6 +60,7 @@ describe("dispatcher", () => {
         branch: `sy/fix-the-login-bug-${short}`,
         base: "main",
         setupCommand: null,
+        worktreeDir: ".worktrees",
       },
     });
     expect(start!.prompt).toContain("# Task: Fix: the Login bug!");

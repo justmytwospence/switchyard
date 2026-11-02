@@ -187,7 +187,13 @@ export class Dispatcher {
         workspacePath = cmd.workspace.path;
       } else {
         const c = cmd.workspace.createFrom;
-        const created = await workspaces.create(c.checkoutPath, c.branch, c.base, c.setupCommand);
+        const created = await workspaces.create(
+          c.checkoutPath,
+          c.branch,
+          c.base,
+          c.setupCommand,
+          c.worktreeDir,
+        );
         workspacePath = created.path;
         db.tx(() => this.update(key, { workspace_path: workspacePath }));
         const setup = await created.setupDone;

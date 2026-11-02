@@ -38,8 +38,9 @@ export class WorkspaceService {
     branch: string,
     base: string,
     setupCommand: string | null,
+    worktreeDir?: string,
   ): Promise<CreatedWorkspace> {
-    const wt = await createWorktree(checkoutPath, branch, base);
+    const wt = await createWorktree(checkoutPath, branch, base, worktreeDir);
     const git = await worktreeStatus(wt.path, wt.baseBranch).catch(() => null);
     const initial: SetupState = setupCommand
       ? { state: "running", log: "" }

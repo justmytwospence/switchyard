@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { detectPi, type PiDetection } from "@switchyard/pi-runtime";
 import { PROTOCOL_VERSION, type Receipt } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
@@ -7,8 +8,9 @@ import {
   defaultStateDir,
   type HostConfig,
   hostPlatform,
-  loadConfig,
   statePaths,
+  type WaitTiming,
+  waitForConfig,
 } from "./config.js";
 import { type HostDb, openHostDb } from "./db/index.js";
 import { Dispatcher } from "./dispatch.js";
@@ -17,8 +19,12 @@ import { createLogger, type Logger } from "./logger.js";
 import { SessionSupervisor } from "./supervisor.js";
 import { WorkspaceService } from "./workspaces.js";
 
-/** Host agent version reported in `hello`. */
-export const AGENT_VERSION = "0.1.0";
+/** Host agent version reported in `hello` (this package's `package.json` version). */
+export const AGENT_VERSION: string = (
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    version: string;
+  }
+).version;
 
 export interface RunHostAgentOptions {
   /** host.json path (default `SWITCHYARD_HOST_CONFIG` or `~/.config/switchyard/host.json`). */
@@ -44,6 +50,10 @@ export interface RunHostAgentOptions {
   testHooks?: HostTestHooks;
   /** Timeout per check command. */
   checkTimeoutMs?: number;
+  /** Aborts waiting for host.json (or self-enrollment) when the config is missing. */
+  signal?: AbortSignal;
+  /** Test overrides for the waits while the config is missing. */
+  configWaitTiming?: Partial<WaitTiming>;
 }
 
 export interface HostAgentHandle {
@@ -68,7 +78,17 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   const env = opts.env ?? {};
   const mergedEnv = { ...process.env, ...env };
   const log = opts.logger ?? createLogger();
-  const config = opts.config ?? loadConfig(opts.configPath ?? defaultConfigPath(mergedEnv));
+  const configPath = opts.configPath ?? defaultConfigPath(mergedEnv);
+  // host.json when it exists; otherwise wait (self-enrolling with the shared secret when set).
+  const config =
+    opts.config ??
+    (await waitForConfig({
+      configPath,
+      env: mergedEnv,
+      log,
+      signal: opts.signal,
+      timing: opts.configWaitTiming,
+    }));
   const paths = statePaths(opts.stateDir ?? defaultStateDir(mergedEnv));
   const piBin = opts.piBin ?? mergedEnv.SWITCHYARD_PI_BIN ?? "pi";
 

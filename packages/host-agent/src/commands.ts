@@ -256,13 +256,16 @@ export class CommandRouter {
       case "checkout.inspect":
         return inspectCheckout(c.path);
       case "workspace.discover":
-        return { worktrees: await discoverWorktrees(c.checkoutPath) };
+        return {
+          worktrees: await discoverWorktrees(c.checkoutPath, { worktreeDir: c.worktreeDir }),
+        };
       case "workspace.create": {
         const { setupDone: _done, ...created } = await workspaces.create(
           c.checkoutPath,
           c.branch,
           c.base,
           c.setupCommand,
+          c.worktreeDir,
         );
         return created;
       }

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Workspace } from "@switchyard/protocol";
+import { makeRepo } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { git, Integration, tempDir, worktreePaths } from "./harness.js";
 
@@ -118,5 +119,63 @@ describe("worktrees via the API", { timeout: 120_000 }, () => {
     const r = await env.api("POST", `/api/workspaces/${ext.id}/remove`, { body: {} });
     expect(r.status).toBe(200);
     expect(existsSync(external)).toBe(false);
+  });
+
+  it("uses the project's worktree folder: worktreeDir 'wt' creates <repo>/wt/feat-x", async () => {
+    const repo = makeRepo({ remote: "https://example.invalid/acme/wt-folder.git" });
+    try {
+      const bad = await env.api("POST", "/api/projects", {
+        body: { name: "Escapes", hostId: env.hostId, path: repo.path, worktreeDir: "../x" },
+      });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error.code).toBe("invalid_request");
+
+      const p = await env.api("POST", "/api/projects", {
+        body: { name: "Custom folder", hostId: env.hostId, path: repo.path, worktreeDir: "wt" },
+      });
+      expect(p.status).toBe(201);
+      expect(p.body.worktreeDir).toBe("wt");
+      const checkoutId = p.body.checkouts[0].id as string;
+      const discover = env.hostCommands.filter(
+        (c) => c.type === "workspace.discover" && c.checkoutPath === repo.path,
+      );
+      expect(discover.at(-1)).toMatchObject({ worktreeDir: "wt" });
+
+      const r = await env.api("POST", "/api/workspaces", {
+        body: { checkoutId, branch: "feat/x" },
+      });
+      expect(r.status).toBe(201);
+      const ws = r.body as Workspace;
+      expect(ws.path).toBe(`${repo.path}/wt/feat-x`);
+      expect(ws.provenance).toBe("managed");
+      expect(existsSync(join(repo.path, "wt", "feat-x", "README.md"))).toBe(true);
+      expect(existsSync(join(repo.path, ".worktrees"))).toBe(false);
+      expect(git(repo.path, ["status", "--porcelain"]).trim()).toBe("");
+      expect(
+        env.hostCommands.find((c) => c.type === "workspace.create" && c.checkoutPath === repo.path),
+      ).toMatchObject({ worktreeDir: "wt" });
+
+      // Discovery classifies by the same folder.
+      const refreshed = await env.ok("POST", `/api/projects/${p.body.id}/refresh`);
+      expect(refreshed.errors).toEqual([]);
+      const found = (refreshed.workspaces as Workspace[]).find((w) => w.path === ws.path);
+      expect(found?.provenance).toBe("managed");
+
+      // The folder is a project setting: PATCH validates it the same way.
+      const patched = await env.api("PATCH", `/api/projects/${p.body.id}`, {
+        body: { worktreeDir: "/abs" },
+      });
+      expect(patched.status).toBe(400);
+      const ok = await env.ok("PATCH", `/api/projects/${p.body.id}`, {
+        body: { worktreeDir: ".git/worktrees-switchyard" },
+      });
+      expect(ok.worktreeDir).toBe(".git/worktrees-switchyard");
+
+      await env.ok("POST", `/api/workspaces/${ws.id}/remove`, {
+        body: { force: { dirty: true, unmerged: true } },
+      });
+    } finally {
+      repo.cleanup();
+    }
   });
 });

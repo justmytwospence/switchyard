@@ -1,4 +1,5 @@
 import {
+  branchSlug,
   type Checkout,
   CheckoutInfo,
   DiscoveredWorktree,
@@ -9,6 +10,23 @@ import {
 } from "@switchyard/protocol";
 import { z } from "zod";
 import type { CoordinatorContext } from "./context.js";
+
+/** Default managed worktree folder, relative to the checkout root. */
+export const DEFAULT_WORKTREE_DIR = ".worktrees";
+
+/** A project's worktree folder (rows written before 0.2 have none: the default). */
+export function worktreeDirOf(project: Pick<Project, "worktreeDir"> | undefined): string {
+  return project?.worktreeDir || DEFAULT_WORKTREE_DIR;
+}
+
+/** Where the host creates the managed worktree for `branch` (`<checkout>/<worktreeDir>/<slug>`). */
+export function predictedWorktreePath(
+  checkout: Pick<Checkout, "path">,
+  project: Pick<Project, "worktreeDir"> | undefined,
+  branch: string,
+): string {
+  return `${checkout.path}/${worktreeDirOf(project)}/${branchSlug(branch)}`;
+}
 
 const ZERO_GIT: GitState = { dirty: false, changedFiles: 0, ahead: 0, behind: 0, unmerged: false };
 const NO_SETUP: Workspace["setup"] = { state: "none", log: "" };
@@ -72,6 +90,7 @@ export async function refreshCheckoutWorkspaces(
   const raw = await ctx.hostHub.request<unknown>(checkout.hostId, {
     type: "workspace.discover",
     checkoutPath: checkout.path,
+    worktreeDir: worktreeDirOf(ctx.store.projects.get(checkout.projectId)),
   });
   const list = DiscoveredWorktree.array().parse(
     Array.isArray(raw) ? raw : ((raw as { worktrees?: unknown })?.worktrees ?? []),

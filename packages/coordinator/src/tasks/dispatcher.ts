@@ -1,5 +1,4 @@
 import {
-  branchSlug,
   type Checkout,
   DispatchStartResult,
   type Eligibility,
@@ -18,7 +17,7 @@ import {
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
 import { LIVE_RUNTIMES, resolveProfile } from "../sessions/service.js";
-import { recordCreatedWorkspace } from "../workspaces.js";
+import { predictedWorktreePath, recordCreatedWorkspace, worktreeDirOf } from "../workspaces.js";
 import { putTaskState, raiseFailed, saveRun, shortError } from "./common.js";
 import { defaultBranch, isLiveRun, LIVE_RUN_STATES } from "./state.js";
 
@@ -614,7 +613,7 @@ export class Dispatcher {
           cwd:
             ws.kind === "path"
               ? ws.path
-              : `${ws.checkout.path}/.worktrees/${branchSlug(ws.branch)}`,
+              : predictedWorktreePath(ws.checkout, store.projects.get(task.projectId), ws.branch),
           nativeHandle: null,
           profileSnapshot: plan.profile,
           runtime: "starting",
@@ -701,6 +700,7 @@ export class Dispatcher {
           branch: target.branch,
           base: target.base,
           setupCommand: project.setupCommand,
+          worktreeDir: worktreeDirOf(project),
         },
       };
     }

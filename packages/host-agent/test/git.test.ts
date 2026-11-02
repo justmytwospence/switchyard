@@ -257,6 +257,51 @@ describe("worktrees", () => {
     expect(noStatus.every((w) => w.git === null)).toBe(true);
   });
 
+  it("follows a project's worktree folder for the path, the exclude line and discovery", async () => {
+    const created = await createWorktree(r.path, "feat/x", "main", "wt");
+    const expected = join(r.path, "wt", "feat-x");
+    expect(created.path).toBe(expected);
+    expect(managedWorktreePath(r.path, "feat/x", "wt")).toBe(expected);
+    const exclude = readFileSync(join(r.path, ".git", "info", "exclude"), "utf8").split("\n");
+    expect(exclude).toContain("/wt/");
+    expect(exclude).not.toContain("/.worktrees/");
+    expect(git(r.path, ["status", "--porcelain"])).toBe("");
+    expect(existsSync(join(r.path, ".worktrees"))).toBe(false);
+
+    await createWorktree(r.path, "other", "main", "wt");
+    const again = readFileSync(join(r.path, ".git", "info", "exclude"), "utf8").split("\n");
+    expect(again.filter((l) => l === "/wt/")).toHaveLength(1);
+
+    // Classification follows the folder: under wt/ is managed, the default folder is not.
+    const legacy = await createWorktree(r.path, "legacy", "main");
+    const found = await discoverWorktrees(r.path, { withStatus: false, worktreeDir: "wt" });
+    const byPath = new Map(found.map((w) => [w.path, w.provenance]));
+    expect(byPath.get(r.path)).toBe("main");
+    expect(byPath.get(expected)).toBe("managed");
+    expect(byPath.get(legacy.path)).toBe("discovered");
+    const byDefault = await discoverWorktrees(r.path, { withStatus: false });
+    expect(byDefault.find((w) => w.path === expected)?.provenance).toBe("discovered");
+  });
+
+  it("accepts a nested worktree folder", async () => {
+    const created = await createWorktree(r.path, "feat/x", "main", ".git/worktrees-switchyard");
+    expect(created.path).toBe(join(r.path, ".git", "worktrees-switchyard", "feat-x"));
+    const found = await discoverWorktrees(r.path, {
+      withStatus: false,
+      worktreeDir: ".git/worktrees-switchyard",
+    });
+    expect(found.find((w) => w.path === created.path)?.provenance).toBe("managed");
+  });
+
+  it("rejects worktree folders outside the checkout", async () => {
+    for (const bad of ["../x", "/abs", "a/../../x", "", "wt\\x", "./wt", "wt/"]) {
+      await expectCode(createWorktree(r.path, "feat/x", "main", bad), "invalid_request");
+      await expectCode(discoverWorktrees(r.path, { worktreeDir: bad }), "invalid_request");
+      expect(() => managedWorktreePath(r.path, "feat/x", bad)).toThrow(SwitchyardError);
+    }
+    expect(existsSync(join(r.path, ".worktrees"))).toBe(false);
+  });
+
   it("reports dirty, changed files and unmerged commits", async () => {
     const { path } = await createWorktree(r.path, "feat/x", "main");
     expect(await worktreeStatus(path, null)).toEqual({

@@ -11,18 +11,30 @@ import type { FastifyInstance } from "fastify";
 import type { CoordinatorContext } from "../context.js";
 import { parse } from "../http.js";
 import { requireConnected } from "../sessions/service.js";
-import { inspectCheckout, refreshCheckoutWorkspaces } from "../workspaces.js";
+import {
+  DEFAULT_WORKTREE_DIR,
+  inspectCheckout,
+  refreshCheckoutWorkspaces,
+  worktreeDirOf,
+} from "../workspaces.js";
+
+/** Projects stored before 0.2 have no worktree folder: report the default. */
+function withDefaults(p: Project): Project {
+  return { ...p, worktreeDir: worktreeDirOf(p) };
+}
 
 function projectView(ctx: CoordinatorContext, p: Project) {
   return {
-    ...p,
+    ...withDefaults(p),
     checkouts: ctx.store.checkouts.list("project_id = ?", [p.id]),
     workspaces: ctx.store.workspaces.list("project_id = ? AND archived_at IS NULL", [p.id]),
   };
 }
 
 export function registerProjectRoutes(app: FastifyInstance, ctx: CoordinatorContext): void {
-  app.get("/api/projects", async () => ctx.store.projects.list(undefined, [], "created_at"));
+  app.get("/api/projects", async () =>
+    ctx.store.projects.list(undefined, [], "created_at").map(withDefaults),
+  );
 
   app.get("/api/projects/:id", async (req) =>
     projectView(ctx, ctx.store.projects.require((req.params as { id: string }).id)),
@@ -55,6 +67,7 @@ export function registerProjectRoutes(app: FastifyInstance, ctx: CoordinatorCont
         setupCommand: body.setupCommand ?? null,
         checks: body.checks ?? [],
         workspaceSharing: "single_writer",
+        worktreeDir: body.worktreeDir ?? DEFAULT_WORKTREE_DIR,
         createdAt: now,
         updatedAt: now,
       };
@@ -86,7 +99,7 @@ export function registerProjectRoutes(app: FastifyInstance, ctx: CoordinatorCont
       const p = ctx.store.projects.require(id);
       if (body.defaultProfileId) ctx.store.profiles.require(body.defaultProfileId);
       if (body.defaultHostId) ctx.store.hosts.require(body.defaultHostId);
-      const next: Project = { ...p, updatedAt: ctx.store.nowIso() };
+      const next: Project = { ...withDefaults(p), updatedAt: ctx.store.nowIso() };
       for (const [k, v] of Object.entries(body)) {
         if (v !== undefined) (next as Record<string, unknown>)[k] = v;
       }

@@ -145,4 +145,53 @@ describe("config", () => {
       server.close();
     }
   });
+
+  it("enroll() with the shared secret posts {secret, name, platform}", async () => {
+    const d = tempDir();
+    dirs.push(d);
+    const seen: { url: string; body: any }[] = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      seen.push({ url, body: JSON.parse(String(init.body)) });
+      return new Response(JSON.stringify({ hostId: "hst_s", credential: "cred_s" }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const configPath = join(d.path, "host.json");
+    const cfg = await enroll({
+      coordinatorUrl: "http://c.example/",
+      secret: "s".repeat(40),
+      name: "nuc",
+      platform: "linux",
+      configPath,
+      fetch: fakeFetch,
+    });
+    expect(seen).toEqual([
+      {
+        url: "http://c.example/api/hosts/enroll",
+        body: { secret: "s".repeat(40), name: "nuc", platform: "linux" },
+      },
+    ]);
+    expect(cfg).toMatchObject({ hostId: "hst_s", coordinatorUrl: "http://c.example", name: "nuc" });
+    expect(loadConfig(configPath).credential).toBe("cred_s");
+  });
+
+  it("enroll() needs exactly one of token or secret", async () => {
+    let calls = 0;
+    const fakeFetch = (async () => {
+      calls++;
+      return new Response("{}", { status: 500 });
+    }) as unknown as typeof fetch;
+    const base = { coordinatorUrl: "http://c", name: "x", fetch: fakeFetch };
+    await expect(
+      enroll({ ...base, token: "t", secret: "s" } as unknown as Parameters<typeof enroll>[0]),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      enroll({ ...base } as unknown as Parameters<typeof enroll>[0]),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(enroll({ ...base, token: "" })).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+    expect(calls).toBe(0);
+  });
 });

@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { HostEnrollResponse, SwitchyardError } from "@switchyard/protocol";
 import { z } from "zod";
@@ -95,9 +95,8 @@ export function hostPlatform(): "darwin" | "linux" {
   return process.platform === "darwin" ? "darwin" : "linux";
 }
 
-export interface EnrollOptions {
+interface EnrollCommon {
   coordinatorUrl: string;
-  token: string;
   name: string;
   /** Where to write host.json (default `defaultConfigPath()`). */
   configPath?: string;
@@ -105,20 +104,35 @@ export interface EnrollOptions {
   fetch?: typeof fetch;
 }
 
-/** Redeem a host enrollment token (`POST /api/hosts/enroll`) and write host.json. */
+/** Exactly one of `token` (a single-use host enrollment token) or `secret` (the shared secret). */
+export type EnrollOptions = EnrollCommon &
+  ({ token: string; secret?: undefined } | { secret: string; token?: undefined });
+
+/**
+ * Enroll this host (`POST /api/hosts/enroll`) with a single-use token or the server's shared
+ * host enrollment secret, and write host.json.
+ */
 export async function enroll(opts: EnrollOptions): Promise<HostConfig & { configPath: string }> {
+  const hasToken = typeof opts.token === "string" && opts.token !== "";
+  const hasSecret = typeof opts.secret === "string" && opts.secret !== "";
+  if (hasToken === hasSecret) {
+    throw new SwitchyardError(
+      "invalid_request",
+      "Enroll with exactly one of a host token or the shared enrollment secret",
+    );
+  }
   const base = opts.coordinatorUrl.replace(/\/+$/, "");
   const doFetch = opts.fetch ?? fetch;
+  const platform = opts.platform ?? hostPlatform();
+  const body = hasToken
+    ? { token: opts.token, name: opts.name, platform }
+    : { secret: opts.secret, name: opts.name, platform };
   let res: Response;
   try {
     res = await doFetch(`${base}/api/hosts/enroll`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        token: opts.token,
-        name: opts.name,
-        platform: opts.platform ?? hostPlatform(),
-      }),
+      body: JSON.stringify(body),
     });
   } catch (err) {
     throw new SwitchyardError(
@@ -127,20 +141,146 @@ export async function enroll(opts: EnrollOptions): Promise<HostConfig & { config
     );
   }
   const text = await res.text();
-  let body: unknown = null;
+  let parsed: unknown = null;
   try {
-    body = text ? JSON.parse(text) : null;
+    parsed = text ? JSON.parse(text) : null;
   } catch {
-    body = null;
+    parsed = null;
   }
   if (!res.ok) {
-    const err = (body as { error?: { code?: string; message?: string } } | null)?.error;
+    const err = (parsed as { error?: { code?: string; message?: string } } | null)?.error;
     const code = (err?.code ?? "internal") as ConstructorParameters<typeof SwitchyardError>[0];
     throw new SwitchyardError(code, err?.message ?? `Enrollment failed (HTTP ${res.status})`);
   }
-  const { hostId, credential } = HostEnrollResponse.parse(body);
+  const { hostId, credential } = HostEnrollResponse.parse(parsed);
   const config: HostConfig = { coordinatorUrl: base, hostId, credential, name: opts.name };
   const configPath = opts.configPath ?? defaultConfigPath();
   saveConfig(configPath, config);
   return { ...config, configPath };
+}
+
+/** The logging surface `waitForConfig` needs (a pino logger fits). */
+export interface WaitLogger {
+  info(obj: object, msg?: string): void;
+  warn(obj: object, msg?: string): void;
+}
+
+export interface WaitForConfigOptions {
+  configPath: string;
+  env: Env;
+  log: WaitLogger;
+  signal?: AbortSignal;
+  /** Test overrides for the waits (defaults: 5 s, 60 s, 5 s poll, 10 min reminder). */
+  timing?: Partial<WaitTiming>;
+  fetch?: typeof fetch;
+}
+
+export interface WaitTiming {
+  unreachableRetryMs: number;
+  errorRetryMs: number;
+  pollMs: number;
+  reminderMs: number;
+}
+
+const DEFAULT_TIMING: WaitTiming = {
+  unreachableRetryMs: 5_000,
+  errorRetryMs: 60_000,
+  pollMs: 5_000,
+  reminderMs: 10 * 60_000,
+};
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    if (signal?.aborted) {
+      reject(abortError(signal));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolvePromise();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError(signal as AbortSignal));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Aborted waiting for host config");
+}
+
+/**
+ * Resolve the host config without ever giving up: load host.json when it exists; otherwise
+ * self-enroll with `SWITCHYARD_HOST_ENROLL_SECRET` and `SWITCHYARD_COORDINATOR_URL` (retrying
+ * until it works); otherwise log the enroll command and wait for host.json to appear.
+ * Rejects only when `signal` aborts.
+ */
+export async function waitForConfig(opts: WaitForConfigOptions): Promise<HostConfig> {
+  const { configPath, env, log, signal } = opts;
+  const t = { ...DEFAULT_TIMING, ...opts.timing };
+  if (existsSync(configPath)) return loadConfig(configPath);
+
+  const secret = env.SWITCHYARD_HOST_ENROLL_SECRET?.trim();
+  const coordinatorUrl = env.SWITCHYARD_COORDINATOR_URL?.trim();
+  if (secret && coordinatorUrl) {
+    const name = env.SWITCHYARD_HOST_NAME?.trim() || hostname();
+    for (;;) {
+      if (signal?.aborted) throw abortError(signal);
+      // Someone may have enrolled this host by hand meanwhile.
+      if (existsSync(configPath)) return loadConfig(configPath);
+      try {
+        const enrolled = await enroll({
+          coordinatorUrl,
+          secret,
+          name,
+          configPath,
+          fetch: opts.fetch,
+        });
+        log.info({ hostId: enrolled.hostId, configPath }, "host enrolled with the shared secret");
+        return loadConfig(configPath);
+      } catch (err) {
+        if (err instanceof SwitchyardError && err.code === "host_unreachable") {
+          log.info({ coordinatorUrl }, "Coordinator not reachable yet; retrying");
+          await sleep(t.unreachableRetryMs, signal);
+        } else {
+          log.warn(
+            { coordinatorUrl, err: (err as Error).message },
+            "host enrollment failed; retrying in a minute",
+          );
+          await sleep(t.errorRetryMs, signal);
+        }
+      }
+    }
+  }
+
+  const url = coordinatorUrl || "<url>";
+  const hint =
+    "This host is not enrolled. Create a host token in Settings › Hosts › Add host, then run: " +
+    `switchyard host enroll --coordinator ${url} --token <token>`;
+  let lastReminder = Number.NEGATIVE_INFINITY;
+  let lastError: string | null = null;
+  for (;;) {
+    if (signal?.aborted) throw abortError(signal);
+    if (existsSync(configPath)) {
+      try {
+        return loadConfig(configPath);
+      } catch (err) {
+        // A file still being written (or a bad one) is retried rather than fatal.
+        const message = (err as Error).message;
+        if (message !== lastError)
+          log.warn({ configPath, err: message }, "host config not usable yet");
+        lastError = message;
+      }
+    }
+    const now = Date.now();
+    if (now - lastReminder >= t.reminderMs) {
+      log.info({ configPath }, hint);
+      lastReminder = now;
+    }
+    await sleep(t.pollMs, signal);
+  }
 }
