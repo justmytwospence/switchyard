@@ -1,0 +1,13 @@
+{
+  "id": "bg",
+  "version": "0.1.0",
+  "target": {
+    "extension": "@justmytwospence/pi-bg",
+    "versionRange": ">=0.1.0 <1.0.0",
+    "testedVersions": []
+  },
+  "protocolVersion": 1,
+  "server": "server.js",
+  "webRenderer": "web/bg-renderer.html",
+  "capabilities": ["panels", "progress", "state"]
+}

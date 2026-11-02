@@ -1,0 +1,13 @@
+{
+  "id": "plan-mode",
+  "version": "0.1.0",
+  "target": {
+    "extension": "@justmytwospence/pi-plan-mode",
+    "versionRange": ">=0.1.0 <1.0.0",
+    "testedVersions": []
+  },
+  "protocolVersion": 1,
+  "server": "server.js",
+  "webRenderer": null,
+  "capabilities": ["panels", "state"]
+}

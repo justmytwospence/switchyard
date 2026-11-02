@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>Background tasks</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font: 13px/1.4 system-ui, -apple-system, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 8px;
+      }
+      .status {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .bar {
+        height: 4px;
+        border-radius: 2px;
+        background: color-mix(in srgb, currentColor 15%, transparent);
+        margin-bottom: 8px;
+        overflow: hidden;
+      }
+      .bar > div {
+        height: 100%;
+        background: currentColor;
+      }
+      ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      li {
+        padding: 2px 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-family: ui-monospace, monospace;
+      }
+      .empty {
+        opacity: 0.6;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="empty">No background tasks</div>
+    <script>
+      // Switchyard adapter web renderer. Runs in <iframe sandbox="allow-scripts"> with an opaque
+      // origin and no credentials. Protocol (adapter-sdk web-bridge):
+      //   parent -> frame: {type: "render", node, state}
+      //   frame -> parent: {type: "action", actionId, payload} | {type: "resize", height}
+      (() => {
+        const root = document.getElementById("root");
+
+        const progress = (text) => {
+          const f = /(\d+)\s*\/\s*(\d+)/.exec(text);
+          if (f && Number(f[2]) > 0) return Math.min(1, Number(f[1]) / Number(f[2]));
+          const p = /(\d+(?:\.\d+)?)\s*%/.exec(text);
+          return p ? Math.min(1, Number(p[1]) / 100) : null;
+        };
+
+        // Fallback when no state is passed: collect text from the portable node.
+        const textsOf = (node, out) => {
+          if (!node || typeof node !== "object") return out;
+          if (node.t === "text" || node.t === "markdown") out.push(String(node.text));
+          if (node.t === "progress") out.push(String(node.label));
+          for (const kid of node.items || node.children || []) textsOf(kid, out);
+          return out;
+        };
+
+        const el = (tag, className, text) => {
+          const e = document.createElement(tag);
+          if (className) e.className = className;
+          if (text !== undefined) e.textContent = text;
+          return e;
+        };
+
+        const draw = (node, state) => {
+          let status = state && typeof state.status === "string" ? state.status : null;
+          let lines = state && Array.isArray(state.lines) ? state.lines.map(String) : null;
+          if (status === null && lines === null) {
+            const texts = textsOf(node, []);
+            status = texts.length ? texts[0] : null;
+            lines = texts.slice(1);
+          }
+          lines = lines || [];
+          root.textContent = "";
+          root.className = "";
+          if (!status && lines.length === 0) {
+            root.className = "empty";
+            root.textContent = "No background tasks";
+          }
+          if (status) {
+            root.appendChild(el("div", "status", status));
+            const v = progress(status);
+            if (v !== null) {
+              const bar = el("div", "bar");
+              const fill = el("div");
+              fill.style.width = `${Math.round(v * 100)}%`;
+              bar.appendChild(fill);
+              root.appendChild(bar);
+            }
+          }
+          if (lines.length) {
+            const ul = el("ul");
+            for (const line of lines) {
+              const li = el("li", "", line);
+              li.title = line;
+              ul.appendChild(li);
+            }
+            root.appendChild(ul);
+          }
+          parent.postMessage({ type: "resize", height: document.documentElement.scrollHeight }, "*");
+        };
+
+        window.addEventListener("message", (event) => {
+          if (event.source !== parent) return;
+          const msg = event.data;
+          if (msg?.type !== "render") return;
+          draw(msg.node, msg.state);
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "id": "subagents",
+  "version": "0.1.0",
+  "target": {
+    "extension": "@justmytwospence/pi-subagents",
+    "versionRange": ">=0.1.0 <1.0.0",
+    "testedVersions": []
+  },
+  "protocolVersion": 1,
+  "server": "server.js",
+  "webRenderer": null,
+  "capabilities": ["subagents", "state"]
+}
