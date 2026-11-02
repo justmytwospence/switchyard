@@ -1,12 +1,13 @@
 # Switchyard coordinator image (hub mode). Build from the repo root:
 #   docker build -t switchyard:latest .
 #
-# The image runs only the coordinator. Pi never runs here: native host agents run it on the
-# machines that own the repositories and credentials, and connect to this coordinator outbound.
-# So there is no Docker socket, no home directory mount and no Pi in the image.
+# By default the image runs only the coordinator. Pi never runs in the coordinator: host agents
+# run it on the machines that own the repositories and credentials, and connect outbound. The
+# coordinator needs no Docker socket, no home directory mount and no Pi. The same image can also
+# run a host agent (`switchyard host run`) as a host container whose home is the machine's own.
 
 # ---- build: install everything, compile every package and the web bundle ----------------------
-FROM node:26-bookworm-slim AS build
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS build
 
 # Node 25+ no longer bundles corepack; install it so the pnpm pinned in package.json is used.
 RUN npm install -g corepack@latest && corepack enable
@@ -33,7 +34,14 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     CI=true pnpm install --frozen-lockfile --prod --filter "@switchyard/cli..."
 
 # ---- runtime ----------------------------------------------------------------------------------
-FROM node:26-bookworm-slim AS runtime
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS runtime
+
+# git (and ssh for git remotes) for the host-agent role: the same image runs a host agent as a
+# host container (homelab host-home), where it manages worktrees and runs Pi from the mounted
+# home. The coordinator role does not use them.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates openssh-client \
+ && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
     SWITCHYARD_WEB_DIST=/app/packages/web/dist
@@ -81,6 +89,10 @@ COPY --from=build --chown=node:node /app/packages/cli/node_modules /app/packages
 
 # The web bundle served by the coordinator (SWITCHYARD_WEB_DIST).
 COPY --from=build --chown=node:node /app/packages/web/dist /app/packages/web/dist
+
+# `switchyard` on PATH, for `docker exec` (pair, backup) and the host role.
+RUN ln -s /app/packages/cli/dist/main.js /usr/local/bin/switchyard \
+ && chmod +x /app/packages/cli/dist/main.js
 
 # Persistent state: coordinator.db, admin.token and coordinator.lock live here.
 RUN mkdir -p /data && chown node:node /data
