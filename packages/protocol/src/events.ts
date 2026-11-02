@@ -28,6 +28,7 @@ export const EventDataSchemas = {
   "workspace.updated": Workspace,
   "workspace.removed": z.object({ id: z.string() }),
   "profile.updated": Profile,
+  "profile.deleted": z.object({ id: z.string() }),
   "session.updated": Session,
   "transcript.item": TranscriptItem,
   "interaction.updated": Interaction,
