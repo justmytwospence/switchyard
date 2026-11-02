@@ -15,7 +15,7 @@ import { CliError, writeEndpoint } from "../config.js";
 import type { Ctx } from "../context.js";
 import { defaultDataDir, type Env, resolveWebDist, standaloneHostPaths } from "../paths.js";
 import { printInit } from "./auth.js";
-import { localUrlFor, parseOrigins, waitForSignal } from "./coordinator.js";
+import { authOptionsFromEnv, localUrlFor, parseOrigins, waitForSignal } from "./coordinator.js";
 
 export interface UpFlags {
   port?: string;
@@ -60,6 +60,8 @@ export function upOptions(flags: UpFlags, env: Env) {
     publicUrl,
     trustedOrigins: trusted,
     webDist: resolveWebDist(flags.webDist, env),
+    // Same server env as `coordinator start`: shared host secret, trusted proxies and OIDC.
+    ...authOptionsFromEnv(env),
   };
 }
 

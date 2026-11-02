@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { openBrowser, startStandalone } from "../src/commands/up.js";
+import { openBrowser, startStandalone, upOptions } from "../src/commands/up.js";
 import { readEndpoint } from "../src/config.js";
 import { testCtx } from "./helpers.js";
 
@@ -88,6 +88,59 @@ describe("switchyard up (standalone)", () => {
     );
     try {
       expect(opened).toEqual([s.firstLink]);
+    } finally {
+      await s.stop();
+    }
+  });
+
+  it("reads the same server env as coordinator start: OIDC, trusted proxies and the host secret", () => {
+    const secret = "s".repeat(32);
+    const env = {
+      SWITCHYARD_HOST_ENROLL_SECRET: secret,
+      SWITCHYARD_TRUSTED_PROXIES: "127.0.0.1, 172.18.0.0/16",
+      SWITCHYARD_OIDC_ISSUER: "https://auth.example.com",
+      SWITCHYARD_OIDC_CLIENT_ID: "switchyard",
+      SWITCHYARD_OIDC_CLIENT_SECRET: "cs",
+      SWITCHYARD_OIDC_OWNER_EMAIL: "me@example.com",
+    };
+    const opts = upOptions({ port: "7401", dataDir: "/tmp/sy" }, env);
+    expect(opts.hostEnrollSecret).toBe(secret);
+    expect(opts.trustedProxies).toEqual(["127.0.0.1", "172.18.0.0/16"]);
+    expect(opts.oidc).toEqual({
+      issuer: "https://auth.example.com",
+      clientId: "switchyard",
+      clientSecret: "cs",
+      label: "Sign in with single sign-on",
+      scopes: "openid profile email groups",
+      owner: { subject: null, email: "me@example.com", group: null },
+    });
+    expect(upOptions({ port: "7401", dataDir: "/tmp/sy" }, {})).not.toHaveProperty("oidc");
+    expect(() =>
+      upOptions({ port: "7401" }, { SWITCHYARD_OIDC_ISSUER: "https://auth.example.com" }),
+    ).toThrow(/needs both/);
+  });
+
+  it("with an OIDC owner in env, comes up owned: no link, single sign-on offered", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "sy-up-"));
+    const ctx = testCtx((i, init) => fetch(i, init), {
+      SWITCHYARD_HOST_ENROLL_SECRET: "x".repeat(40),
+      SWITCHYARD_OIDC_ISSUER: "http://127.0.0.1:9/issuer",
+      SWITCHYARD_OIDC_CLIENT_ID: "switchyard",
+      SWITCHYARD_OIDC_LABEL: "Sign in with Mock",
+      SWITCHYARD_OIDC_OWNER_EMAIL: "me@example.com",
+    });
+    const opened: string[] = [];
+    const s = await startStandalone(
+      ctx,
+      { port: "0", host: "127.0.0.1", dataDir, name: "h", webDist: "/nonexistent", open: true },
+      { open: (u) => opened.push(u) },
+    );
+    try {
+      expect(s.firstLink).toBeNull();
+      expect(opened).toEqual([]);
+      expect(s.coordinator.config.hostEnrollSecret).toBe("x".repeat(40));
+      const setup = await (await fetch(`${s.localUrl}/api/setup`)).json();
+      expect(setup).toMatchObject({ initialized: true, oidc: { label: "Sign in with Mock" } });
     } finally {
       await s.stop();
     }
