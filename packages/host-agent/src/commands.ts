@@ -55,6 +55,19 @@ export function toErrorBody(err: unknown): ErrorBody {
 /** Serial-queue key: per session for session-scoped commands, else the shared host queue. */
 export function queueKey(command: HostCommand): string {
   if (command.type === "checks.run") return `checks:${command.sessionId}`;
+  // Control commands get their own per-session lane. A prompt that runs a slash command which
+  // opens a dialog does not return until that dialog is answered, so the answer (and Stop) must
+  // not queue behind it. They are still serialized among themselves, and answers stay atomic
+  // through the supervisor's id+revision transaction.
+  if (
+    command.type === "session.answer" ||
+    command.type === "session.abort" ||
+    command.type === "session.setControl" ||
+    command.type === "session.adapterAction" ||
+    command.type === "session.snapshot"
+  ) {
+    return `control:${command.sessionId}`;
+  }
   if ("sessionId" in command && typeof command.sessionId === "string") {
     return `session:${command.sessionId}`;
   }

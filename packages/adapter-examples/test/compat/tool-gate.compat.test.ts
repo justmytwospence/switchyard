@@ -61,18 +61,12 @@ describe.skipIf(skip !== null)(`tool-gate compat${skip ? ` (${skip})` : ""}`, ()
     const modes = (modeSelect.presentation as any).fields[0].options.map((o: any) => o.value);
     results.approvalModes = modes;
     expect(modes).toContain("Auto");
-    // Answered through the supervisor directly: a `session.answer` command would queue behind the
-    // still-running `session.prompt` (Pi answers a /command prompt only after its handler, which
-    // is waiting for this select), so the command path deadlocks until the prompt times out.
-    expect(
-      await h.agent.supervisor.answer(
-        s.id,
-        modeSelect.id,
-        modeSelect.revision,
-        { kind: "form", values: { value: "Auto" } },
-        "dev_compat",
-      ),
-    ).toMatchObject({ status: "answered" });
+    // Answered through the routed `session.answer` command while the `/approvals` prompt is still
+    // running: Pi answers a /command prompt only after its handler, which waits on this select, so
+    // the answer must not queue behind the prompt (control lane in CommandRouter).
+    expect(await s.answer(modeSelect, { kind: "form", values: { value: "Auto" } })).toMatchObject({
+      status: "answered",
+    });
     expect(await approvals).toMatchObject({ disposition: expect.any(String) });
     expect(s.uiResponses.find((r) => r.id === results.approvalsRequest?.id)?.body).toEqual({
       value: "Auto",
