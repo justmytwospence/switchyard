@@ -25,6 +25,7 @@ import type { AttentionService } from "./attention.js";
 import { safeEqualHex, sha256 } from "./auth.js";
 import { COORDINATOR_VERSION } from "./context.js";
 import type { EventHub } from "./event-hub.js";
+import { linkSubagentItem } from "./sessions/subagents.js";
 import type { Store } from "./store.js";
 
 export interface HostHubOptions {
@@ -192,6 +193,20 @@ export class HostHub {
       this.pending.set(commandId, { hostId, frame, resolve, reject, timer });
       conn.socket.send(frame);
     });
+  }
+
+  /**
+   * Withdraw a command still awaiting its receipt from a host that is not connected, so it is not
+   * re-sent on reconnect. Its caller sees `host_unreachable` with `{withdrawn: true}`. Returns
+   * whether it was withdrawn (a connected host may already be running it: nothing is withdrawn).
+   */
+  withdraw(commandId: string, reason: string): boolean {
+    const p = this.pending.get(commandId);
+    if (!p || this.isConnected(p.hostId)) return false;
+    clearTimeout(p.timer);
+    this.pending.delete(commandId);
+    p.reject(new SwitchyardError("host_unreachable", reason, { commandId, withdrawn: true }));
+    return true;
   }
 
   /** `send` and unwrap: returns `result` or throws a SwitchyardError with the host's code. */
@@ -476,8 +491,9 @@ export class HostHub {
         this.projectSession(hostId, ev, raw);
         return;
       case "transcript.item": {
-        const item = TranscriptItem.parse(raw);
+        let item = TranscriptItem.parse(raw);
         const session = this.ownedSession(hostId, item.sessionId);
+        if (item.kind === "subagent") item = linkSubagentItem(this.store, hostId, session, item);
         this.store.upsertItem(item);
         this.store.appendEvent(
           "transcript.item",
@@ -628,6 +644,9 @@ export class HostHub {
         aborted: settled?.aborted ?? next.runtimeDetail === "aborted",
         lastAssistantText: settled?.lastAssistantText ?? next.lastAssistantText,
       };
+      // Durable with the projection: a coordinator restart before the run is evaluated finds
+      // an unevaluated settle (see RunsService.recover).
+      if (next.runId) this.store.noteRunSettle(next.runId);
       this.store.afterCommit(() => this.hub.emit("session.settled", payload));
     }
   }
@@ -652,6 +671,15 @@ export class HostHub {
       return;
     }
     if (i.state === "unsupported") {
+      // A person chose one of its alternatives (stop or message): nothing is waiting any more.
+      if (i.resolution) {
+        this.attention.resolve({
+          sessionId: i.sessionId,
+          reason: "unsupported_interaction",
+          interactionId: i.id,
+        });
+        return;
+      }
       this.attention.raise({
         reason: "unsupported_interaction",
         sessionId: i.sessionId,

@@ -114,7 +114,9 @@ export const HostCommand = z.discriminatedUnion("type", [
     nativeHandle: NativeHandle.nullable(),
     profile: Profile,
     prompt: z.string(),
+    /** The launch's own revision; a takeover always carries a newer one. */
     controlRevision: z.number().int(),
+    controlMode: z.enum(["automation", "human"]).default("automation"),
   }),
   z.object({ type: z.literal("dispatch.reconcile"), dispatchKey: z.string() }),
   z.object({
@@ -194,6 +196,8 @@ export const ReconcileResult = z.union([
     workspacePath: z.string().nullable(),
     nativeHandle: NativeHandle.nullable(),
     error: z.string().nullable(),
+    /** `{started: "unknown"}` when the host restarted after Pi may have been spawned. */
+    errorDetails: z.record(z.string(), z.unknown()).nullable().default(null),
   }),
 ]);
 export type ReconcileResult = z.infer<typeof ReconcileResult>;

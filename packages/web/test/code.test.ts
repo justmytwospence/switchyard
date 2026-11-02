@@ -8,6 +8,7 @@ import {
   composerBlockReason,
   countAfter,
   fitPanes,
+  isSubagentView,
   outputPreview,
   parseDataUrl,
   sendModes,
@@ -150,12 +151,17 @@ describe("navigator tree", () => {
 });
 
 describe("composer", () => {
+  it("treats subagent sessions as view-only views refreshed on open", () => {
+    expect(isSubagentView(session("s", { provenance: "subagent", readOnly: true }))).toBe(true);
+    expect(isSubagentView(session("s"))).toBe(false);
+  });
+
   it("explains why sending is unavailable", () => {
     const base = { hostLink: "connected" as const, hostName: "mac" };
     expect(composerBlockReason({ ...base, session: session("s") })).toBeNull();
     expect(
       composerBlockReason({ ...base, session: session("s", { readOnly: true }) })?.reason,
-    ).toBe("Read-only subagent view");
+    ).toBe("Subagent: view only. Live control is not supported.");
     expect(
       composerBlockReason({ ...base, hostLink: "unreachable", session: session("s") })?.reason,
     ).toMatch(/^Host offline/);

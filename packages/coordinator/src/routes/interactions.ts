@@ -32,14 +32,19 @@ export function registerInteractionRoutes(app: FastifyInstance, ctx: Coordinator
 
   /**
    * Answer through the host (authoritative). 200 `{status: "answered", interaction}` or 409
-   * `already_answered` with `details.interaction`. Never resolves optimistically.
+   * `already_answered` with `details.interaction`. Never resolves optimistically. An unsupported
+   * interaction accepts one of its alternatives (`action` `abort` or `message`) once.
    */
   app.post("/api/interactions/:id/answer", async (req) => {
     const { id } = req.params as { id: string };
     const body = parse(AnswerRequest, req.body);
     const device = deviceOf(req);
     const interaction = ctx.store.interactions.require(id);
-    if (interaction.state !== "pending") {
+    // Unsupported (terminal-only) dialogs offer alternatives (stop, message) until one is chosen.
+    const answerable =
+      interaction.state === "pending" ||
+      (interaction.state === "unsupported" && !interaction.resolution);
+    if (!answerable) {
       throw new SwitchyardError("already_answered", "This question was already answered", {
         interaction,
       });

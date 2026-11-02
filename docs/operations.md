@@ -64,7 +64,14 @@ The coordinator writes structured JSON (pino) to stdout. Set the level with `SWI
 docker compose logs -f switchyard
 ```
 
-These fields are redacted and appear as `[redacted]`: `req.headers.authorization`, `req.headers.cookie`, and any nested `credential`, `token`, `keys`, `p256dh` or `auth` field. Enrollment URLs contain a single-use token and are logged once at first start (the bootstrap link); they expire after 10 minutes.
+These fields are redacted and appear as `[redacted]`: `req.headers.authorization`, `req.headers.cookie`, and any nested `credential`, `token`, `keys`, `p256dh` or `auth` field. Enrollment URLs contain a single-use token and are never written to the log: at first start the bootstrap link is printed to the console (stderr) only, and the log records just its expiry. They expire after 10 minutes.
+
+## Webhooks
+
+`POST /api/hooks/<automationId>` (bearer webhook token) fires a webhook automation. Each delivery becomes one occurrence, keyed for deduplication:
+
+- With an `Idempotency-Key` header (or GitHub's `X-GitHub-Delivery`), the key is that value: a redelivery with the same value returns the original occurrence (`duplicate: true`) and fires nothing.
+- Without either header, the key is the SHA-256 of the JSON body plus the current 10-minute window (UTC, aligned to the epoch). A sender that retries the same body within the window gets the original occurrence back. Two identical bodies sent on purpose within one window are also treated as one delivery, and a retry that crosses a window boundary fires again; senders that need exact semantics should send an `Idempotency-Key`.
 
 ## Health
 

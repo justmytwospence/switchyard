@@ -449,7 +449,9 @@ function InteractionEntry({
       <InteractionCard
         id={interactionDomId(interaction.id)}
         interaction={interaction}
-        readOnlyReason={interaction.state === "pending" ? readOnly : null}
+        readOnlyReason={
+          interaction.state === "pending" || interaction.state === "unsupported" ? readOnly : null
+        }
         className="w-full"
       />
     </div>

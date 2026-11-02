@@ -150,4 +150,77 @@ describe("interaction answers", () => {
     const list = await t.admin("GET", "/api/attention");
     expect(list.body).toHaveLength(1);
   });
+
+  it("forwards an alternative for an unsupported dialog once and resolves its attention", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    host = await FakeHost.connect(t, creds);
+    await host.event("session.updated", hostSession("ses_v", { runtime: "running" }));
+    const unsupported: Interaction = {
+      ...pending("int_v", "ses_v"),
+      source: { kind: "unsupported_custom", title: null },
+      title: "Terminal-only interface requested",
+      presentation: {
+        t: "actions",
+        actions: [
+          { id: "abort", label: "Stop the run", tone: "danger" },
+          { id: "message", label: "Send a message to the agent", tone: "primary" },
+        ],
+      },
+      state: "unsupported",
+    };
+    await host.event("interaction.updated", unsupported);
+    expect(
+      t.c.attention.open({ sessionId: "ses_v", reason: "unsupported_interaction" }),
+    ).toHaveLength(1);
+    const answers: HostCommand[] = [];
+    host.handler = async (cmd) => {
+      if (cmd.type !== "session.answer") return null;
+      answers.push(cmd);
+      return {
+        status: "answered",
+        interaction: {
+          ...unsupported,
+          resolution: { by: cmd.deviceId, summary: "Stop the run", at: new Date().toISOString() },
+        },
+      };
+    };
+    const body = { revision: 1, response: { kind: "action", actionId: "abort" } };
+    const r = await t.admin("POST", "/api/interactions/int_v/answer", body);
+    expect(r.status).toBe(200);
+    expect(r.body.interaction).toMatchObject({
+      state: "unsupported",
+      resolution: { summary: "Stop the run" },
+    });
+    expect(answers).toHaveLength(1);
+    expect(answers[0]).toMatchObject({ response: { kind: "action", actionId: "abort" } });
+    expect(t.c.attention.open({ sessionId: "ses_v", reason: "unsupported_interaction" })).toEqual(
+      [],
+    );
+    // Once an alternative was chosen, later answers are refused without asking the host.
+    const again = await t.admin("POST", "/api/interactions/int_v/answer", body);
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe("already_answered");
+    expect(answers).toHaveLength(1);
+  });
+
+  it("resolves unsupported_interaction attention when the host reports the resolution", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    host = await FakeHost.connect(t, creds);
+    await host.event("session.updated", hostSession("ses_w", { runtime: "running" }));
+    const base = {
+      ...pending("int_w", "ses_w"),
+      source: { kind: "unsupported_custom" as const, title: null },
+      presentation: { t: "text" as const, text: "unsupported" },
+      state: "unsupported" as const,
+    };
+    await host.event("interaction.updated", base);
+    expect(t.c.attention.open({ sessionId: "ses_w" })).toHaveLength(1);
+    await host.event("interaction.updated", {
+      ...base,
+      resolution: { by: "dev_x", summary: "Send a message to the agent", at: base.createdAt },
+    });
+    expect(t.c.attention.open({ sessionId: "ses_w" })).toEqual([]);
+  });
 });

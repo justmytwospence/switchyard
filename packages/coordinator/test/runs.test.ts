@@ -271,6 +271,90 @@ describe("runs", () => {
     expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(0);
   });
 
+  it("a settle arriving while the previous one is evaluated is evaluated afterwards, not dropped", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h, { policy: continuation() });
+    let release!: () => void;
+    h.state.promptGate = new Promise<void>((r) => {
+      release = r;
+    });
+    await settle(h, run.sessionId!, "Partway there.");
+    await until(() => commandsOf(h!.host, "session.prompt").length === 1);
+    // The continuation is still awaiting its receipt when the next settle (DONE) arrives.
+    await settle(h, run.sessionId!, "All done.\nSWITCHYARD: DONE");
+    h.state.promptGate = null;
+    release();
+    await until(() => task(h!, tk.id).state === "review");
+    expect(commandsOf(h.host, "session.prompt")).toHaveLength(1);
+  });
+
+  it("recovery: an idle session whose settle was never evaluated is evaluated on host connect", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h);
+    const store = h.t.c.store;
+    // The settle was projected, then the coordinator stopped before evaluating it.
+    store.tx(() => {
+      const s = store.sessions.require(run.sessionId!);
+      store.putSession({ ...s, runtime: "idle", lastAssistantText: "Done.\nSWITCHYARD: DONE" });
+      store.noteRunSettle(run.id);
+    });
+    await sleep(30);
+    expect(task(h, tk.id).state).toBe("in_progress");
+    await h.host.close();
+    await h.host.open();
+    await until(() => task(h!, tk.id).state === "review");
+    // Evaluated once: another reconnect changes nothing.
+    const events = store.eventsAfter(0, 100_000).length;
+    await h.host.close();
+    await h.host.open();
+    await sleep(50);
+    expect(runOf(h, tk.id).state).toBe("succeeded");
+    expect(
+      store
+        .eventsAfter(0, 100_000)
+        .slice(events)
+        .filter((e) => e.type === "task.updated"),
+    ).toHaveLength(0);
+  });
+
+  it("recovery: a run left in checking re-sends checks.run with a deterministic command id", async () => {
+    h = await setupHarness({ checks: ["npm test"] });
+    const { task: tk, run } = await startRun(h);
+    const store = h.t.c.store;
+    // The coordinator stopped after persisting `checking`, before the receipt came back.
+    store.tx(() => store.putRun({ ...store.runs.require(run.id), state: "checking" }));
+    await h.host.close();
+    await h.host.open();
+    await until(() => task(h!, tk.id).state === "review");
+    const sent = h.host.commands.filter((c) => c.command.type === "checks.run");
+    expect(sent.map((c) => c.commandId)).toEqual([`chk_${run.id}_1_0_1`]);
+  });
+
+  it("recovery: an unacknowledged continuation is re-sent with the same command id and text", async () => {
+    h = await setupHarness();
+    const { run } = await startRun(h, { policy: continuation() });
+    const store = h.t.c.store;
+    // Persisted (count and text) but the coordinator stopped before the host acknowledged.
+    store.tx(() => {
+      store.putRun({ ...store.runs.require(run.id), continuationsUsed: 1 });
+      store.setSetting(`runContinuation:${run.id}`, { n: 1, text: "Continue: persisted text" });
+    });
+    await h.host.close();
+    await h.host.open();
+    await until(() => commandsOf(h!.host, "session.prompt").length === 1);
+    const [sent] = h.host.commands.filter((c) => c.command.type === "session.prompt");
+    expect(sent!.commandId).toBe(`cont_${run.id}_1`);
+    expect(sent!.command).toMatchObject({ text: "Continue: persisted text", origin: "automation" });
+    await until(() => store.getSetting(`runContinuation:${run.id}`, null) === null);
+    expect(runOf(h, run.taskId).continuationsUsed).toBe(1);
+    // Normal continuations use deterministic ids too.
+    await settle(h, run.sessionId!, "Partway there.");
+    await until(() => commandsOf(h!.host, "session.prompt").length === 2);
+    expect(h.host.commands.filter((c) => c.command.type === "session.prompt")[1]!.commandId).toBe(
+      `cont_${run.id}_2`,
+    );
+  });
+
   it("mirrors waiting_input and interrupted session runtime into the run", async () => {
     h = await setupHarness();
     const { task: tk, run } = await startRun(h);

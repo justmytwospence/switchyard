@@ -35,6 +35,7 @@ async function setControl(
     return { session, run: updated };
   });
   ctx.hub.emit("control.changed", { run, session, mode });
+  if (mode === "human") getService(ctx, "dispatcher")?.onTakeover(run.id);
   if (ctx.hostHub.isConnected(session.hostId)) {
     try {
       await ctx.hostHub.request(session.hostId, {
@@ -70,7 +71,7 @@ export async function takeoverRun(ctx: CoordinatorContext, runId: string): Promi
   if (run.sessionId && ctx.store.sessions.get(run.sessionId)?.runId === run.id) {
     return (await takeover(ctx, run.sessionId)).run;
   }
-  return ctx.store.tx(() => {
+  const updated = ctx.store.tx(() => {
     const cur = ctx.store.runs.require(runId);
     const task = ctx.store.tasks.get(cur.taskId);
     return ctx.store.putRun(
@@ -83,6 +84,8 @@ export async function takeoverRun(ctx: CoordinatorContext, runId: string): Promi
       task?.projectId,
     );
   });
+  getService(ctx, "dispatcher")?.onTakeover(updated.id);
+  return updated;
 }
 
 /**

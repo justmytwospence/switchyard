@@ -243,6 +243,92 @@ describe("dispatcher", () => {
     expect(runOf(h, tk.id).state).toBe("failed");
   });
 
+  it("a host restart after Pi may have started never replays the prompt (receipt)", async () => {
+    h = await setupHarness();
+    const handle = { sessionId: "native-x", sessionFile: "/s/native-x.jsonl" };
+    h.override = (cmd) =>
+      cmd.type === "dispatch.start"
+        ? {
+            __error: {
+              code: "internal",
+              message: "Host agent restarted during launch; Pi may have started",
+              details: {
+                started: "unknown",
+                nativeHandle: handle,
+                workspacePath: `${ROOT}/.worktrees/x`,
+              },
+            },
+          }
+        : undefined;
+    const tk = await createTask(h, { state: "ready" });
+    await until(() => task(h!, tk.id).blocked !== null);
+    await sleep(30);
+    dispatcherOf(h).tick();
+    await sleep(30);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
+    expect(h.t.c.store.runs.list("task_id = ?", [tk.id])).toHaveLength(1);
+    const run = runOf(h, tk.id);
+    expect(run.state).toBe("interrupted");
+    expect(task(h, tk.id)).toMatchObject({
+      state: "in_progress",
+      blocked: { reason: "Host restarted during launch; verify and resume" },
+    });
+    expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(1);
+    const session = h.t.c.store.sessions.require(run.sessionId!);
+    expect(session.nativeHandle).toEqual(handle);
+    expect(session.cwd).toBe(`${ROOT}/.worktrees/x`);
+    expect(session.runtime).toBe("interrupted");
+  });
+
+  it("a host restart after Pi may have started never replays the prompt (reconcile)", async () => {
+    h = await setupHarness({ coordinator: { dispatcher: { tickMs: 0, startTimeoutMs: 300 } } });
+    let restarted = false;
+    h.override = (cmd) => {
+      if (cmd.type === "dispatch.start" && !restarted) return NO_REPLY;
+      if (cmd.type === "dispatch.reconcile") {
+        return {
+          known: true,
+          sessionId: null,
+          state: "failed",
+          runtime: null,
+          workspacePath: null,
+          nativeHandle: null,
+          error: "Host agent restarted during launch; Pi may have started",
+          errorDetails: { started: "unknown", nativeHandle: null, workspacePath: null },
+        };
+      }
+      return undefined;
+    };
+    const tk = await createTask(h, { state: "ready" });
+    await untilRun(h, tk.id, "uncertain");
+    restarted = true;
+    await h.host.close();
+    await h.host.open();
+    await until(() => task(h!, tk.id).blocked !== null);
+    expect(task(h, tk.id).blocked?.reason).toBe("Host restarted during launch; verify and resume");
+    expect(runOf(h, tk.id).state).toBe("interrupted");
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
+    expect(h.t.c.store.runs.list("task_id = ?", [tk.id])).toHaveLength(1);
+    expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(1);
+  });
+
+  it("a host restart before Pi was spawned is retried like any pre-start failure", async () => {
+    h = await setupHarness();
+    h.override = (cmd) =>
+      cmd.type === "dispatch.start"
+        ? {
+            __error: {
+              code: "internal",
+              message: "Host agent restarted during dispatch",
+              details: { started: false },
+            },
+          }
+        : undefined;
+    const tk = await createTask(h, { state: "ready" });
+    await until(() => runOf(h!, tk.id).state === "queued");
+    expect(runOf(h, tk.id).infraRetries).toBe(1);
+  });
+
   it("explains waits and honors pause, dependencies and run-now", async () => {
     h = await setupHarness();
     await h.t.admin("POST", "/api/dispatch/pause", { paused: true });
@@ -287,6 +373,25 @@ describe("dispatcher", () => {
     await h.host.close();
     await until(() => !h!.t.c.hostHub.isConnected(h!.creds.hostId));
     expect(dispatcherOf(h).eligibility(task(h, t2.id))).toMatchObject({ wait: "host_offline" });
+  });
+
+  it("a canceled dependency is reported as invalid configuration, not an endless wait", async () => {
+    h = await setupHarness();
+    const dep = await createTask(h, { title: "Schema migration" });
+    const tk = await createTask(h, { state: "ready", dependencies: [dep.id] });
+    let e = await h.t.admin("GET", `/api/tasks/${tk.id}/eligibility`);
+    expect(e.body).toMatchObject({ wait: "dependency" });
+    const c = await h.t.admin("POST", `/api/tasks/${dep.id}/cancel`, {});
+    expect(c.status).toBe(200);
+    e = await h.t.admin("GET", `/api/tasks/${tk.id}/eligibility`);
+    expect(e.body).toMatchObject({
+      eligible: false,
+      wait: "invalid_configuration",
+      message: "Dependency Schema migration was canceled",
+    });
+    dispatcherOf(h).tick();
+    await sleep(20);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(0);
   });
 
   it("moves, deletes and validates tasks", async () => {

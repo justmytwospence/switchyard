@@ -182,7 +182,15 @@ export function App({ client, initialSessionId, onExit }: AppProps) {
     try {
       const out = await client.answer(i, response);
       if (out.status === "already_answered") say(`Already answered: ${out.summary}`);
-      else say(`Answered: ${out.interaction.resolution?.summary ?? i.title}`);
+      else if (
+        i.state === "unsupported" &&
+        response.kind === "action" &&
+        response.actionId === "message"
+      ) {
+        // The alternative to a terminal-only dialog: type the message in the composer.
+        setFocus("composer");
+        say("Type your message to the agent below and press Enter");
+      } else say(`Answered: ${out.interaction.resolution?.summary ?? i.title}`);
     } catch (err) {
       say(errorText(err), "error");
     } finally {

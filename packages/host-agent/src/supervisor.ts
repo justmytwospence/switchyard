@@ -142,6 +142,24 @@ interface Live {
 
 const LIVE_RUNTIMES: RuntimeState[] = ["starting", "idle", "running", "waiting_input"];
 
+interface ControlState {
+  controlRevision: number;
+  controlMode: "automation" | "human";
+}
+
+/**
+ * Whether control `next` replaces `cur`: a newer revision always does; at an equal revision only
+ * human control does (never back to automation).
+ */
+export function supersedes(next: ControlState, cur: ControlState): boolean {
+  if (next.controlRevision > cur.controlRevision) return true;
+  return (
+    next.controlRevision === cur.controlRevision &&
+    next.controlMode === "human" &&
+    cur.controlMode !== "human"
+  );
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -227,6 +245,8 @@ export class SessionSupervisor {
   private readonly records = new Map<string, HostSessionRecord>();
   private spawned = 0;
   private closing = false;
+  /** Control changes for sessions this host has not created yet. */
+  private readonly pendingControl = new Map<string, ControlState>();
 
   constructor(opts: SupervisorOptions) {
     this.opts = opts;
@@ -334,9 +354,21 @@ export class SessionSupervisor {
     return rec ? { controlRevision: rec.controlRevision, controlMode: rec.controlMode } : null;
   }
 
+  /**
+   * Apply a control change. Human control wins at an equal revision; automation needs a strictly
+   * newer one, so a launch replaying its own revision can never undo a takeover. A session this
+   * host does not know yet (a launch still preparing its worktree) keeps the change until
+   * `start()` creates it.
+   */
   setControl(sessionId: string, controlRevision: number, mode: "automation" | "human") {
-    const rec = this.requireRecord(sessionId);
-    if (controlRevision >= rec.controlRevision) {
+    const next: ControlState = { controlRevision, controlMode: mode };
+    const rec = this.records.get(sessionId);
+    if (!rec) {
+      const pending = this.pendingControl.get(sessionId);
+      if (!pending || supersedes(next, pending)) this.pendingControl.set(sessionId, next);
+      return { ...this.pendingControl.get(sessionId)! };
+    }
+    if (supersedes(next, rec)) {
       rec.controlRevision = controlRevision;
       rec.controlMode = mode;
       this.db.tx(() => this.saveRecord(rec));
@@ -344,11 +376,16 @@ export class SessionSupervisor {
     return { controlRevision: rec.controlRevision, controlMode: rec.controlMode };
   }
 
-  /** Raise the stored revision (an accepted automation command carried a newer one). */
+  /**
+   * An automation command with a strictly newer revision was accepted: the coordinator only
+   * sends those after returning the run to automation, so record automation control too (a
+   * missed `setControl` must not stall later continuations).
+   */
   noteRevision(sessionId: string, controlRevision: number): void {
     const rec = this.records.get(sessionId);
     if (rec && controlRevision > rec.controlRevision) {
       rec.controlRevision = controlRevision;
+      rec.controlMode = "automation";
       this.db.tx(() => this.saveRecord(rec));
     }
   }
@@ -409,6 +446,15 @@ export class SessionSupervisor {
       }
     }
     const now = nowIso();
+    // The newest control wins: the launch's own, the record's, or a takeover that arrived while
+    // the launch was still preparing its workspace.
+    let control: ControlState = { controlRevision: p.controlRevision, controlMode: p.controlMode };
+    for (const c of [prev, this.pendingControl.get(p.sessionId)]) {
+      if (c && supersedes(c, control)) {
+        control = { controlRevision: c.controlRevision, controlMode: c.controlMode };
+      }
+    }
+    this.pendingControl.delete(p.sessionId);
     const rec: HostSessionRecord = {
       id: p.sessionId,
       title: p.title,
@@ -423,8 +469,8 @@ export class SessionSupervisor {
       nativeHandle,
       runtime: "starting",
       runtimeDetail: null,
-      controlRevision: Math.max(p.controlRevision, prev?.controlRevision ?? 0),
-      controlMode: p.controlMode,
+      controlRevision: control.controlRevision,
+      controlMode: control.controlMode,
       origin: p.origin,
       readOnly: false,
       provenance: prev?.provenance ?? (nativeHandle ? "imported" : "created"),
@@ -493,7 +539,18 @@ export class SessionSupervisor {
         : new SwitchyardError("internal", `Pi failed to start: ${errorMessage(err)}`);
     }
     this.spawned++;
-    if (p.initialPrompt) await ms.prompt(p.initialPrompt, [], "prompt");
+    if (p.initialPrompt) {
+      // An automated launch taken over meanwhile starts Pi but never sends its prompt.
+      const lostControl = p.origin === "automation" && rec.controlMode === "human";
+      if (lostControl) {
+        this.opts.log.info(
+          { sessionId: rec.id, controlRevision: rec.controlRevision },
+          "launch prompt withheld: a person took over before it was sent",
+        );
+      } else {
+        await ms.prompt(p.initialPrompt, [], "prompt");
+      }
+    }
     return {
       sessionId: rec.id,
       nativeHandle: rec.nativeHandle,

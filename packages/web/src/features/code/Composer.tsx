@@ -29,6 +29,7 @@ import {
   type ImageAttachment,
   isBusy,
   readImageFile,
+  SUBAGENT_READ_ONLY,
   sendModes,
 } from "./model";
 
@@ -274,7 +275,7 @@ export function Composer({
             aria-describedby={sendReason ? `${hintId}-reason` : undefined}
             placeholder={
               session.readOnly
-                ? "Read-only subagent view"
+                ? SUBAGENT_READ_ONLY
                 : running
                   ? "Steer Pi or queue a follow-up…"
                   : "Message Pi… ( / for commands)"

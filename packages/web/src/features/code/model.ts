@@ -277,6 +277,14 @@ export function hostLink(host: Host | undefined, session: Session): HostLink {
   return host?.connectivity ?? session.connectivity;
 }
 
+/** Shown wherever a read-only subagent session would otherwise accept input. */
+export const SUBAGENT_READ_ONLY = "Subagent: view only. Live control is not supported.";
+
+/** A read-only subagent session (its transcript comes from the native file on open). */
+export function isSubagentView(session: Pick<Session, "provenance" | "readOnly">): boolean {
+  return session.provenance === "subagent" && session.readOnly;
+}
+
 /** Why the composer cannot send, or null when it can. Ordered by what the user must fix first. */
 export function composerBlockReason(input: {
   session: Session;
@@ -284,7 +292,7 @@ export function composerBlockReason(input: {
   hostName: string;
 }): { reason: string; action?: "resume" } | null {
   const { session, hostLink: link } = input;
-  if (session.readOnly) return { reason: "Read-only subagent view" };
+  if (session.readOnly) return { reason: SUBAGENT_READ_ONLY };
   if (session.archivedAt) return { reason: "Session archived: unarchive it to send" };
   if (link !== "connected") {
     return {

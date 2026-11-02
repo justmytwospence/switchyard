@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AutomationInput, newId, SwitchyardError } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -108,8 +109,10 @@ export function registerAutomationRoutes(app: FastifyInstance, ctx: CoordinatorC
     if (!a.enabled) throw new SwitchyardError("conflict", "This automation is disabled");
     const idem =
       headerValue(req.headers["idempotency-key"]) ?? headerValue(req.headers["x-github-delivery"]);
-    const key = `hook:${idem ?? newId("occ")}`;
     const payload = req.body ?? {};
+    // Without a delivery id, a sender's retry of the same body within the same 10-minute window
+    // is the same occurrence (see docs/operations.md, Webhooks).
+    const key = idem ? `hook:${idem}` : derivedWebhookKey(payload, store.now());
     const match = filtersMatch(a.filters, payload);
     const r = svc().fire(
       a.id,
@@ -123,6 +126,16 @@ export function registerAutomationRoutes(app: FastifyInstance, ctx: CoordinatorC
       ...(r.duplicate ? { duplicate: true } : {}),
     });
   });
+}
+
+/** Window in which identical webhook bodies without a delivery id are one occurrence. */
+export const WEBHOOK_DEDUPE_WINDOW_MS = 10 * 60_000;
+
+/** Occurrence key for a delivery without `Idempotency-Key`/`X-GitHub-Delivery`. */
+export function derivedWebhookKey(payload: unknown, now: Date): string {
+  const bucket = Math.floor(now.getTime() / WEBHOOK_DEDUPE_WINDOW_MS);
+  const digest = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  return `hook:body:${digest}:${bucket}`;
 }
 
 function headerValue(v: string | string[] | undefined): string | null {

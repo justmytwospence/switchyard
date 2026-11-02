@@ -16,19 +16,19 @@ import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { HostUnavailable } from "../../components/ui/states";
 import { useDraft } from "../../drafts";
-import { usePendingInteractions } from "../../sync/store";
+import { usePendingInteractions, useSyncStore } from "../../sync/store";
 import { MobileChanges } from "./Changes";
 import { Composer } from "./Composer";
 import { ControlChip, ConversationHeader, sessionMenuItems } from "./ConversationHeader";
 import { CodeContext, type CodeViewContext, type InspectorTab } from "./context";
 import { MobileDetails } from "./Details";
 import type { SessionContext } from "./hooks";
-import { AUTOMATION_LABEL, workspaceLabel } from "./model";
+import { AUTOMATION_LABEL, isSubagentView, SUBAGENT_READ_ONLY, workspaceLabel } from "./model";
 import type { SessionActions } from "./SessionActions";
 import { Transcript } from "./Transcript";
 
 function interactionReadOnly(ctx: SessionContext): string | null {
-  if (ctx.session.readOnly) return "Read-only subagent view: answer in the parent session.";
+  if (ctx.session.readOnly) return `${SUBAGENT_READ_ONLY} Answer in the parent session.`;
   if (ctx.link !== "connected") {
     return `Host ${ctx.hostName} is offline; answers can be sent when it reconnects.`;
   }
@@ -38,6 +38,12 @@ function interactionReadOnly(ctx: SessionContext): string | null {
 /** Host unavailable, failed and interrupted states shown above the transcript. */
 function SessionBanners({ ctx, actions }: { ctx: SessionContext; actions: SessionActions }) {
   const { session } = ctx;
+  const loadTranscript = useSyncStore((s) => s.loadTranscript);
+  const subagent = isSubagentView(session);
+  // A subagent's transcript is re-read from its native file on every open to show progress.
+  useEffect(() => {
+    if (subagent) void loadTranscript(session.id, { force: true });
+  }, [subagent, session.id, loadTranscript]);
   return (
     <>
       {ctx.link !== "connected" && (

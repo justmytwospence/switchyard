@@ -396,6 +396,89 @@ describe("host agent with real Pi", () => {
     await h.coord.ok({ type: "session.stop", sessionId: id });
   });
 
+  it("a takeover that arrives before the launch creates the session withholds the launch prompt", async () => {
+    const id = sid();
+    // The coordinator's takeover (revision 2) reaches the host while the launch prepares.
+    expect(
+      await h.coord.ok({
+        type: "session.setControl",
+        sessionId: id,
+        controlRevision: 2,
+        mode: "human",
+      }),
+    ).toEqual({ controlRevision: 2, controlMode: "human" });
+    const started = await h.coord.ok({
+      type: "dispatch.start",
+      dispatchKey: `run_takeover_${id}`,
+      runId: `run_takeover_${id}`,
+      taskId: "tsk_takeover",
+      sessionId: id,
+      projectId: "prj_1",
+      title: "Taken over",
+      workspace: { path: h.pi!.cwd },
+      nativeHandle: null,
+      profile: mockProfile,
+      prompt: "hello from automation",
+      controlRevision: 1,
+      controlMode: "automation",
+    });
+    expect(started).toMatchObject({ sessionId: id, reused: false });
+    await waitFor(() => h.agent.supervisor.isLive(id), 15000, "live");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h.agent.supervisor.controlOf(id)).toEqual({ controlRevision: 2, controlMode: "human" });
+    expect(items(h, id).filter((i) => i.kind === "user")).toEqual([]);
+    expect(h.agent.supervisor.record(id)?.runtime).toBe("idle");
+
+    // An equal revision never hands control back to automation.
+    expect(
+      await h.coord.ok({
+        type: "session.setControl",
+        sessionId: id,
+        controlRevision: 2,
+        mode: "automation",
+      }),
+    ).toEqual({ controlRevision: 2, controlMode: "human" });
+    const sameRev = await h.coord.command({
+      type: "session.prompt",
+      sessionId: id,
+      text: "automated",
+      images: [],
+      mode: "prompt",
+      origin: "automation",
+      controlRevision: 2,
+    });
+    expect(sameRev).toMatchObject({ ok: false, error: { code: "stale_control" } });
+    expect(items(h, id).filter((i) => i.kind === "user")).toEqual([]);
+
+    // A strictly newer automation command (return to automation whose setControl was missed)
+    // is accepted and records automation control, so later continuations are not stalled.
+    await h.coord.ok({
+      type: "session.prompt",
+      sessionId: id,
+      text: "continue",
+      images: [],
+      mode: "prompt",
+      origin: "automation",
+      controlRevision: 3,
+    });
+    expect(h.agent.supervisor.controlOf(id)).toEqual({
+      controlRevision: 3,
+      controlMode: "automation",
+    });
+    await h.coord.waitEvent(isSettled(id), 30000, "automation prompt settled");
+    const next = await h.coord.command({
+      type: "session.prompt",
+      sessionId: id,
+      text: "continue again",
+      images: [],
+      mode: "prompt",
+      origin: "automation",
+      controlRevision: 3,
+    });
+    expect(next).toMatchObject({ ok: true });
+    await h.coord.ok({ type: "session.stop", sessionId: id });
+  });
+
   it("turns ctx.ui.custom() into an unsupported interaction with abort/message actions", async () => {
     const id = sid();
     await startSession(h, id, h.pi!.cwd);
@@ -448,6 +531,25 @@ describe("host agent with real Pi", () => {
         state: "unsupported",
         resolution: { by: "dev_a", summary: "Send a message to the agent" },
       },
+    });
+    // The resolution is published (the coordinator resolves its attention from it), and only
+    // one alternative is ever accepted.
+    await waitFor(
+      () => interactions(h, id).some((x) => x.id === i.id && x.resolution !== null),
+      10000,
+      "resolution event",
+    );
+    const second = await h.coord.ok({
+      type: "session.answer",
+      sessionId: id,
+      interactionId: i.id,
+      revision: i.revision,
+      response: { kind: "action", actionId: "abort" },
+      deviceId: "dev_b",
+    });
+    expect(second).toMatchObject({
+      status: "already_answered",
+      interaction: { resolution: { by: "dev_a" } },
     });
     await h.coord.ok({ type: "session.stop", sessionId: id });
   });

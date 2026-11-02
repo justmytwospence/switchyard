@@ -106,7 +106,7 @@ export function isBusy(s: Session): boolean {
 
 /** Why the composer cannot send, or null when it can. */
 export function composerDisabledReason(state: ClientState, s: Session): string | null {
-  if (s.readOnly) return "Read-only subagent view";
+  if (s.readOnly) return "Subagent: view only. Live control is not supported.";
   const host = state.hosts[s.hostId];
   if ((host?.connectivity ?? s.connectivity) !== "connected") return "Host offline";
   if (s.runtime === "starting") return "Session is starting";
@@ -120,9 +120,15 @@ export function canSteer(state: ClientState, s: Session): boolean {
   return state.hosts[s.hostId]?.capabilities?.steer === true;
 }
 
+/** Whether an interaction still waits for a person: a pending question, or a terminal-only
+ * dialog whose alternatives (stop the run, message the agent) were not chosen yet. */
+export function awaitsAnswer(i: Interaction): boolean {
+  return i.state === "pending" || (i.state === "unsupported" && i.resolution === null);
+}
+
 export function pendingInteractions(state: ClientState, sessionId: string): Interaction[] {
   return Object.values(state.interactions)
-    .filter((i) => i.sessionId === sessionId && i.state === "pending")
+    .filter((i) => i.sessionId === sessionId && awaitsAnswer(i))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
@@ -236,9 +242,11 @@ export function entryLines(state: ClientState, entry: TimelineEntry): Line[] {
       const state_ =
         i.state === "pending"
           ? "waiting for your answer"
-          : i.resolution
-            ? `${i.state}: ${i.resolution.summary}`
-            : i.state;
+          : i.state === "unsupported" && !i.resolution
+            ? "terminal-only dialog; Pi gave it no answer, the extension continued"
+            : i.resolution
+              ? `${i.state}: ${i.resolution.summary}`
+              : i.state;
       return [{ text: `question: ${oneLine(i.title, 80)} (${state_})`, style: "accent" }];
     }
     case "subagent":

@@ -224,10 +224,21 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       ) : null;
       break;
     case "unsupported_interaction":
-      action = (
+      action = interaction ? (
+        <InteractionCard
+          interaction={interaction}
+          readOnlyReason={
+            hostOffline
+              ? `Host ${host?.name} is offline. You can choose once it reconnects.`
+              : session?.readOnly
+                ? "This session is read-only."
+                : null
+          }
+        />
+      ) : (
         <UnsupportedCapability
-          capability="This question"
-          reason="The extension uses a terminal-only dialog. Attach a terminal to the Pi session to answer it, or stop the session."
+          capability="This dialog"
+          reason="An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one."
         />
       );
       break;

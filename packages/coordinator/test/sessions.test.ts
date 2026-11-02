@@ -328,4 +328,28 @@ describe("sessions", () => {
     const prev = await t!.admin("GET", "/api/sessions/ses_pg/transcript?limit=2&before=3");
     expect(prev.body.items.map((i: { order: number }) => i.order)).toEqual([1, 2]);
   });
+
+  it("refuses to archive a possibly live session while its host is offline", async () => {
+    const { creds } = await setup();
+    await host!.event("session.updated", hostSession("ses_idle", { runtime: "idle" }));
+    await host!.event("session.updated", hostSession("ses_busy", { runtime: "running" }));
+    await host!.event("session.updated", hostSession("ses_done", { runtime: "stopped" }));
+    await host!.close();
+    await until(() => !t!.c.hostHub.isConnected(creds.hostId));
+    for (const id of ["ses_idle", "ses_busy"]) {
+      const r = await t!.admin("POST", `/api/sessions/${id}/archive`);
+      expect(r.status, id).toBe(503);
+      expect(r.body.error.code).toBe("host_unreachable");
+      expect(t!.c.store.sessions.require(id).archivedAt).toBeNull();
+    }
+    // No process can be live for a stopped session: archiving works offline.
+    const done = await t!.admin("POST", "/api/sessions/ses_done/archive");
+    expect(done.status).toBe(200);
+    expect(done.body.archivedAt).not.toBeNull();
+    // Back online, the idle session's Pi is stopped first, then it is archived.
+    await host!.open();
+    const ok = await t!.admin("POST", "/api/sessions/ses_idle/archive");
+    expect(ok.status).toBe(200);
+    expect(host!.commands.some((c) => c.command.type === "session.stop")).toBe(true);
+  });
 });

@@ -71,4 +71,49 @@ describe("App (rendered to a string)", () => {
     expect(out).toContain("Needs input | control: manual | host: mac (online)");
     expect(out).toContain("Enter queue follow-up | Ctrl+S steer");
   });
+
+  it("offers the alternatives of a terminal-only dialog until one is chosen", () => {
+    const presentation = {
+      t: "section" as const,
+      title: "Terminal-only interface requested",
+      children: [
+        {
+          t: "text" as const,
+          text: "An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one.",
+        },
+        {
+          t: "actions" as const,
+          actions: [
+            { id: "abort", label: "Stop the run", tone: "danger" as const },
+            { id: "message", label: "Send a message to the agent", tone: "primary" as const },
+          ],
+        },
+      ],
+    };
+    const unsupported = interaction(presentation, {
+      title: "Terminal-only interface requested",
+      source: { kind: "unsupported_custom", title: null },
+      state: "unsupported",
+    });
+    const render = (i: typeof unsupported) => {
+      const client = clientWith(
+        syncState({ sessions: [session({ runtime: "running" })], interactions: [i] }),
+      );
+      return renderToString(
+        createElement(App, { client, initialSessionId: "ses_1", onExit: () => undefined }),
+        { columns: 140 },
+      );
+    };
+    const open = render(unsupported);
+    expect(open).toContain("Needs your answer: Terminal-only interface requested");
+    expect(open).toContain("Stop the run");
+    expect(open).toContain("Send a message to the agent");
+    expect(open).not.toMatch(/attach|answer it in a terminal/i);
+    const chosen = render({
+      ...unsupported,
+      revision: 2,
+      resolution: { by: "dev_a", summary: "Stop the run", at: unsupported.createdAt },
+    });
+    expect(chosen).not.toContain("Needs your answer");
+  });
 });

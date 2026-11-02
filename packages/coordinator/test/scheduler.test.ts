@@ -319,6 +319,23 @@ describe("webhooks", () => {
     expect(again.body).toMatchObject({ occurrenceId: ok.body.occurrenceId, state: "fired" });
     expect(tasksOf(h, a.id).map((t) => t.title)).toEqual(["Triage Crash on login"]);
 
+    // Without a delivery id, a retry of the same body in the same 10-minute window dedupes.
+    const plain = { action: "opened", issue: { title: "No delivery id" } };
+    const first = await h.t.api("POST", hook, { token: tok.body.token, body: plain });
+    expect(first.status).toBe(202);
+    expect(first.body.duplicate).toBeUndefined();
+    h.t.clock.advance(60_000);
+    const retry = await h.t.api("POST", hook, { token: tok.body.token, body: plain });
+    expect(retry.body).toMatchObject({ occurrenceId: first.body.occurrenceId, duplicate: true });
+    const other = await h.t.api("POST", hook, {
+      token: tok.body.token,
+      body: { ...plain, issue: { title: "Another" } },
+    });
+    expect(other.body.occurrenceId).not.toBe(first.body.occurrenceId);
+    h.t.clock.advance(10 * 60_000);
+    const later = await h.t.api("POST", hook, { token: tok.body.token, body: plain });
+    expect(later.body.occurrenceId).not.toBe(first.body.occurrenceId);
+
     const big = await h.t.api("POST", hook, {
       token: tok.body.token,
       body: { action: "opened", blob: "x".repeat(300 * 1024) },
@@ -329,6 +346,9 @@ describe("webhooks", () => {
     await h.t.admin("POST", `/api/automations/${a.id}/webhook-token`);
     expect((await h.t.api("POST", hook, { token: tok.body.token, body })).status).toBe(401);
     const hist = await h.t.admin("GET", `/api/automations/${a.id}/history`);
-    expect(hist.body.map((o: { state: string }) => o.state)).toEqual(["fired", "filtered"]);
+    const states = hist.body.map((o: { state: string }) => o.state);
+    // k-1, the body-keyed delivery, "Another", the next-window delivery, and the filtered one.
+    expect(states).toHaveLength(5);
+    expect(states.at(-1)).toBe("filtered");
   });
 });

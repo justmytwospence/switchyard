@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { createLogger } from "../src/index.js";
 import {
   enrollDevice,
   FakeClient,
@@ -19,6 +20,20 @@ describe("enrollment", () => {
     expect(info).not.toBeNull();
     expect(info!.url).toMatch(/\/enroll#token=[\w-]+$/);
     expect(info!.qrTerminal.length).toBeGreaterThan(50);
+  });
+
+  it("never writes the bootstrap enrollment URL or token to the structured log", async () => {
+    const lines: string[] = [];
+    let info: { url: string; token: string } | null = null;
+    t = await startCoordinator({
+      logger: createLogger({ level: "info", destination: { write: (s: string) => lines.push(s) } }),
+      bootstrap: (i) => (info = i),
+    });
+    expect(info).not.toBeNull();
+    const log = lines.join("");
+    expect(log).toContain("bootstrap enrollment URL printed to the console");
+    expect(log).not.toContain(info!.token);
+    expect(log).not.toContain("/enroll#token=");
   });
 
   it("creates device enrollments with QR and redeems them once", async () => {
@@ -109,6 +124,61 @@ describe("request authentication", () => {
     expect(r.body.error.code).toBe("unauthorized");
     const health = await t.api("GET", "/healthz");
     expect(health.body).toEqual({ ok: true });
+  });
+
+  it("authenticates percent-encoded paths that route to API endpoints", async () => {
+    t = await startCoordinator();
+    for (const path of [
+      "/%61pi/sessions",
+      "/%61pi/devices",
+      "/a%70i/hosts",
+      "/api%2Fsessions",
+      "/api/%73essions",
+      "/%61dapter-frames/some-adapter",
+      "/%77s/client",
+    ]) {
+      const r = await t.api("GET", path);
+      expect(r.status, path).toBe(401);
+    }
+    // The encoded path really reaches the API route: the admin token gets data, not a 404.
+    const ok = await t.admin("GET", "/%61pi/devices");
+    expect(ok.status).toBe(200);
+    expect(ok.body).toEqual([]);
+  });
+
+  it("denies routes outside the public allowlist by default, whatever their prefix", async () => {
+    t = await startCoordinator({
+      plugins: [
+        (c) => {
+          c.app.get("/internal/secret", async () => ({ secret: true }));
+        },
+      ],
+    });
+    expect((await t.api("GET", "/internal/secret")).status).toBe(401);
+    expect((await t.api("GET", "/%69nternal/secret")).status).toBe(401);
+    expect((await t.admin("GET", "/internal/secret")).body).toEqual({ secret: true });
+  });
+
+  it("rejects mutations through percent-encoded paths without credentials or CSRF proof", async () => {
+    t = await startCoordinator();
+    for (const path of ["/%61pi/enrollments", "/%61pi/hosts/enrollments", "/api%2Fenrollments"]) {
+      const r = await t.api("POST", path, { body: { kind: "device" } });
+      expect(r.status, path).toBe(401);
+    }
+    const { cookie } = await enrollDevice(t, "browser");
+    const noHeader = await t.api("POST", "/%61pi/enrollments", {
+      cookie: cookie!,
+      body: { kind: "device" },
+      headers: { origin: "https://evil.example" },
+    });
+    expect(noHeader.status).toBe(403);
+    // Public routes stay public, encoded or not.
+    const enroll = await t.api("POST", "/%61pi/enroll", {
+      body: { token: "nope", name: "x", kind: "terminal" },
+    });
+    expect(enroll.status).toBe(401);
+    expect(enroll.body.error.message).toMatch(/enrollment token/);
+    expect((await t.api("GET", "/%68ealthz")).body).toEqual({ ok: true });
   });
 
   it("accepts the admin.token as the implicit local admin device", async () => {

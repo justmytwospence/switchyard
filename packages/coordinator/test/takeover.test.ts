@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { hostSession, sleep, until } from "./helpers.js";
+import { hostSession, NO_REPLY, sleep, until } from "./helpers.js";
 import {
   cleanupHarness,
   commandsOf,
+  createTask,
   dispatcherOf,
   type Harness,
   runOf,
@@ -10,6 +11,7 @@ import {
   setupHarness,
   startRun,
   task,
+  untilRun,
 } from "./task-helpers.js";
 
 let h: Harness | undefined;
@@ -31,6 +33,120 @@ const policy = {
 
 const automationPrompts = (h: Harness) =>
   commandsOf(h.host, "session.prompt").filter((p) => p.origin === "automation");
+
+describe("takeover during an unconfirmed launch", () => {
+  /** The launch reaches the host (which optionally performs it) and the host drops offline. */
+  async function uncertainLaunch(h: Harness, performed: boolean) {
+    h.override = (cmd) => {
+      if (cmd.type !== "dispatch.start") return undefined;
+      if (performed) {
+        h.state.dispatches.set(cmd.dispatchKey, {
+          sessionId: cmd.sessionId,
+          workspacePath: `/repos/app/.worktrees/taken`,
+        });
+      }
+      void h.host.close();
+      return NO_REPLY;
+    };
+    const tk = await createTask(h, { state: "ready", policy });
+    const run = await untilRun(h, tk.id, "uncertain");
+    h.override = undefined;
+    return { tk, run };
+  }
+
+  const typesAfterFirstStart = (h: Harness) => {
+    const types = h.host.commands.map((c) => c.command);
+    const at = types.findIndex((c) => c.type === "dispatch.start");
+    return types.slice(at + 1);
+  };
+
+  it("offline host, launch never arrived: withdrawn, reconciled under human control, interrupted", async () => {
+    h = await setupHarness();
+    const { tk, run } = await uncertainLaunch(h, false);
+    const r = await h.t.admin("POST", `/api/sessions/${run.sessionId}/takeover`);
+    expect(r.body.run).toMatchObject({ controlMode: "human", controlRevision: 2 });
+    await h.host.open();
+    await untilRun(h, tk.id, "interrupted");
+    // The launch was not re-delivered; the host first learned human control, then was asked.
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
+    const after = typesAfterFirstStart(h);
+    expect(after[0]).toMatchObject({
+      type: "session.setControl",
+      mode: "human",
+      controlRevision: 2,
+    });
+    expect(after[1]).toMatchObject({ type: "dispatch.reconcile", dispatchKey: run.dispatchKey });
+    expect(automationPrompts(h)).toHaveLength(0);
+    expect(task(h, tk.id)).toMatchObject({
+      state: "in_progress",
+      blocked: { reason: "Taken over before launch was confirmed" },
+    });
+    expect(h.t.c.store.sessions.require(run.sessionId!).runtime).toBe("stopped");
+    // Nothing automated follows.
+    dispatcherOf(h).tick();
+    await sleep(30);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
+    expect(
+      commandsOf(h.host, "session.setControl").filter((c) => c.mode === "automation"),
+    ).toHaveLength(0);
+  });
+
+  it("offline host, launch performed: adopted under human control, never re-asserting automation", async () => {
+    h = await setupHarness();
+    const { tk, run } = await uncertainLaunch(h, true);
+    await h.t.admin("POST", `/api/sessions/${run.sessionId}/takeover`);
+    await h.host.open();
+    const adopted = await untilRun(h, tk.id, "running");
+    expect(adopted).toMatchObject({ id: run.id, controlMode: "human", controlRevision: 2 });
+    expect(h.t.c.store.sessions.require(run.sessionId!).cwd).toBe("/repos/app/.worktrees/taken");
+    await until(() => (h!.state.revisions.get(run.sessionId!) ?? 0) >= 2);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
+    expect(
+      commandsOf(h.host, "session.setControl").every(
+        (c) => c.mode === "human" && c.controlRevision === 2,
+      ),
+    ).toBe(true);
+    // The session settles: the human's run is never continued automatically.
+    await settle(h, run.sessionId!, "partial");
+    await sleep(50);
+    expect(automationPrompts(h)).toHaveLength(0);
+  });
+
+  it("connected host, launch in flight: a takeover keeps the launch revision and adopts it for the person", async () => {
+    h = await setupHarness();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    h.override = (cmd) => {
+      if (cmd.type !== "dispatch.start") return undefined;
+      return gate.then(() => undefined);
+    };
+    const tk = await createTask(h, { state: "ready", policy });
+    await until(() => commandsOf(h!.host, "dispatch.start").length === 1);
+    const run = runOf(h, tk.id);
+    expect(run.state).toBe("dispatching");
+    await h.t.admin("POST", `/api/sessions/${run.sessionId}/takeover`);
+    // The host heard about the takeover before the launch finished.
+    expect(commandsOf(h.host, "session.setControl")[0]).toMatchObject({
+      mode: "human",
+      controlRevision: 2,
+    });
+    h.override = undefined;
+    release();
+    const adopted = await untilRun(h, tk.id, "running");
+    expect(adopted.controlMode).toBe("human");
+    const [start] = commandsOf(h.host, "dispatch.start");
+    expect(start).toMatchObject({ controlRevision: 1, controlMode: "automation" });
+    // A reconcile after the takeover never replays the launch or flips the host to automation.
+    await (dispatcherOf(h) as any).reconcileRun(adopted);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
+    expect(
+      commandsOf(h.host, "session.setControl").filter((c) => c.mode === "automation"),
+    ).toHaveLength(0);
+    expect(automationPrompts(h)).toHaveLength(0);
+  });
+});
 
 describe("takeover", () => {
   it("takeover racing a continuation: the host rejects the stale revision, nothing more is sent", async () => {

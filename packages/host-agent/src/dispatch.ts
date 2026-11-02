@@ -18,7 +18,7 @@ export interface DispatchRow {
   sessionId: string | null;
   state: DispatchState;
   workspacePath: string | null;
-  error: { code: ErrorCode; message: string } | null;
+  error: { code: ErrorCode; message: string; details?: Record<string, unknown> } | null;
   result: DispatchStartResult | null;
   updatedAt: string;
 }
@@ -48,6 +48,9 @@ function toRow(r: RawRow): DispatchRow {
 }
 
 export const RESTARTED_DURING_DISPATCH = "Host agent restarted during dispatch";
+/** Restarted after the workspace was ready: Pi may have started and received the prompt. */
+export const RESTARTED_DURING_LAUNCH =
+  "Host agent restarted during launch; Pi may have started and received the prompt";
 
 /**
  * Idempotent dispatch: the `dispatches` row keyed by `dispatchKey` is written before any side
@@ -75,16 +78,44 @@ export class Dispatcher {
 
   /**
    * Dispatches interrupted by a host-agent crash are never replayed: they become `failed`
-   * (the coordinator reconciles and decides).
+   * (the coordinator reconciles and decides). Only `accepted` ones are known not to have spawned
+   * Pi (`started: false`, safe to retry); from `workspace_ready` on, Pi may have started and
+   * received the prompt, so they report `started: "unknown"` with whatever handle is known.
    */
   recoverAfterRestart(): number {
-    return this.opts.db.run(
-      "UPDATE dispatches SET state = 'failed', error = ?, updated_at = ? WHERE state IN ('accepted', 'workspace_ready')",
-      [
-        JSON.stringify({ code: "internal", message: RESTARTED_DURING_DISPATCH }),
-        new Date().toISOString(),
-      ],
-    ).changes;
+    const { db, supervisor } = this.opts;
+    const now = new Date().toISOString();
+    const rows = db
+      .all<RawRow>("SELECT * FROM dispatches WHERE state IN ('accepted', 'workspace_ready')")
+      .map(toRow);
+    db.tx(() => {
+      for (const row of rows) {
+        let error: { code: ErrorCode; message: string; details: Record<string, unknown> };
+        if (row.state === "accepted") {
+          error = {
+            code: "internal",
+            message: RESTARTED_DURING_DISPATCH,
+            details: { started: false },
+          };
+        } else {
+          const rec = row.sessionId ? supervisor.record(row.sessionId) : undefined;
+          error = {
+            code: "internal",
+            message: RESTARTED_DURING_LAUNCH,
+            details: {
+              started: "unknown",
+              nativeHandle: rec?.nativeHandle ?? null,
+              workspacePath: row.workspacePath,
+            },
+          };
+        }
+        db.run(
+          "UPDATE dispatches SET state = 'failed', error = ?, updated_at = ? WHERE dispatch_key = ?",
+          [JSON.stringify(error), now, row.dispatchKey],
+        );
+      }
+    });
+    return rows.length;
   }
 
   async start(cmd: HostCommandOf<"dispatch.start">): Promise<DispatchStartResult> {
@@ -113,6 +144,7 @@ export class Dispatcher {
       workspacePath: row.workspacePath,
       nativeHandle: rec?.nativeHandle ?? row.result?.nativeHandle ?? null,
       error: row.error?.message ?? null,
+      errorDetails: row.error?.details ?? null,
     };
   }
 
@@ -122,7 +154,7 @@ export class Dispatcher {
       throw new SwitchyardError(
         row.error?.code ?? "internal",
         row.error?.message ?? "Dispatch failed",
-        { dispatchKey: row.dispatchKey, reused: true },
+        { ...(row.error?.details ?? {}), dispatchKey: row.dispatchKey, reused: true },
       );
     }
     throw new SwitchyardError("conflict", `Dispatch ${row.dispatchKey} is still ${row.state}`, {
@@ -176,7 +208,7 @@ export class Dispatcher {
         initialPrompt: cmd.prompt,
         dispatchKey: key,
         controlRevision: cmd.controlRevision,
-        controlMode: "automation",
+        controlMode: cmd.controlMode,
         origin: "automation",
         runId: cmd.runId,
         taskId: cmd.taskId,

@@ -23,6 +23,7 @@ import {
   resolveProfile,
   startOnHost,
 } from "../sessions/service.js";
+import { refreshSubagentTranscript, SUBAGENT_READ_ONLY } from "../sessions/subagents.js";
 
 const ListQuery = z.object({
   projectId: z.string().optional(),
@@ -164,6 +165,8 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   app.get("/api/sessions/:id/transcript", async (req) => {
     const s = get(idOf(req));
     const q = parse(TranscriptQuery, req.query, "query");
+    // A subagent view is read from its native file: opening it (the first page) shows progress.
+    if (q.before === undefined) await refreshSubagentTranscript(ctx, s);
     return ctx.store.listItems(s.id, { before: q.before, limit: q.limit });
   });
 
@@ -177,7 +180,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   app.post("/api/sessions/:id/prompt", async (req) => {
     const s = get(idOf(req));
     const body = parse(PromptRequest, req.body);
-    if (s.readOnly) throw new SwitchyardError("forbidden", "Read-only subagent view");
+    if (s.readOnly) throw new SwitchyardError("forbidden", SUBAGENT_READ_ONLY);
     if (!LIVE_RUNTIMES.includes(s.runtime) || s.runtime === "starting") {
       throw new SwitchyardError(
         "conflict",
@@ -240,7 +243,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     if (LIVE_RUNTIMES.includes(s.runtime)) {
       throw new SwitchyardError("conflict", `Session is already ${s.runtime}`);
     }
-    if (s.readOnly) throw new SwitchyardError("forbidden", "Read-only subagent view");
+    if (s.readOnly) throw new SwitchyardError("forbidden", SUBAGENT_READ_ONLY);
     requireUsableHost(ctx, s.hostId);
     const prev = s.runtime;
     const starting = ctx.store.putSession({ ...s, runtime: "starting", runtimeDetail: null });
@@ -285,9 +288,20 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     });
   });
 
-  /** Archive. Stops an idle Pi process first; refuses while running. */
+  /**
+   * Archive. Stops an idle Pi process first; refuses while running, and refuses while the host is
+   * offline if its Pi process may still be live (nothing could stop it or confirm it is gone).
+   */
   app.post("/api/sessions/:id/archive", async (req) => {
     const s = get(idOf(req));
+    if (LIVE_RUNTIMES.includes(s.runtime) && !ctx.hostHub.isConnected(s.hostId)) {
+      const name = ctx.store.hosts.get(s.hostId)?.name ?? s.hostId;
+      throw new SwitchyardError(
+        "host_unreachable",
+        `Host ${name} is offline and this session's Pi process may still be running; archive it once the host reconnects`,
+        { hostId: s.hostId },
+      );
+    }
     if (s.runtime === "running" || s.runtime === "waiting_input") {
       throw new SwitchyardError("conflict", "Stop the session before archiving it");
     }

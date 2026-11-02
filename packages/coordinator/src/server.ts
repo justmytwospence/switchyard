@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import fastifyCookie from "@fastify/cookie";
 import fastifyWebsocket from "@fastify/websocket";
 import { DEFAULT_PORT } from "@switchyard/protocol";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { Logger } from "pino";
 import QRCode from "qrcode";
 import { AttentionService } from "./attention.js";
@@ -82,6 +82,37 @@ export interface Coordinator {
   stop(): Promise<void>;
 }
 
+/**
+ * Route patterns reachable without a device credential. `/ws/host` authenticates the host
+ * credential in its `hello` handshake. Everything else (including `/adapter-frames/*`) needs a
+ * device.
+ */
+export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
+  "/api/enroll",
+  "/api/hosts/enroll",
+  "/api/hooks/:automationId",
+  "/healthz",
+  "/readyz",
+  "/ws/host",
+]);
+
+/** Files `@fastify/static` registered from the web build (it marks them with `config.file`). */
+function isStaticFileRoute(req: FastifyRequest): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  const config = req.routeOptions.config as { file?: unknown; rootPath?: unknown } | undefined;
+  return typeof config?.file === "string" && typeof config.rootPath === "string";
+}
+
+function isApiLikePath(url: string): boolean {
+  let path = url.split("?")[0] ?? "";
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    return true;
+  }
+  return path.startsWith("/api/") || path.startsWith("/ws/") || path.startsWith("/adapter-frames/");
+}
+
 function originOf(url: string): string {
   return new URL(url).origin;
 }
@@ -149,16 +180,19 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
   app.register(fastifyCookie);
   app.register(fastifyWebsocket, { options: { maxPayload: 32 * 1024 * 1024 } });
 
+  // Deny by default, keyed on the route Fastify matched (after it decoded the path), never on
+  // the raw URL: `/%61pi/sessions` routes to `/api/sessions` and must authenticate like it.
   app.addHook("onRequest", async (req) => {
-    const path = req.url.split("?")[0] ?? "";
-    if (path === "/api/enroll" || path === "/api/hosts/enroll" || path.startsWith("/api/hooks/")) {
+    const pattern = req.routeOptions.url;
+    if (pattern === undefined) {
+      // No route matched: the not-found handler serves the SPA shell or a 404. API-like misses
+      // still authenticate so probing unknown API paths reveals nothing.
+      if (isApiLikePath(req.url)) auth.authenticateRequest(req);
       return;
     }
-    if (path.startsWith("/api/") || path.startsWith("/adapter-frames/")) {
-      auth.authenticateRequest(req);
-    } else if (path === "/ws/client") {
-      auth.authenticateRequest(req, { websocket: true });
-    }
+    if (PUBLIC_ROUTES.has(pattern)) return;
+    if (isStaticFileRoute(req)) return;
+    auth.authenticateRequest(req, { websocket: pattern.startsWith("/ws/") });
   });
 
   app.register(async (scope) => {
@@ -240,9 +274,11 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
           expiresAt: e.expiresAt,
           qrTerminal,
         };
+        // The URL carries the enrollment token: it goes to the operator's terminal only, never to
+        // the structured log (which may be shipped or retained).
         log.info(
-          { url: e.url, expiresAt: e.expiresAt },
-          "no devices enrolled: open the bootstrap URL",
+          { expiresAt: e.expiresAt },
+          "no devices enrolled: bootstrap enrollment URL printed to the console (not logged)",
         );
         if (opts.bootstrap) opts.bootstrap(info);
         else {

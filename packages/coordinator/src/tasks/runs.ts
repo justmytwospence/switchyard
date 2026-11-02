@@ -85,6 +85,30 @@ export interface RunsOptions {
   checksTimeoutMs: number;
 }
 
+/** Setting: the settle count (`Store.runSettleCount`) last evaluated under automation. */
+const EVALUATED_PREFIX = "runEvaluated:";
+/** Setting: a continuation persisted but not yet acknowledged by the host. */
+const CONTINUATION_PREFIX = "runContinuation:";
+
+interface PendingContinuation {
+  n: number;
+  text: string;
+}
+
+/**
+ * Deterministic command ids: a resend after a coordinator restart dedupes on the host. Checks
+ * include the control revision so checks re-run after a takeover and return are fresh.
+ */
+export function checksCommandId(
+  run: Pick<Run, "id" | "attempt" | "continuationsUsed" | "controlRevision">,
+): string {
+  return `chk_${run.id}_${run.attempt}_${run.continuationsUsed}_${run.controlRevision}`;
+}
+
+export function continuationCommandId(runId: string, n: number): string {
+  return `cont_${runId}_${n}`;
+}
+
 /**
  * Run lifecycle after launch: mirrors session runtime into the run, evaluates completion
  * markers when the session settles, continues within limits, runs acceptance checks and moves
@@ -92,6 +116,14 @@ export interface RunsOptions {
  */
 export class RunsService {
   private busy = new Set<string>();
+  /** A settle that arrived while its run was being evaluated: re-evaluated afterwards. */
+  private deferred = new Map<
+    string,
+    Pick<SessionSettled, "session" | "aborted" | "lastAssistantText">
+  >();
+  /** Runs with a `checks.run` or continuation awaiting its receipt in this process. */
+  private checking = new Set<string>();
+  private continuing = new Set<string>();
   private stopped = false;
   private unsubscribe: (() => void)[] = [];
 
@@ -116,14 +148,69 @@ export class RunsService {
         this.ctx.attention.resolve({ taskId: id, reason: "ready_for_review" });
       }
     };
+    const connected = ({ hostId }: { hostId: string }) => this.recover(hostId);
     this.ctx.hub.on("session.settled", settled);
     this.ctx.hub.on("event", event);
     this.ctx.hub.on("task.changed", taskChanged);
+    this.ctx.hub.on("host.connected", connected);
     this.unsubscribe.push(
       () => this.ctx.hub.off("session.settled", settled),
       () => this.ctx.hub.off("event", event),
       () => this.ctx.hub.off("task.changed", taskChanged),
+      () => this.ctx.hub.off("host.connected", connected),
     );
+    this.recover();
+  }
+
+  /**
+   * Recovery sweep (startup and every host connect): work a coordinator restart left in the
+   * middle. Checks and unacknowledged continuations are re-sent with their deterministic command
+   * ids (the host returns the stored receipt if it already ran them); an idle session whose
+   * settle was never evaluated under automation is evaluated now.
+   */
+  recover(hostId?: string): void {
+    const { store, hostHub } = this.ctx;
+    const runs = store.runs.list("state IN ('running', 'waiting_input', 'checking')");
+    for (const run of runs) {
+      if (!run.hostId || (hostId && run.hostId !== hostId)) continue;
+      if (!hostHub.isConnected(run.hostId)) continue;
+      if (run.controlMode !== "automation") continue;
+      const task = store.tasks.get(run.taskId);
+      if (!task || task.currentRunId !== run.id) continue;
+      if (run.state === "checking") {
+        if (!this.checking.has(run.id)) {
+          void this.awaitChecks(run.id).catch((err) =>
+            this.ctx.log.error({ err, runId: run.id }, "checks recovery failed"),
+          );
+        }
+        continue;
+      }
+      if (this.continuing.has(run.id) || this.busy.has(run.id)) continue;
+      const pending = store.getSetting<PendingContinuation | null>(
+        CONTINUATION_PREFIX + run.id,
+        null,
+      );
+      if (pending) {
+        void this.sendContinuation(run.id, pending).catch((err) =>
+          this.ctx.log.error({ err, runId: run.id }, "continuation recovery failed"),
+        );
+        continue;
+      }
+      const session = run.sessionId ? store.sessions.get(run.sessionId) : undefined;
+      if (session?.runtime !== "idle") continue;
+      if (store.runSettleCount(run.id) === 0 || this.latestSettleEvaluated(run.id)) continue;
+      void this.onSessionSettled({
+        session,
+        aborted: session.runtimeDetail === "aborted",
+        lastAssistantText: session.lastAssistantText,
+      }).catch((err) => this.ctx.log.error({ err, runId: run.id }, "settle recovery failed"));
+    }
+  }
+
+  /** Whether the run's latest settle was already evaluated under automation. */
+  private latestSettleEvaluated(runId: string): boolean {
+    const { store } = this.ctx;
+    return store.getSetting<number>(EVALUATED_PREFIX + runId, 0) === store.runSettleCount(runId);
   }
 
   stop(): void {
@@ -194,7 +281,11 @@ export class RunsService {
     const session = store.sessions.get(s.session.id) ?? s.session;
     const run = this.runOf(session);
     if (!run || !EVALUATED.has(run.state)) return;
-    if (this.busy.has(run.id)) return;
+    if (this.busy.has(run.id)) {
+      // Never drop a settle signal: evaluate it once the current evaluation finishes.
+      this.deferred.set(run.id, s);
+      return;
+    }
     this.busy.add(run.id);
     try {
       const usage = usageFrom(session, run);
@@ -204,7 +295,10 @@ export class RunsService {
           state: run.state === "waiting_input" ? "running" : run.state,
         }),
       );
-      if (recorded.controlMode === "human" || s.aborted) return;
+      if (recorded.controlMode === "human") return;
+      // The latest settle is evaluated under automation (recovery and deferred signals skip it).
+      store.setSetting(EVALUATED_PREFIX + run.id, store.runSettleCount(run.id));
+      if (s.aborted) return;
       const task = store.tasks.get(run.taskId);
       if (!task || task.currentRunId !== run.id) return;
       const marker = parseMarker(s.lastAssistantText ?? session.lastAssistantText);
@@ -231,7 +325,24 @@ export class RunsService {
       await this.continueRun(run.id);
     } finally {
       this.busy.delete(run.id);
+      this.runDeferred(run.id);
     }
+  }
+
+  /** Re-evaluate a settle that arrived during an evaluation, if it is still unevaluated. */
+  private runDeferred(runId: string): void {
+    const next = this.deferred.get(runId);
+    if (!next || this.stopped) return;
+    this.deferred.delete(runId);
+    const session = this.ctx.store.sessions.get(next.session.id);
+    if (session?.runtime !== "idle") return;
+    const run = this.runOf(session);
+    // Only a settle not yet evaluated under automation (a human-control evaluation or a newer
+    // settle); otherwise it would double the step the current evaluation just took.
+    if (!run || (run.controlMode === "automation" && this.latestSettleEvaluated(run.id))) return;
+    void this.onSessionSettled({ ...next, session }).catch((err) =>
+      this.ctx.log.error({ err, sessionId: session.id }, "deferred run evaluation failed"),
+    );
   }
 
   private isWatch(task: Task): boolean {
@@ -239,37 +350,60 @@ export class RunsService {
     return this.ctx.store.automations.get(task.origin.automationId)?.mode === "watch";
   }
 
-  /** Send the next continuation prompt; a `stale_control` receipt ends it silently. */
+  /**
+   * Send the next continuation prompt; a `stale_control` receipt ends it silently. The
+   * continuation is persisted (count and text) before it is sent with a deterministic command id,
+   * so a coordinator restart re-sends the same command and the host dedupes it.
+   */
   private async continueRun(runId: string, extra = ""): Promise<void> {
-    const { store, hostHub } = this.ctx;
-    const prepared = store.tx(() => {
+    const { store } = this.ctx;
+    const pending = store.tx(() => {
       const run = store.runs.get(runId);
       if (run?.controlMode !== "automation" || !EVALUATED.has(run.state)) return null;
       if (!run.limits.enabled || !run.sessionId || !run.hostId) return null;
       const n = run.continuationsUsed + 1;
-      const saved = saveRun(this.ctx, run, {
+      saveRun(this.ctx, run, {
         continuationsUsed: n,
         state: "running",
         startedAt: run.startedAt ?? store.nowIso(),
       });
       const text = continuationPrompt(run.limits.objective, n, run.limits.maxContinuations, extra);
-      return { run: saved, text };
+      const p: PendingContinuation = { n, text };
+      store.setSetting(CONTINUATION_PREFIX + runId, p);
+      return p;
     });
-    if (!prepared) return;
-    const { run, text } = prepared;
+    if (!pending) return;
+    await this.sendContinuation(runId, pending);
+  }
+
+  private async sendContinuation(runId: string, pending: PendingContinuation): Promise<void> {
+    const { store, hostHub } = this.ctx;
+    const run = store.runs.get(runId);
+    if (!run?.hostId || !run.sessionId) return;
+    this.continuing.add(runId);
     try {
-      await hostHub.request(run.hostId!, {
-        type: "session.prompt",
-        sessionId: run.sessionId!,
-        text,
-        images: [],
-        mode: "prompt",
-        origin: "automation",
-        controlRevision: run.controlRevision,
-      });
+      await hostHub.request(
+        run.hostId,
+        {
+          type: "session.prompt",
+          sessionId: run.sessionId,
+          text: pending.text,
+          images: [],
+          mode: "prompt",
+          origin: "automation",
+          controlRevision: run.controlRevision,
+        },
+        { commandId: continuationCommandId(runId, pending.n) },
+      );
+      store.deleteSetting(CONTINUATION_PREFIX + runId);
     } catch (err) {
       if (this.stopped) return;
       const e = shortError(err);
+      if (e.code === "host_unreachable" || e.code === "timeout") {
+        // Unacknowledged: the recovery sweep re-sends it when the host is back.
+        return;
+      }
+      store.deleteSetting(CONTINUATION_PREFIX + runId);
       if (e.code === "stale_control") {
         this.ctx.log.info({ runId }, "continuation superseded by takeover");
         return;
@@ -277,12 +411,14 @@ export class RunsService {
       const cur = store.runs.get(runId);
       if (cur?.controlMode !== "automation") return;
       this.finishBlocked(runId, `Could not continue: ${e.message}`, "failed");
+    } finally {
+      this.continuing.delete(runId);
     }
   }
 
   /** Run acceptance checks (task, else project); none means straight to Review. */
   private async runChecks(runId: string): Promise<void> {
-    const { store, hostHub } = this.ctx;
+    const { store } = this.ctx;
     const prepared = store.tx(() => {
       const run = store.runs.get(runId);
       if (run?.controlMode !== "automation" || !EVALUATED.has(run.state)) return null;
@@ -292,18 +428,32 @@ export class RunsService {
       return { run: saveRun(this.ctx, run, { state: "checking" }), commands };
     });
     if (!prepared) return;
-    const { run, commands } = prepared;
+    const { commands } = prepared;
     if (commands.length === 0) {
       this.finishSucceeded(runId, []);
       return;
     }
+    await this.awaitChecks(runId);
+  }
+
+  /**
+   * Send `checks.run` for a run in `checking` (again after a coordinator restart: the command id
+   * is deterministic, so the host returns its stored result or joins the running checks) and
+   * apply the results.
+   */
+  private async awaitChecks(runId: string): Promise<void> {
+    const { store, hostHub } = this.ctx;
+    const run = store.runs.get(runId);
+    if (run?.state !== "checking" || !run.hostId || this.checking.has(runId)) return;
+    const commands = effectiveChecks(this.ctx, store.tasks.require(run.taskId));
     const session = run.sessionId ? store.sessions.get(run.sessionId) : undefined;
     let results: CheckResult[];
+    this.checking.add(runId);
     try {
       const raw = await hostHub.request(
-        run.hostId!,
+        run.hostId,
         { type: "checks.run", sessionId: run.sessionId!, path: session?.cwd ?? "", commands },
-        { timeoutMs: this.opts.checksTimeoutMs },
+        { timeoutMs: this.opts.checksTimeoutMs, commandId: checksCommandId(run) },
       );
       results = ChecksResult.parse(raw).results;
     } catch (err) {
@@ -317,6 +467,8 @@ export class RunsService {
       }
       this.finishBlocked(runId, `Checks could not run: ${e.message}`, "failed");
       return;
+    } finally {
+      this.checking.delete(runId);
     }
     if (this.stopped) return;
     const next = store.tx(() => {

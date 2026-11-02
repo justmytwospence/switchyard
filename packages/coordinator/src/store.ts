@@ -653,6 +653,12 @@ export class Store {
       .run(item.sessionId, item.id, item.order, JSON.stringify(item));
   }
 
+  /** Replace a session's whole transcript (read-only views re-read from the native file). */
+  replaceItems(sessionId: string, items: TranscriptItem[]): void {
+    this.st.get("DELETE FROM session_items WHERE session_id = ?").run(sessionId);
+    for (const item of items) this.upsertItem(item);
+  }
+
   /** Items in ascending order; `before` pages backwards from an order value. */
   listItems(
     sessionId: string,
@@ -937,6 +943,21 @@ export class Store {
         "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       )
       .run(key, JSON.stringify(value));
+  }
+
+  deleteSetting(key: string): void {
+    this.st.get("DELETE FROM settings WHERE key = ?").run(key);
+  }
+
+  /** Count a settle (running -> idle) of a run's session; recorded with the projection. */
+  noteRunSettle(runId: string): number {
+    const n = this.runSettleCount(runId) + 1;
+    this.setSetting(`runSettles:${runId}`, n);
+    return n;
+  }
+
+  runSettleCount(runId: string): number {
+    return this.getSetting(`runSettles:${runId}`, 0);
   }
 
   get dispatchPaused(): boolean {

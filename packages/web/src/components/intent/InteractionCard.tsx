@@ -6,8 +6,10 @@ import { apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 import { Button } from "../ui/Button";
 import { StatusChip } from "../ui/StatusChip";
-import { ErrorState, UnsupportedCapability } from "../ui/states";
+import { ErrorState } from "../ui/states";
+import { TextArea } from "../ui/TextArea";
 import { UINodeRenderer } from "./UINodeRenderer";
+import { isUnsupported, messageMode, unsupportedView } from "./unsupported";
 
 export interface InteractionCardProps {
   interaction: Interaction;
@@ -66,10 +68,12 @@ export function InteractionCard({
     acked && acked.id === fromProps.id && acked.revision > fromProps.revision ? acked : fromProps;
 
   const pending = interaction.state === "pending";
-  const unsupported =
-    interaction.state === "unsupported" || interaction.source.kind === "unsupported_custom";
+  const unsupported = isUnsupported(interaction);
+  const sessionRuntime = useSyncStore((s) => s.sessions[interaction.sessionId]?.runtime);
+  const [composing, setComposing] = useState(false);
+  const [message, setMessage] = useState("");
 
-  const respond = async (response: InteractionResponse) => {
+  const respond = async (response: InteractionResponse): Promise<boolean> => {
     setBusy(true);
     setError(null);
     setLastResponse(response);
@@ -83,6 +87,7 @@ export function InteractionCard({
         setAcked(res.interaction);
         onAnswered?.(res.interaction);
       }
+      return true;
     } catch (e) {
       if (isApiError(e, "already_answered")) {
         const other = (e.details as { interaction?: Interaction } | undefined)?.interaction;
@@ -94,8 +99,32 @@ export function InteractionCard({
       } else {
         setError(e);
       }
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** "Send a message to the agent": deliver the message first, then record the choice. */
+  const sendMessage = async () => {
+    const text = message.trim();
+    if (!text) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost(`/api/sessions/${encodeURIComponent(interaction.sessionId)}/prompt`, {
+        text,
+        mode: messageMode(sessionRuntime),
+      });
+    } catch (e) {
+      setError(e);
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+    if (await respond({ kind: "action", actionId: "message" })) {
+      setComposing(false);
+      setMessage("");
     }
   };
 
@@ -121,13 +150,20 @@ export function InteractionCard({
       )}
 
       {unsupported ? (
-        <UnsupportedCapability
-          capability="This dialog"
-          reason={
-            interaction.source.kind === "unsupported_custom"
-              ? "The extension opened a terminal-only custom UI that Switchyard cannot display. Answer it in a terminal attached to this Pi session, or stop the session."
-              : "No renderer in this client supports this interaction."
-          }
+        <UnsupportedBody
+          interaction={interaction}
+          readOnlyReason={readOnlyReason ?? null}
+          busy={busy}
+          answered={alreadyAnswered !== null}
+          composing={composing}
+          message={message}
+          setMessage={setMessage}
+          onAction={(actionId) => {
+            if (actionId === "message") setComposing(true);
+            else void respond({ kind: "action", actionId });
+          }}
+          onSend={() => void sendMessage()}
+          onCancelMessage={() => setComposing(false)}
         />
       ) : pending && !alreadyAnswered ? (
         <>
@@ -174,5 +210,78 @@ export function InteractionCard({
         />
       )}
     </article>
+  );
+}
+
+/** A terminal-only dialog: what happened, and the alternatives the host offers until one is chosen. */
+function UnsupportedBody({
+  interaction,
+  readOnlyReason,
+  busy,
+  answered,
+  composing,
+  message,
+  setMessage,
+  onAction,
+  onSend,
+  onCancelMessage,
+}: {
+  interaction: Interaction;
+  readOnlyReason: string | null;
+  busy: boolean;
+  answered: boolean;
+  composing: boolean;
+  message: string;
+  setMessage: (t: string) => void;
+  onAction: (actionId: "abort" | "message") => void;
+  onSend: () => void;
+  onCancelMessage: () => void;
+}) {
+  const view = unsupportedView(interaction);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <p className="text-sm text-muted">{view.copy}</p>
+      {interaction.resolution ? (
+        <p className="text-sm text-muted">
+          Chosen by {byLabel(interaction.resolution.by)} {formatRelative(interaction.resolution.at)}
+          : <span className="text-text">{interaction.resolution.summary}</span>
+        </p>
+      ) : !view.answerable || answered ? null : readOnlyReason ? (
+        <p className="text-sm text-muted">{readOnlyReason}</p>
+      ) : composing ? (
+        <div className="flex min-w-0 flex-col gap-2">
+          <TextArea
+            aria-label="Message to the agent"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={3}
+            autoFocus
+            placeholder="Tell the agent what to do instead"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" busy={busy} disabled={!message.trim()} onClick={onSend}>
+              Send message
+            </Button>
+            <Button disabled={busy} onClick={onCancelMessage}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {view.actions.map((a) => (
+            <Button
+              key={a.id}
+              variant={a.tone}
+              busy={busy && a.id === "abort"}
+              disabled={busy}
+              onClick={() => onAction(a.id)}
+            >
+              {a.label}
+            </Button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -79,6 +79,16 @@ const DETERMINISTIC_ERRORS = new Set([
 ]);
 
 const VIA_PREFIX = "runVia:";
+/** The revision a launch was created with; takeovers and returns only ever raise the run's. */
+const LAUNCH_REV_PREFIX = "runLaunchRev:";
+
+export const TAKEN_OVER_BEFORE_LAUNCH = "Taken over before launch was confirmed";
+export const HOST_RESTARTED_DURING_LAUNCH = "Host restarted during launch; verify and resume";
+
+/** The host restarted after Pi may have been spawned: never replay the prompt. */
+function startedUnknown(details: unknown): boolean {
+  return (details as { started?: unknown } | null | undefined)?.started === "unknown";
+}
 
 /** A duplicate `dispatch.start` while the host is still launching the first one. */
 function stillLaunching(error: { code: string; details?: unknown }): boolean {
@@ -271,9 +281,13 @@ export class Dispatcher {
         return wait("scheduled_time", `Scheduled for ${task.notBefore}`);
       }
     }
-    const unmet = task.dependencies
-      .map((id) => store.tasks.get(id))
-      .filter((d): d is Task => !!d && d.state !== "done");
+    const deps = task.dependencies.map((id) => store.tasks.get(id)).filter((d): d is Task => !!d);
+    // A canceled dependency will never be done: waiting on it would wait forever.
+    const canceled = deps.find((d) => d.state === "canceled");
+    if (canceled) {
+      return wait("invalid_configuration", `Dependency ${canceled.title} was canceled`);
+    }
+    const unmet = deps.filter((d) => d.state !== "done");
     if (unmet.length > 0) {
       return wait("dependency", `Waiting for ${unmet.map((d) => d.title).join(", ")}`);
     }
@@ -622,6 +636,7 @@ export class Dispatcher {
       store.putSession(session);
       saveRun(this.ctx, run);
       if (plan.viaPrompt) store.setSetting(VIA_PREFIX + id, "prompt");
+      store.setSetting(LAUNCH_REV_PREFIX + id, run.controlRevision);
       putTaskState(this.ctx, task, "in_progress", {
         currentRunId: id,
         sessionId: session.id,
@@ -637,6 +652,14 @@ export class Dispatcher {
 
   private viaPrompt(runId: string): boolean {
     return this.ctx.store.getSetting<string | null>(VIA_PREFIX + runId, null) === "prompt";
+  }
+
+  /** The revision the launch was created with (never a later takeover's). */
+  launchRevision(run: Run): number {
+    return (
+      this.ctx.store.getSetting<number | null>(LAUNCH_REV_PREFIX + run.id, null) ??
+      run.controlRevision
+    );
   }
 
   private isWatch(task: Task): boolean {
@@ -660,6 +683,7 @@ export class Dispatcher {
         images: [],
         mode: "prompt",
         origin: "automation",
+        // Only sent under automation, so the current revision is an automation one.
         controlRevision: run.controlRevision,
       };
     }
@@ -692,16 +716,26 @@ export class Dispatcher {
       nativeHandle: session.nativeHandle,
       profile: session.profileSnapshot,
       prompt,
-      controlRevision: run.controlRevision,
+      // The launch's own revision: a resend after a takeover must never carry the newer one.
+      controlRevision: this.launchRevision(run),
+      controlMode: run.controlMode,
     };
   }
 
-  /** Send (or resend) a run's launch command and apply the outcome. */
+  private isHuman(runId: string): boolean {
+    return this.ctx.store.runs.get(runId)?.controlMode === "human";
+  }
+
+  /**
+   * Send (or resend) a run's launch command and apply the outcome. Only under automation: a
+   * run a person took over is settled by `reconcileHuman`, never launched.
+   */
   private async send(runId: string): Promise<void> {
     if (this.inflight.has(runId)) return;
     const { store, hostHub } = this.ctx;
     const run = store.runs.get(runId);
     if (!run?.hostId || !(run.state === "dispatching" || run.state === "uncertain")) return;
+    if (run.controlMode !== "automation") return;
     let cmd: HostCommand;
     try {
       cmd = this.buildCommand(run);
@@ -712,18 +746,35 @@ export class Dispatcher {
     this.inflight.add(runId);
     try {
       if (cmd.type === "session.prompt") {
-        await hostHub.request(run.hostId, {
-          type: "session.setControl",
-          sessionId: cmd.sessionId,
-          controlRevision: run.controlRevision,
-          mode: "automation",
-        });
+        await hostHub.request(
+          run.hostId,
+          {
+            type: "session.setControl",
+            sessionId: cmd.sessionId,
+            controlRevision: run.controlRevision,
+            mode: "automation",
+          },
+          { commandId: `ctl_${run.dispatchKey}_${run.controlRevision}` },
+        );
+        if (this.stopped) return;
+        if (this.isHuman(runId)) {
+          await this.reconcileHuman(runId);
+          return;
+        }
       }
       const receipt = await hostHub.send(run.hostId, cmd, {
         commandId: `cmd_${run.dispatchKey}`,
         timeoutMs: cmd.type === "dispatch.start" ? this.opts.startTimeoutMs : undefined,
       });
       if (this.stopped) return;
+      if (this.isHuman(runId)) {
+        if (receipt.ok) this.adoptForHuman(runId, receipt.result);
+        else if (stillLaunching(receipt.error)) this.markUncertain(runId);
+        else if (startedUnknown(receipt.error.details))
+          this.applyFailure(runId, receipt.error, false);
+        else this.interruptForHuman(runId);
+        return;
+      }
       if (receipt.ok) this.applyStarted(runId, receipt.result);
       else if (stillLaunching(receipt.error)) this.markUncertain(runId);
       else this.applyFailure(runId, receipt.error, true);
@@ -731,10 +782,179 @@ export class Dispatcher {
       if (this.stopped) return;
       const e = shortError(err);
       if (e.code === "timeout" || e.code === "host_unreachable") this.markUncertain(runId);
+      else if (this.isHuman(runId)) this.markUncertain(runId);
       else this.applyFailure(runId, e, true);
     } finally {
       this.inflight.delete(runId);
     }
+  }
+
+  /**
+   * A person took over a run whose launch is not confirmed. Launch commands still queued for a
+   * disconnected host are withdrawn so a reconnect cannot deliver them; a connected host already
+   * learned the takeover through `session.setControl` (it holds it for a session it has not
+   * created yet and withholds the launch prompt).
+   */
+  onTakeover(runId: string): void {
+    const run = this.ctx.store.runs.get(runId);
+    if (!run?.hostId || !(run.state === "dispatching" || run.state === "uncertain")) return;
+    const reason = "Launch withdrawn: a person took over";
+    this.ctx.hostHub.withdraw(`cmd_${run.dispatchKey}`, reason);
+    for (let rev = 1; rev <= run.controlRevision; rev++) {
+      this.ctx.hostHub.withdraw(`ctl_${run.dispatchKey}_${rev}`, reason);
+    }
+  }
+
+  /** Tell the host the run is under human control (current revision). */
+  private async assertHumanControl(run: Run): Promise<boolean> {
+    if (!run.hostId || !run.sessionId) return false;
+    try {
+      await this.ctx.hostHub.request(run.hostId, {
+        type: "session.setControl",
+        sessionId: run.sessionId,
+        controlRevision: run.controlRevision,
+        mode: "human",
+      });
+      return true;
+    } catch (err) {
+      this.ctx.log.warn({ err, runId: run.id }, "session.setControl (human) failed");
+      return false;
+    }
+  }
+
+  /**
+   * Settle an unconfirmed launch a person took over, without automating anything: the host
+   * learns human control first; a started session is adopted under human control; a launch that
+   * never started is interrupted for the person to decide.
+   */
+  private async reconcileHuman(runId: string): Promise<void> {
+    const run = this.ctx.store.runs.get(runId);
+    if (!run?.hostId || !(run.state === "dispatching" || run.state === "uncertain")) return;
+    if (!(await this.assertHumanControl(run))) return;
+    if (this.stopped) return;
+    if (this.viaPrompt(run.id)) {
+      // The session already existed and is live; whether the prompt arrived is for the person.
+      this.adoptForHuman(run.id, {});
+      return;
+    }
+    let result: ReconcileResult;
+    try {
+      result = ReconcileResult.parse(
+        await this.ctx.hostHub.request(run.hostId, {
+          type: "dispatch.reconcile",
+          dispatchKey: run.dispatchKey,
+        }),
+      );
+    } catch (err) {
+      this.ctx.log.warn({ err, runId: run.id }, "dispatch.reconcile failed");
+      return;
+    }
+    if (this.stopped) return;
+    if (!result.known) {
+      this.interruptForHuman(run.id);
+      return;
+    }
+    if (result.state === "started") {
+      this.adoptForHuman(
+        run.id,
+        {
+          sessionId: result.sessionId ?? run.sessionId,
+          workspacePath: result.workspacePath,
+          nativeHandle: result.nativeHandle,
+        },
+        result.runtime,
+      );
+      return;
+    }
+    if (result.state === "failed") {
+      if (startedUnknown(result.errorDetails)) {
+        this.applyFailure(
+          run.id,
+          {
+            code: "internal",
+            message: result.error ?? "Host restarted during launch",
+            details: result.errorDetails,
+          },
+          false,
+        );
+      } else {
+        this.interruptForHuman(run.id);
+      }
+    }
+    // accepted / workspace_ready: the host knows about the takeover and will not send the
+    // prompt; ask again on the next reconcile.
+  }
+
+  /** A launch that started is adopted under human control; the host is told so. */
+  private adoptForHuman(runId: string, raw: unknown, runtime?: Session["runtime"] | null): void {
+    this.applyStarted(runId, raw, runtime);
+    const run = this.ctx.store.runs.get(runId);
+    if (run?.controlMode === "human" && run.hostId && this.ctx.hostHub.isConnected(run.hostId)) {
+      void this.assertHumanControl(run);
+    }
+  }
+
+  /** A launch a person took over never started: interrupt it and leave it to them. */
+  private interruptForHuman(runId: string): void {
+    const { store } = this.ctx;
+    store.tx(() => {
+      const run = store.runs.get(runId);
+      if (!run || !(run.state === "dispatching" || run.state === "uncertain")) return;
+      saveRun(this.ctx, run, { state: "interrupted" });
+      const session = run.sessionId ? store.sessions.get(run.sessionId) : undefined;
+      if (session?.runtime === "starting") {
+        store.putSession({
+          ...session,
+          runtime: "stopped",
+          runtimeDetail: TAKEN_OVER_BEFORE_LAUNCH,
+        });
+      }
+      const task = store.tasks.get(run.taskId);
+      if (task && task.currentRunId === run.id) {
+        putTaskState(this.ctx, task, task.state, { blocked: { reason: TAKEN_OVER_BEFORE_LAUNCH } });
+      }
+    });
+  }
+
+  /**
+   * The host restarted after Pi may have been spawned and prompted. Never replay: adopt what the
+   * host knows (native handle, worktree), interrupt the run and block the task for a person.
+   */
+  private applyStartUnknown(runId: string, details: unknown): void {
+    const { store } = this.ctx;
+    const d = (details ?? {}) as { nativeHandle?: unknown; workspacePath?: unknown };
+    store.tx(() => {
+      const run = store.runs.get(runId);
+      if (!run || !(run.state === "dispatching" || run.state === "uncertain")) return;
+      const session = run.sessionId ? store.sessions.get(run.sessionId) : undefined;
+      if (session) {
+        const parsed = DispatchStartResult.partial().safeParse({
+          nativeHandle: d.nativeHandle ?? undefined,
+          workspacePath: typeof d.workspacePath === "string" ? d.workspacePath : undefined,
+        });
+        const result = parsed.success ? parsed.data : {};
+        let next: Session = { ...session };
+        if (result.nativeHandle && !next.nativeHandle) next.nativeHandle = result.nativeHandle;
+        if (result.workspacePath && !session.workspaceId && !this.viaPrompt(run.id)) {
+          next = {
+            ...next,
+            cwd: result.workspacePath,
+            workspaceId: this.recordWorkspace(run, session, result.workspacePath),
+          };
+        }
+        if (next.runtime === "starting") {
+          next = { ...next, runtime: "interrupted", runtimeDetail: HOST_RESTARTED_DURING_LAUNCH };
+        }
+        if (JSON.stringify(next) !== JSON.stringify(session)) store.putSession(next);
+      }
+      saveRun(this.ctx, run, { state: "interrupted" });
+      const task = store.tasks.get(run.taskId);
+      if (!task || task.currentRunId !== run.id) return;
+      const blocked = putTaskState(this.ctx, task, task.state, {
+        blocked: { reason: HOST_RESTARTED_DURING_LAUNCH },
+      });
+      raiseFailed(this.ctx, blocked, HOST_RESTARTED_DURING_LAUNCH);
+    });
   }
 
   private markUncertain(runId: string): void {
@@ -809,6 +1029,10 @@ export class Dispatcher {
     error: { code: string; message: string; details?: unknown },
     mayRetry: boolean,
   ): void {
+    if (startedUnknown(error.details)) {
+      this.applyStartUnknown(runId, error.details);
+      return;
+    }
     const { store } = this.ctx;
     store.tx(() => {
       const run = store.runs.get(runId);
@@ -878,9 +1102,14 @@ export class Dispatcher {
     }
   }
 
-  private async reconcileRun(run: Run): Promise<void> {
-    if (!run.hostId) return;
+  private async reconcileRun(stale: Run): Promise<void> {
+    const run = this.ctx.store.runs.get(stale.id);
+    if (!run?.hostId) return;
     this.lastReconcile.set(run.id, Date.now());
+    if (run.controlMode !== "automation") {
+      await this.reconcileHuman(run.id);
+      return;
+    }
     if (this.viaPrompt(run.id)) {
       // Host receipts dedupe by commandId: resending the same command is idempotent.
       await this.send(run.id);
@@ -920,7 +1149,11 @@ export class Dispatcher {
     if (result.state === "failed") {
       this.applyFailure(
         run.id,
-        { code: "internal", message: result.error ?? "Launch failed on host" },
+        {
+          code: "internal",
+          message: result.error ?? "Launch failed on host",
+          details: result.errorDetails ?? undefined,
+        },
         true,
       );
       return;
