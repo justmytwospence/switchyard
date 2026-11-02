@@ -62,10 +62,9 @@ export async function subscribePush(): Promise<PushPermission> {
     return permission;
   }
   const reg = await navigator.serviceWorker.ready;
-  const res = await apiGet<{ publicKey?: string; key?: string } | string>(
-    "/api/push/vapid-public-key",
-  );
-  const key = typeof res === "string" ? res : (res.publicKey ?? res.key ?? "");
+  // Coordinator routes/push.ts: GET /api/push/vapid-public-key -> {publicKey}.
+  const { publicKey: key } = await apiGet<{ publicKey: string }>("/api/push/vapid-public-key");
+  if (!key) throw new Error("The coordinator has no push key configured");
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
     sub = await reg.pushManager.subscribe({

@@ -6,11 +6,13 @@ import { clearCache } from "../sync/cache";
 import { syncClient } from "../sync/client";
 import { syncStore } from "../sync/store";
 
-/** Response of GET /api/me (tolerant: the device may be nested or flat). */
+/** Response of GET /api/me: `{device, admin, publicUrl}` (coordinator routes/auth.ts). */
 export interface Me {
-  device?: Device;
-  deviceId?: string;
-  [key: string]: unknown;
+  device: Device;
+  /** The local admin token (CLI), not a browser device. */
+  admin: boolean;
+  /** The coordinator's public URL (enrollment links, push deep links). */
+  publicUrl: string;
 }
 
 export type AuthStatus = "checking" | "authenticated" | "unauthenticated" | "error";
@@ -49,7 +51,7 @@ function stopSync(): void {
 /** The current device id, when known. */
 export function currentDeviceId(): string | null {
   const me = useAuth.getState().me;
-  return me?.device?.id ?? me?.deviceId ?? null;
+  return me?.device?.id ?? null;
 }
 
 /** GET /api/me; starts live sync when authenticated. */
@@ -58,11 +60,11 @@ export async function checkAuth(): Promise<AuthStatus> {
   try {
     const me = await apiGet<Me>("/api/me");
     try {
-      localStorage.setItem(ME_KEY, JSON.stringify(me ?? {}));
+      localStorage.setItem(ME_KEY, JSON.stringify(me));
     } catch {
       // ignore
     }
-    useAuth.setState({ status: "authenticated", me: me ?? {}, signedOutReason: null });
+    useAuth.setState({ status: "authenticated", me, signedOutReason: null });
     startSync();
     return "authenticated";
   } catch (e) {
@@ -85,7 +87,9 @@ export async function checkAuth(): Promise<AuthStatus> {
 function readCachedMe(): Me | null {
   try {
     const raw = localStorage.getItem(ME_KEY);
-    return raw ? (JSON.parse(raw) as Me) : null;
+    const me = raw ? (JSON.parse(raw) as Partial<Me>) : null;
+    // Ignore caches written before the shape was known.
+    return me?.device?.id ? (me as Me) : null;
   } catch {
     return null;
   }

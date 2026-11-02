@@ -1,0 +1,224 @@
+import { type ReactNode, useState } from "react";
+import { useNavigate } from "react-router";
+import { Button } from "../../components/ui/Button";
+import { Dialog } from "../../components/ui/Overlay";
+import { ErrorState } from "../../components/ui/states";
+import { TextInput } from "../../components/ui/TextArea";
+import { toast } from "../../components/ui/Toast";
+import { formatTime } from "../../lib/time";
+import { errorMessage } from "../../sync/api";
+import { codeApi } from "./api";
+import type { SessionContext } from "./hooks";
+import { useMutation } from "./hooks";
+import { isBusy, isLive } from "./model";
+
+export interface SessionActions {
+  canTakeover: boolean;
+  canReturn: boolean;
+  canStop: boolean;
+  canResume: boolean;
+  /** Why archive is unavailable, or null. */
+  archiveBlocked: string | null;
+  takeover: () => void;
+  returnToAutomation: () => void;
+  requestStop: () => void;
+  resume: () => void;
+  openRename: () => void;
+  requestArchive: () => void;
+  openInfo: () => void;
+  busy: { takeover: boolean; ret: boolean; stop: boolean; resume: boolean };
+  /** Confirmation and form dialogs; render once in the view. */
+  dialogs: ReactNode;
+}
+
+/** Session control and menu actions with confirmation dialogs (no optimistic success). */
+export function useSessionActions(ctx: SessionContext): SessionActions {
+  const { session, run, control } = ctx;
+  const navigate = useNavigate();
+  const [dialog, setDialog] = useState<null | "stop" | "rename" | "archive" | "info">(null);
+  const [title, setTitle] = useState(session.title);
+
+  const takeover = useMutation(() => codeApi.takeover(session.id), {
+    success: "You have control. Automatic continuations are paused.",
+    errorToast: true,
+  });
+  const ret = useMutation(() => codeApi.returnToAutomation(session.id), {
+    success: "Returned to automation.",
+    errorToast: true,
+  });
+  const stop = useMutation(() => codeApi.stop(session.id), { success: "Session stopped." });
+  const resume = useMutation(() => codeApi.resume(session.id), {
+    success: "Session resumed.",
+    errorToast: true,
+  });
+  const rename = useMutation((t: string) => codeApi.rename(session.id, t), {
+    success: "Session renamed.",
+  });
+  const archive = useMutation(() => codeApi.archive(session.id), { success: "Session archived." });
+
+  const connected = ctx.link === "connected";
+  const close = () => {
+    setDialog(null);
+    stop.reset();
+    rename.reset();
+    archive.reset();
+  };
+
+  const archiveBlocked = session.archivedAt
+    ? "Already archived"
+    : isBusy(session)
+      ? "Stop the session before archiving it"
+      : null;
+
+  const dialogs = (
+    <>
+      <Dialog
+        open={dialog === "stop"}
+        onClose={close}
+        title="Stop this session?"
+        description="Stops the current execution and clears queued messages."
+        footer={
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button
+              variant="danger"
+              busy={stop.busy}
+              onClick={() => void stop.run().then((ok) => ok && setDialog(null))}
+            >
+              Stop session
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">
+          {run
+            ? "The task keeps its run, marked interrupted and blocked (Stopped by user). Automation settings are unchanged."
+            : "Pi stays available; you can send a new message afterwards."}
+        </p>
+        {stop.error !== null && (
+          <ErrorState compact title="Could not stop" error={errorMessage(stop.error)} />
+        )}
+      </Dialog>
+
+      <Dialog
+        open={dialog === "rename"}
+        onClose={close}
+        title="Rename session"
+        footer={
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="sy-rename-form"
+              busy={rename.busy}
+              disabled={!title.trim()}
+            >
+              Save
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="sy-rename-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!title.trim()) return;
+            void rename.run(title.trim()).then((ok) => ok && setDialog(null));
+          }}
+          className="flex flex-col gap-2"
+        >
+          <label htmlFor="sy-rename-input" className="text-sm font-medium">
+            Title
+          </label>
+          <TextInput
+            id="sy-rename-input"
+            value={title}
+            maxLength={200}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          {rename.error !== null && (
+            <ErrorState compact title="Could not rename" error={errorMessage(rename.error)} />
+          )}
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={dialog === "archive"}
+        onClose={close}
+        title="Archive this session?"
+        description="It leaves the navigator. The Pi session file stays on the host."
+        footer={
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button
+              variant="primary"
+              busy={archive.busy}
+              onClick={() =>
+                void archive.run().then((ok) => {
+                  if (!ok) return;
+                  setDialog(null);
+                  navigate("/code");
+                })
+              }
+            >
+              Archive
+            </Button>
+          </>
+        }
+      >
+        {session.runtime === "idle" && (
+          <p className="text-sm text-muted">The idle Pi process is stopped first.</p>
+        )}
+        {archive.error !== null && (
+          <ErrorState compact title="Could not archive" error={errorMessage(archive.error)} />
+        )}
+      </Dialog>
+
+      <Dialog open={dialog === "info"} onClose={close} title="Native session information">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
+          <InfoRow label="Switchyard session" value={session.id} />
+          <InfoRow label="Pi session id" value={session.nativeHandle?.sessionId ?? "Not started"} />
+          <InfoRow label="Session file" value={session.nativeHandle?.sessionFile ?? "None yet"} />
+          <InfoRow label="Host" value={`${ctx.hostName} (${ctx.link})`} />
+          <InfoRow label="Working directory" value={session.cwd} />
+          <InfoRow label="Origin" value={session.provenance} />
+          <InfoRow label="Profile" value={session.profileSnapshot.name} />
+          <InfoRow label="Created" value={formatTime(session.createdAt)} />
+        </dl>
+      </Dialog>
+    </>
+  );
+
+  return {
+    canTakeover: control === "automation",
+    canReturn: control === "human",
+    canStop: isBusy(session) && connected,
+    canResume: !isLive(session) && !!session.nativeHandle && !session.readOnly && connected,
+    archiveBlocked,
+    takeover: () => void takeover.run(),
+    returnToAutomation: () => void ret.run(),
+    requestStop: () => setDialog("stop"),
+    resume: () => void resume.run(),
+    openRename: () => {
+      setTitle(session.title);
+      setDialog("rename");
+    },
+    requestArchive: () => {
+      if (archiveBlocked) toast.info(archiveBlocked);
+      else setDialog("archive");
+    },
+    openInfo: () => setDialog("info"),
+    busy: { takeover: takeover.busy, ret: ret.busy, stop: stop.busy, resume: resume.busy },
+    dialogs,
+  };
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0 font-mono text-xs break-all">{value}</dd>
+    </>
+  );
+}

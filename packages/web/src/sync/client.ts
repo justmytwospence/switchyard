@@ -1,4 +1,5 @@
 import type { ClientToServer, ServerToClient } from "@switchyard/protocol";
+import { apiGet } from "./api";
 import { clearCache, loadCache, saveCache } from "./cache";
 import { toSyncState } from "./reduce";
 import { syncStore } from "./store";
@@ -116,8 +117,10 @@ export class SyncClient {
       return;
     }
     this.ws = ws;
+    let opened = false;
     ws.onopen = () => {
       if (this.ws !== ws) return;
+      opened = true;
       const cursor = syncStore.getState().seq;
       ws.send(JSON.stringify({ type: "hello", cursor } satisfies ClientToServer));
     };
@@ -136,16 +139,32 @@ export class SyncClient {
       this.ws = null;
       this.clearTimers();
       if (this.stopped) return;
-      // 4401/4403/1008: the coordinator rejected our credential.
+      // 4401: the coordinator revoked this device (it also sends `force_logout` first).
+      // 4403/1008 are treated the same for proxies that map auth failures to close codes.
       if (ev.code === 4401 || ev.code === 4403 || ev.code === 1008) {
         this.emitLogout(ev.reason || "unauthorized");
         return;
       }
+      // An upgrade rejected with HTTP 401 surfaces only as 1006 before open. Probe
+      // GET /api/me: a 401 there signs out through the api() unauthorized listeners.
+      if (!opened && this.attempts % 5 === 0) this.probeAuth();
+      // 1013 (client too slow) and 1001 (coordinator stopping): reconnect with the cursor.
       this.scheduleReconnect();
     };
     ws.onerror = () => {
       // onclose follows and schedules the reconnect.
     };
+  }
+
+  private probing = false;
+  private probeAuth(): void {
+    if (this.probing) return;
+    this.probing = true;
+    void apiGet("/api/me")
+      .catch(() => undefined)
+      .finally(() => {
+        this.probing = false;
+      });
   }
 
   private handle(msg: ServerToClient): void {
