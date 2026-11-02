@@ -77,14 +77,16 @@ type PreviewState =
   | { status: "error"; error: unknown }
   | { status: "unsupported" };
 
-async function fetchPreview(id: string | null, body: AutomationInput): Promise<AutomationPreview> {
-  if (id) {
-    try {
-      return await apiPost<AutomationPreview>(automationPath(id, "/preview"), body);
-    } catch (e) {
-      if (!isMissingEndpoint(e)) throw e;
-    }
-  }
+/**
+ * A saved automation without local edits previews through `GET /api/automations/:id/preview`;
+ * a new or edited draft posts its current form to `POST /api/automations/preview`.
+ */
+async function fetchPreview(
+  id: string | null,
+  body: AutomationInput,
+  dirty: boolean,
+): Promise<AutomationPreview> {
+  if (id && !dirty) return apiGet<AutomationPreview>(automationPath(id, "/preview"));
   return apiPost<AutomationPreview>("/api/automations/preview", body);
 }
 
@@ -94,10 +96,13 @@ async function fetchPreview(id: string | null, body: AutomationInput): Promise<A
  */
 export function PreviewPanel({
   automationId,
+  dirty,
   getInput,
   currentKey,
 }: {
   automationId: string | null;
+  /** The form differs from the saved automation (preview the draft, not the saved version). */
+  dirty: boolean;
   /** Validates the draft (showing inline errors) and returns the body, or null. */
   getInput: () => AutomationInput | null;
   /** Serialized current draft, to flag a stale preview. */
@@ -113,7 +118,7 @@ export function PreviewPanel({
     }
     setState({ status: "loading" });
     try {
-      const preview = await fetchPreview(automationId, input);
+      const preview = await fetchPreview(automationId, input, dirty);
       setState({ status: "done", preview, key: JSON.stringify(input) });
     } catch (e) {
       setState(isMissingEndpoint(e) ? { status: "unsupported" } : { status: "error", error: e });

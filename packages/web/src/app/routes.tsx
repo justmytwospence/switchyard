@@ -7,7 +7,6 @@ import { AuthGate } from "./AuthGate";
 
 const CodeView = lazy(() => import("../features/code"));
 const BoardView = lazy(() => import("../features/board"));
-const TaskView = lazy(() => import("../features/board/TaskView"));
 const AttentionView = lazy(() => import("../features/attention"));
 const NowView = lazy(() => import("../features/now"));
 const AutomationsView = lazy(() => import("../features/automations"));
@@ -33,10 +32,14 @@ export const ROUTES = {
   enroll: "/enroll",
 } as const;
 
+/** Top-level path segments that share one view (and one error boundary) with another. */
+const SECTION_ALIASES: Record<string, string> = { tasks: "board" };
+
 function Page({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
+  const segment = pathname.split("/")[1] ?? "";
   return (
-    <ErrorBoundary key={pathname.split("/")[1] ?? ""}>
+    <ErrorBoundary key={SECTION_ALIASES[segment] ?? segment}>
       <Suspense fallback={<LoadingState />}>{children}</Suspense>
     </ErrorBoundary>
   );
@@ -82,22 +85,17 @@ export function AppRoutes() {
               </Page>
             }
           />
+          {/* One layout for /board and /tasks/:taskId so the board stays mounted under the drawer. */}
           <Route
-            path="board"
             element={
               <Page>
                 <BoardView />
               </Page>
             }
-          />
-          <Route
-            path="tasks/:taskId"
-            element={
-              <Page>
-                <TaskView />
-              </Page>
-            }
-          />
+          >
+            <Route path="board" element={null} />
+            <Route path="tasks/:taskId" element={null} />
+          </Route>
           <Route
             path="attention"
             element={

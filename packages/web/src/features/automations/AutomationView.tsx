@@ -412,6 +412,7 @@ function Editor({ automation }: { automation: Automation | null }) {
       />
       <PreviewPanel
         automationId={automation?.id ?? null}
+        dirty={dirty}
         getInput={getValidInput}
         currentKey={JSON.stringify(validation.input)}
       />

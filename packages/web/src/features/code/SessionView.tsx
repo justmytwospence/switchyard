@@ -20,7 +20,7 @@ import { usePendingInteractions } from "../../sync/store";
 import { MobileChanges } from "./Changes";
 import { Composer } from "./Composer";
 import { ControlChip, ConversationHeader, sessionMenuItems } from "./ConversationHeader";
-import { CodeContext, type CodeViewContext } from "./context";
+import { CodeContext, type CodeViewContext, type InspectorTab } from "./context";
 import { MobileDetails } from "./Details";
 import type { SessionContext } from "./hooks";
 import { AUTOMATION_LABEL, workspaceLabel } from "./model";
@@ -149,25 +149,36 @@ export function Conversation({
 
 type MobileTab = "chat" | "changes" | "details";
 
+/** Mobile segment for a requested inspector tab (`?tab=`): Changes, else Details. */
+function mobileTabFor(tab: InspectorTab | null | undefined): MobileTab {
+  if (!tab) return "chat";
+  return tab === "changes" ? "changes" : "details";
+}
+
 /** Mobile session screen: one surface at a time (Chat, Changes, Details). */
 export function MobileSession({
   ctx,
   actions,
   focusInteractionId,
+  tabRequest,
 }: {
   ctx: SessionContext;
   actions: SessionActions;
   focusInteractionId: string | null;
+  /** `?tab=` from the URL (e.g. Board "Review changes" opens Changes). */
+  tabRequest?: { tab: InspectorTab; key: string } | null;
 }) {
   const { session, project, workspace, task } = ctx;
   const navigate = useNavigate();
-  const [tab, setTab] = useState<MobileTab>("chat");
+  const [tab, setTab] = useState<MobileTab>(() => mobileTabFor(tabRequest?.tab));
   const [metaOpen, setMetaOpen] = useState(false);
   const pending = usePendingInteractions(session.id);
   const d = useComposerDraft(session.id);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: deep links and session switches show Chat
-  useEffect(() => setTab("chat"), [session.id, focusInteractionId]);
+  // Deep links and session switches show Chat, unless the link asks for a tab (`?tab=changes`).
+  const tabKey = tabRequest ? `${tabRequest.tab}:${tabRequest.key}` : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: apply once per navigation
+  useEffect(() => setTab(mobileTabFor(tabRequest?.tab)), [session.id, focusInteractionId, tabKey]);
 
   const codeCtx = useMemo<CodeViewContext>(
     () => ({ mobile: true, openInspector: (t) => setTab(t === "changes" ? "changes" : "details") }),

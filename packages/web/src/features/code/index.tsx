@@ -1,10 +1,13 @@
 import { useEffect } from "react";
-import { Navigate, useParams, useSearchParams } from "react-router";
+import { Navigate, useLocation, useParams, useSearchParams } from "react-router";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { usePrefs } from "../../prefs";
 import { useViewingSession } from "../../presence";
 import { useSession, useSyncStore } from "../../sync/store";
 import { CodeDesktop, CodeMobile } from "./CodeLayouts";
+import type { InspectorTab } from "./context";
+
+const INSPECTOR_TABS: readonly string[] = ["changes", "files", "task", "extensions"];
 
 /**
  * Code view: `/code` and `/code/:sessionId` (`?interaction=<id>` scrolls to and
@@ -17,6 +20,11 @@ export default function CodeView() {
   const sessionId = rawId ?? null;
   const [params] = useSearchParams();
   const focusInteractionId = params.get("interaction");
+  const tabParam = params.get("tab");
+  const requestedTab =
+    tabParam && INSPECTOR_TABS.includes(tabParam) ? (tabParam as InspectorTab) : null;
+  // Each navigation (e.g. "Review changes" again) re-applies the requested tab.
+  const { key: requestKey } = useLocation();
   const bp = useBreakpoint();
   const hydrated = useSyncStore((s) => s.hydrated);
   const session = useSession(sessionId);
@@ -36,7 +44,13 @@ export default function CodeView() {
     return <Navigate to={`/code/${encodeURIComponent(lastSession.id)}`} replace />;
   }
 
-  const props = { session, sessionId, hydrated, focusInteractionId };
+  const props = {
+    session,
+    sessionId,
+    hydrated,
+    focusInteractionId,
+    tabRequest: requestedTab ? { tab: requestedTab, key: requestKey } : null,
+  };
   return bp === "mobile" ? (
     <CodeMobile {...props} />
   ) : (

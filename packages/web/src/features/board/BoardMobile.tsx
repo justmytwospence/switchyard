@@ -53,7 +53,15 @@ export function BoardMobile() {
   useLayoutEffect(() => {
     if (!hydrated) return;
     const el = mainEl();
-    if (el) el.scrollTop = boardMemory.mainScrollTop;
+    const target = boardMemory.mainScrollTop;
+    if (el) el.scrollTop = target;
+    // The bottom nav (hidden by the task detail) comes back a moment later and shortens #main,
+    // so a position near the end was clamped: apply it again once the layout settled.
+    let raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => {
+        if (el && el.scrollTop < target) el.scrollTop = target;
+      });
+    });
     const focusId = boardMemory.focusTaskId;
     boardMemory.focusTaskId = null;
     if (focusId)
@@ -62,6 +70,7 @@ export function BoardMobile() {
           .querySelector<HTMLElement>(`[data-card-open="${CSS.escape(focusId)}"]`)
           ?.focus({ preventScroll: true }),
       );
+    return () => cancelAnimationFrame(raf);
   }, [hydrated]);
 
   const open = (t: Task) => {

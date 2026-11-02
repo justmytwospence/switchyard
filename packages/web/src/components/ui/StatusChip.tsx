@@ -190,6 +190,7 @@ export function StatusChip(props: StatusChipProps) {
   const sm = props.size === "sm";
   return (
     <span
+      data-status-chip={props.kind}
       className={cn(
         "inline-flex max-w-full items-center gap-1 rounded-full border font-medium whitespace-nowrap",
         sm ? "px-1.5 text-xs leading-5" : "px-2 text-xs leading-6",

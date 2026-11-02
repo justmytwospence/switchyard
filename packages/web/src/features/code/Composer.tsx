@@ -151,6 +151,12 @@ export function Composer({
         ? "Add a message to send with the images"
         : null;
 
+  // Mobile: tapping Send must not blur the draft first. The blur would bring back the bottom
+  // nav (hidden while composing) and shift the composer under the finger, losing the tap.
+  const keepFocus = mobile
+    ? { onPointerDown: (e: React.PointerEvent) => e.preventDefault() }
+    : undefined;
+
   const profile = session.profileSnapshot;
   const profileText = [
     profile.name,
@@ -368,6 +374,7 @@ export function Composer({
                   busy={busy === "steer"}
                   disabled={!!block || noText || (busy !== null && busy !== "steer")}
                   onClick={() => void send("steer")}
+                  {...keepFocus}
                 >
                   Steer
                 </Button>
@@ -380,6 +387,7 @@ export function Composer({
                   busy={busy === "followUp"}
                   disabled={!!block || noText || (busy !== null && busy !== "followUp")}
                   onClick={() => void send("followUp")}
+                  {...keepFocus}
                 >
                   Queue follow-up
                 </Button>
@@ -393,6 +401,7 @@ export function Composer({
               busy={busy === "prompt"}
               disabled={!!block || noText}
               onClick={() => void send("prompt")}
+              {...keepFocus}
             >
               Send
             </Button>

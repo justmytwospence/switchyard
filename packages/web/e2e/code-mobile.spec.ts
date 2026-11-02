@@ -1,0 +1,228 @@
+import type { Page } from "@playwright/test";
+import { createSession, expect, poll, test, uid } from "./support";
+
+test.skip(({ isMobile }) => !isMobile, "Mobile coding view only");
+
+const bottomNav = (page: Page) => page.getByRole("navigation", { name: "Primary" });
+
+/** Simulate the on-screen keyboard by shrinking (or restoring) `visualViewport.height`. */
+async function setKeyboard(page: Page, open: boolean) {
+  await page.evaluate((open) => {
+    const vv = window.visualViewport!;
+    if (open) {
+      const h = Math.round(window.innerHeight * 0.55);
+      Object.defineProperty(vv, "height", { configurable: true, get: () => h });
+    } else {
+      delete (vv as unknown as { height?: number }).height;
+    }
+    vv.dispatchEvent(new Event("resize"));
+  }, open);
+}
+
+test.describe("mobile coding view", () => {
+  test.beforeEach(async ({ signIn }) => {
+    await signIn();
+  });
+
+  test("one surface at a time: Chat, Changes and Details", async ({ page, state }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    const tabs = page.getByTestId("mobile-tabs");
+    await expect(tabs).toBeVisible();
+    // No miniature desktop sidebars.
+    await expect(page.getByTestId("navigator")).toHaveCount(0);
+    await expect(page.getByTestId("inspector")).toHaveCount(0);
+    await expect(page.getByTestId("transcript")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Long transcript session" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to sessions" })).toBeVisible();
+
+    await tabs.getByRole("radio", { name: "Changes" }).click();
+    await expect(tabs.getByRole("radio", { name: "Changes" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(page.getByRole("list", { name: "Changed files" })).toBeVisible();
+    await expect(page.getByTestId("transcript")).toHaveCount(0);
+    await expect(page.getByTestId("composer")).toHaveCount(0);
+
+    await tabs.getByRole("radio", { name: "Details" }).click();
+    await expect(page.getByRole("region", { name: "Details" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Changed files" })).toHaveCount(0);
+
+    await tabs.getByRole("radio", { name: "Chat" }).click();
+    await expect(page.getByTestId("transcript")).toBeVisible();
+    await expect(page.getByTestId("composer")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  });
+
+  test("Return inserts a newline and Send sends", async ({ page, state, api }, info) => {
+    const id = await createSession(api, state, `Mobile send ${uid(info)}`, "hello mobile");
+    let prompts = 0;
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/prompt`)) prompts++;
+    });
+    await page.goto(`/code/${id}`);
+    const box = page.getByLabel("Message to Pi");
+    await box.tap();
+    await page.keyboard.type("first line");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("second line");
+    await expect(box).toHaveValue("first line\nsecond line");
+    expect(prompts).toBe(0);
+
+    const sent = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/prompt`),
+    );
+    await page.getByTestId("composer").getByRole("button", { name: "Send" }).tap();
+    expect((await sent).postDataJSON().text).toBe("first line\nsecond line");
+    await expect(box).toHaveValue("");
+    await expect(page.getByTestId("transcript").getByText("Received: first line")).toBeVisible();
+    expect(prompts).toBe(1);
+  });
+
+  test("composer grows to at most 33vh, then scrolls", async ({ page, state }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    const box = page.getByLabel("Message to Pi");
+    await box.fill(Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n"));
+    const m = await box.evaluate((el) => ({
+      height: el.getBoundingClientRect().height,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      limit: window.innerHeight * 0.33,
+    }));
+    expect(m.height).toBeLessThanOrEqual(m.limit + 1);
+    expect(m.height).toBeGreaterThan(m.limit * 0.8);
+    expect(m.scrollHeight).toBeGreaterThan(m.clientHeight);
+    // The composer stays on screen.
+    await expect(
+      page.getByTestId("composer").getByRole("button", { name: "Send" }),
+    ).toBeInViewport();
+    await box.fill("");
+  });
+
+  test("full-screen diff with previous and next", async ({ page, state }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    await page.getByTestId("mobile-tabs").getByRole("radio", { name: "Changes" }).click();
+    const list = page.getByRole("list", { name: "Changed files" });
+    await expect(list.getByRole("button")).toHaveCount(state.changedFiles.length);
+    await list.getByRole("button").first().tap();
+
+    const total = state.changedFiles.length;
+    const diff = page.locator("section[aria-label^='Diff of ']").first();
+    await expect(diff).toBeVisible();
+    await expect(diff).toContainText(`File 1 of ${total}`);
+    const box = (await diff.boundingBox())!;
+    const vp = page.viewportSize()!;
+    expect(Math.round(box.width)).toBe(vp.width);
+    await expect(bottomNav(page)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Previous file" })).toBeDisabled();
+
+    const seen = new Set<string>();
+    for (let i = 1; i <= total; i++) {
+      await expect(diff).toContainText(`File ${i} of ${total}`);
+      seen.add((await diff.getAttribute("aria-label"))!.replace("Diff of ", ""));
+      if (i < total) await page.getByRole("button", { name: "Next file" }).tap();
+    }
+    expect([...seen].sort()).toEqual([...state.changedFiles].sort());
+    await expect(page.getByRole("button", { name: "Next file" })).toBeDisabled();
+    await page.getByRole("button", { name: "Previous file" }).tap();
+    await expect(diff).toContainText(`File ${total - 1} of ${total}`);
+
+    await page.getByRole("button", { name: "Back to changed files" }).tap();
+    await expect(list).toBeVisible();
+    await expect(bottomNav(page)).toBeVisible();
+
+    // Horizontal scrolling stays inside the code block, and a long line keeps its line numbers.
+    await list.getByRole("button", { name: /src\/wide\.ts/ }).tap();
+    await expect(diff).toHaveAttribute("aria-label", "Diff of src/wide.ts");
+    const scroller = diff.locator(".overflow-x-auto");
+    expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await diff.getByRole("button", { name: "Comment on line 2" }).tap();
+    const sheet = page.getByRole("dialog", { name: "Add review comment" });
+    await expect(sheet).toBeVisible();
+    expect(await scroller.evaluate((el) => el.scrollLeft)).toBe(0);
+    await sheet.getByRole("button", { name: "Cancel" }).tap();
+
+    await page.getByRole("button", { name: "Back to changed files" }).tap();
+    await expect(list).toBeVisible();
+    await expect(bottomNav(page)).toBeVisible();
+  });
+
+  test("a multiselect question is answered by tapping", async ({ page, state, api }, info) => {
+    const id = await createSession(
+      api,
+      state,
+      `Toppings ${uid(info)}`,
+      "ASK-TOPPINGS please",
+      (s) => s.runtime === "waiting_input",
+    );
+    await poll("pending toppings question", async () => {
+      const list: any[] = await api("GET", `/api/interactions?sessionId=${id}&state=pending`);
+      return list.length > 0;
+    });
+    await page.goto(`/code/${id}`);
+    const card = page.getByTestId("interaction-card").first();
+    await expect(card).toContainText("Which toppings do you want?");
+    // Structured options, not "1,3".
+    await expect(card.getByRole("checkbox")).toHaveCount(3);
+    await expect(card.getByRole("textbox")).toHaveCount(0);
+    await card.getByText("Cheese", { exact: true }).tap();
+    await card.getByText("Basil", { exact: true }).tap();
+    await expect(card.getByRole("checkbox", { name: /Cheese/ })).toBeChecked();
+    await expect(card.getByRole("checkbox", { name: /Olives/ })).not.toBeChecked();
+    await card.getByRole("button", { name: "Submit answers" }).tap();
+    await expect(
+      page.getByTestId("transcript").getByText(/Got your toppings\. Toppings: Cheese, Basil/),
+    ).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("needs-answer-strip")).toHaveCount(0);
+  });
+
+  test("bottom nav hides while composing with the keyboard", async ({ page, state }) => {
+    // Any text field: the visual viewport shrinking under focus hides the nav.
+    await page.goto("/board");
+    await expect(bottomNav(page)).toBeVisible();
+    const search = page.getByPlaceholder("Search tasks");
+    await search.focus();
+    await expect(bottomNav(page)).toBeVisible();
+    await setKeyboard(page, true);
+    await expect(bottomNav(page)).toHaveCount(0);
+    await setKeyboard(page, false);
+    await expect(bottomNav(page)).toBeVisible();
+    await setKeyboard(page, true);
+    await expect(bottomNav(page)).toHaveCount(0);
+    await search.blur();
+    await setKeyboard(page, false);
+    await expect(bottomNav(page)).toBeVisible();
+
+    // The composer: hidden while composing; the header Back link keeps navigation reachable.
+    await page.goto(`/code/${state.sessions.long}`);
+    await expect(bottomNav(page)).toBeVisible();
+    await page.getByLabel("Message to Pi").focus();
+    await setKeyboard(page, true);
+    await expect(bottomNav(page)).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Back to sessions" })).toBeVisible();
+    await expect(
+      page.getByTestId("composer").getByRole("button", { name: "Send" }),
+    ).toBeInViewport();
+    await page.getByLabel("Message to Pi").blur();
+    await setKeyboard(page, false);
+    await expect(bottomNav(page)).toBeVisible();
+  });
+
+  test("Review changes on the task opens the Changes segment", async ({ page, state }) => {
+    await page.goto(`/tasks/${state.tasks.review}`);
+    await expect(page.getByTestId("task-page")).toBeVisible();
+    await page.getByRole("link", { name: "Review changes" }).first().tap();
+    await expect(page).toHaveURL(new RegExp(`/code/${state.reviewSessionId}\\?tab=changes`));
+    await expect(
+      page.getByTestId("mobile-tabs").getByRole("radio", { name: "Changes" }),
+    ).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("region", { name: "Changes" })).toBeVisible();
+  });
+});

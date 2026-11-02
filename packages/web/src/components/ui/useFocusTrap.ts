@@ -22,14 +22,30 @@ export function useFocusTrap(
 ): void {
   const escRef = useRef(onEscape);
   escRef.current = onEscape;
+  // Remember the trigger while rendering the opening frame: by the time effects run, an
+  // `autoFocus` field inside the surface has already taken focus.
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const wasActive = useRef(false);
+  if (active && !wasActive.current && typeof document !== "undefined") {
+    triggerRef.current = document.activeElement as HTMLElement | null;
+  }
+  wasActive.current = active;
   useEffect(() => {
     if (!active) return;
     const root = ref.current;
     if (!root) return;
-    const previous = document.activeElement as HTMLElement | null;
+    const captured = triggerRef.current;
+    const previous =
+      captured && !root.contains(captured)
+        ? captured
+        : (document.activeElement as HTMLElement | null);
     const target = initialFocus?.current ?? focusableWithin(root)[0] ?? root;
     // Defer so the element is laid out (portals, transitions).
-    const raf = requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    // An `autoFocus` field inside keeps its focus unless an explicit initial focus was given.
+    const raf = requestAnimationFrame(() => {
+      if (!initialFocus?.current && root.contains(document.activeElement)) return;
+      target.focus({ preventScroll: true });
+    });
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && escRef.current) {
         e.stopPropagation();

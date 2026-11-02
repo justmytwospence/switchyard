@@ -29,9 +29,19 @@ const MARKER: Record<DiffLine["kind"], string> = {
   meta: "",
 };
 
+/** Opaque gutter backgrounds (the gutter is sticky, so it must cover scrolled text). */
+const GUTTER_BG: Record<DiffLine["kind"], string> = {
+  add: "bg-diff-add",
+  del: "bg-diff-del",
+  hunk: "bg-diff-hunk",
+  context: "bg-surface",
+  meta: "bg-surface",
+};
+
 /**
  * Unified diff with old/new line numbers, +/- text markers (not color alone)
- * and tinted rows. Horizontal scrolling is confined to the diff block.
+ * and tinted rows. Horizontal scrolling is confined to the diff block, and the line-number
+ * gutter is sticky so it stays visible while a long line is scrolled.
  */
 export function DiffView({
   patch,
@@ -95,30 +105,50 @@ export function DiffView({
                           marked && "outline outline-1 -outline-offset-1 outline-warning",
                         )}
                       >
-                        <td className="w-10 select-none border-r border-border px-1.5 text-right text-subtle tabular-nums">
-                          {l.oldLine ?? ""}
-                        </td>
-                        <td className="w-10 select-none border-r border-border px-1.5 text-right text-subtle tabular-nums">
-                          {l.newLine ?? ""}
-                        </td>
                         <td
                           className={cn(
-                            "w-5 select-none text-center",
-                            l.kind === "add" && "text-success",
-                            l.kind === "del" && "text-danger",
+                            "sticky left-0 z-[1] w-[6.25rem] min-w-[6.25rem] select-none whitespace-nowrap p-0",
+                            GUTTER_BG[l.kind],
                           )}
-                          aria-label={
-                            l.kind === "add" ? "added" : l.kind === "del" ? "deleted" : undefined
-                          }
                         >
-                          {MARKER[l.kind]}
+                          <span className="flex">
+                            <span className="w-10 shrink-0 border-r border-border px-1.5 text-right text-subtle tabular-nums">
+                              {l.oldLine ?? ""}
+                            </span>
+                            <span className="w-10 shrink-0 border-r border-border px-1.5 text-right text-subtle tabular-nums">
+                              {l.newLine ?? ""}
+                            </span>
+                            <span
+                              aria-hidden
+                              className={cn(
+                                "w-5 shrink-0 text-center",
+                                l.kind === "add" && "text-success",
+                                l.kind === "del" && "text-danger",
+                              )}
+                            >
+                              {MARKER[l.kind]}
+                            </span>
+                            {(l.kind === "add" || l.kind === "del") && (
+                              <span className="sr-only">
+                                {l.kind === "add" ? "added" : "deleted"}
+                              </span>
+                            )}
+                          </span>
                         </td>
                         <td className="whitespace-pre pr-3">
                           {selectable ? (
                             <button
                               type="button"
-                              className="block w-full cursor-pointer text-left whitespace-pre hover:underline focus-visible:underline"
-                              onClick={() => onLineClick?.(ref)}
+                              data-diff-line={l.newLine ?? l.oldLine ?? undefined}
+                              // Keyboard focus scrolls the line into view clear of the sticky gutter.
+                              className="block w-full scroll-ml-[6.25rem] cursor-pointer text-left whitespace-pre hover:underline focus-visible:underline"
+                              // A pointer click must not scroll the diff sideways (the button spans
+                              // the whole long line): skip the focus scroll, then focus in place.
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={(e) => {
+                                e.currentTarget.focus({ preventScroll: true });
+                                onLineClick?.(ref);
+                              }}
                               aria-label={`Comment on line ${l.newLine ?? l.oldLine}`}
                             >
                               {l.text || " "}

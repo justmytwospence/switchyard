@@ -48,11 +48,18 @@ function NoSession({ missing }: { missing: boolean }) {
   );
 }
 
+/** `?tab=` in the URL: the inspector tab to open, keyed by navigation. */
+export interface TabRequest {
+  tab: InspectorTab;
+  key: string;
+}
+
 interface LayoutProps {
   session: Session | undefined;
   sessionId: string | null;
   hydrated: boolean;
   focusInteractionId: string | null;
+  tabRequest: TabRequest | null;
 }
 
 /** Desktop (three panes) and compact (navigator + conversation, inspector drawer). */
@@ -112,6 +119,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
             drawerOpen={drawerOpen}
             setDrawerOpen={setDrawerOpen}
             focusInteractionId={props.focusInteractionId}
+            tabRequest={props.tabRequest}
           />
         ) : (
           <NoSession missing={!!props.sessionId} />
@@ -138,6 +146,7 @@ function SessionPanes({
   drawerOpen,
   setDrawerOpen,
   focusInteractionId,
+  tabRequest,
 }: {
   ctx: SessionContext;
   compact: boolean;
@@ -149,9 +158,10 @@ function SessionPanes({
   drawerOpen: boolean;
   setDrawerOpen: (o: boolean) => void;
   focusInteractionId: string | null;
+  tabRequest: TabRequest | null;
 }) {
   const actions = useSessionActions(ctx);
-  const [tab, setTab] = useState<InspectorTab>("changes");
+  const [tab, setTab] = useState<InspectorTab>(tabRequest?.tab ?? "changes");
   const [openPath, setOpenPath] = useState<{ path: string; nonce: number } | null>(null);
 
   const openInspector = useCallback(
@@ -173,6 +183,13 @@ function SessionPanes({
     }),
     [openInspector],
   );
+
+  // `?tab=changes` (Board "Review changes", attention links) opens that inspector tab.
+  const tabKey = tabRequest ? `${tabRequest.tab}:${tabRequest.key}` : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: apply once per navigation
+  useEffect(() => {
+    if (tabRequest) openInspector(tabRequest.tab);
+  }, [tabKey]);
 
   // Leaving compact closes the drawer.
   useEffect(() => {
@@ -262,7 +279,14 @@ export function CodeMobile(props: LayoutProps) {
   if (props.sessionId) {
     if (!props.hydrated) return <LoadingState label="Loading session…" />;
     if (!ctx) return <NoSession missing />;
-    return <MobileSessionScreen key={ctx.session.id} ctx={ctx} focus={props.focusInteractionId} />;
+    return (
+      <MobileSessionScreen
+        key={ctx.session.id}
+        ctx={ctx}
+        focus={props.focusInteractionId}
+        tabRequest={props.tabRequest}
+      />
+    );
   }
   return (
     <div className="absolute inset-0 flex min-w-0 flex-col">
@@ -282,7 +306,17 @@ export function CodeMobile(props: LayoutProps) {
   );
 }
 
-function MobileSessionScreen({ ctx, focus }: { ctx: SessionContext; focus: string | null }) {
+function MobileSessionScreen({
+  ctx,
+  focus,
+  tabRequest,
+}: {
+  ctx: SessionContext;
+  focus: string | null;
+  tabRequest: TabRequest | null;
+}) {
   const actions = useSessionActions(ctx);
-  return <MobileSession ctx={ctx} actions={actions} focusInteractionId={focus} />;
+  return (
+    <MobileSession ctx={ctx} actions={actions} focusInteractionId={focus} tabRequest={tabRequest} />
+  );
 }
