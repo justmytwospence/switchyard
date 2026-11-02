@@ -13,7 +13,7 @@ Status of each spec requirement from section 1 (the acceptance journey) and sect
 |---|---|
 | `pnpm build` | passes |
 | `pnpm lint` | passes |
-| `pnpm test` | 499 tests pass, no real-Pi test skipped |
+| `pnpm test` | 499 tests pass, no real-Pi test skipped (macOS locally; also green on GitHub Actions ubuntu with Pi 1.4.0 installed) |
 | `pnpm exec playwright test` | 78 passed; 54 skipped are viewport-specific specs outside their project |
 | `docker build .` | Unverified: Docker Desktop on this Mac could not read registry credentials from the locked keychain in a non-interactive session |
 
