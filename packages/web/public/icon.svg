@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Switchyard</title>
+  <rect width="512" height="512" rx="96" fill="#1f2937"/>
+  <g fill="none" stroke="#f9fafb" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M136 120v272"/>
+    <path d="M376 120v272"/>
+    <path d="M136 176c0 80 240 80 240 160"/>
+    <path d="M136 336c0-40 60-60 100-70"/>
+  </g>
+  <circle cx="136" cy="120" r="26" fill="#60a5fa"/>
+  <circle cx="376" cy="392" r="26" fill="#34d399"/>
+</svg>

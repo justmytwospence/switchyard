@@ -1,0 +1,154 @@
+import { lazy, Suspense } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router";
+import { ErrorBoundary } from "../components/ui/ErrorBoundary";
+import { EmptyState, LoadingState } from "../components/ui/states";
+import { AppShell } from "./AppShell";
+import { AuthGate } from "./AuthGate";
+
+const CodeView = lazy(() => import("../features/code"));
+const BoardView = lazy(() => import("../features/board"));
+const TaskView = lazy(() => import("../features/board/TaskView"));
+const AttentionView = lazy(() => import("../features/attention"));
+const NowView = lazy(() => import("../features/now"));
+const AutomationsView = lazy(() => import("../features/automations"));
+const AutomationView = lazy(() => import("../features/automations/AutomationView"));
+const SettingsView = lazy(() => import("../features/settings"));
+const MoreView = lazy(() => import("../features/more"));
+const EnrollView = lazy(() => import("../features/enroll"));
+
+/** Route paths (spec 10 canonical routes plus /enroll, /settings/*, /more). */
+export const ROUTES = {
+  code: "/code",
+  session: (id: string) => `/code/${encodeURIComponent(id)}`,
+  interaction: (sessionId: string, interactionId: string) =>
+    `/code/${encodeURIComponent(sessionId)}?interaction=${encodeURIComponent(interactionId)}`,
+  board: "/board",
+  task: (id: string) => `/tasks/${encodeURIComponent(id)}`,
+  attention: "/attention",
+  now: "/now",
+  automations: "/automations",
+  automation: (id: string) => `/automations/${encodeURIComponent(id)}`,
+  settings: (section?: string) => (section ? `/settings/${section}` : "/settings"),
+  more: "/more",
+  enroll: "/enroll",
+} as const;
+
+function Page({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  return (
+    <ErrorBoundary key={pathname.split("/")[1] ?? ""}>
+      <Suspense fallback={<LoadingState />}>{children}</Suspense>
+    </ErrorBoundary>
+  );
+}
+
+function NotFound() {
+  return (
+    <EmptyState
+      title="Page not found"
+      description="This link does not match any Switchyard view."
+      action={{ label: "Go to Code", to: "/code" }}
+    />
+  );
+}
+
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route
+        path="/enroll"
+        element={
+          <Suspense fallback={<LoadingState />}>
+            <EnrollView />
+          </Suspense>
+        }
+      />
+      <Route element={<AuthGate />}>
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/code" replace />} />
+          <Route
+            path="code"
+            element={
+              <Page>
+                <CodeView />
+              </Page>
+            }
+          />
+          <Route
+            path="code/:sessionId"
+            element={
+              <Page>
+                <CodeView />
+              </Page>
+            }
+          />
+          <Route
+            path="board"
+            element={
+              <Page>
+                <BoardView />
+              </Page>
+            }
+          />
+          <Route
+            path="tasks/:taskId"
+            element={
+              <Page>
+                <TaskView />
+              </Page>
+            }
+          />
+          <Route
+            path="attention"
+            element={
+              <Page>
+                <AttentionView />
+              </Page>
+            }
+          />
+          <Route
+            path="now"
+            element={
+              <Page>
+                <NowView />
+              </Page>
+            }
+          />
+          <Route
+            path="automations"
+            element={
+              <Page>
+                <AutomationsView />
+              </Page>
+            }
+          />
+          <Route
+            path="automations/:automationId"
+            element={
+              <Page>
+                <AutomationView />
+              </Page>
+            }
+          />
+          <Route
+            path="settings/*"
+            element={
+              <Page>
+                <SettingsView />
+              </Page>
+            }
+          />
+          <Route
+            path="more"
+            element={
+              <Page>
+                <MoreView />
+              </Page>
+            }
+          />
+          <Route path="*" element={<NotFound />} />
+        </Route>
+      </Route>
+    </Routes>
+  );
+}
