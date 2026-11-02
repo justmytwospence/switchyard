@@ -5,6 +5,7 @@ import { type Device, type Host, newId, SwitchyardError } from "@switchyard/prot
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { CoordinatorConfig } from "./context.js";
 import type { EventHub } from "./event-hub.js";
+import type { Owner } from "./owner.js";
 import type { Store } from "./store.js";
 
 export const DEVICE_COOKIE = "sy_device";
@@ -45,6 +46,7 @@ export class Auth {
     private readonly store: Store,
     private readonly config: CoordinatorConfig,
     private readonly hub: EventHub,
+    private readonly owner: Owner,
   ) {}
 
   get adminTokenPath(): string {
@@ -65,16 +67,19 @@ export class Auth {
     const now = this.store.nowIso();
     this.store.tx(() => {
       const existing = this.store.devices.get(ADMIN_DEVICE_ID);
-      const device: Device = existing ?? {
-        id: ADMIN_DEVICE_ID,
-        name: "local admin",
-        kind: "cli",
-        createdAt: now,
-        lastSeenAt: null,
-        revokedAt: null,
-        push: { subscribed: false, permission: "unknown" },
-        preferredMobile: false,
-      };
+      const device: Device = existing
+        ? { ...existing, enrolledVia: "admin" }
+        : {
+            id: ADMIN_DEVICE_ID,
+            name: "local admin",
+            kind: "cli",
+            createdAt: now,
+            lastSeenAt: null,
+            revokedAt: null,
+            push: { subscribed: false, permission: "unknown" },
+            preferredMobile: false,
+            enrolledVia: "admin",
+          };
       this.store.devices.upsert(device, { credential_hash: hash, is_admin: 1 });
     });
     return token;
@@ -95,7 +100,10 @@ export class Auth {
     return `switchyard host enroll --coordinator ${this.config.publicUrl} --token ${token}`;
   }
 
-  /** Create a single-use enrollment (device 10 min, host 30 min by default). */
+  /**
+   * Create a single-use enrollment (device 10 min, host 30 min by default). An enrollment created
+   * by a device (the local admin included) also marks the server set up.
+   */
   createEnrollment(
     kind: "device" | "host",
     createdBy: string | null,
@@ -105,7 +113,8 @@ export class Auth {
     const id = newId("enr");
     const now = this.store.now();
     const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
-    this.store.tx(() =>
+    this.store.tx(() => {
+      if (createdBy !== null) this.owner.markInitialized();
       this.store.insertEnrollment({
         id,
         kind,
@@ -115,8 +124,8 @@ export class Auth {
         result_id: null,
         created_by: createdBy,
         created_at: now.toISOString(),
-      }),
-    );
+      });
+    });
     return {
       id,
       kind,
@@ -149,10 +158,22 @@ export class Auth {
     name: string,
     kind: Device["kind"],
   ): { device: Device; credential: string } {
-    const credential = newToken();
     const id = newId("dev");
-    const device = this.store.tx(() => {
+    return this.store.tx(() => {
       this.consume(token, "device", id);
+      return this.createDevice(name, kind, "enrollment", id);
+    });
+  }
+
+  /** Create a device and its credential (enrollment, passkey or OIDC sign-in). */
+  createDevice(
+    name: string,
+    kind: Device["kind"],
+    via: Device["enrolledVia"],
+    id: string = newId("dev"),
+  ): { device: Device; credential: string } {
+    const credential = newToken();
+    const device = this.store.tx(() => {
       const d: Device = {
         id,
         name,
@@ -162,6 +183,7 @@ export class Auth {
         revokedAt: null,
         push: { subscribed: false, permission: "unknown" },
         preferredMobile: false,
+        enrolledVia: via,
       };
       this.store.devices.upsert(d, { credential_hash: sha256(credential), is_admin: 0 });
       this.store.appendEvent("device.updated", {}, d);
@@ -175,10 +197,39 @@ export class Auth {
     name: string,
     platform: Host["platform"],
   ): { host: Host; credential: string } {
-    const credential = newToken();
     const id = newId("hst");
-    const host = this.store.tx(() => {
+    return this.store.tx(() => {
       this.consume(token, "host", id);
+      return this.createHost(name, platform, id);
+    });
+  }
+
+  /** Enroll a host with the shared `SWITCHYARD_HOST_ENROLL_SECRET`. Each host stays revocable. */
+  redeemHostSecret(
+    secret: string,
+    name: string,
+    platform: Host["platform"],
+  ): { host: Host; credential: string } {
+    const expected = this.config.hostEnrollSecret;
+    if (!expected) {
+      throw new SwitchyardError(
+        "forbidden",
+        "Shared host enrollment is not enabled on this server",
+      );
+    }
+    if (!safeEqualHex(sha256(secret), sha256(expected))) {
+      throw new SwitchyardError("unauthorized", "Wrong host enrollment secret");
+    }
+    return this.createHost(name, platform, newId("hst"));
+  }
+
+  private createHost(
+    name: string,
+    platform: Host["platform"],
+    id: string,
+  ): { host: Host; credential: string } {
+    const credential = newToken();
+    const host = this.store.tx(() => {
       const h: Host = {
         id,
         name,

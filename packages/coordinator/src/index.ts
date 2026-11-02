@@ -40,6 +40,7 @@ export {
   COORDINATOR_VERSION,
   type CoordinatorConfig,
   type CoordinatorContext,
+  type OidcConfig,
 } from "./context.js";
 export { LATEST_MIGRATION, MIGRATIONS, migrate, migrationLevel, openDb } from "./db/index.js";
 export {
@@ -51,7 +52,24 @@ export {
 export { HostHub } from "./host-hub.js";
 export { deviceOf, parse, sendError } from "./http.js";
 export { createLogger, REDACT_PATHS } from "./logger.js";
+export {
+  describeOwnerMatch,
+  hasOwnerMatch,
+  OIDC_CALLBACK_PATH,
+  Oidc,
+  type OidcCallbackResult,
+  type OidcClaimResult,
+  ownerMatches,
+  safeNext,
+} from "./oidc.js";
 export { backup, DB_FILE, dbPath, LOCK_FILE, lockHolder, restore } from "./ops.js";
+export {
+  AuthFlows,
+  OWNER_INITIALIZED_KEY,
+  Owner,
+  type PasskeyAvailability,
+} from "./owner.js";
+export { PASSKEY_CHALLENGE_TTL_MS, Passkeys } from "./passkeys.js";
 export {
   DEFAULT_NOTIFICATION_SETTINGS,
   type PushSender,
@@ -60,15 +78,17 @@ export {
   type VapidKeys,
   webPushSender,
 } from "./push.js";
+export { AUTH_RATE_LIMIT, HOSTS_RATE_LIMIT, RateLimiter } from "./rate-limit.js";
 export { WEBHOOK_BODY_LIMIT } from "./routes/automations.js";
 export { ADAPTER_FRAME_CSP } from "./routes/static.js";
 export { applyMove } from "./routes/tasks.js";
 export {
-  type BootstrapInfo,
   type Coordinator,
   type CoordinatorPlugin,
   type CreateCoordinatorOptions,
   createCoordinator,
+  MIN_HOST_ENROLL_SECRET_LENGTH,
+  PUBLIC_ROUTES,
 } from "./server.js";
 export {
   type BuiltinServices,

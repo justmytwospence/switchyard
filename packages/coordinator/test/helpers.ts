@@ -57,8 +57,8 @@ export async function startCoordinator(
     dataDir: dir,
     listen: { host: "127.0.0.1", port: 0 },
     logger: createLogger({ level: process.env.SY_LOG ?? "silent" }),
-    bootstrap: false,
     clock: () => new Date(clock.now),
+    setupHint: false,
     ...over,
   });
   await c.start();

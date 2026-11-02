@@ -5,10 +5,17 @@ import { deviceOf, parse } from "../http.js";
 import { enrollmentResponse } from "./devices.js";
 
 export function registerHostRoutes(app: FastifyInstance, ctx: CoordinatorContext): void {
-  /** Host side of enrollment: unauthenticated, authorized by the single-use token. */
+  /**
+   * Host side of enrollment: unauthenticated, authorized by a single-use token or by the shared
+   * `SWITCHYARD_HOST_ENROLL_SECRET` when the server enables it.
+   */
   app.post("/api/hosts/enroll", async (req, reply) => {
+    ctx.limiters.hosts.check(req);
     const body = parse(HostEnrollRequest, req.body);
-    const { host, credential } = ctx.auth.redeemHost(body.token, body.name, body.platform);
+    const { host, credential } =
+      "token" in body
+        ? ctx.auth.redeemHost(body.token, body.name, body.platform)
+        : ctx.auth.redeemHostSecret(body.secret, body.name, body.platform);
     return reply.code(201).send({ hostId: host.id, credential });
   });
 

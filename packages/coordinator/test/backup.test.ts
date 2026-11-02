@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { backup, restore } from "../src/index.js";
+import { backup, LATEST_MIGRATION, restore } from "../src/index.js";
 import { startCoordinator, type TestCoordinator, tempDir } from "./helpers.js";
 
 let t: TestCoordinator | undefined;
@@ -17,7 +17,7 @@ describe("backup and restore", () => {
     await t.admin("POST", "/api/profiles", { name: "Before backup" });
     const out = join(tempDir("sy-bak-"), "coordinator-backup.db");
     const b = backup(t.dir, out);
-    expect(b.migrationLevel).toBe(1);
+    expect(b.migrationLevel).toBe(LATEST_MIGRATION);
     expect(existsSync(out)).toBe(true);
     expect(() => backup(t!.dir, out)).toThrow(/already exists/);
 

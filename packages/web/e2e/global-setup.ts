@@ -142,7 +142,7 @@ export default async function globalSetup(): Promise<void> {
     publicUrl: E2E_URL,
     trustedOrigins: [E2E_URL, `http://localhost:${E2E_PORT}`],
     webDist,
-    bootstrap: false,
+    rateLimits: false,
     logger: createLogger({ level: "info", destination: createWriteStream(logFile) }),
   });
   await coordinator.start();

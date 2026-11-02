@@ -13,6 +13,13 @@ export {
   toMockRequest,
   when,
 } from "./mock-model-server.js";
+export {
+  type MockOidc,
+  type MockOidcClaims,
+  type MockOidcOptions,
+  type MockOidcTokenRequest,
+  startMockOidc,
+} from "./mock-oidc.js";
 export { piBin, realPiSkipReason, requirePi, skipRealPi } from "./pi-bin.js";
 export { makePiEnv, type PiEnv, type PiEnvOptions } from "./pi-env.js";
 

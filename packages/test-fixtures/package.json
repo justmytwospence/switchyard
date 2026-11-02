@@ -16,5 +16,8 @@
   },
   "dependencies": {
     "@switchyard/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "jose": "^6.2.13"
   }
 }

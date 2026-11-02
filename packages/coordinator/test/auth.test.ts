@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLogger } from "../src/index.js";
 import {
   enrollDevice,
@@ -14,26 +16,186 @@ afterEach(async () => {
 });
 
 describe("enrollment", () => {
-  it("logs a bootstrap enrollment on first start when no devices exist", async () => {
-    let info: { url: string; qrTerminal: string } | null = null;
-    t = await startCoordinator({ bootstrap: (i) => (info = i) });
-    expect(info).not.toBeNull();
-    expect(info!.url).toMatch(/\/enroll#token=[\w-]+$/);
-    expect(info!.qrTerminal.length).toBeGreaterThan(50);
+  it("does not mint any enrollment on first start and prints the init hint", async () => {
+    const lines: string[] = [];
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      t = await startCoordinator({
+        setupHint: true,
+        logger: createLogger({
+          level: "info",
+          destination: { write: (s: string) => lines.push(s) },
+        }),
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    const enrollments = t.c.store.db.prepare("SELECT COUNT(*) AS n FROM enrollments").get() as {
+      n: number;
+    };
+    expect(enrollments.n).toBe(0);
+    expect(writes.join("")).toContain("Run `switchyard init` on this server");
+    expect(lines.join("")).toContain("not set up yet");
+    expect(lines.join("")).not.toContain("/enroll#token=");
+    expect(t.c.owner.isInitialized()).toBe(false);
   });
 
-  it("never writes the bootstrap enrollment URL or token to the structured log", async () => {
-    const lines: string[] = [];
-    let info: { url: string; token: string } | null = null;
-    t = await startCoordinator({
-      logger: createLogger({ level: "info", destination: { write: (s: string) => lines.push(s) } }),
-      bootstrap: (i) => (info = i),
+  it("init via admin creates a single-use link and marks the server set up; a second init reports alreadyInitialized", async () => {
+    t = await startCoordinator();
+    expect((await t.api("GET", "/api/setup")).body.initialized).toBe(false);
+    const first = await t.admin("POST", "/api/admin/init");
+    expect(first.status).toBe(200);
+    expect(first.body.alreadyInitialized).toBe(false);
+    expect(first.body.enrollment.url).toBe(
+      `${t.c.config.publicUrl}/enroll#token=${first.body.enrollment.token}`,
+    );
+    expect(first.body.enrollment.qrSvg).toContain("<svg");
+    expect((await t.api("GET", "/api/setup")).body.initialized).toBe(true);
+    const redeem = await t.api("POST", "/api/enroll", {
+      body: { token: first.body.enrollment.token, name: "first", kind: "terminal" },
     });
-    expect(info).not.toBeNull();
-    const log = lines.join("");
-    expect(log).toContain("bootstrap enrollment URL printed to the console");
-    expect(log).not.toContain(info!.token);
-    expect(log).not.toContain("/enroll#token=");
+    expect(redeem.status).toBe(201);
+    const again = await t.api("POST", "/api/enroll", {
+      body: { token: first.body.enrollment.token, name: "again", kind: "terminal" },
+    });
+    expect(again.body.error.code).toBe("enrollment_used");
+    const second = await t.admin("POST", "/api/admin/init");
+    expect(second.body.alreadyInitialized).toBe(true);
+    expect(second.body.enrollment.token).not.toBe(first.body.enrollment.token);
+  });
+
+  it("non-admin devices cannot init", async () => {
+    t = await startCoordinator();
+    const dev = await enrollDevice(t, "terminal");
+    const r = await t.api("POST", "/api/admin/init", { token: dev.credential });
+    expect(r.status).toBe(403);
+    expect(r.body.error.message).toBe("Only the server's local admin token can initialize");
+    expect((await t.api("POST", "/api/admin/init")).status).toBe(401);
+  });
+
+  it("pair also marks the server set up", async () => {
+    t = await startCoordinator();
+    expect(t.c.owner.isInitialized()).toBe(false);
+    const e = await t.admin("POST", "/api/enrollments", { kind: "device" });
+    expect(e.status).toBe(201);
+    expect(t.c.owner.isInitialized()).toBe(true);
+  });
+
+  it("GET /api/setup is public and reports initialized, passkey availability and OIDC label", async () => {
+    t = await startCoordinator();
+    const local = await t.api("GET", "/api/setup");
+    expect(local.status).toBe(200);
+    expect(local.body).toEqual({
+      initialized: false,
+      passkey: { available: true, registered: false, reason: null },
+      oidc: null,
+    });
+    await t.cleanup();
+    t = await startCoordinator({ publicUrl: "http://192.168.1.5:7400" });
+    expect((await t.api("GET", "/api/setup")).body.passkey).toEqual({
+      available: false,
+      registered: false,
+      reason: "Passkeys need a domain name (or localhost) in the public URL",
+    });
+    await t.cleanup();
+    t = await startCoordinator({
+      publicUrl: "https://sy.example.com",
+      oidc: {
+        issuer: "https://idp.example.com",
+        clientId: "switchyard",
+        clientSecret: "s",
+        label: "Sign in with Example",
+        scopes: "openid profile email",
+        owner: { subject: null, email: "me@example.com", group: null },
+      },
+    });
+    expect((await t.api("GET", "/api/setup")).body).toEqual({
+      initialized: true,
+      passkey: { available: true, registered: false, reason: null },
+      oidc: { label: "Sign in with Example" },
+    });
+  });
+
+  it("marks servers that already have devices as set up when migrating", async () => {
+    t = await startCoordinator();
+    await enrollDevice(t);
+    const dir = t.dir;
+    await t.stop();
+    // Roll the database back to schema 1 (no owner marker), as a 0.1 server left it.
+    const db = new DatabaseSync(join(dir, "coordinator.db"));
+    db.exec(
+      "DELETE FROM settings WHERE key = 'owner.initialized_at'; DROP TABLE passkeys; DROP TABLE auth_flows; DELETE FROM schema_migrations WHERE version = 2;",
+    );
+    db.close();
+    const reopened = await startCoordinator({ dir });
+    try {
+      expect(reopened.c.owner.isInitialized()).toBe(true);
+    } finally {
+      await reopened.cleanup();
+    }
+  });
+
+  it("rate limits public auth routes per IP with 429 rate_limited", async () => {
+    t = await startCoordinator({ rateLimits: { auth: 3, hosts: 2 } });
+    const enroll = () =>
+      t.api("POST", "/api/enroll", { body: { token: "nope", name: "x", kind: "terminal" } });
+    for (let i = 0; i < 3; i++) expect((await enroll()).status).toBe(401);
+    const limited = await enroll();
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toEqual({
+      code: "rate_limited",
+      message: "Too many attempts; wait a minute and try again",
+    });
+    // Same group: passkey sign-in shares the auth budget.
+    expect((await t.api("POST", "/api/auth/passkey/options")).status).toBe(429);
+    // Hosts have their own budget.
+    const host = () =>
+      t.api("POST", "/api/hosts/enroll", {
+        body: { token: "nope", name: "h", platform: "linux" },
+      });
+    expect((await host()).status).toBe(401);
+    expect((await host()).status).toBe(401);
+    expect((await host()).status).toBe(429);
+    // The window is one minute.
+    t.clock.advance(60_000);
+    expect((await enroll()).status).toBe(401);
+  });
+
+  it("applies the default limits of 20 auth and 10 host attempts per minute", async () => {
+    t = await startCoordinator();
+    for (let i = 0; i < 20; i++) {
+      const r = await t.api("POST", "/api/enroll", {
+        body: { token: "nope", name: "x", kind: "terminal" },
+      });
+      expect(r.status).toBe(401);
+    }
+    const r = await t.api("POST", "/api/enroll", {
+      body: { token: "nope", name: "x", kind: "terminal" },
+    });
+    expect(r.status).toBe(429);
+  });
+
+  it("trustProxy is off by default: X-Forwarded-For does not change the rate-limit key", async () => {
+    t = await startCoordinator({ rateLimits: { auth: 2 } });
+    const enroll = (xff: string) =>
+      t.api("POST", "/api/enroll", {
+        body: { token: "nope", name: "x", kind: "terminal" },
+        headers: { "x-forwarded-for": xff },
+      });
+    expect((await enroll("10.0.0.1")).status).toBe(401);
+    expect((await enroll("10.0.0.2")).status).toBe(401);
+    expect((await enroll("10.0.0.3")).status).toBe(429);
+    await t.cleanup();
+    // With the loopback proxy trusted, each forwarded client gets its own budget.
+    t = await startCoordinator({ rateLimits: { auth: 2 }, trustedProxies: ["127.0.0.1"] });
+    for (const ip of ["10.0.0.1", "10.0.0.1", "10.0.0.2", "10.0.0.2"]) {
+      expect((await enroll(ip)).status).toBe(401);
+    }
+    expect((await enroll("10.0.0.1")).status).toBe(429);
   });
 
   it("creates device enrollments with QR and redeems them once", async () => {
@@ -89,6 +251,40 @@ describe("enrollment", () => {
       body: { token: e2.body.token, name: "x", kind: "terminal" },
     });
     expect(d.status).toBe(403);
+  });
+
+  it("enrolls hosts with the shared secret; each host stays revocable", async () => {
+    const secret = "s".repeat(40);
+    t = await startCoordinator({ hostEnrollSecret: secret });
+    const one = await t.api("POST", "/api/hosts/enroll", {
+      body: { secret, name: "nuc", platform: "linux" },
+    });
+    expect(one.status).toBe(201);
+    expect(one.body.hostId).toMatch(/^hst_/);
+    const two = await t.api("POST", "/api/hosts/enroll", {
+      body: { secret, name: "mac", platform: "darwin" },
+    });
+    expect(two.body.hostId).not.toBe(one.body.hostId);
+    const wrong = await t.api("POST", "/api/hosts/enroll", {
+      body: { secret: "x".repeat(40), name: "evil", platform: "linux" },
+    });
+    expect(wrong.status).toBe(401);
+    expect(wrong.body.error.message).toBe("Wrong host enrollment secret");
+    expect((await t.admin("POST", `/api/hosts/${one.body.hostId}/revoke`)).status).toBe(200);
+    const hosts = (await t.admin("GET", "/api/hosts")).body as { id: string; revokedAt: string }[];
+    expect(hosts.find((h) => h.id === two.body.hostId)!.revokedAt).toBeNull();
+  });
+
+  it("refuses secret enrollment when no secret is configured, and short secrets at start", async () => {
+    t = await startCoordinator();
+    const r = await t.api("POST", "/api/hosts/enroll", {
+      body: { secret: "s".repeat(40), name: "nuc", platform: "linux" },
+    });
+    expect(r.status).toBe(403);
+    expect(r.body.error.message).toBe("Shared host enrollment is not enabled on this server");
+    await expect(startCoordinator({ hostEnrollSecret: "short" })).rejects.toThrow(
+      /at least 32 characters/,
+    );
   });
 
   it("sets an HttpOnly SameSite=Strict cookie for browsers and withholds the credential", async () => {

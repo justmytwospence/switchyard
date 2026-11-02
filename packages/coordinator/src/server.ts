@@ -3,21 +3,24 @@ import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import fastifyCookie from "@fastify/cookie";
 import fastifyWebsocket from "@fastify/websocket";
-import { DEFAULT_PORT } from "@switchyard/protocol";
+import { DEFAULT_PORT, SwitchyardError } from "@switchyard/protocol";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { Logger } from "pino";
-import QRCode from "qrcode";
 import { AttentionService } from "./attention.js";
 import { Auth } from "./auth.js";
 import { type BuiltinOptions, installBuiltins } from "./builtins.js";
 import { ClientHub } from "./client-hub.js";
-import type { CoordinatorConfig, CoordinatorContext } from "./context.js";
+import type { CoordinatorConfig, CoordinatorContext, OidcConfig } from "./context.js";
 import { type Db, migrate, openDb } from "./db/index.js";
 import { EventHub } from "./event-hub.js";
 import { HostHub } from "./host-hub.js";
 import { installErrorHandler } from "./http.js";
 import { createLogger } from "./logger.js";
+import { hasOwnerMatch, Oidc } from "./oidc.js";
 import { acquireLock, dbPath, releaseLock } from "./ops.js";
+import { Owner } from "./owner.js";
+import { Passkeys } from "./passkeys.js";
+import { AUTH_RATE_LIMIT, HOSTS_RATE_LIMIT, RateLimiter } from "./rate-limit.js";
 import { registerAttentionRoutes } from "./routes/attention.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
@@ -31,12 +34,8 @@ import { registerStaticRoutes } from "./routes/static.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { type Clock, Store } from "./store.js";
 
-export interface BootstrapInfo {
-  url: string;
-  token: string;
-  expiresAt: string;
-  qrTerminal: string;
-}
+/** Minimum length of `SWITCHYARD_HOST_ENROLL_SECRET`. */
+export const MIN_HOST_ENROLL_SECRET_LENGTH = 32;
 
 export interface CreateCoordinatorOptions extends BuiltinOptions {
   dataDir: string;
@@ -51,8 +50,25 @@ export interface CreateCoordinatorOptions extends BuiltinOptions {
   unreachableAfterMs?: number;
   foregroundLeaseMs?: number;
   commandTimeoutMs?: number;
-  /** Called with the bootstrap enrollment when no devices exist; `false` disables. Default prints. */
-  bootstrap?: false | ((info: BootstrapInfo) => void);
+  /** Shared host enrollment secret (at least 32 characters); enables `POST /api/hosts/enroll {secret}`. */
+  hostEnrollSecret?: string;
+  /**
+   * Reverse proxies (IPs or CIDRs) whose `X-Forwarded-For` is trusted for the client IP. Default
+   * none: the socket address is the client.
+   */
+  trustedProxies?: string[];
+  /** Owner sign-in through an OIDC provider. Needs at least one owner criterion. */
+  oidc?: OidcConfig;
+  /**
+   * Per-IP limits per minute on public auth routes (default auth 20, hosts 10). `false` disables
+   * them (test harnesses that enroll many devices from one address).
+   */
+  rateLimits?: false | { auth?: number; hosts?: number };
+  /**
+   * Print "not set up yet: run `switchyard init`" to stderr when the server has no owner yet
+   * (default true; `switchyard up` initializes in-process instead). It is always logged.
+   */
+  setupHint?: boolean;
   /** Registered at `start()` before listening: extra routes and services (tasks, scheduler...). */
   plugins?: CoordinatorPlugin[];
   /** Retention sweep interval (default hourly). */
@@ -67,6 +83,10 @@ export interface Coordinator {
   hostHub: HostHub;
   clientHub: ClientHub;
   auth: Auth;
+  owner: Owner;
+  passkeys: Passkeys;
+  /** Null unless OIDC is configured. */
+  oidc: Oidc | null;
   attention: AttentionService;
   /** Typed in-process events (`session.settled`, `host.connected`, `task.changed`, ...). */
   events: EventHub;
@@ -89,6 +109,12 @@ export interface Coordinator {
  */
 export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "/api/enroll",
+  "/api/setup",
+  "/api/auth/passkey/options",
+  "/api/auth/passkey/verify",
+  "/api/auth/oidc/begin",
+  "/api/auth/oidc/callback",
+  "/api/auth/oidc/claim",
   "/api/hosts/enroll",
   "/api/hooks/:automationId",
   "/healthz",
@@ -117,8 +143,28 @@ function originOf(url: string): string {
   return new URL(url).origin;
 }
 
+/** Refuse to start with an unsafe auth configuration. */
+function validateAuthOptions(opts: CreateCoordinatorOptions): void {
+  if (
+    opts.hostEnrollSecret !== undefined &&
+    opts.hostEnrollSecret.length < MIN_HOST_ENROLL_SECRET_LENGTH
+  ) {
+    throw new SwitchyardError(
+      "invalid_request",
+      `SWITCHYARD_HOST_ENROLL_SECRET must be at least ${MIN_HOST_ENROLL_SECRET_LENGTH} characters`,
+    );
+  }
+  if (opts.oidc && !hasOwnerMatch(opts.oidc.owner)) {
+    throw new SwitchyardError(
+      "invalid_request",
+      "OIDC needs an owner match: set SWITCHYARD_OIDC_OWNER_SUBJECT, SWITCHYARD_OIDC_OWNER_EMAIL or SWITCHYARD_OIDC_OWNER_GROUP",
+    );
+  }
+}
+
 /** Build a coordinator: opens and migrates the DB, wires hubs and routes. Call `start()` to listen. */
 export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
+  validateAuthOptions(opts);
   const dataDir = resolve(opts.dataDir);
   mkdirSync(dataDir, { recursive: true });
   acquireLock(dataDir);
@@ -143,13 +189,33 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
     unreachableAfterMs: opts.unreachableAfterMs ?? 60_000,
     foregroundLeaseMs: opts.foregroundLeaseMs ?? 45_000,
     commandTimeoutMs: opts.commandTimeoutMs ?? 30_000,
+    hostEnrollSecret: opts.hostEnrollSecret ?? null,
+    oidc: opts.oidc ?? null,
   };
 
   const hub = new EventHub();
   hub.onListenerError = (name, err) => log.error({ err, event: name }, "event listener failed");
   const store = new Store(db, hub, opts.clock);
-  const auth = new Auth(store, config, hub);
+  const owner = new Owner(store, config);
+  const auth = new Auth(store, config, hub, owner);
   const adminToken = auth.ensureAdminToken();
+  if (config.oidc) owner.markInitialized();
+  const passkeys = new Passkeys(store, owner, config, auth);
+  const oidc = config.oidc ? new Oidc(store, owner, config, auth) : null;
+  const limits = opts.rateLimits === false ? null : (opts.rateLimits ?? {});
+  const storeClock = () => store.now().getTime();
+  const limiters = {
+    auth: new RateLimiter(
+      limits ? (limits.auth ?? AUTH_RATE_LIMIT) : Number.POSITIVE_INFINITY,
+      60_000,
+      storeClock,
+    ),
+    hosts: new RateLimiter(
+      limits ? (limits.hosts ?? HOSTS_RATE_LIMIT) : Number.POSITIVE_INFINITY,
+      60_000,
+      storeClock,
+    ),
+  };
   seedDefaultProfile({ store });
   const attention = new AttentionService(store, hub);
   const hostHub = new HostHub(store, hub, attention, log.child({ mod: "host-hub" }), {
@@ -167,6 +233,10 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
     clientHub,
     auth,
     attention,
+    owner,
+    passkeys,
+    oidc,
+    limiters,
     log,
     services: new Map(),
   };
@@ -174,7 +244,9 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
   const app = Fastify({
     loggerInstance: log,
     bodyLimit: 32 * 1024 * 1024,
-    trustProxy: true,
+    // Only listed proxies may set the client IP (rate limits key on it); never forwarded headers
+    // for cookies or origins, which derive from publicUrl.
+    trustProxy: opts.trustedProxies?.length ? opts.trustedProxies : false,
   }) as unknown as FastifyInstance;
   installErrorHandler(app);
   app.register(fastifyCookie);
@@ -226,6 +298,9 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
     hostHub,
     clientHub,
     auth,
+    owner,
+    passkeys,
+    oidc,
     attention,
     events: hub,
     ctx,
@@ -265,25 +340,12 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
       sweep();
       retentionTimer = setInterval(sweep, opts.retentionIntervalMs ?? 3_600_000);
       retentionTimer.unref();
-      if (opts.bootstrap !== false && auth.activeDeviceCount() === 0) {
-        const e = auth.createEnrollment("device", null);
-        const qrTerminal = await QRCode.toString(e.url, { type: "terminal", small: true });
-        const info: BootstrapInfo = {
-          url: e.url,
-          token: e.token,
-          expiresAt: e.expiresAt,
-          qrTerminal,
-        };
-        // The URL carries the enrollment token: it goes to the operator's terminal only, never to
-        // the structured log (which may be shipped or retained).
-        log.info(
-          { expiresAt: e.expiresAt },
-          "no devices enrolled: bootstrap enrollment URL printed to the console (not logged)",
-        );
-        if (opts.bootstrap) opts.bootstrap(info);
-        else {
+      if (!owner.isInitialized()) {
+        // No enrollment is minted here: the owner creates the first sign-in from the server.
+        log.info("not set up yet: run `switchyard init` on this server");
+        if (opts.setupHint !== false) {
           process.stderr.write(
-            `\nSwitchyard: enroll your first device (expires ${e.expiresAt}):\n${e.url}\n${qrTerminal}\nRun \`switchyard pair\` for a new link.\n\n`,
+            "Switchyard is not set up yet. Run `switchyard init` on this server to create the first sign-in link.\n",
           );
         }
       }

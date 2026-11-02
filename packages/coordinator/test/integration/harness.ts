@@ -429,7 +429,6 @@ export class Integration {
       dataDir: this.dataDir,
       listen: { host: "127.0.0.1", port: this.port },
       logger: createLogger({ level: process.env.SY_LOG ?? "silent" }),
-      bootstrap: false,
       clock: () => new Date(Date.now() + this.clockOffsetMs),
       dispatcher: { tickMs: 100, reconcileEveryMs: 1000, retryBackoffMs: 1000 },
       schedulerTickMs: 0,
