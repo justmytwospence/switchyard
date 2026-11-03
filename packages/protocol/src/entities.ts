@@ -40,6 +40,8 @@ export const RuntimeCapabilities = z.object({
   costAccounting: z.boolean(),
   /** The host runs sessions as interactive Pi in a terminal that clients can attach to. */
   terminal: z.boolean().optional(),
+  /** The host answers session.models, session.commands, session.setModel, session.setThinking and session.compact. */
+  sessionControls: z.boolean().optional(),
   unsupported: z.array(z.object({ capability: z.string(), reason: z.string() })),
 });
 export type RuntimeCapabilities = z.infer<typeof RuntimeCapabilities>;
@@ -147,6 +149,33 @@ export type Workspace = z.infer<typeof Workspace>;
 export const ThinkingLevel = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
 
+/** A Pi model as Switchyard shows it (Pi's Model trimmed to what clients need). */
+export const SessionModel = z.object({
+  provider: z.string(),
+  id: z.string(),
+  name: z.string().nullable(),
+  contextWindow: z.number().nullable(),
+  reasoning: z.boolean(),
+  /** Effort levels this model accepts, in Pi's order; ["off"] without reasoning. */
+  thinkingLevels: z.array(ThinkingLevel),
+});
+export type SessionModel = z.infer<typeof SessionModel>;
+
+export const SlashCommand = z.object({
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  source: z.enum(["extension", "prompt", "skill"]),
+});
+export type SlashCommand = z.infer<typeof SlashCommand>;
+
+export const ContextUsage = z.object({
+  /** Estimated tokens in context; null right after compaction until the next reply. */
+  tokens: z.number().nullable(),
+  window: z.number(),
+  percent: z.number().nullable(),
+});
+export type ContextUsage = z.infer<typeof ContextUsage>;
+
 const FORBIDDEN_EXTRA_ARGS = ["--mode", "--fork", "--no-session", "-e", "--extension"];
 export const ExtraArg = z
   .string()
@@ -164,6 +193,8 @@ export const Profile = z.object({
   thinking: ThinkingLevel.nullable(),
   projectTrust: z.enum(["ask", "approve", "ignore"]),
   extraArgs: z.array(ExtraArg),
+  /** "vanilla": --no-extensions --no-skills --no-prompt-templates. Undefined means "all". */
+  resources: z.enum(["all", "vanilla"]).optional(),
 });
 export type Profile = z.infer<typeof Profile>;
 
@@ -184,6 +215,7 @@ export type NativeHandle = z.infer<typeof NativeHandle>;
 export const SessionStats = z.object({
   tokens: z.number().nullable(),
   costUsd: z.number().nullable(),
+  context: ContextUsage.nullable().optional(),
 });
 export type SessionStats = z.infer<typeof SessionStats>;
 
@@ -208,6 +240,12 @@ export const Session = z.object({
   archivedAt: Iso.nullable(),
   queue: z.object({ steering: z.array(z.string()), followUp: z.array(z.string()) }),
   stats: SessionStats.nullable(),
+  /** The live model (host-owned; last known when stopped). */
+  model: SessionModel.nullable().optional(),
+  /** The live effort (Pi's thinking level). */
+  thinking: ThinkingLevel.nullable().optional(),
+  /** Pi is compacting the context. */
+  compacting: z.boolean().optional(),
   lastAssistantText: z.string().nullable(),
   createdAt: Iso,
   /** A live terminal session: `switchyard tui` can attach to its Pi terminal. */

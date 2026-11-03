@@ -8,6 +8,8 @@ import {
   Passkey,
   Priority,
   ProjectScan,
+  SessionModel,
+  SlashCommand,
   TaskPolicy,
   TaskState,
   TaskTemplate,
@@ -105,6 +107,7 @@ export const ProfileInput = z.object({
   thinking: ThinkingLevel.nullable().default(null),
   projectTrust: z.enum(["ask", "approve", "ignore"]).default("ask"),
   extraArgs: z.array(ExtraArg).default([]),
+  resources: z.enum(["all", "vanilla"]).default("all"),
 });
 
 export const CreateWorkspaceRequest = z.object({
@@ -140,6 +143,19 @@ export const PromptRequest = z.object({
   clientMessageId: z.string().optional(),
 });
 export const RenameRequest = z.object({ title: z.string().min(1).max(200) });
+export const SetModelRequest = z.object({
+  provider: z.string().min(1),
+  modelId: z.string().min(1),
+});
+export const SetThinkingRequest = z.object({ level: ThinkingLevel });
+export const CompactRequest = z.object({ instructions: z.string().max(4000).optional() });
+export const SessionModelsResult = z.object({ models: z.array(SessionModel) });
+export const SessionCommandsResult = z.object({ commands: z.array(SlashCommand) });
+export const ModelStateResult = z.object({
+  model: SessionModel.nullable(),
+  thinking: ThinkingLevel.nullable(),
+});
+export type ModelStateResult = z.infer<typeof ModelStateResult>;
 export const ImportSessionRequest = z.object({
   hostId: z.string(),
   sessionFile: z.string(),

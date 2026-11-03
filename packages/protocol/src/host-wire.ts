@@ -7,6 +7,7 @@ import {
   Profile,
   RuntimeCapabilities,
   RuntimeState,
+  ThinkingLevel,
   TranscriptItem,
 } from "./entities.js";
 import { ErrorBody } from "./errors.js";
@@ -68,6 +69,20 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.importable") }),
   z.object({ type: z.literal("session.readNative"), sessionFile: z.string() }),
   z.object({ type: z.literal("session.snapshot"), sessionId: z.string() }),
+  z.object({ type: z.literal("session.models"), sessionId: z.string() }),
+  z.object({ type: z.literal("session.commands"), sessionId: z.string() }),
+  z.object({
+    type: z.literal("session.setModel"),
+    sessionId: z.string(),
+    provider: z.string().min(1),
+    modelId: z.string().min(1),
+  }),
+  z.object({ type: z.literal("session.setThinking"), sessionId: z.string(), level: ThinkingLevel }),
+  z.object({
+    type: z.literal("session.compact"),
+    sessionId: z.string(),
+    instructions: z.string().nullable(),
+  }),
   z.object({ type: z.literal("checkout.inspect"), path: z.string() }),
   z.object({ type: z.literal("projects.scan"), folder: z.string().min(1) }),
   z.object({

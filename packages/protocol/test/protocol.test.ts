@@ -6,6 +6,7 @@ import {
   isFieldVisible,
   newId,
   Profile,
+  Session,
   SwitchyardError,
   type UINode,
   validateUINode,
@@ -97,5 +98,73 @@ describe("wire", () => {
     expect(Profile.safeParse({ ...base, extraArgs: ["--verbose"] }).success).toBe(true);
     expect(Profile.safeParse({ ...base, extraArgs: ["--session=x"] }).success).toBe(false);
     expect(Profile.safeParse({ ...base, extraArgs: ["--mode"] }).success).toBe(false);
+  });
+});
+
+describe("session controls", () => {
+  const base = {
+    id: "ses_1",
+    title: "t",
+    subtitle: null,
+    hostId: "hst_1",
+    workspaceId: null,
+    projectId: null,
+    cwd: "/x",
+    nativeHandle: null,
+    profileSnapshot: {
+      id: "prf_1",
+      name: "p",
+      provider: null,
+      model: null,
+      thinking: null,
+      projectTrust: "ask",
+      extraArgs: [],
+    },
+    runtime: "idle",
+    runtimeDetail: null,
+    connectivity: "connected",
+    runId: null,
+    taskId: null,
+    provenance: "created",
+    readOnly: false,
+    lastActivityAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    queue: { steering: [], followUp: [] },
+    stats: { tokens: 1, costUsd: 0 },
+    lastAssistantText: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  it("parses sessions with and without live model fields", () => {
+    expect(Session.safeParse(base).success).toBe(true);
+    const live = {
+      ...base,
+      stats: { tokens: 1, costUsd: 0, context: { tokens: null, window: 1000, percent: null } },
+      model: {
+        provider: "mock",
+        id: "m",
+        name: null,
+        contextWindow: 1000,
+        reasoning: true,
+        thinkingLevels: ["off", "high"],
+      },
+      thinking: "high",
+      compacting: false,
+    };
+    expect(Session.safeParse(live).success).toBe(true);
+  });
+  it("parses the session control commands", () => {
+    for (const c of [
+      { type: "session.models", sessionId: "s" },
+      { type: "session.commands", sessionId: "s" },
+      { type: "session.setModel", sessionId: "s", provider: "a", modelId: "b" },
+      { type: "session.setThinking", sessionId: "s", level: "high" },
+      { type: "session.compact", sessionId: "s", instructions: null },
+    ]) {
+      expect(HostCommand.safeParse(c).success).toBe(true);
+    }
+    expect(
+      HostCommand.safeParse({ type: "session.setThinking", sessionId: "s", level: "bogus" })
+        .success,
+    ).toBe(false);
   });
 });
