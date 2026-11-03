@@ -12,7 +12,6 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `coordinator start` / `backup` / `restore` / `migrate` | Run the coordinator; back up, restore and migrate its database |
 | `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it |
 | `login` | Enroll this terminal as a device (`--coordinator`, `--token <token or enrollment link>`) |
-| `attach [sessionId]` | Open the terminal client |
 | `tui <sessionId>` | Open a terminal session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
 | `herdr daemon` / `pane` / `new` / `status` | The herdr integration: mirror Switchyard into a paired herdr session, a space per workspace and a tab per session ([integrations/herdr](../integrations/herdr/README.md)) |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
@@ -27,7 +26,7 @@ List commands accept `--json`.
 
 `init` and `pair` act as the server's local administrator: they read `admin.token` from the data directory (or `SWITCHYARD_ADMIN_TOKEN`) and talk to the coordinator running on this machine.
 
-Work commands (`sessions`, `tasks`, `automations`, `attach`, `doctor`) look for credentials in this order:
+Work commands (`sessions`, `tasks`, `automations`, `tui`, `doctor`) look for credentials in this order:
 
 1. `--coordinator` and `--credential`
 2. `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`
@@ -48,24 +47,13 @@ The full table, with defaults, is in [deployment.md](deployment.md#environment-r
 | `SWITCHYARD_ADMIN_TOKEN` | `init`, `pair` |
 | `SWITCHYARD_URL`, `SWITCHYARD_TOKEN` | Work commands |
 | `SWITCHYARD_CLIENT_CONFIG` | Work commands and `login`: use this client.json instead of `~/.config/switchyard/client.json` |
-| `SWITCHYARD_TERMINAL_SESSIONS` | The host agent: `1` runs sessions as [terminal sessions](terminal-sessions.md) |
+| `SWITCHYARD_TERMINAL_SESSIONS` | The host agent: `0` runs sessions headless instead of as [terminal sessions](terminal-sessions.md) (the default) |
 
-## Terminal client
+## Pi terminal
 
 ```sh
 switchyard login --coordinator https://switchyard.example.com --token <enrollment token or link>
-switchyard attach
+switchyard tui <session id>
 ```
 
-| Key | Action |
-|---|---|
-| `/` | Search sessions |
-| Enter | Send; while the agent runs, queue a follow-up |
-| Ctrl+S | Steer the current turn (when the host supports it) |
-| Alt+Enter | New line |
-| Tab | Move to a pending question; arrows and Enter choose, Space toggles multi-select options |
-| Ctrl+T | Take over, or return control to automation |
-| Ctrl+X | Stop the run (after confirming) |
-| Esc | Back |
-| `?` | Help |
-| Ctrl+C | Detach. Sessions keep running on their hosts |
+`tui` opens the session's real Pi terminal through the coordinator; Ctrl+] detaches and the session keeps running. See [terminal-sessions.md](terminal-sessions.md). There is no Switchyard-specific terminal UI: use Pi's terminal or the web app.
