@@ -11,7 +11,14 @@ import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { errorMessage } from "../../sync/api";
 import { codeApi } from "./api";
-import { contextMeter, effortIndex, groupModels, isBusy, modelLabel } from "./model";
+import {
+  contextMeter,
+  effortIndex,
+  groupModels,
+  isBusy,
+  modelLabel,
+  pillModelLabel,
+} from "./model";
 
 interface PillProps {
   icon: ReactNode;
@@ -32,7 +39,7 @@ function ControlPill({ icon, label, ariaLabel, disabled, className, ...trigger }
       disabled={disabled}
       aria-label={ariaLabel}
       className={cn(
-        "tap inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-xs font-medium text-text transition-colors hover:bg-border disabled:opacity-55",
+        "tap inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md bg-surface-2 px-2.5 text-xs font-medium text-text transition-colors hover:bg-border disabled:opacity-55",
         className,
       )}
       {...trigger}
@@ -164,7 +171,7 @@ export function ModelControl({
   const searchRef = useRef<HTMLInputElement>(null);
   const m = session.model;
   if (!m) return null;
-  const label = modelLabel(m);
+  const label = pillModelLabel(m);
   const ariaLabel = enabled ? `Model: ${label}. Change model` : `Model: ${label}`;
   const list = (footer: boolean) => (
     <ModelList
@@ -270,31 +277,69 @@ function EffortSlider({
   onChange: (l: string) => void;
   large: boolean;
 }) {
+  const index = effortIndex(levels, level);
+  const last = Math.max(levels.length - 1, 1);
+  // Dots sit where the (invisible, 16 px) native thumb's centre travels: 8 px in from each edge.
+  const at = (i: number) => `calc(8px + (100% - 16px) * ${i / last})`;
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between">
         <span className="text-xs text-muted">Effort</span>
         <span className="text-sm font-medium capitalize">{level}</span>
       </div>
-      <input
-        type="range"
-        min={0}
-        max={levels.length - 1}
-        step={1}
-        value={effortIndex(levels, level)}
-        onChange={(e) => onChange(levels[Number(e.target.value)]!)}
-        aria-label="Effort"
-        aria-valuetext={level}
-        className={cn("w-full accent-accent", large ? "h-11" : "h-6")}
-      />
-      <div className="flex justify-between text-xs text-muted">
-        {levels.map((l) => (
-          <span key={l} className={cn(l === level && "font-medium text-text")}>
+      <div
+        className={cn(
+          "relative w-full focus-within:[&>input~*]:outline-none",
+          large ? "h-11" : "h-8",
+        )}
+      >
+        <div className="pointer-events-none absolute inset-x-2 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-border-strong" />
+        <div
+          className="pointer-events-none absolute left-2 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-accent transition-[width]"
+          style={{ width: `calc((100% - 16px) * ${index / last})` }}
+        />
+        {levels.map((l, i) => (
+          <span
+            key={l}
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all",
+              i === index
+                ? "size-4 bg-accent ring-4 ring-accent-soft"
+                : i < index
+                  ? "size-2.5 bg-accent"
+                  : "size-2.5 bg-border-strong",
+            )}
+            style={{ left: at(i) }}
+          />
+        ))}
+        <input
+          type="range"
+          min={0}
+          max={levels.length - 1}
+          step={1}
+          value={index}
+          onChange={(e) => onChange(levels[Number(e.target.value)]!)}
+          aria-label="Effort"
+          aria-valuetext={level}
+          className="peer absolute inset-0 m-0 h-full w-full cursor-pointer appearance-none bg-transparent opacity-0 [&::-moz-range-thumb]:size-4 [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none"
+        />
+      </div>
+      <div className="relative h-4 text-[11px] text-muted">
+        {levels.map((l, i) => (
+          <span
+            key={l}
+            className={cn(
+              "absolute top-0 -translate-x-1/2 whitespace-nowrap",
+              i === index && "font-medium text-text",
+            )}
+            style={{ left: at(i) }}
+          >
             {l}
           </span>
         ))}
       </div>
-      <p className="text-xs text-muted">Applies from the next turn.</p>
+      <p className="mt-1 text-xs text-muted">Applies from the next turn.</p>
     </div>
   );
 }

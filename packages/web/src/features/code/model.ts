@@ -944,6 +944,13 @@ export function clientCommandProblem(cmd: ClientCommand, running: boolean): stri
   return null;
 }
 
+/** Model name for a pill: no provider prefix (the name is specific enough). */
+export function pillModelLabel(m: SessionModel): string {
+  const label = modelLabel(m);
+  const prefix = `${m.provider}/`;
+  return label.toLowerCase().startsWith(prefix.toLowerCase()) ? label.slice(prefix.length) : label;
+}
+
 export function effortIndex(
   levels: readonly string[],
   thinking: string | null | undefined,

@@ -25,6 +25,7 @@ import {
   parseClientCommand,
   parseDataUrl,
   piControlsAvailable,
+  pillModelLabel,
   sendModes,
   TERMINAL_COMMANDS,
   worktreePath,
@@ -494,6 +495,11 @@ describe("terminal built-ins", () => {
       expect(TERMINAL_COMMANDS.some((c) => c.name === n)).toBe(false);
     }
     expect(parseClientCommand("/tree")?.kind).toBe("terminal-only");
+  });
+  it("pill labels drop the provider prefix", () => {
+    expect(pillModelLabel(mockModel("m", { name: "Mock One" }))).toBe("Mock One");
+    expect(pillModelLabel(mockModel("mock/big"))).toBe("big");
+    expect(pillModelLabel(mockModel("other/big"))).toBe("other/big");
   });
   it("effortIndex", () => {
     expect(effortIndex(["off", "low", "high"], "high")).toBe(2);
