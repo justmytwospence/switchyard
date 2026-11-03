@@ -5,14 +5,21 @@ import type { Session } from "@switchyard/protocol";
 import { ApiClient } from "@switchyard/terminal";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MirrorDaemon } from "../src/herdr/daemon.js";
-import { type MirrorState, SOURCE } from "../src/herdr/mirror.js";
+import type { MirrorState } from "../src/herdr/mirror.js";
 import { session } from "./herdr-fixtures.js";
 
 /** An in-memory herdr: workspaces, tabs and panes, recording every request. */
 class FakeHerdr {
   workspaces: { workspace_id: string; label: string; number: number }[] = [];
   tabs: { tab_id: string; workspace_id: string; label: string }[] = [];
-  panes: { pane_id: string; tab_id: string; workspace_id: string; agent_session?: any }[] = [];
+  panes: {
+    pane_id: string;
+    tab_id: string;
+    workspace_id: string;
+    agent_session?: any;
+    tokens?: Record<string, string>;
+    agent?: string;
+  }[] = [];
   requests: { method: string; params: any }[] = [];
   busy = new Set<string>();
   private n = 0;
@@ -67,6 +74,11 @@ class FakeHerdr {
           };
         return {};
       }
+      case "pane.report_metadata": {
+        const p = this.panes.find((x) => x.pane_id === params.pane_id);
+        if (p && params.tokens) p.tokens = { ...(p.tokens ?? {}), ...params.tokens };
+        return {};
+      }
       case "pane.process_info":
         return {
           process_info: {
@@ -93,8 +105,9 @@ class FakeHerdr {
       if (r.method !== "pane.send_text") continue;
       const m = /'pane' '([^']+)'/.exec(r.params.text);
       const p = this.panes.find((x) => x.pane_id === r.params.pane_id);
-      if (m && p && !p.agent_session) {
-        p.agent_session = { source: SOURCE, agent: SOURCE, kind: "id", value: m[1] };
+      if (m && p && !p.tokens?.switchyard_session) {
+        p.tokens = { switchyard_session: m[1]! };
+        p.agent = "switchyard";
         this.busy.add(p.pane_id);
       }
     }
@@ -207,7 +220,8 @@ describe("MirrorDaemon", () => {
     await daemon.reconcile();
     herdr.claimTyped();
     await daemon.reconcile();
-    const tabOf = (sid: string) => herdr.panes.find((p) => p.agent_session?.value === sid)!.tab_id;
+    const tabOf = (sid: string) =>
+      herdr.panes.find((p) => p.tokens?.switchyard_session === sid)!.tab_id;
 
     responses.set("/api/sessions/ses_2/archive", {
       status: 409,

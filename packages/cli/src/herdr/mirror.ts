@@ -5,6 +5,10 @@ import type { Checkout, Host, Project, Session, Workspace } from "@switchyard/pr
 export const SOURCE = "switchyard";
 /** How long a typed pane command may take to claim its pane before we try again. */
 export const PENDING_MS = 15_000;
+/** A new session gets this long to be claimed by the tab that created it (the picker). */
+export const NEW_SESSION_GRACE_MS = 5_000;
+/** The pane token naming the session a pane shows (herdr keeps session refs only for its own integrations). */
+export const SESSION_TOKEN = "switchyard_session";
 const LABEL_MAX = 40;
 
 export interface HerdrPane {
@@ -13,6 +17,9 @@ export interface HerdrPane {
   workspace_id: string;
   cwd?: string | null;
   agent_session?: { source: string; agent: string; kind: string; value: string } | null;
+  tokens?: Record<string, string> | null;
+  /** The agent herdr shows in the pane; cleared once the pane is back at its shell. */
+  agent?: string | null;
 }
 
 export interface HerdrTab {
@@ -149,6 +156,8 @@ export function agentState(runtime: Session["runtime"]): AgentState {
 }
 
 export function claimedSession(p: HerdrPane): string | null {
+  const token = p.tokens?.[SESSION_TOKEN];
+  if (token) return token;
   return p.agent_session?.source === SOURCE ? p.agent_session.value : null;
 }
 
@@ -253,6 +262,7 @@ export function planMirror(
   const createdKeys = new Set<string>();
   for (const s of M.values()) {
     if (claimedPanes.has(s.id) || fresh(s.id)) continue;
+    if (now - Date.parse(s.createdAt) < NEW_SESSION_GRACE_MS) continue;
     const key = spaceKey(s);
     const space = spaceOfKey.get(key);
     if (!space) {
@@ -293,6 +303,16 @@ export function planMirror(
       label: tabLabel(s, mem.titleOverrides),
       cwd: w ? w.path : null,
     });
+  }
+
+  // A pane whose session token outlived its pane process (killed, crashed): run it again.
+  for (const [sid, panes] of claimedPanes) {
+    if (!M.has(sid) || fresh(sid)) continue;
+    for (const p of panes) {
+      if (p.tokens?.[SESSION_TOKEN] && p.agent !== SOURCE) {
+        plan.restarts.push({ paneId: p.pane_id, sessionId: sid });
+      }
+    }
   }
 
   // 8. Tab labels follow session titles.

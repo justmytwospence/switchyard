@@ -383,7 +383,11 @@ export class MirrorDaemon {
         if (this.closingByUs.has(tabId)) return;
         for (const sid of this.sessionsOfTab.get(tabId) ?? []) {
           const s = mirrored.get(sid);
-          if (s) await this.archive(s.id, s.title);
+          // Another tab still shows it: closing a duplicate does not archive.
+          const elsewhere = [...this.sessionsOfTab].some(
+            ([other, sids]) => other !== tabId && sids.includes(sid),
+          );
+          if (s && !elsewhere) await this.archive(s.id, s.title);
         }
         return;
       }
