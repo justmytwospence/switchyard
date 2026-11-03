@@ -12,7 +12,7 @@ import {
 } from "../src/herdr/mirror.js";
 import { session } from "./herdr-fixtures.js";
 
-const NOW = 1_000_000;
+const NOW = Date.parse("2026-11-03T00:00:00Z");
 
 function workspace(id: string, over: Partial<Workspace> = {}): Workspace {
   return {
@@ -278,6 +278,39 @@ describe("planMirror", () => {
         displayAgent: "pi · mac",
       },
     ]);
+  });
+});
+
+describe("claims", () => {
+  it("reads the session token, and gives new sessions time to be claimed", () => {
+    const st = state({
+      sessions: [
+        session("ses_1"),
+        session("ses_2", { createdAt: new Date(NOW - 1000).toISOString() }),
+      ],
+    });
+    const h = herdr({
+      workspaces: [{ workspace_id: "w1", label: "switchyard", number: 1 }],
+      tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Title ses_1" }],
+      panes: [
+        {
+          pane_id: "w1:p1",
+          tab_id: "w1:t1",
+          workspace_id: "w1",
+          tokens: { switchyard_session: "ses_1" },
+        },
+      ],
+    });
+    const plan = planMirror(st, h, emptyMemory(), NOW);
+    expect(plan.reports.map((r) => r.sessionId)).toEqual(["ses_1"]);
+    expect(plan.createTabs).toEqual([]);
+    // No live pane process holds the token: run it again in that pane.
+    expect(plan.restarts).toEqual([{ paneId: "w1:p1", sessionId: "ses_1" }]);
+    h.panes[0]!.agent = "switchyard";
+    expect(planMirror(st, h, emptyMemory(), NOW).restarts).toEqual([]);
+    expect(planMirror(st, h, emptyMemory(), NOW + 5000).createTabs.map((t) => t.sessionId)).toEqual(
+      ["ses_2"],
+    );
   });
 });
 

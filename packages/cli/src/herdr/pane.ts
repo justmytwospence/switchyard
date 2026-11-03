@@ -3,7 +3,7 @@ import { ApiRequestError, runRawTerminal, runTerminal } from "@switchyard/termin
 import type { ConnectionFlags } from "../config.js";
 import { type Ctx, connect } from "../context.js";
 import { type HerdrCall, herdrCall, nextSeq } from "./client.js";
-import { SOURCE } from "./mirror.js";
+import { SESSION_TOKEN, SOURCE } from "./mirror.js";
 import { readKey, stableLauncherPath } from "./util.js";
 
 const LIVE = new Set(["starting", "idle", "running", "waiting_input"]);
@@ -47,6 +47,14 @@ export async function herdrPane(
         seq: nextSeq(),
       })
       .catch(() => {});
+    await deps
+      .call("pane.report_metadata", {
+        pane_id: paneId,
+        source: SOURCE,
+        tokens: { [SESSION_TOKEN]: sessionId },
+        seq: nextSeq(),
+      })
+      .catch(() => {});
   }
 
   const menu = async (line: string): Promise<"again" | "close"> => {
@@ -58,6 +66,7 @@ export async function herdrPane(
     }
   };
 
+  let announced = false;
   for (;;) {
     let session: Session | null = null;
     try {
@@ -73,6 +82,13 @@ export async function herdrPane(
     if (!session || session.archivedAt !== null) {
       ctx.err("This session was archived.");
       break;
+    }
+    if (session.runtime === "starting") {
+      // Wait until the host says whether it is a terminal session.
+      if (!announced) ctx.err(`Starting ${session.title}…`);
+      announced = true;
+      await new Promise((r) => setTimeout(r, 500));
+      continue;
     }
     if (!LIVE.has(session.runtime)) {
       const choice = await menu(
@@ -103,6 +119,14 @@ export async function herdrPane(
   }
 
   if (!paneId) return;
+  await deps
+    .call("pane.report_metadata", {
+      pane_id: paneId,
+      source: SOURCE,
+      tokens: { [SESSION_TOKEN]: null },
+      seq: nextSeq(),
+    })
+    .catch(() => {});
   await deps
     .call("pane.release_agent", { pane_id: paneId, source: SOURCE, agent: SOURCE, seq: nextSeq() })
     .catch(() => {});
