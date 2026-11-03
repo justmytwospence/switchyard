@@ -952,7 +952,19 @@ export function pillModelLabel(m: SessionModel): string {
   if (!label) label = m.id.slice(m.id.lastIndexOf("/") + 1);
   const prefix = `${m.provider}/`;
   if (label.toLowerCase().startsWith(prefix.toLowerCase())) label = label.slice(prefix.length);
+  const brand = /^Claude\s+(.+)$/.exec(label);
+  if (brand) label = brand[1]!;
   return label || modelLabel(m);
+}
+
+/** Pi's scoped (favorite) models, plus the current one, in the original order. */
+export function favoriteModels(
+  models: SessionModel[],
+  current: SessionModel | null,
+): SessionModel[] {
+  return models.filter(
+    (m) => m.scoped === true || (current && m.provider === current.provider && m.id === current.id),
+  );
 }
 
 export function effortIndex(

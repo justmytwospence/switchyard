@@ -91,6 +91,7 @@ export interface BridgeEvent {
   type: "hello" | "ui_prompt_start" | "ui_prompt_end" | "model_state";
   model?: unknown;
   thinkingLevel?: string | null;
+  scoped?: string[];
   kind?: UiPromptKind | string;
   title?: string | null;
   seq: number;

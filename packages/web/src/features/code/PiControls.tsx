@@ -1,10 +1,11 @@
 import type { Session, SessionModel, ThinkingLevel } from "@switchyard/protocol";
 import { Brain, Check, Cpu, Shrink } from "lucide-react";
 import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
-import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { Sheet } from "../../components/ui/Overlay";
 import { Popover } from "../../components/ui/Popover";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { ErrorState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -14,6 +15,7 @@ import { codeApi } from "./api";
 import {
   contextMeter,
   effortIndex,
+  favoriteModels,
   groupModels,
   isBusy,
   modelLabel,
@@ -68,6 +70,7 @@ function ModelList({
   const [changeError, setChangeError] = useState<unknown>(null);
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
+  const [show, setShow] = useState<"favorites" | "all">("favorites");
 
   const load = useCallback(() => {
     const ac = new AbortController();
@@ -97,7 +100,10 @@ function ModelList({
     }
   };
 
-  const groups = models ? groupModels(models, query) : [];
+  const hasFavorites = models?.some((m) => m.scoped === true) ?? false;
+  const favoritesOnly = hasFavorites && show === "favorites";
+  const pool = models && favoritesOnly ? favoriteModels(models, session.model ?? null) : models;
+  const groups = pool ? groupModels(pool, query) : [];
   const search = (
     <TextInput
       ref={searchRef}
@@ -110,6 +116,17 @@ function ModelList({
   return (
     <div className="flex min-w-0 flex-col gap-3">
       {!searchInFooter && search}
+      {hasFavorites && (
+        <SegmentedControl
+          label="Show"
+          value={show}
+          onChange={setShow}
+          options={[
+            { value: "favorites", label: "Favorites" },
+            { value: "all", label: "All" },
+          ]}
+        />
+      )}
       {changeError != null && <ErrorState compact title="Could not change" error={changeError} />}
       <div className="flex max-h-[60vh] min-w-0 flex-col gap-3 overflow-y-auto">
         {error != null ? (
@@ -117,7 +134,16 @@ function ModelList({
         ) : !models ? (
           <LoadingState label="Loading models…" />
         ) : groups.length === 0 ? (
-          <p className="text-sm text-muted">No models match</p>
+          favoritesOnly ? (
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-sm text-muted">No favorites match</p>
+              <Button size="sm" variant="ghost" onClick={() => setShow("all")}>
+                Search all models
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted">No models match</p>
+          )
         ) : (
           groups.map((g) => (
             <section key={g.provider} className="flex flex-col gap-1">
@@ -141,7 +167,6 @@ function ModelList({
                           ` · ${Math.round(m.contextWindow / 1000)}k context`}
                       </span>
                     </span>
-                    {m.reasoning && <Badge>reasoning</Badge>}
                     {current && <Check aria-hidden className="size-4" />}
                   </button>
                 );

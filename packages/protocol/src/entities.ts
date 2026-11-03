@@ -156,6 +156,8 @@ export const SessionModel = z.object({
   name: z.string().nullable(),
   contextWindow: z.number().nullable(),
   reasoning: z.boolean(),
+  /** In Pi's scoped (favorite) model list; set only when Pi has one. */
+  scoped: z.boolean().optional(),
   /** Effort levels this model accepts, in Pi's order; ["off"] without reasoning. */
   thinkingLevels: z.array(ThinkingLevel),
 });

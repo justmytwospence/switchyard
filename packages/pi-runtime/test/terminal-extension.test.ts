@@ -284,6 +284,7 @@ describe("switchyard terminal extension", () => {
     const mock2 = { provider: "mock", id: "mock-2", reasoning: true, contextWindow: 10 };
     const { pi, ctx } = await load(ui, {
       model: mock1,
+      scopedModels: [{ model: mock2 }],
       thinkingLevel: "off",
       modelRegistry: {
         getAvailable: () => [mock1, mock2],
@@ -309,6 +310,7 @@ describe("switchyard terminal extension", () => {
     ).toContain("No API key for");
     pi.emit("model_select", {}, null);
     await until(() => holder.lines.some((l) => l.type === "model_state"));
+    expect(holder.lines.find((l) => l.type === "model_state").scoped).toEqual(["mock/mock-2"]);
     await ask({ type: "set_thinking_level", id: "f", level: "high" });
     expect(pi.setThinkingLevel).toHaveBeenCalledWith("high");
   });

@@ -101,6 +101,11 @@ export default function switchyardTerminal(pi: any): void {
       type: "model_state",
       model: modelInfo(ctx?.model),
       thinkingLevel: ctx?.thinkingLevel ?? pi.getThinkingLevel?.() ?? null,
+      scoped: (ctx?.scopedModels ?? [])
+        .map((s: any) =>
+          s?.model?.provider && s?.model?.id ? `${s.model.provider}/${s.model.id}` : null,
+        )
+        .filter(Boolean),
     });
 
   const sendQueue = () => send({ type: "queue_update", ...queue });

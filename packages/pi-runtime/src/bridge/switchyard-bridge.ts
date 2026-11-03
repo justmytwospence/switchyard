@@ -98,7 +98,15 @@ export default function switchyardBridge(pi: any): void {
       send(
         s,
         { type: "model_state" },
-        { model: modelInfo(ctx?.model), thinkingLevel: ctx?.thinkingLevel ?? null },
+        {
+          model: modelInfo(ctx?.model),
+          thinkingLevel: ctx?.thinkingLevel ?? null,
+          scoped: (ctx?.scopedModels ?? [])
+            .map((s: any) =>
+              s?.model?.provider && s?.model?.id ? `${s.model.provider}/${s.model.id}` : null,
+            )
+            .filter(Boolean),
+        },
       );
     } catch {
       disabled = true;

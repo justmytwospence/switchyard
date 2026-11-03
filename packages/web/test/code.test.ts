@@ -11,6 +11,7 @@ import {
   contextMeter,
   countAfter,
   effortIndex,
+  favoriteModels,
   filterCommands,
   fitPanes,
   groupModels,
@@ -502,12 +503,22 @@ describe("terminal built-ins", () => {
     expect(pillModelLabel(mockModel("other/big"))).toBe("big");
     expect(
       pillModelLabel(mockModel("anthropic/claude-fable-5", { name: "Anthropic: Claude Fable 5" })),
-    ).toBe("Claude Fable 5");
+    ).toBe("Fable 5");
     expect(pillModelLabel(mockModel("anthropic/claude-fable-5"))).toBe("claude-fable-5");
-    expect(pillModelLabel(mockModel("x", { name: "Claude Opus 5.5" }))).toBe("Claude Opus 5.5");
+    expect(pillModelLabel(mockModel("x", { name: "Claude Opus 5.5" }))).toBe("Opus 5.5");
+    expect(pillModelLabel(mockModel("x", { name: "Anthropic: Claude Fable 5" }))).toBe("Fable 5");
+    expect(pillModelLabel(mockModel("x", { name: "GPT-6 Astra" }))).toBe("GPT-6 Astra");
     expect(pillModelLabel(mockModel("x", { name: "Qwen3.8 27B — Quality Q8 / MTP (local)" }))).toBe(
       "Qwen3.8 27B — Quality Q8 / MTP (local)",
     );
+  });
+  it("favoriteModels keeps scoped models and the current one in order", () => {
+    const a = mockModel("a", { scoped: true });
+    const b = mockModel("b", { scoped: false });
+    const c = mockModel("c", { scoped: false });
+    const d = mockModel("d", { scoped: true });
+    expect(favoriteModels([a, b, c, d], null).map((m) => m.id)).toEqual(["a", "d"]);
+    expect(favoriteModels([a, b, c, d], c).map((m) => m.id)).toEqual(["a", "c", "d"]);
   });
   it("effortIndex", () => {
     expect(effortIndex(["off", "low", "high"], "high")).toBe(2);

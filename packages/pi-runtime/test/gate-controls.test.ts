@@ -18,7 +18,7 @@ describe.skipIf(skipRealPi)("gate: session controls", () => {
         { when: when.userSays("first"), reply: { text: "first answer" } },
         { when: when.userSays("second"), reply: { text: "second answer" } },
       ],
-      { settings: { compaction: { keepRecentTokens: 1 } } },
+      { settings: { compaction: { keepRecentTokens: 1 }, enabledModels: ["mock/mock-2"] } },
     );
   });
   afterAll(async () => {
@@ -44,6 +44,8 @@ describe.skipIf(skipRealPi)("gate: session controls", () => {
         "medium",
         "high",
       ]);
+      expect(models.find((m) => m.id === "mock-2")?.scoped).toBe(true);
+      expect(models.find((m) => m.id === "mock-1")?.scoped).toBe(false);
       const changed = await s.setModel("mock", "mock-2");
       expect(changed.model?.id).toBe("mock-2");
       expect(rec.of("model").length).toBeGreaterThan(0);

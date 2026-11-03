@@ -214,6 +214,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   private readonly partialToolOutput = new Map<string, string>();
   private runAssistantText: string | null = null;
   private _model: SessionModel | null = null;
+  private scoped: Set<string> | null = null;
   private _thinking: ThinkingLevel | null = null;
   private _compacting = false;
   private lastModelJson = "";
@@ -494,7 +495,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     const out: SessionModel[] = [];
     for (const raw of data?.models ?? []) {
       const m = this.toSessionModel(raw);
-      if (m) out.push(m);
+      if (!m) continue;
+      if (this.scoped && this.scoped.size > 0) m.scoped = this.scoped.has(`${m.provider}/${m.id}`);
+      out.push(m);
     }
     return out.sort(
       (a, b) =>
@@ -560,6 +563,10 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
         return r.success ? [r.data] : [];
       }),
     };
+  }
+
+  private applyScoped(raw: unknown): void {
+    if (Array.isArray(raw)) this.scoped = new Set(raw.filter((x) => typeof x === "string"));
   }
 
   private applyModel(raw: unknown): void {
@@ -757,6 +764,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       this.emit("bridge", msg);
       if (msg.type === "ui_prompt_end") this.onPromptEnd(msg);
       if (msg.type === "model_state") {
+        this.applyScoped(msg.scoped);
         this.applyModel(msg.model);
         this.applyThinking(msg.thinkingLevel);
         this.emitModelIfChanged();
@@ -1002,6 +1010,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
         }
         break;
       case "model_state":
+        this.applyScoped(ev.scoped);
         this.applyModel(ev.model);
         this.applyThinking(ev.thinkingLevel);
         this.emitModelIfChanged();
