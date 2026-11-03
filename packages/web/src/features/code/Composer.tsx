@@ -222,11 +222,31 @@ export function Composer({
           ? "Add a message to send with the images"
           : null;
 
-  // Mobile: tapping Send must not blur the draft first. The blur would bring back the bottom
-  // nav (hidden while composing) and shift the composer under the finger, losing the tap.
-  const keepFocus = mobile
-    ? { onPointerDown: (e: React.PointerEvent) => e.preventDefault() }
-    : undefined;
+  // Mobile: send on touchend and suppress the synthetic click. Losing focus first would bring the
+  // bottom nav back and move the button from under the finger. Then blur, so the keyboard closes
+  // after sending.
+  const tapToSend = (mode: PromptMode, enabled: boolean) =>
+    mobile
+      ? {
+          onPointerDown: (e: React.PointerEvent) => e.preventDefault(),
+          onTouchEnd: (e: React.TouchEvent<HTMLButtonElement>) => {
+            const t = e.changedTouches[0];
+            const r = e.currentTarget.getBoundingClientRect();
+            if (
+              !t ||
+              t.clientX < r.left ||
+              t.clientX > r.right ||
+              t.clientY < r.top ||
+              t.clientY > r.bottom
+            )
+              return;
+            e.preventDefault();
+            if (!enabled) return;
+            void send(mode);
+            textRef.current?.blur();
+          },
+        }
+      : undefined;
 
   const pills =
     controls && session.model ? (
@@ -504,7 +524,10 @@ export function Composer({
                     !!block || noText || !!commandProblem || (busy !== null && busy !== "steer")
                   }
                   onClick={() => void send("steer")}
-                  {...keepFocus}
+                  {...tapToSend(
+                    "steer",
+                    !block && !noText && !commandProblem && (busy === null || busy === "steer"),
+                  )}
                 >
                   Steer
                 </Button>
@@ -519,7 +542,10 @@ export function Composer({
                     !!block || noText || !!commandProblem || (busy !== null && busy !== "followUp")
                   }
                   onClick={() => void send("followUp")}
-                  {...keepFocus}
+                  {...tapToSend(
+                    "followUp",
+                    !block && !noText && !commandProblem && (busy === null || busy === "followUp"),
+                  )}
                 >
                   Queue follow-up
                 </Button>
@@ -533,7 +559,7 @@ export function Composer({
               busy={busy === "prompt"}
               disabled={!!block || noText || !!commandProblem}
               onClick={() => void send("prompt")}
-              {...keepFocus}
+              {...tapToSend("prompt", !block && !noText && !commandProblem && busy === null)}
             >
               Send
             </Button>

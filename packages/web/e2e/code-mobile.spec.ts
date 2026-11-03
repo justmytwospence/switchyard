@@ -71,12 +71,14 @@ test.describe("mobile coding view", () => {
     await expect(box).toHaveValue("first line\nsecond line");
     expect(prompts).toBe(0);
 
+    await setKeyboard(page, true);
     const sent = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/prompt`),
     );
     await page.getByTestId("composer").getByRole("button", { name: "Send" }).tap();
     expect((await sent).postDataJSON().text).toBe("first line\nsecond line");
     await expect(box).toHaveValue("");
+    await expect(box).not.toBeFocused();
     await expect(page.getByTestId("transcript").getByText("Received: first line")).toBeVisible();
     expect(prompts).toBe(1);
   });
