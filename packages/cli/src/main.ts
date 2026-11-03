@@ -13,6 +13,7 @@ import {
 } from "./commands/coordinator.js";
 import { defaultDoctorDeps, printDoctor, runDoctor } from "./commands/doctor.js";
 import { hostBackup, hostEnroll, hostRun, hostStatus } from "./commands/host.js";
+import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
 import { installService } from "./commands/service.js";
 import { up } from "./commands/up.js";
 import {
@@ -189,6 +190,42 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     const code = printDoctor(ctx, results);
     if (code !== 0) throw new CliError("doctor found failures", code);
   });
+
+  const hosts = program.command("hosts").description("Hosts and their project folders");
+  connectionOptions(hosts.command("list").description("List hosts"))
+    .option("--json", "JSON output")
+    .action((o) => hostsList(ctx, { ...connFlags(o), json: o.json }));
+  connectionOptions(
+    hosts
+      .command("folders <host>")
+      .description(
+        "Show or change a host's project folders (absolute or ~/... on the host; quote ~ so your shell does not expand it)",
+      ),
+  )
+    .option("--set <folder...>", "replace the folders")
+    .option("--add <folder...>", "add folders")
+    .option("--remove <folder...>", "remove folders")
+    .option("--clear", "remove every folder")
+    .option("--json", "JSON output")
+    .action(async (ref, o) => {
+      await hostsFolders(ctx, ref, {
+        ...connFlags(o),
+        set: o.set,
+        add: o.add,
+        remove: o.remove,
+        clear: o.clear,
+        json: o.json,
+      });
+    });
+  connectionOptions(
+    hosts
+      .command("scan <host>")
+      .description("Scan a host's project folders now and add new repositories as projects"),
+  )
+    .option("--json", "JSON output")
+    .action(async (ref, o) => {
+      await hostsScan(ctx, ref, { ...connFlags(o), json: o.json });
+    });
 
   const sessions = program.command("sessions").description("Sessions");
   connectionOptions(sessions.command("list").description("List sessions"))
