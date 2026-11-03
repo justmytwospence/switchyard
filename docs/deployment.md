@@ -60,7 +60,7 @@ docker compose up -d
 docker compose exec switchyard switchyard init
 ```
 
-[`deploy/compose.yaml`](../deploy/compose.yaml) uses `ghcr.io/justmytwospence/switchyard:0.4.0` (multi-arch, `node:26-bookworm-slim`, runs as the `node` user), mounts `./data` at `/data` and has a `HEALTHCHECK` on `/healthz`. If the package is not public, `docker login ghcr.io` with a token that can read packages first. The compose file publishes the port on `127.0.0.1` only, for a proxy on the same machine; change it to `7400:7400` to serve plain HTTP on every interface, or remove it if the proxy shares a Docker network.
+[`deploy/compose.yaml`](../deploy/compose.yaml) uses `ghcr.io/justmytwospence/switchyard:0.5.0` (multi-arch, `node:26-bookworm-slim`, runs as the `node` user), mounts `./data` at `/data` and has a `HEALTHCHECK` on `/healthz`. If the package is not public, `docker login ghcr.io` with a token that can read packages first. The compose file publishes the port on `127.0.0.1` only, for a proxy on the same machine; change it to `7400:7400` to serve plain HTTP on every interface, or remove it if the proxy shares a Docker network.
 
 `switchyard init` prints your first sign-in link. Alternatively declare an OIDC owner in the environment and the server comes up owned with no manual step ([auth.md](auth.md#single-sign-on-oidc)). To run without Docker, use `switchyard coordinator start` with the same variables.
 
@@ -200,7 +200,7 @@ The same image can run a host agent: `switchyard host run`. Use it only when the
 - **Pi on `PATH`.** The image does not include Pi. Build a small image on top of it, or mount a Pi install and set `SWITCHYARD_PI_BIN`:
 
   ```
-  FROM ghcr.io/justmytwospence/switchyard:0.4.0
+  FROM ghcr.io/justmytwospence/switchyard:0.5.0
   USER root
   RUN npm install -g @earendil-works/pi-coding-agent@1.4.0
   USER node
