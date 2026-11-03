@@ -155,6 +155,7 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.6.0`
 | [Deployment](docs/deployment.md) | Single machine, server, reverse proxies, VPNs, hosts, environment reference, privilege model |
 | [Sign-in and devices](docs/auth.md) | The owner model, pairing, passkeys, single sign-on, host enrollment, revocation |
 | [CLI and terminal client](docs/cli.md) | Every `switchyard` command, credentials, terminal key bindings |
+| [Terminal sessions](docs/terminal-sessions.md) | Experimental: Pi's own TUI for every session, from any terminal, and the herdr integration |
 | [Operations](docs/operations.md) | Backup, restore, migrations, retention, logs, health, diagnostics |
 | [Adapters](docs/adapters.md) | Rendering a Pi plugin's UI in every client; shipping an adapter with your Pi package |
 | [Architecture](docs/architecture.md) | Components, data ownership, the host and client protocols, packages |
