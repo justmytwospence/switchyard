@@ -1,4 +1,13 @@
-import { type ReactNode, type RefObject, useEffect, useId, useRef } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "../../lib/cn";
 import { useFocusTrap } from "./useFocusTrap";
 
@@ -21,6 +30,8 @@ export interface PopoverProps {
   initialFocus?: RefObject<HTMLElement | null>;
   /** Panel classes (width). */
   className?: string;
+  /** Position the panel `fixed` and keep it inside the viewport (phones). */
+  fitViewport?: boolean;
   children: ReactNode;
 }
 
@@ -34,12 +45,35 @@ export function Popover({
   align = "start",
   initialFocus,
   className,
+  fitViewport,
   children,
 }: PopoverProps) {
   const id = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   useFocusTrap(panelRef, open, () => onOpenChange(false), initialFocus);
+
+  const [fixed, setFixed] = useState<CSSProperties | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !fitViewport) {
+      setFixed(null);
+      return;
+    }
+    const place = () => {
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.min(288, window.innerWidth - 16);
+      const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8);
+      setFixed(
+        side === "top"
+          ? { position: "fixed", width, left, bottom: window.innerHeight - rect.top + 4 }
+          : { position: "fixed", width, left, top: rect.bottom + 4 },
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open, fitViewport, side]);
 
   useEffect(() => {
     if (!open) return;
@@ -67,10 +101,12 @@ export function Popover({
           role="dialog"
           aria-label={label}
           tabIndex={-1}
+          style={fixed ?? undefined}
           className={cn(
-            "absolute z-40 max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-surface p-3 shadow-pop",
-            side === "top" ? "bottom-full mb-1" : "top-full mt-1",
-            align === "end" ? "right-0" : "left-0",
+            fixed ? "fixed" : "absolute",
+            "z-40 max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-surface p-3 shadow-pop",
+            !fixed && (side === "top" ? "bottom-full mb-1" : "top-full mt-1"),
+            !fixed && (align === "end" ? "right-0" : "left-0"),
             className,
           )}
         >

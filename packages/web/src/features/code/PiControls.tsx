@@ -331,6 +331,7 @@ export function EffortControl({
       align="start"
       label="Effort"
       className="w-72"
+      fitViewport={mobile}
       trigger={(p) => <ControlPill {...p} {...pill} />}
     >
       <EffortSlider levels={levels} level={draft.level} onChange={draft.setLevel} large={mobile} />
@@ -379,7 +380,7 @@ export function ContextMeter({ session, enabled }: { session: Session; enabled: 
           {...p}
           aria-label={session.compacting ? "Context compacting" : `Context ${meter.label} used`}
           title={meter.detail}
-          className="flex w-full items-center gap-2 py-0.5 text-[11px] leading-4 text-muted transition-colors hover:text-text"
+          className="relative flex w-full items-center gap-2 py-0.5 text-[11px] leading-4 text-muted transition-colors before:absolute before:inset-x-0 before:-top-3 before:bottom-0 before:content-[''] hover:text-text [@media(pointer:coarse)]:before:-top-6"
         >
           <span className="h-[3px] flex-1 overflow-hidden rounded-full bg-surface-2">
             <span

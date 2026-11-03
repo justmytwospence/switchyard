@@ -252,6 +252,11 @@ test.describe("mobile coding view", () => {
     await effort.tap();
     const sheet = page.getByRole("dialog", { name: "Effort" });
     await expect(sheet).toBeVisible();
+    const box = (await sheet.boundingBox())!;
+    const vw = await page.evaluate(() => window.innerWidth);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(vw);
+    await noOverflow();
     const sent = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/thinking`),
     );
@@ -260,9 +265,15 @@ test.describe("mobile coding view", () => {
       set.call(el, "4");
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await page.getByLabel("Message to Pi").tap();
+    await page.getByTestId("transcript").tap({ position: { x: 5, y: 5 } });
     await expect(sheet).toHaveCount(0);
     expect((await sent).postDataJSON().level).toBe("high");
     await noOverflow();
+
+    // The slim context bar has a touch-sized hit area.
+    const context = page.getByTestId("composer").getByRole("button", { name: /^Context/ });
+    const cb = (await context.boundingBox())!;
+    await page.touchscreen.tap(cb.x + cb.width / 2, cb.y - 10);
+    await expect(page.getByRole("menu", { name: "Context" })).toBeVisible();
   });
 });
