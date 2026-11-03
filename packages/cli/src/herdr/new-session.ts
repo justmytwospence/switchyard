@@ -63,12 +63,18 @@ export async function herdrNew(ctx: Ctx, flags: NewFlags): Promise<void> {
   let created: Session | null = null;
   try {
     const st = state();
+    const terminalHosts = new Set(
+      st.hosts.filter((h) => h.capabilities?.terminal === true).map((h) => h.id),
+    );
     const workspaces = st.workspaces.filter((w) => w.archivedAt === null);
     const hostName = (id: string) => st.hosts.find((h) => h.id === id)?.name ?? id;
     let body: Record<string, unknown>;
     if (flags.workspace) {
       const w = workspaces.find((x) => x.id === flags.workspace);
       if (!w) throw new CliError(`Workspace ${flags.workspace} not found`);
+      if (!terminalHosts.has(w.hostId)) {
+        throw new CliError(`${spaceLabel(w.id, st)}'s host does not run terminal sessions`);
+      }
       const yes = (
         await rl.question(`Start a Switchyard session in ${spaceLabel(w.id, st)}? [Y/n] `)
       )
@@ -81,20 +87,33 @@ export async function herdrNew(ctx: Ctx, flags: NewFlags): Promise<void> {
       if (projects.length === 0) throw new CliError("Switchyard has no projects yet");
       ctx.out("New Switchyard session");
       for (const [i, p] of projects.entries()) ctx.out(`  ${i + 1}) ${p.name}`);
-      const pi = (
-        await rl.question(`Project [1-${projects.length}], Enter keeps this tab as a shell: `)
-      ).trim();
-      if (!pi) return;
-      const project = projects[Number(pi) - 1];
-      if (!project) throw new CliError(`No project ${pi}`);
-      const own = workspaces.filter((w) => w.projectId === project.id);
+      let project: (typeof projects)[number] | undefined;
+      for (;;) {
+        const pi = (
+          await rl.question(`Project [1-${projects.length}], Enter keeps this tab as a shell: `)
+        ).trim();
+        if (!pi) return;
+        project = projects[Number(pi) - 1];
+        if (!project) throw new CliError(`No project ${pi}`);
+        const id = project.id;
+        const usable =
+          workspaces.some((w) => w.projectId === id && terminalHosts.has(w.hostId)) ||
+          st.checkouts.some((c) => c.projectId === id && terminalHosts.has(c.hostId));
+        if (usable) break;
+        ctx.out(`No host of ${project.name} runs terminal sessions`);
+      }
+      const own = workspaces.filter(
+        (w) => w.projectId === project.id && terminalHosts.has(w.hostId),
+      );
       for (const [i, w] of own.entries()) {
         ctx.out(`  ${i + 1}) ${w.branch ?? "main"} (${hostName(w.hostId)})  ${w.path}`);
       }
       ctx.out("  n) new worktree");
       const wi = (await rl.question("Workspace: ")).trim().toLowerCase();
       if (wi === "n") {
-        const checkouts = st.checkouts.filter((c) => c.projectId === project.id);
+        const checkouts = st.checkouts.filter(
+          (c) => c.projectId === project.id && terminalHosts.has(c.hostId),
+        );
         if (checkouts.length === 0) throw new CliError(`${project.name} has no checkouts`);
         let checkout = checkouts[0]!;
         if (checkouts.length > 1) {

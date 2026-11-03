@@ -108,10 +108,22 @@ export function spaceKey(s: Session): string {
   return s.workspaceId ?? `cwd:${s.hostId}:${s.cwd}`;
 }
 
-/** Sessions with a tab: not archived, not read-only subagent views; oldest first. */
+export const LIVE_RUNTIMES: Session["runtime"][] = ["starting", "idle", "running", "waiting_input"];
+
+/**
+ * Sessions with a tab: not archived, not read-only subagent views, and with a Pi terminal now or
+ * when resumed (their host runs terminal sessions, and they are not running headless); oldest
+ * first. A starting session counts: its terminal flag is set once it has started.
+ */
 export function mirroredSessions(st: MirrorState): Session[] {
+  const terminalHosts = new Set(
+    st.hosts.filter((h) => h.capabilities?.terminal === true).map((h) => h.id),
+  );
   return st.sessions
-    .filter((s) => s.archivedAt === null && !s.readOnly)
+    .filter((s) => s.archivedAt === null && !s.readOnly && terminalHosts.has(s.hostId))
+    .filter(
+      (s) => s.runtime === "starting" || !LIVE_RUNTIMES.includes(s.runtime) || s.terminal === true,
+    )
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 

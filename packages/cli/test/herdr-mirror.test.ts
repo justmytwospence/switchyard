@@ -5,6 +5,7 @@ import {
   emptyMemory,
   type HerdrSnapshot,
   type MirrorState,
+  mirroredSessions,
   planMirror,
   SOURCE,
   spaceLabel,
@@ -49,8 +50,8 @@ function state(over: Partial<MirrorState> = {}): MirrorState {
       { id: "prj_29", name: "29ers" },
     ] as Project[],
     hosts: [
-      { id: "hst_mac", name: "mac" },
-      { id: "hst_nuc", name: "nuc" },
+      { id: "hst_mac", name: "mac", capabilities: { terminal: true } },
+      { id: "hst_nuc", name: "nuc", capabilities: { terminal: true } },
     ] as Host[],
     checkouts: [
       { id: "chk_mac", projectId: "prj_sy", hostId: "hst_mac" },
@@ -311,6 +312,26 @@ describe("claims", () => {
     expect(planMirror(st, h, emptyMemory(), NOW + 5000).createTabs.map((t) => t.sessionId)).toEqual(
       ["ses_2"],
     );
+  });
+});
+
+describe("terminals", () => {
+  it("mirrors only sessions with a Pi terminal, now or when resumed", () => {
+    const st = state({
+      hosts: [
+        { id: "hst_mac", name: "mac", capabilities: { terminal: true } },
+        { id: "hst_nuc", name: "nuc", capabilities: { terminal: false } },
+      ] as Host[],
+      sessions: [
+        session("ses_1", { hostId: "hst_nuc", workspaceId: "wsp_other", projectId: "prj_29" }),
+        session("ses_2", { terminal: false }),
+        session("ses_3", { runtime: "stopped", terminal: undefined }),
+        session("ses_4", { runtime: "starting", terminal: undefined }),
+      ],
+    });
+    expect(mirroredSessions(st).map((s) => s.id)).toEqual(["ses_3", "ses_4"]);
+    const plan = planMirror(st, herdr(), emptyMemory(), NOW);
+    expect(plan.createSpaces.map((c) => c.firstSessionId)).toEqual(["ses_3"]);
   });
 });
 
