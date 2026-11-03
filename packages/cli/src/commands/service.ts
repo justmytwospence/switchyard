@@ -200,6 +200,8 @@ export interface InstallDeps {
   home: string;
   uid: number;
   run: (cmd: string[]) => Promise<{ ok: boolean; output: string }>;
+  /** Delay between bootstrap retries (tests set 0). */
+  retryDelayMs?: number;
 }
 
 export function defaultInstallDeps(): InstallDeps {
@@ -257,7 +259,13 @@ export async function installService(
   }
   for (const cmd of loadCommands(kind, file, deps.uid)) {
     ctx.out(`$ ${cmd.join(" ")}`);
-    const r = await deps.run(cmd);
+    let r = await deps.run(cmd);
+    // launchd tears a booted-out agent down asynchronously; a bootstrap right after a bootout
+    // fails with "5: Input/output error" until it is gone. Retry for a few seconds.
+    for (let i = 0; !r.ok && cmd[1] === "bootstrap" && i < 10; i++) {
+      await new Promise((resolve) => setTimeout(resolve, deps.retryDelayMs ?? 500));
+      r = await deps.run(cmd);
+    }
     // `bootout` fails when the agent was not loaded yet; that is expected.
     if (!r.ok && cmd[1] !== "bootout") {
       throw new CliError(`${cmd.join(" ")} failed${r.output ? `: ${r.output}` : ""}`);
