@@ -36,12 +36,21 @@ export interface MenuProps {
   align?: "start" | "end";
   /** Open below (default) or above the trigger. */
   side?: "bottom" | "top";
+  /** Extra classes for the wrapper (e.g. `w-full`). */
+  className?: string;
   /** Accessible name of the menu. */
   label: string;
 }
 
 /** Popup menu with arrow-key navigation, Escape and outside click to close. */
-export function Menu({ trigger, items, align = "end", side = "bottom", label }: MenuProps) {
+export function Menu({
+  trigger,
+  items,
+  align = "end",
+  side = "bottom",
+  label,
+  className,
+}: MenuProps) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -70,7 +79,7 @@ export function Menu({ trigger, items, align = "end", side = "bottom", label }: 
   };
 
   return (
-    <div className="relative inline-flex">
+    <div className={cn("relative inline-flex", className)}>
       {trigger({
         ref: btnRef,
         onClick: () => setOpen((o) => !o),

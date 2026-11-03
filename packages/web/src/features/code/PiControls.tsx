@@ -1,8 +1,7 @@
 import type { Session, SessionModel, ThinkingLevel } from "@switchyard/protocol";
-import { Brain, Check, ChevronDown, Cpu, Gauge, Shrink } from "lucide-react";
+import { Brain, Check, Cpu, Shrink } from "lucide-react";
 import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
-import { Button } from "../../components/ui/Button";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { Sheet } from "../../components/ui/Overlay";
 import { Popover } from "../../components/ui/Popover";
@@ -19,29 +18,29 @@ interface PillProps {
   label: string;
   ariaLabel: string;
   disabled?: boolean;
-  mobile: boolean;
+  className?: string;
   ref?: Ref<HTMLButtonElement>;
   onClick: () => void;
   [aria: `aria-${string}`]: unknown;
 }
 
-function ControlPill({ icon, label, ariaLabel, disabled, mobile, ...trigger }: PillProps) {
+/** Compact chip for the composer's action row (44 px tall on touch screens via `.tap`). */
+function ControlPill({ icon, label, ariaLabel, disabled, className, ...trigger }: PillProps) {
   return (
     <button
       type="button"
       disabled={disabled}
       aria-label={ariaLabel}
       className={cn(
-        "tap inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-surface px-3 text-sm hover:bg-surface-2 disabled:opacity-55",
-        mobile ? "h-11 flex-1 justify-center" : "h-8",
+        "tap inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-xs font-medium text-text transition-colors hover:bg-border disabled:opacity-55",
+        className,
       )}
       {...trigger}
     >
-      <span aria-hidden className="shrink-0">
+      <span aria-hidden className="shrink-0 text-muted">
         {icon}
       </span>
       <span className="min-w-0 truncate">{label}</span>
-      <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted" />
     </button>
   );
 }
@@ -179,8 +178,8 @@ export function ModelControl({
     return (
       <>
         <ControlPill
-          mobile
-          icon={<Cpu className="size-4" />}
+          className="max-w-[60vw]"
+          icon={<Cpu className="size-3.5" />}
           label={label}
           ariaLabel={ariaLabel}
           disabled={!enabled}
@@ -204,8 +203,8 @@ export function ModelControl({
       trigger={(p) => (
         <ControlPill
           {...p}
-          mobile={false}
-          icon={<Cpu className="size-4" />}
+          className="max-w-64"
+          icon={<Cpu className="size-3.5" />}
           label={label}
           ariaLabel={ariaLabel}
           disabled={!enabled}
@@ -318,21 +317,12 @@ export function EffortControl({
     setOpen(o);
   };
   const pill = {
-    icon: <Brain className="size-4" />,
+    icon: <Brain className="size-3.5" />,
     label: draft.level,
     ariaLabel: `Effort: ${draft.level}`,
     disabled: !enabled,
+    className: "shrink-0 capitalize",
   };
-  if (mobile) {
-    return (
-      <>
-        <ControlPill mobile {...pill} onClick={() => change(true)} />
-        <Sheet open={open} onClose={() => change(false)} title="Effort">
-          <EffortSlider levels={levels} level={draft.level} onChange={draft.setLevel} large />
-        </Sheet>
-      </>
-    );
-  }
   return (
     <Popover
       open={open}
@@ -341,9 +331,9 @@ export function EffortControl({
       align="start"
       label="Effort"
       className="w-72"
-      trigger={(p) => <ControlPill {...p} mobile={false} {...pill} />}
+      trigger={(p) => <ControlPill {...p} {...pill} />}
     >
-      <EffortSlider levels={levels} level={draft.level} onChange={draft.setLevel} large={false} />
+      <EffortSlider levels={levels} level={draft.level} onChange={draft.setLevel} large={mobile} />
     </Popover>
   );
 }
@@ -375,29 +365,30 @@ export function ContextMeter({ session, enabled }: { session: Session; enabled: 
       },
     },
   ];
-  const fill = { danger: "bg-danger", warning: "bg-warning", muted: "bg-muted" }[meter.tone];
+  const fill = { danger: "bg-danger", warning: "bg-warning", muted: "bg-subtle" }[meter.tone];
   return (
     <Menu
       side="top"
       align="start"
       label="Context"
       items={items}
+      className="w-full"
       trigger={(p) => (
-        <Button
+        <button
+          type="button"
           {...p}
-          size="sm"
-          variant="ghost"
-          icon={<Gauge className="size-3.5" />}
           aria-label={session.compacting ? "Context compacting" : `Context ${meter.label} used`}
+          title={meter.detail}
+          className="flex w-full items-center gap-2 py-0.5 text-[11px] leading-4 text-muted transition-colors hover:text-text"
         >
-          <span className="h-1 w-8 overflow-hidden rounded bg-surface-2">
+          <span className="h-[3px] flex-1 overflow-hidden rounded-full bg-surface-2">
             <span
-              className={cn("block h-full", fill)}
+              className={cn("block h-full rounded-full transition-[width]", fill)}
               style={{ width: `${Math.min(100, meter.percent ?? 0)}%` }}
             />
           </span>
-          {meter.label}
-        </Button>
+          <span className="tabular-nums">{meter.label}</span>
+        </button>
       )}
     />
   );

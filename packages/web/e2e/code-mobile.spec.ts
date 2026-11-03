@@ -226,7 +226,7 @@ test.describe("mobile coding view", () => {
     await expect(page.getByRole("region", { name: "Changes" })).toBeVisible();
   });
 
-  test("model and effort sheets are thumb-sized and stay on screen", async ({
+  test("model and effort controls are thumb-sized and stay on screen", async ({
     page,
     state,
     api,
@@ -260,7 +260,8 @@ test.describe("mobile coding view", () => {
       set.call(el, "4");
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await sheet.getByRole("button", { name: "Close" }).tap();
+    await page.getByLabel("Message to Pi").tap();
+    await expect(sheet).toHaveCount(0);
     expect((await sent).postDataJSON().level).toBe("high");
     await noOverflow();
   });

@@ -238,7 +238,6 @@ export function Composer({
           onOpenChange={setModelPickerOpen}
         />
         <EffortControl session={session} enabled={controls} mobile={mobile} />
-        <ContextMeter session={session} enabled={controls} />
       </>
     ) : null;
   const queued = session.queue.steering.length + session.queue.followUp.length;
@@ -250,6 +249,7 @@ export function Composer({
       className={cn("shrink-0 border-t border-border bg-surface px-3 pt-2 pb-2", className)}
     >
       <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-2">
+        {controls && session.model && <ContextMeter session={session} enabled={controls} />}
         {ctx.control === "automation" && !block && (
           <div
             role="note"
@@ -426,11 +426,6 @@ export function Composer({
           />
         </div>
 
-        {pills && mobile && (
-          <div data-testid="session-controls" className="flex w-full min-w-0 items-center gap-1.5">
-            {pills}
-          </div>
-        )}
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <input
             ref={fileRef}
@@ -477,16 +472,9 @@ export function Composer({
             }}
           />
           {pills ? (
-            mobile ? (
-              <span className="min-w-0 flex-1" />
-            ) : (
-              <div
-                data-testid="session-controls"
-                className="flex min-w-0 flex-1 items-center gap-1.5"
-              >
-                {pills}
-              </div>
-            )
+            <div data-testid="session-controls" className="flex min-w-0 flex-1 items-center gap-1">
+              {pills}
+            </div>
           ) : (
             <>
               <span
