@@ -143,6 +143,7 @@ export {
   TRANSITIONS,
   unresolvedForDone,
 } from "./tasks/state.js";
+export { normalizeUserCode, TERMINAL_LOGIN_TTL_MS, TerminalLogins } from "./terminal-login.js";
 export {
   baseFor,
   inspectCheckout,

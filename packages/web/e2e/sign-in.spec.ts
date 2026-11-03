@@ -177,6 +177,54 @@ test.describe("owner sign-in", () => {
     }
   });
 
+  test("terminal login: a signed-in browser approves the code", async ({ page, browser }) => {
+    const server = await startLocal();
+    let other: BrowserContext | undefined;
+    try {
+      const link = await server.admin<{ url: string }>("POST", "/api/enrollments", {
+        kind: "device",
+      });
+      await page.goto(link.url);
+      await page.getByTestId("signin-link").click();
+      await expectAuthenticated(page, server.url);
+
+      const post = async (path: string, body: unknown) =>
+        (
+          await fetch(`${server.url}${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          })
+        ).json();
+      const started = await post("/api/auth/terminal/start", { name: "e2e terminal" });
+      const claimBody = { userCode: started.userCode, pollToken: started.pollToken };
+      expect(await post("/api/auth/terminal/claim", claimBody)).toEqual({ status: "pending" });
+
+      other = await browser.newContext();
+      const page2 = await other.newPage();
+      await page2.goto(started.verifyUrl);
+      await expect(page2).toHaveURL(/\/sign-in\?next=%2Fterminal-login/);
+
+      await page.goto(started.verifyUrl);
+      await expect(page.getByTestId("terminal-login-code")).toHaveText(started.userCode);
+      await expect(page.getByText("e2e terminal")).toBeVisible();
+      await page.getByTestId("terminal-login-approve").click();
+      await expect(page.getByText("Terminal signed in")).toBeVisible();
+
+      const done = await post("/api/auth/terminal/claim", claimBody);
+      expect(done.status).toBe("done");
+      const me = await (
+        await fetch(`${server.url}/api/me`, {
+          headers: { authorization: `Bearer ${done.credential}` },
+        })
+      ).json();
+      expect(me.device.kind).toBe("terminal");
+    } finally {
+      await other?.close();
+      await server.close();
+    }
+  });
+
   test("single sign-on: the owner signs in; another account is refused", async ({
     page,
     browser,

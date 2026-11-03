@@ -351,6 +351,35 @@ export const OidcClaimResponse = z.union([
 ]);
 export type OidcClaimResponse = z.infer<typeof OidcClaimResponse>;
 
+export const TerminalLoginStartRequest = z.object({ name: z.string().min(1).max(80) });
+export const TerminalLoginStartResponse = z.object({
+  userCode: z.string(),
+  pollToken: z.string(),
+  verifyUrl: z.string(),
+  expiresAt: z.string(),
+  intervalMs: z.number().int(),
+});
+export type TerminalLoginStartResponse = z.infer<typeof TerminalLoginStartResponse>;
+export const TerminalLoginClaimRequest = z.object({
+  userCode: z.string().min(1),
+  pollToken: z.string().min(1),
+});
+export const TerminalLoginClaimResponse = z.union([
+  z.object({ status: z.literal("pending") }),
+  z.object({ status: z.literal("denied") }),
+  z.object({ status: z.literal("done"), deviceId: z.string(), credential: z.string() }),
+]);
+export type TerminalLoginClaimResponse = z.infer<typeof TerminalLoginClaimResponse>;
+export const TerminalLoginRequest = z.object({
+  userCode: z.string(),
+  name: z.string(),
+  requestedFrom: z.string(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  status: z.enum(["pending", "approved", "denied"]),
+});
+export type TerminalLoginRequest = z.infer<typeof TerminalLoginRequest>;
+
 export const AuthMethods = z.object({
   passkeys: z.array(Passkey),
   passkeyAvailability: z.object({ available: z.boolean(), reason: z.string().nullable() }),

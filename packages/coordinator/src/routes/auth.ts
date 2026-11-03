@@ -8,6 +8,8 @@ import {
   PasskeySignInVerifyRequest,
   type SetupState,
   SwitchyardError,
+  TerminalLoginClaimRequest,
+  TerminalLoginStartRequest,
 } from "@switchyard/protocol";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CoordinatorContext } from "../context.js";
@@ -127,6 +129,30 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: CoordinatorContext
     ctx.auth.setDeviceCookie(reply, r.credential);
     return { status: "done", deviceId: r.deviceId };
   });
+
+  app.post("/api/auth/terminal/start", async (req, reply) => {
+    limitAuth(req);
+    const body = parse(TerminalLoginStartRequest, req.body);
+    return reply.code(201).send(ctx.terminalLogins.start(body.name, req.ip));
+  });
+
+  /** Not rate limited: the poll token is a 256-bit secret and the terminal polls every 2 s. */
+  app.post("/api/auth/terminal/claim", async (req) => {
+    const body = parse(TerminalLoginClaimRequest, req.body);
+    return ctx.terminalLogins.claim(body.userCode, body.pollToken);
+  });
+
+  // ---- authenticated: approve terminal sign-ins ---------------------------------------------
+
+  app.get("/api/auth/terminal/requests/:code", async (req) =>
+    ctx.terminalLogins.describe((req.params as { code: string }).code),
+  );
+  app.post("/api/auth/terminal/requests/:code/approve", async (req) =>
+    ctx.terminalLogins.approve((req.params as { code: string }).code),
+  );
+  app.post("/api/auth/terminal/requests/:code/deny", async (req) =>
+    ctx.terminalLogins.deny((req.params as { code: string }).code),
+  );
 
   // ---- authenticated: sign-in methods ------------------------------------------------------
 

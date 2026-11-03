@@ -175,6 +175,74 @@ describe("credentials", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
+  describe("browser-approved login", () => {
+    const started = {
+      userCode: "BCDF-GHJK",
+      pollToken: "poll",
+      verifyUrl: "https://sy.example.com/terminal-login?code=BCDF-GHJK",
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      intervalMs: 1,
+    };
+    const deps = (opened: string[]) => ({
+      open: (u: string) => opened.push(u),
+      sleep: async () => {},
+    });
+
+    it("polls until approved and writes client.json", async () => {
+      let n = 0;
+      const { fetch } = stubFetch({
+        "POST /api/auth/terminal/start": () => ({ status: 201, body: started }),
+        "POST /api/auth/terminal/claim": () =>
+          n++ === 0
+            ? { status: "pending" }
+            : { status: "done", deviceId: "dev_9", credential: "sec" },
+      });
+      const ctx = testCtx(fetch);
+      const opened: string[] = [];
+      const { path } = await login(
+        ctx,
+        { coordinator: "https://sy.example.com", name: "t", open: true },
+        deps(opened),
+      );
+      expect(opened).toEqual([started.verifyUrl]);
+      expect(ctx.lines).toContain(`  ${started.verifyUrl}`);
+      expect(ctx.lines.some((l) => l.includes("BCDF-GHJK"))).toBe(true);
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+        coordinatorUrl: "https://sy.example.com",
+        credential: "sec",
+        deviceId: "dev_9",
+      });
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+    });
+
+    it("reports a denied sign-in", async () => {
+      const { fetch } = stubFetch({
+        "POST /api/auth/terminal/start": () => ({ status: 201, body: started }),
+        "POST /api/auth/terminal/claim": () => ({ status: "denied" }),
+      });
+      await expect(
+        login(testCtx(fetch), { coordinator: "https://sy.example.com", open: false }, deps([])),
+      ).rejects.toThrow(/denied/);
+    });
+
+    it("reports an expired sign-in", async () => {
+      const { fetch } = stubFetch({
+        "POST /api/auth/terminal/start": () => ({ status: 201, body: started }),
+        "POST /api/auth/terminal/claim": () => ({
+          status: 401,
+          body: { error: { code: "unauthorized", message: "x" } },
+        }),
+      });
+      await expect(
+        login(testCtx(fetch), { coordinator: "https://sy.example.com", open: false }, deps([])),
+      ).rejects.toThrow(/expired/);
+    });
+
+    it("needs a coordinator", async () => {
+      await expect(login(testCtx(fetch), {}, deps([]))).rejects.toThrow(/--coordinator/);
+    });
+  });
+
   it("parses enrollment input", () => {
     expect(parseEnrollmentInput("tok", "http://c/")).toEqual({ url: "http://c", token: "tok" });
     expect(() => parseEnrollmentInput("tok", undefined)).toThrow(/--coordinator/);

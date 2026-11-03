@@ -10,6 +10,7 @@ import type { Owner } from "./owner.js";
 import type { Passkeys } from "./passkeys.js";
 import type { RateLimiter } from "./rate-limit.js";
 import type { Store } from "./store.js";
+import type { TerminalLogins } from "./terminal-login.js";
 
 /** The coordinator package version (read from its package.json). */
 export const COORDINATOR_VERSION: string = (
@@ -67,6 +68,7 @@ export interface CoordinatorContext {
   owner: Owner;
   passkeys: Passkeys;
   oidc: Oidc | null;
+  terminalLogins: TerminalLogins;
   limiters: { auth: RateLimiter; hosts: RateLimiter };
   log: Logger;
   services: Map<string, unknown>;

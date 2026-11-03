@@ -14,6 +14,7 @@ const AutomationView = lazy(() => import("../features/automations/AutomationView
 const SettingsView = lazy(() => import("../features/settings"));
 const MoreView = lazy(() => import("../features/more"));
 const EnrollView = lazy(() => import("../features/enroll"));
+const TerminalLoginView = lazy(() => import("../features/terminal-login"));
 
 /** Route paths (spec 10 canonical routes plus /sign-in, /settings/*, /more). */
 export const ROUTES = {
@@ -30,6 +31,7 @@ export const ROUTES = {
   settings: (section?: string) => (section ? `/settings/${section}` : "/settings"),
   more: "/more",
   signIn: "/sign-in",
+  terminalLogin: "/terminal-login",
 } as const;
 
 /** Top-level path segments that share one view (and one error boundary) with another. */
@@ -74,6 +76,14 @@ export function AppRoutes() {
       />
       <Route path="/enroll" element={<LegacyEnrollRedirect />} />
       <Route element={<AuthGate />}>
+        <Route
+          path="terminal-login"
+          element={
+            <Suspense fallback={<LoadingState />}>
+              <TerminalLoginView />
+            </Suspense>
+          }
+        />
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/code" replace />} />
           <Route

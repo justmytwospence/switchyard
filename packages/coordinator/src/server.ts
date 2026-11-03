@@ -34,6 +34,7 @@ import { registerStaticRoutes } from "./routes/static.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { type Clock, Store } from "./store.js";
 import { TerminalHub } from "./terminal-hub.js";
+import { TerminalLogins } from "./terminal-login.js";
 
 /** Minimum length of `SWITCHYARD_HOST_ENROLL_SECRET`. */
 export const MIN_HOST_ENROLL_SECRET_LENGTH = 32;
@@ -117,6 +118,8 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "/api/auth/oidc/begin",
   "/api/auth/oidc/callback",
   "/api/auth/oidc/claim",
+  "/api/auth/terminal/start",
+  "/api/auth/terminal/claim",
   "/api/hosts/enroll",
   "/api/hooks/:automationId",
   "/healthz",
@@ -209,6 +212,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
   const adminToken = auth.ensureAdminToken();
   const passkeys = new Passkeys(store, owner, config, auth);
   const oidc = config.oidc ? new Oidc(store, owner, config, auth) : null;
+  const terminalLogins = new TerminalLogins(store, config, auth);
   const limits = opts.rateLimits === false ? null : (opts.rateLimits ?? {});
   const storeClock = () => store.now().getTime();
   const limiters = {
@@ -245,6 +249,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
     owner,
     passkeys,
     oidc,
+    terminalLogins,
     limiters,
     log,
     services: new Map(),

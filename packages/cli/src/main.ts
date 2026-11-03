@@ -170,10 +170,20 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
 
   program
     .command("login")
-    .description("Enroll this terminal as a device (writes ~/.config/switchyard/client.json)")
-    .option("--coordinator <url>", "coordinator URL")
-    .requiredOption("--token <token>", "device enrollment token or link (switchyard pair)")
+    .description(
+      "Sign this terminal in by approving it in a browser (writes ~/.config/switchyard/client.json)",
+    )
+    .option("--coordinator <url>", "coordinator URL (default: SWITCHYARD_URL or client.json)")
     .option("--name <name>", "device name")
+    .option(
+      "--token <token>",
+      "single-use sign-in link or token from `switchyard pair`, instead of browser approval",
+    )
+    .option(
+      "--open",
+      "open the approval page in a browser (default: when interactive and not over SSH)",
+    )
+    .option("--no-open", "never open a browser")
     .action(async (o) => {
       await login(ctx, o);
     });

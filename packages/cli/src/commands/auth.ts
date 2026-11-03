@@ -1,16 +1,19 @@
 import { hostname } from "node:os";
-import { ApiClient } from "@switchyard/terminal";
+import type { TerminalLoginClaimResponse, TerminalLoginStartResponse } from "@switchyard/protocol";
+import { ApiClient, ApiRequestError } from "@switchyard/terminal";
 import QRCode from "qrcode";
 import {
   CliError,
   DEFAULT_LOCAL_URL,
   readAdminToken,
+  readClientConfig,
   readEndpoint,
   trimUrl,
   writeClientConfig,
 } from "../config.js";
 import type { Ctx } from "../context.js";
 import { clientConfigPath, defaultDataDir } from "../paths.js";
+import { openBrowser } from "./up.js";
 
 export interface PairFlags {
   host?: boolean;
@@ -108,8 +111,15 @@ function originOf(url: string): string {
 
 export interface LoginFlags {
   coordinator?: string;
-  token: string;
+  token?: string;
   name?: string;
+  open?: boolean;
+}
+
+export interface LoginDeps {
+  open?: (url: string) => void;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
 }
 
 /** Accept a bare token or an enrollment URL (`.../enroll#token=...`). */
@@ -130,9 +140,9 @@ export function parseEnrollmentInput(
 }
 
 /** Enroll this terminal as a `terminal` device and store the credential (mode 0600). */
-export async function login(
+export async function loginWithToken(
   ctx: Ctx,
-  flags: LoginFlags,
+  flags: LoginFlags & { token: string },
 ): Promise<{ path: string; deviceId: string }> {
   const { url, token } = parseEnrollmentInput(flags.token, flags.coordinator);
   const api = new ApiClient({ coordinatorUrl: url, credential: null, fetch: ctx.fetch });
@@ -154,4 +164,67 @@ export async function login(
     `Credential saved to ${path} (mode 0600). Open a session's Pi terminal with \`switchyard tui <session>\`.`,
   );
   return { path, deviceId: res.deviceId };
+}
+
+const EXPIRED = "The sign-in expired before it was approved. Run `switchyard login` again.";
+
+/**
+ * Sign this terminal in: with `--token`, redeem a `switchyard pair` link; otherwise show a code
+ * and link to approve in a signed-in browser, and poll until it is approved.
+ */
+export async function login(
+  ctx: Ctx,
+  flags: LoginFlags,
+  deps: LoginDeps = {},
+): Promise<{ path: string; deviceId: string }> {
+  if (flags.token) return loginWithToken(ctx, { ...flags, token: flags.token });
+  const path = ctx.paths?.clientConfig ?? clientConfigPath(ctx.env);
+  const raw = flags.coordinator ?? ctx.env.SWITCHYARD_URL ?? readClientConfig(path)?.coordinatorUrl;
+  if (!raw) throw new CliError("--coordinator <url> is required");
+  const url = trimUrl(raw);
+  const api = new ApiClient({ coordinatorUrl: url, credential: null, fetch: ctx.fetch });
+  const name = flags.name ?? `${hostname().replace(/\.local$/, "")} terminal`;
+  const started = await api.post<TerminalLoginStartResponse>("/api/auth/terminal/start", { name });
+  ctx.out("To sign in this terminal, open this link in a browser where you use Switchyard:");
+  ctx.out("");
+  ctx.out(`  ${started.verifyUrl}`);
+  ctx.out("");
+  ctx.out(
+    `Check that it shows the code ${started.userCode}. Waiting for approval (expires ${clockTime(started.expiresAt)})…`,
+  );
+  const interactive = process.stdout.isTTY === true && !ctx.env.SSH_CONNECTION && !ctx.env.SSH_TTY;
+  if (flags.open ?? interactive) (deps.open ?? ((u) => openBrowser(u)))(started.verifyUrl);
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const now = deps.now ?? Date.now;
+  const deadline = Date.parse(started.expiresAt);
+  for (;;) {
+    await sleep(started.intervalMs);
+    let r: TerminalLoginClaimResponse;
+    try {
+      r = await api.post<TerminalLoginClaimResponse>("/api/auth/terminal/claim", {
+        userCode: started.userCode,
+        pollToken: started.pollToken,
+      });
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        if (err.status === 401) throw new CliError(EXPIRED);
+        if (err.status === 0 && now() < deadline) continue;
+      }
+      throw err;
+    }
+    if (r.status === "denied") throw new CliError("The sign-in was denied in the browser.");
+    if (r.status === "done") {
+      writeClientConfig(path, {
+        coordinatorUrl: url,
+        credential: r.credential,
+        deviceId: r.deviceId,
+      });
+      ctx.out(`Signed in "${name}" (${r.deviceId}) to ${url}.`);
+      ctx.out(
+        `Credential saved to ${path} (mode 0600). Open a session's Pi terminal with \`switchyard tui <session>\`.`,
+      );
+      return { path, deviceId: r.deviceId };
+    }
+    if (now() >= deadline) throw new CliError(EXPIRED);
+  }
 }

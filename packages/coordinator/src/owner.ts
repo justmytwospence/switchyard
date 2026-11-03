@@ -59,7 +59,7 @@ export class Owner {
   }
 }
 
-export type AuthFlowKind = "passkey_register" | "passkey_auth" | "oidc";
+export type AuthFlowKind = "passkey_register" | "passkey_auth" | "oidc" | "terminal_login";
 
 /** Short-lived sign-in state (passkey challenges, OIDC flows) in the `auth_flows` table. */
 export class AuthFlows {

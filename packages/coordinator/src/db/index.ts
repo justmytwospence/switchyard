@@ -1,6 +1,7 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { sql as init } from "./migrations/001_init.js";
 import { sql as ownerAuth } from "./migrations/002_owner_auth.js";
+import { sql as terminalLogin } from "./migrations/003_terminal_login.js";
 
 export interface Migration {
   version: number;
@@ -12,6 +13,7 @@ export interface Migration {
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: "001_init", sql: init },
   { version: 2, name: "002_owner_auth", sql: ownerAuth },
+  { version: 3, name: "003_terminal_login", sql: terminalLogin },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 
