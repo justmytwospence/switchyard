@@ -2,7 +2,7 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SwitchyardError } from "@switchyard/protocol";
-import { ApiRequestError, runTerminal } from "@switchyard/terminal";
+import { ApiRequestError } from "@switchyard/terminal";
 import { Command, Option } from "commander";
 import { init, login, pair } from "./commands/auth.js";
 import {
@@ -28,7 +28,7 @@ import {
   tasksMove,
 } from "./commands/work.js";
 import { CliError } from "./config.js";
-import { type Ctx, connect, defaultCtx } from "./context.js";
+import { type Ctx, defaultCtx } from "./context.js";
 
 export const CLI_VERSION: string = (
   JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -255,20 +255,6 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
         json: o.json,
       });
     });
-
-  connectionOptions(
-    program
-      .command("attach [sessionId]")
-      .description("Open the terminal client (Ctrl+C detaches; sessions keep running)"),
-  ).action(async (sessionId, o) => {
-    const { conn } = connect(ctx, connFlags(o));
-    const result = await runTerminal({
-      coordinatorUrl: conn.url,
-      credential: conn.credential,
-      sessionId,
-    });
-    if (result.reason === "logout") throw new CliError(`Signed out: ${result.message}`);
-  });
 
   connectionOptions(
     program
