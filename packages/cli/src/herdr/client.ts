@@ -93,3 +93,84 @@ export function herdrCall(
     });
   });
 }
+
+/** The herdr session a process belongs to, from the launcher, the socket path or HERDR_SESSION. */
+export function herdrSessionName(env: Env = process.env): string {
+  if (env.SWITCHYARD_HERDR_SESSION) return env.SWITCHYARD_HERDR_SESSION;
+  const m = env.HERDR_SOCKET_PATH?.match(/\/sessions\/([^/]+)\/herdr\.sock$/);
+  if (m) return m[1]!;
+  if (env.HERDR_SESSION) return env.HERDR_SESSION;
+  return "default";
+}
+
+export interface HerdrSubscription {
+  close(): void;
+}
+
+/**
+ * A long-lived `events.subscribe` connection. `onEvent` gets each pushed event's `data`
+ * (`{type: "tab_closed", ...}`); `onEnd` reports the connection ending (an error code or "closed").
+ */
+export function herdrSubscribe(
+  types: string[],
+  onEvent: (data: { type: string; [k: string]: unknown }) => void,
+  onEnd: (reason: string) => void,
+  socketPath: string = herdrSocketPath(),
+): HerdrSubscription {
+  const s = createConnection(socketPath);
+  let closed = false;
+  const end = (reason: string) => {
+    if (closed) return;
+    closed = true;
+    s.destroy();
+    onEnd(reason);
+  };
+  let buf = "";
+  s.setEncoding("utf8");
+  s.on("connect", () => {
+    s.write(
+      `${JSON.stringify({
+        id: `switchyard:subscribe:${process.hrtime.bigint()}`,
+        method: "events.subscribe",
+        params: { subscriptions: types.map((type) => ({ type })) },
+      })}\n`,
+    );
+  });
+  s.on("data", (chunk: string) => {
+    buf += chunk;
+    let nl = buf.indexOf("\n");
+    while (nl >= 0) {
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      nl = buf.indexOf("\n");
+      let msg: any;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (msg?.error) {
+        end(String(msg.error.code ?? "error"));
+        return;
+      }
+      const data = msg?.data ?? msg?.result?.event?.data;
+      if (data && typeof data === "object" && typeof data.type === "string") onEvent(data);
+    }
+  });
+  s.on("error", () => end("closed"));
+  s.on("close", () => end("closed"));
+  return {
+    close() {
+      closed = true;
+      s.destroy();
+    },
+  };
+}
+
+let lastSeq = 0;
+
+/** A strictly increasing report sequence number, also across processes (time based). */
+export function nextSeq(): number {
+  lastSeq = Math.max(lastSeq + 1, Date.now() * 1000);
+  return lastSeq;
+}
