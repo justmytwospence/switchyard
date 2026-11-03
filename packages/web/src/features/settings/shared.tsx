@@ -148,7 +148,7 @@ export function SectionPage({
         </Link>
       )}
       <header className="flex min-w-0 flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-[1_1_15rem]">
           <h1 className="break-words text-lg font-semibold">{title}</h1>
           {description && <p className="text-sm text-muted">{description}</p>}
         </div>
@@ -177,7 +177,7 @@ export function Card({
     <section className={cn("min-w-0 rounded-lg border border-border bg-surface p-4", className)}>
       {(title || actions) && (
         <div className="mb-3 flex min-w-0 flex-wrap items-start gap-2">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-[1_1_12rem]">
             {title && <h2 className="text-base font-semibold">{title}</h2>}
             {description && <p className="text-sm text-muted">{description}</p>}
           </div>

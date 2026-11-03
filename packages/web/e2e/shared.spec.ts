@@ -52,6 +52,20 @@ test.describe("shared behavior", () => {
       const m = await noHorizontalOverflow(page);
       if (m.scrollWidth > m.innerWidth)
         failures.push(`${path}: ${m.scrollWidth} > ${m.innerWidth}`);
+      // Squeezed headings: a short title wrapping onto many lines means a flex sibling (header
+      // actions) starved it of width instead of wrapping below it.
+      const squeezed = await page.evaluate(() =>
+        [...document.querySelectorAll("h1, h2, h3")]
+          .filter((h) => {
+            const el = h as HTMLElement;
+            const text = (el.textContent ?? "").trim();
+            if (!text || text.length > 40 || el.offsetParent === null) return false;
+            const lh = Number.parseFloat(getComputedStyle(el).lineHeight) || 20;
+            return el.getBoundingClientRect().height > lh * 2.5;
+          })
+          .map((h) => (h.textContent ?? "").trim()),
+      );
+      if (squeezed.length) failures.push(`${path}: squeezed heading ${squeezed.join(", ")}`);
     }
     expect(failures).toEqual([]);
   });
