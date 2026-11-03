@@ -65,7 +65,7 @@ export {
 export { backup, DB_FILE, dbPath, LOCK_FILE, lockHolder, restore } from "./ops.js";
 export {
   AuthFlows,
-  OWNER_INITIALIZED_KEY,
+  isLoopbackUrl,
   Owner,
   type PasskeyAvailability,
 } from "./owner.js";

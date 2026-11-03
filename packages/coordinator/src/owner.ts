@@ -3,7 +3,6 @@ import { isIP } from "node:net";
 import type { CoordinatorConfig } from "./context.js";
 import type { Store } from "./store.js";
 
-export const OWNER_INITIALIZED_KEY = "owner.initialized_at";
 export const OWNER_WEBAUTHN_USER_KEY = "owner.webauthn_user_id";
 
 export interface PasskeyAvailability {
@@ -11,31 +10,21 @@ export interface PasskeyAvailability {
   reason: string | null;
 }
 
+/** True for localhost, 127.x.x.x and ::1 public URLs (no single sign-on needed). */
+export function isLoopbackUrl(url: string): boolean {
+  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || /^127\.\d+\.\d+\.\d+$/.test(host);
+}
+
 /**
- * The single owner of this server. A server is "initialized" once the owner created the first
- * sign-in (`switchyard init`, `pair`, any enrollment from a device) or declared an OIDC owner.
+ * The single owner of this server: the passkey user handle, the WebAuthn relying party and
+ * whether passkeys are available. Who the owner is comes from the OIDC owner match.
  */
 export class Owner {
   constructor(
     private readonly store: Store,
     private readonly config: CoordinatorConfig,
   ) {}
-
-  isInitialized(): boolean {
-    return (
-      this.config.oidc !== null ||
-      this.store.getSetting<string | null>(OWNER_INITIALIZED_KEY, null) !== null
-    );
-  }
-
-  /** Mark the server set up. Returns true when this call set it. */
-  markInitialized(): boolean {
-    return this.store.tx(() => {
-      if (this.store.getSetting<string | null>(OWNER_INITIALIZED_KEY, null) !== null) return false;
-      this.store.setSetting(OWNER_INITIALIZED_KEY, this.store.nowIso());
-      return true;
-    });
-  }
 
   /** Stable random WebAuthn user handle for the owner (16 bytes, created lazily). */
   webauthnUserId(): Uint8Array {

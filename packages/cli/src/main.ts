@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { SwitchyardError } from "@switchyard/protocol";
 import { ApiRequestError } from "@switchyard/terminal";
 import { Command, Option } from "commander";
-import { init, login, pair } from "./commands/auth.js";
+import { login, pair } from "./commands/auth.js";
 import {
   coordinatorBackup,
   coordinatorMigrate,
@@ -156,19 +156,9 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .action((o) => hostStatus(ctx, o));
 
   program
-    .command("init")
-    .description("Set up this server and print a single-use sign-in link for your first device")
-    .option("--coordinator <url>", "local coordinator URL (default: the running one)")
-    .option("--data-dir <dir>", "data dir holding admin.token")
-    .option("--json", "JSON output")
-    .action(async (o) => {
-      await init(ctx, o);
-    });
-
-  program
     .command("pair")
     .description(
-      "Create a single-use link and QR for another device (or --host); also the recovery path when every device is lost",
+      "Print a single-use sign-in link and QR for a browser (or --host for a host token), using the admin token: for local servers and recovery",
     )
     .option("--host", "enroll a host instead of a device")
     .option("--coordinator <url>", "local coordinator URL (default: the running one)")

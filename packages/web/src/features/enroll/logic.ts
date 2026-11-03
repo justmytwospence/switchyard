@@ -58,13 +58,13 @@ export function shouldPoll(state: HandoffState, visible: boolean): boolean {
 
 const GENERIC_FORBIDDEN = "This account is not allowed to sign in to this server.";
 
-/** Static texts for coordinator error codes shown on /enroll. */
+/** Static texts for coordinator error codes shown on /sign-in. */
 export const ERROR_TEXT: Record<string, string> = {
   enrollment_expired:
-    "This enrollment link has expired. Links are valid for 10 minutes. Create a new one from Settings › Devices › Add device on an enrolled device, or run `switchyard pair` on the server.",
+    "This sign-in link has expired. Links are valid for 10 minutes. Run `switchyard pair` on the server for a new one.",
   enrollment_used:
-    "This enrollment link was already used. Each link enrolls one device. Create a new one from Settings › Devices › Add device, or run `switchyard pair`.",
-  invalid_request: "The enrollment request was rejected. Check the device name and try again.",
+    "This sign-in link was already used. Each link signs in one browser. Run `switchyard pair` on the server for a new one.",
+  invalid_request: "The sign-in request was rejected. Try again.",
   network: "Could not reach the coordinator. Check your connection and try again.",
   rate_limited: "Too many attempts. Wait a minute and try again.",
   unsupported_capability: "This sign-in method is not available on this server.",
@@ -73,7 +73,7 @@ export const ERROR_TEXT: Record<string, string> = {
 
 /**
  * Message for an error code, with the coordinator's `detail` where it is the
- * useful part (`/enroll?error=forbidden&detail=Signed in as ...`).
+ * useful part (`/sign-in?error=forbidden&detail=Signed in as ...`).
  */
 export function enrollErrorText(code: string, detail?: string | null): string {
   const d = detail?.trim() || null;
@@ -93,9 +93,9 @@ export function enrollErrorText(code: string, detail?: string | null): string {
 export function enrollErrorTitle(code: string): string {
   switch (code) {
     case "enrollment_expired":
-      return "Enrollment link expired";
+      return "Sign-in link expired";
     case "enrollment_used":
-      return "Enrollment link already used";
+      return "Sign-in link already used";
     case "forbidden":
       return "Not allowed";
     case "oidc_failed":

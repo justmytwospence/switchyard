@@ -84,9 +84,9 @@ async function hasDeviceCookie(context: BrowserContext): Promise<boolean> {
   return (await context.cookies()).some((c) => c.name === "sy_device" && c.httpOnly);
 }
 
-/** Signed in: the app shell is up, /enroll is gone and the coordinator knows this device. */
+/** Signed in: the app shell is up, /sign-in is gone and the coordinator knows this device. */
 async function expectAuthenticated(page: Page, url: string): Promise<void> {
-  await expect(page).not.toHaveURL(/\/enroll/);
+  await expect(page).not.toHaveURL((u) => u.pathname === "/sign-in");
   await expect(page.locator("#main")).toBeVisible();
   expect(await hasDeviceCookie(page.context())).toBe(true);
   const me = await page.request.get(`${url}/api/me`);
@@ -99,17 +99,17 @@ test.describe("owner sign-in", () => {
     test.skip(info.project.name !== "desktop-1440x900", "desktop project only");
   });
 
-  test("a server that is not set up says so and offers no sign-in", async ({ page }) => {
+  test("without single sign-on or a passkey, the page points to switchyard pair", async ({
+    page,
+  }) => {
     const server = await startLocal();
     try {
       await page.goto(`${server.url}/`);
-      await expect(page).toHaveURL(/\/enroll/);
-      await expect(page.getByTestId("setup-not-initialized")).toBeVisible();
-      await expect(page.getByText("Switchyard isn't set up yet")).toBeVisible();
-      await expect(page.getByText("switchyard init").first()).toBeVisible();
+      await expect(page).toHaveURL(/\/sign-in/);
+      await expect(page.getByTestId("signin-pair-hint")).toBeVisible();
+      await expect(page.getByText("switchyard pair").first()).toBeVisible();
       await expect(page.getByTestId("signin-passkey")).toHaveCount(0);
       await expect(page.getByTestId("signin-oidc")).toHaveCount(0);
-      await expect(page.getByText("Sign in to Switchyard")).toHaveCount(0);
     } finally {
       await server.close();
     }
@@ -122,13 +122,14 @@ test.describe("owner sign-in", () => {
     const server = await startLocal();
     let other: BrowserContext | undefined;
     try {
-      // First device: the single-use link `switchyard init` prints.
-      const init = await server.admin<{ enrollment: { url: string } }>("POST", "/api/admin/init");
-      expect(init.enrollment.url.startsWith(`${server.url}/enroll#token=`)).toBe(true);
+      // First device: the single-use link an admin sign-in link is.
+      const init = await server.admin<{ url: string }>("POST", "/api/enrollments", {
+        kind: "device",
+      });
+      expect(init.url.startsWith(`${server.url}/sign-in#token=`)).toBe(true);
       const first = await virtualAuthenticator(page);
-      await page.goto(init.enrollment.url);
-      await page.getByLabel("Device name").fill("First laptop");
-      await page.getByRole("button", { name: "Enroll device" }).click();
+      await page.goto(init.url);
+      await page.getByTestId("signin-link").click();
       await expectAuthenticated(page, server.url);
 
       // Register a passkey.
@@ -161,13 +162,15 @@ test.describe("owner sign-in", () => {
         });
       }
       await page2.goto(`${server.url}/`);
-      await expect(page2).toHaveURL(/\/enroll/);
+      await expect(page2).toHaveURL(/\/sign-in/);
       await expect(page2.getByText("Sign in to Switchyard")).toBeVisible();
-      await page2.getByLabel("Device name").fill("Second laptop");
       await page2.getByTestId("signin-passkey").click();
       await expectAuthenticated(page2, server.url);
       const me = await (await page2.request.get(`${server.url}/api/me`)).json();
-      expect(me.device).toMatchObject({ name: "Second laptop", enrolledVia: "passkey" });
+      expect(me.device).toMatchObject({
+        name: expect.stringMatching(/^Chrome on /),
+        enrolledVia: "passkey",
+      });
     } finally {
       await other?.close();
       await server.close();
@@ -199,24 +202,26 @@ test.describe("owner sign-in", () => {
 
       // An OIDC owner sets the server up: sign-in is offered straight away.
       await page.goto(`${server.url}/settings/sign-in`);
-      await expect(page).toHaveURL(/\/enroll\?next=/);
+      await expect(page).toHaveURL(/\/sign-in\?next=/);
       await expect(page.getByText("Sign in to Switchyard")).toBeVisible();
       await expect(page.getByTestId("signin-passkey")).toHaveCount(0);
-      await page.getByLabel("Device name").fill("SSO laptop");
       await page.getByTestId("signin-oidc").click();
       await expect(page).toHaveURL(`${server.url}/settings/sign-in`);
       await expectAuthenticated(page, server.url);
       const me = await (await page.request.get(`${server.url}/api/me`)).json();
-      expect(me.device).toMatchObject({ name: "SSO laptop", enrolledVia: "oidc" });
+      expect(me.device).toMatchObject({
+        name: expect.stringMatching(/^Chrome on /),
+        enrolledVia: "oidc",
+      });
       await expect(page.getByTestId("settings-signin")).toContainText("Sign in with Mock SSO");
 
       // Someone else with an account at the same provider.
       idp.setClaims({ sub: "u-other", email: "someone@example.com", email_verified: true });
       other = await browser.newContext();
       const page2 = await other.newPage();
-      await page2.goto(`${server.url}/enroll`);
+      await page2.goto(`${server.url}/sign-in`);
       await page2.getByTestId("signin-oidc").click();
-      await expect(page2).toHaveURL(/\/enroll/);
+      await expect(page2).toHaveURL(/\/sign-in/);
       const alert = page2.getByRole("alert");
       await expect(alert).toContainText("Signed in as");
       await expect(alert).toContainText("someone@example.com");

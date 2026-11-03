@@ -6,13 +6,13 @@ import { useNavigate, useSearchParams } from "react-router";
 import { checkAuth, takeReturnTo, useAuth } from "../../app/auth";
 import { Button } from "../../components/ui/Button";
 import { ErrorState, LoadingState } from "../../components/ui/states";
-import { TextInput } from "../../components/ui/TextArea";
 import { isStandalone } from "../../push";
 import { apiGet, apiPost, isApiError } from "../../sync/api";
 import {
   defaultDeviceName,
   ERROR_TEXT,
   enrollErrorText,
+  enrollErrorTitle,
   HANDOFF_POLL_MS,
   type HandoffState,
   handoffReduce,
@@ -29,8 +29,8 @@ function readToken(): string | null {
 }
 
 /**
- * /enroll: redeem a single-use enrollment token from `#token=`, or (without
- * one) sign in with a passkey or single sign-on, name this device, then
+ * /sign-in: redeem a single-use sign-in link token from `#token=`, or (without
+ * one) sign in with single sign-on or a passkey, then
  * return to the deep link that required authentication.
  */
 export default function EnrollView() {
@@ -40,7 +40,7 @@ export default function EnrollView() {
   const token = useMemo(readToken, []);
   const status = useAuth((s) => s.status);
   const signedOutReason = useAuth((s) => s.signedOutReason);
-  const [name, setName] = useState(() => defaultDeviceName());
+  const deviceName = useMemo(() => defaultDeviceName(), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
 
@@ -56,13 +56,13 @@ export default function EnrollView() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token || !name.trim()) return;
+    if (!token) return;
     setBusy(true);
     setError(null);
     try {
       await apiPost("/api/enroll", {
         token,
-        name: name.trim().slice(0, 80),
+        name: deviceName.slice(0, 80),
         kind: isStandalone() ? "pwa" : "browser",
       });
       const result = await checkAuth();
@@ -70,7 +70,7 @@ export default function EnrollView() {
       else
         setError({
           code: "internal",
-          message: "Enrolled, but the coordinator did not accept the new credential. Try again.",
+          message: "Signed in, but the coordinator did not accept the new credential. Try again.",
         });
     } catch (err) {
       const code = isApiError(err) ? err.code : "internal";
@@ -92,7 +92,7 @@ export default function EnrollView() {
           <img src="/icon.svg" alt="" className="size-10 rounded-lg" />
           <div>
             <h1 className="text-lg font-semibold">Switchyard</h1>
-            <p className="text-sm text-muted">{token ? "Enroll this device" : "Sign in"}</p>
+            <p className="text-sm text-muted">{token ? "Sign in this browser" : "Sign in"}</p>
           </div>
         </div>
         {signedOutReason && (
@@ -102,53 +102,32 @@ export default function EnrollView() {
         )}
         {token ? (
           <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="device-name" className="text-sm font-medium">
-                Device name
-              </label>
-              <TextInput
-                id="device-name"
-                value={name}
-                maxLength={80}
-                autoComplete="off"
-                onChange={(e) => setName(e.target.value)}
-                aria-describedby="device-name-hint"
-              />
-              <p id="device-name-hint" className="text-xs text-muted">
-                Shown in Settings › Devices, where you can revoke it later.
-              </p>
-            </div>
+            <p className="text-sm">
+              This single-use link signs in this browser as “{deviceName}”. You can rename it in
+              Settings › Devices.
+            </p>
             {error && (
               <div
                 role="alert"
                 className="rounded-md border border-border bg-danger-soft px-3 py-2 text-sm"
               >
-                <div className="font-medium">
-                  {error.code === "enrollment_expired"
-                    ? "Enrollment link expired"
-                    : error.code === "enrollment_used"
-                      ? "Enrollment link already used"
-                      : "Enrollment failed"}
-                </div>
+                <div className="font-medium">{enrollErrorTitle(error.code)}</div>
                 <div className="text-muted">{error.message}</div>
               </div>
             )}
             <Button
               type="submit"
               variant="primary"
+              data-testid="signin-link"
               busy={busy}
-              disabled={
-                !name.trim() ||
-                error?.code === "enrollment_expired" ||
-                error?.code === "enrollment_used"
-              }
+              disabled={error?.code === "enrollment_expired" || error?.code === "enrollment_used"}
               icon={<KeyRound className="size-4" />}
             >
-              Enroll device
+              Sign in
             </Button>
           </form>
         ) : (
-          <SignInPanel name={name} onName={setName} next={next} />
+          <SignInPanel next={next} />
         )}
       </div>
     </div>
@@ -174,17 +153,10 @@ function AlertBox({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
-/** The no-token screen: not-initialized notice, or the sign-in options. */
-function SignInPanel({
-  name,
-  onName,
-  next,
-}: {
-  name: string;
-  onName: (v: string) => void;
-  next: string | null;
-}) {
+/** The no-token screen: the sign-in options. */
+function SignInPanel({ next }: { next: string | null }) {
   const navigate = useNavigate();
+  const deviceName = useMemo(() => defaultDeviceName().slice(0, 80), []);
   const [params, setParams] = useSearchParams();
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -244,10 +216,7 @@ function SignInPanel({
       });
   }, [navigate, next]);
 
-  const deviceName = name.trim().slice(0, 80);
-
   const signInWithPasskey = async () => {
-    if (!deviceName) return;
     setBusy("passkey");
     setNotice(null);
     try {
@@ -272,7 +241,6 @@ function SignInPanel({
   };
 
   const signInWithOidc = async () => {
-    if (!deviceName) return;
     setBusy("oidc");
     setNotice(null);
     const standalone = isStandalone();
@@ -309,18 +277,6 @@ function SignInPanel({
   }
   if (!setup) return <LoadingState label="Checking this server…" />;
 
-  if (!setup.initialized) {
-    return (
-      <div data-testid="setup-not-initialized" className="flex flex-col gap-2 text-sm">
-        <p className="font-medium">Switchyard isn't set up yet</p>
-        <p className="text-muted">
-          Run <code>switchyard init</code> on the server to create the first sign-in link. With
-          Docker: <code>docker exec &lt;container&gt; switchyard init</code>.
-        </p>
-      </div>
-    );
-  }
-
   if (handoff) {
     return (
       <HandoffScreen
@@ -338,60 +294,45 @@ function SignInPanel({
     <div className="flex flex-col gap-4 text-sm">
       <p className="text-base font-medium">Sign in to Switchyard</p>
       {notice && <AlertBox title="Sign-in failed">{notice.message}</AlertBox>}
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="device-name" className="text-sm font-medium">
-          Device name
-        </label>
-        <TextInput
-          id="device-name"
-          value={name}
-          maxLength={80}
-          autoComplete="off"
-          onChange={(e) => onName(e.target.value)}
-          aria-describedby="device-name-hint"
-        />
-        <p id="device-name-hint" className="text-xs text-muted">
-          Shown in Settings › Devices, where you can revoke it later.
-        </p>
-      </div>
       <div className="flex flex-col gap-2">
-        {passkeyReady && (
-          <Button
-            data-testid="signin-passkey"
-            variant="primary"
-            busy={busy === "passkey"}
-            disabled={!deviceName || busy !== null}
-            icon={<KeyRound className="size-4" />}
-            onClick={signInWithPasskey}
-          >
-            Sign in with a passkey
-          </Button>
-        )}
         {setup.oidc && (
           <Button
             data-testid="signin-oidc"
-            variant={passkeyReady ? "secondary" : "primary"}
+            variant="primary"
             busy={busy === "oidc"}
-            disabled={!deviceName || busy !== null}
+            disabled={busy !== null}
             icon={<LogIn className="size-4" />}
             onClick={signInWithOidc}
           >
             {setup.oidc.label}
           </Button>
         )}
+        {passkeyReady && (
+          <Button
+            data-testid="signin-passkey"
+            variant={setup.oidc ? "secondary" : "primary"}
+            busy={busy === "passkey"}
+            disabled={busy !== null}
+            icon={<KeyRound className="size-4" />}
+            onClick={signInWithPasskey}
+          >
+            Sign in with a passkey
+          </Button>
+        )}
         {setup.passkey.registered && !setup.passkey.available && setup.passkey.reason && (
           <p className="text-xs text-muted">Passkeys are unavailable: {setup.passkey.reason}.</p>
         )}
-        {!deviceName && (passkeyReady || setup.oidc) && (
-          <p className="text-xs text-muted">Enter a device name to sign in.</p>
-        )}
       </div>
-      <p className="text-muted">
-        Or open a pairing link from a device you already use: Settings › Devices › Add device.
-      </p>
-      <p className="text-xs text-muted">
-        Lost every device? Run <code>switchyard pair</code> on the server.
-      </p>
+      {!setup.oidc && !passkeyReady ? (
+        <p data-testid="signin-pair-hint" className="text-muted">
+          No sign-in method is set up. On the machine running Switchyard, run{" "}
+          <code>switchyard pair</code> for a single-use sign-in link.
+        </p>
+      ) : (
+        <p className="text-xs text-muted">
+          Locked out? Run <code>switchyard pair</code> on the server for a single-use sign-in link.
+        </p>
+      )}
     </div>
   );
 }

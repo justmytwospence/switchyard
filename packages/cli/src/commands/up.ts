@@ -14,7 +14,7 @@ import { ApiClient } from "@switchyard/terminal";
 import { CliError, writeEndpoint } from "../config.js";
 import type { Ctx } from "../context.js";
 import { defaultDataDir, type Env, resolveWebDist, standaloneHostPaths } from "../paths.js";
-import { printInit } from "./auth.js";
+import { printSignInLink } from "./auth.js";
 import { authOptionsFromEnv, localUrlFor, parseOrigins, waitForSignal } from "./coordinator.js";
 
 export interface UpFlags {
@@ -105,7 +105,7 @@ export interface StandaloneHandle {
   coordinator: Coordinator;
   host: HostAgentHandle;
   localUrl: string;
-  /** The first sign-in link when this start set the server up, else null. */
+  /** The sign-in link this start printed, else null. */
   firstLink: string | null;
   stop(): Promise<void>;
 }
@@ -133,20 +133,19 @@ export interface StandaloneDeps {
 }
 
 /**
- * First start: set the server up in-process (local server access proves ownership), print the
- * single-use sign-in link with a QR code and open it in the browser when asked to.
+ * Print a single-use sign-in link with a QR code (and open it when asked to) when this server
+ * has no single sign-on and no device yet. Local server access is what proves ownership.
  */
-async function initializeLocally(
+async function firstSignInLink(
   ctx: Ctx,
   coordinator: Coordinator,
   open: boolean,
   opener: (url: string) => void,
 ): Promise<string | null> {
-  if (coordinator.owner.isInitialized()) return null;
-  coordinator.owner.markInitialized();
+  if (coordinator.config.oidc || coordinator.auth.activeDeviceCount() > 0) return null;
   const e = coordinator.auth.createEnrollment("device", ADMIN_DEVICE_ID);
   // The link carries a token: it goes to this terminal (stdout), never to the log.
-  await printInit(ctx, { alreadyInitialized: false, enrollment: e });
+  await printSignInLink(ctx, e.url, e.expiresAt);
   if (open) opener(e.url);
   return e.url;
 }
@@ -159,12 +158,12 @@ export async function startStandalone(
 ): Promise<StandaloneHandle> {
   if (flags.dev && !ctx.env.SWITCHYARD_LOG_LEVEL) process.env.SWITCHYARD_LOG_LEVEL = "debug";
   const opts = upOptions(flags, ctx.env);
-  // `up` sets the server up itself below, so no "run switchyard init" hint.
+  // `up` prints the first sign-in link itself below, so no "run switchyard pair" hint.
   const coordinator = createCoordinator({ ...opts, setupHint: false });
   await coordinator.start();
   let firstLink: string | null;
   try {
-    firstLink = await initializeLocally(
+    firstLink = await firstSignInLink(
       ctx,
       coordinator,
       flags.open ?? process.stdout.isTTY === true,
@@ -211,7 +210,9 @@ export async function up(ctx: Ctx, flags: UpFlags): Promise<void> {
       `Switchyard is up: ${c.config.publicUrl} (listening on port ${c.port})`,
       `Data: ${c.config.dataDir}`,
       c.config.webDist ? null : "Web app bundle not found: API only (run `pnpm build`)",
-      "Another device: switchyard pair    Terminal: switchyard tui <session>",
+      c.config.oidc
+        ? `Sign in with single sign-on at ${c.config.publicUrl}    Terminal: switchyard login --coordinator ${c.config.publicUrl}`
+        : `Another browser: switchyard pair    Terminal: switchyard login --coordinator ${c.config.publicUrl}`,
       "Schedules run only while this process is running.",
     ]
       .filter(Boolean)

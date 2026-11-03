@@ -5,7 +5,6 @@ import { type Device, type Host, newId, SwitchyardError } from "@switchyard/prot
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { CoordinatorConfig } from "./context.js";
 import type { EventHub } from "./event-hub.js";
-import type { Owner } from "./owner.js";
 import type { Store } from "./store.js";
 
 export const DEVICE_COOKIE = "sy_device";
@@ -46,7 +45,6 @@ export class Auth {
     private readonly store: Store,
     private readonly config: CoordinatorConfig,
     private readonly hub: EventHub,
-    private readonly owner: Owner,
   ) {}
 
   get adminTokenPath(): string {
@@ -92,8 +90,8 @@ export class Auth {
 
   enrollmentUrl(token: string, kind: "device" | "host"): string {
     return kind === "device"
-      ? `${this.config.publicUrl}/enroll#token=${token}`
-      : `${this.config.publicUrl}/enroll#token=${token}&kind=host`;
+      ? `${this.config.publicUrl}/sign-in#token=${token}`
+      : `${this.config.publicUrl}/sign-in#token=${token}&kind=host`;
   }
 
   hostEnrollCommand(token: string): string {
@@ -101,8 +99,7 @@ export class Auth {
   }
 
   /**
-   * Create a single-use enrollment (device 10 min, host 30 min by default). An enrollment created
-   * by a device (the local admin included) also marks the server set up.
+   * Create a single-use enrollment (device 10 min, host 30 min by default).
    */
   createEnrollment(
     kind: "device" | "host",
@@ -114,7 +111,6 @@ export class Auth {
     const now = this.store.now();
     const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
     this.store.tx(() => {
-      if (createdBy !== null) this.owner.markInitialized();
       this.store.insertEnrollment({
         id,
         kind,

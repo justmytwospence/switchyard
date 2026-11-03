@@ -18,7 +18,7 @@ import { installErrorHandler } from "./http.js";
 import { createLogger } from "./logger.js";
 import { hasOwnerMatch, Oidc } from "./oidc.js";
 import { acquireLock, dbPath, releaseLock } from "./ops.js";
-import { Owner } from "./owner.js";
+import { isLoopbackUrl, Owner } from "./owner.js";
 import { Passkeys } from "./passkeys.js";
 import { AUTH_RATE_LIMIT, HOSTS_RATE_LIMIT, RateLimiter } from "./rate-limit.js";
 import { registerAttentionRoutes } from "./routes/attention.js";
@@ -66,8 +66,9 @@ export interface CreateCoordinatorOptions extends BuiltinOptions {
    */
   rateLimits?: false | { auth?: number; hosts?: number };
   /**
-   * Print "not set up yet: run `switchyard init`" to stderr when the server has no owner yet
-   * (default true; `switchyard up` initializes in-process instead). It is always logged.
+   * Print "no device is signed in yet: run `switchyard pair`" to stderr when a server without
+   * single sign-on has no device or passkey (default true; `switchyard up` prints the link
+   * itself). It is always logged.
    */
   setupHint?: boolean;
   /** Registered at `start()` before listening: extra routes and services (tasks, scheduler...). */
@@ -155,6 +156,12 @@ function validateAuthOptions(opts: CreateCoordinatorOptions): void {
       `SWITCHYARD_HOST_ENROLL_SECRET must be at least ${MIN_HOST_ENROLL_SECRET_LENGTH} characters`,
     );
   }
+  if (!opts.oidc && opts.publicUrl && !isLoopbackUrl(opts.publicUrl)) {
+    throw new SwitchyardError(
+      "invalid_request",
+      `Single sign-on is required for ${opts.publicUrl}: set SWITCHYARD_OIDC_ISSUER, SWITCHYARD_OIDC_CLIENT_ID and an owner (SWITCHYARD_OIDC_OWNER_*), see docs/auth.md. Without single sign-on, Switchyard runs only at a localhost public URL.`,
+    );
+  }
   if (opts.oidc && !hasOwnerMatch(opts.oidc.owner)) {
     throw new SwitchyardError(
       "invalid_request",
@@ -198,9 +205,8 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
   hub.onListenerError = (name, err) => log.error({ err, event: name }, "event listener failed");
   const store = new Store(db, hub, opts.clock);
   const owner = new Owner(store, config);
-  const auth = new Auth(store, config, hub, owner);
+  const auth = new Auth(store, config, hub);
   const adminToken = auth.ensureAdminToken();
-  if (config.oidc) owner.markInitialized();
   const passkeys = new Passkeys(store, owner, config, auth);
   const oidc = config.oidc ? new Oidc(store, owner, config, auth) : null;
   const limits = opts.rateLimits === false ? null : (opts.rateLimits ?? {});
@@ -357,12 +363,11 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
       sweep();
       retentionTimer = setInterval(sweep, opts.retentionIntervalMs ?? 3_600_000);
       retentionTimer.unref();
-      if (!owner.isInitialized()) {
-        // No enrollment is minted here: the owner creates the first sign-in from the server.
-        log.info("not set up yet: run `switchyard init` on this server");
+      if (!config.oidc && auth.activeDeviceCount() === 0 && passkeys.count() === 0) {
+        log.info("no device signed in yet: run `switchyard pair` on this machine");
         if (opts.setupHint !== false) {
           process.stderr.write(
-            "Switchyard is not set up yet. Run `switchyard init` on this server to create the first sign-in link.\n",
+            "No device is signed in yet. Run `switchyard pair` on this machine for a single-use sign-in link.\n",
           );
         }
       }

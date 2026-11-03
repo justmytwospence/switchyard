@@ -112,16 +112,16 @@ test.describe("shared behavior", () => {
 
     // Not enrolled: the app redirects to /enroll (sign-in) and remembers the link.
     await page.goto(deepLink);
-    await expect(page).toHaveURL(/\/enroll\?next=/);
+    await expect(page).toHaveURL(/\/sign-in\?next=/);
     await expect(page.getByText("Sign in to Switchyard")).toBeVisible();
 
     // Open an enrollment link (as from a QR code on another device).
     const e = await api<{ token: string }>("POST", "/api/devices/enrollments");
-    await page.goto(`/enroll#token=${e.token}`);
-    await expect(page.getByLabel("Device name")).toBeVisible();
+    await page.goto(`/sign-in#token=${e.token}`);
+    await expect(page.getByTestId("signin-link")).toBeVisible();
     // The token is kept out of the address bar.
     await expect.poll(() => page.url()).not.toContain(e.token);
-    await page.getByRole("button", { name: "Enroll device" }).click();
+    await page.getByTestId("signin-link").click();
     await expect(page).toHaveURL(new RegExp(`${deepLink.replace("?", "\\?")}$`));
     const card = page.locator(`[id$="${interactionId}"]`).first();
     await expect(page.getByTestId("interaction-card").first()).toBeVisible();
@@ -148,6 +148,17 @@ test.describe("shared behavior", () => {
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`${deepLink.replace("?", "\\?")}$`));
     await expect(page.getByTestId("interaction-card").first()).toBeVisible();
+  });
+
+  test("a device can be renamed in Settings › Devices", async ({ page, signIn }, info) => {
+    test.skip(info.project.name !== "desktop-1440x900", "desktop project only");
+    await signIn();
+    await page.goto("/settings/devices");
+    await settled(page);
+    await page.getByTestId("device-rename").first().click();
+    await page.getByLabel("Device name").fill("Renamed browser");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Renamed browser").first()).toBeVisible();
   });
 
   test("focus returns to the trigger after a drawer or sheet closes", async ({

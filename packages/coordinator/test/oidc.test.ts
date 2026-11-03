@@ -63,7 +63,7 @@ async function complete(authorizeUrl: string): Promise<Response> {
 function errorOf(res: Response) {
   expect(res.status).toBe(302);
   const loc = new URL(res.headers.get("location")!, "http://x");
-  expect(loc.pathname).toBe("/enroll");
+  expect(loc.pathname).toBe("/sign-in");
   return { error: loc.searchParams.get("error"), detail: loc.searchParams.get("detail") ?? "" };
 }
 
@@ -189,11 +189,9 @@ describe("OIDC owner sign-in", () => {
     expect(e.error).toBe("invalid_request");
   });
 
-  it("marks the server initialized and describes itself", async () => {
+  it("describes itself", async () => {
     await setup({ email: "owner@example.com", group: "admins" });
-    expect(t!.c.store.getSetting("owner.initialized_at", null)).not.toBeNull();
     expect((await t!.api("GET", "/api/setup")).body).toMatchObject({
-      initialized: true,
       oidc: { label: "Sign in with Mock" },
     });
     const methods = await t!.admin("GET", "/api/auth/methods");

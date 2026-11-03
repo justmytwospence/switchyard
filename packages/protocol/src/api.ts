@@ -303,7 +303,6 @@ export type PushPayload = z.infer<typeof PushPayload>;
 
 /** Owner sign-in (see docs/auth.md). */
 export const SetupState = z.object({
-  initialized: z.boolean(),
   passkey: z.object({
     available: z.boolean(),
     registered: z.boolean(),
@@ -312,12 +311,6 @@ export const SetupState = z.object({
   oidc: z.object({ label: z.string() }).nullable(),
 });
 export type SetupState = z.infer<typeof SetupState>;
-
-export const InitResponse = z.object({
-  alreadyInitialized: z.boolean(),
-  enrollment: CreateEnrollmentResponse,
-});
-export type InitResponse = z.infer<typeof InitResponse>;
 
 export const PasskeyRegisterOptionsResponse = z.object({
   challengeId: z.string(),

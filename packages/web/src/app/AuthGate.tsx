@@ -4,7 +4,7 @@ import { useSyncStore } from "../sync/store";
 import { checkAuth, saveReturnTo, useAuth } from "./auth";
 
 /**
- * Requires an enrolled device. Unauthenticated visits go to /enroll with the
+ * Requires a signed-in device. Unauthenticated visits go to /sign-in with the
  * intended URL saved, so deep links survive authentication.
  */
 export function AuthGate() {
@@ -16,7 +16,7 @@ export function AuthGate() {
   if (status === "unauthenticated") {
     const target = location.pathname + location.search + location.hash;
     saveReturnTo(target);
-    return <Navigate to={`/enroll?next=${encodeURIComponent(target)}`} replace />;
+    return <Navigate to={`/sign-in?next=${encodeURIComponent(target)}`} replace />;
   }
   if (status === "error") {
     return (

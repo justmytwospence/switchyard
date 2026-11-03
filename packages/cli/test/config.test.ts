@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { clockTime, init, login, pair, parseEnrollmentInput } from "../src/commands/auth.js";
+import { clockTime, login, pair, parseEnrollmentInput } from "../src/commands/auth.js";
 import {
   authOptionsFromEnv,
   coordinatorOptions,
@@ -190,7 +190,7 @@ describe("credentials", () => {
         status: 201,
         body: {
           token: "t1",
-          url: "http://127.0.0.1:7400/enroll#token=t1",
+          url: "http://127.0.0.1:7400/sign-in#token=t1",
           expiresAt: "2026-11-02T10:10:00.000Z",
           qrSvg: "<svg/>",
           command:
@@ -205,57 +205,13 @@ describe("credentials", () => {
       body: { kind: "device" },
       auth: "Bearer admintok",
     });
-    expect(ctx.lines).toContain("  http://127.0.0.1:7400/enroll#token=t1");
+    expect(ctx.lines).toContain("  http://127.0.0.1:7400/sign-in#token=t1");
     expect(ctx.lines.some((l) => l.includes("▄") || l.includes("█"))).toBe(true);
     const host = testCtx(fetch, { SWITCHYARD_ADMIN_TOKEN: "admintok" });
     await pair(host, { host: true });
     expect(calls[1]?.body).toEqual({ kind: "host" });
     expect(host.lines).toContain("  switchyard host enroll ...");
-  });
-
-  it("init sets the server up and prints the first link with a QR", async () => {
-    const enrollment = {
-      token: "t1",
-      url: "http://localhost:7400/enroll#token=t1",
-      expiresAt: "2026-11-02T10:10:00.000Z",
-      qrSvg: "<svg/>",
-      command: null,
-    };
-    let already = false;
-    const { fetch, calls } = stubFetch({
-      "POST /api/admin/init": () => {
-        const r = { alreadyInitialized: already, enrollment };
-        already = true;
-        return r;
-      },
-    });
-    const ctx = testCtx(fetch, { SWITCHYARD_ADMIN_TOKEN: "admintok" });
-    const first = await init(ctx, {});
-    expect(first.alreadyInitialized).toBe(false);
-    expect(calls[0]).toMatchObject({
-      method: "POST",
-      path: "/api/admin/init",
-      auth: "Bearer admintok",
-    });
-    expect(ctx.lines[0]).toBe(
-      `Switchyard is set up. Open this single-use link on your first device (expires ${clockTime(enrollment.expiresAt)}):`,
-    );
-    expect(ctx.lines).toContain("  http://localhost:7400/enroll#token=t1");
-    expect(ctx.lines.some((l) => l.includes("▄") || l.includes("█"))).toBe(true);
-    expect(ctx.lines.at(-1)).toBe(
-      "Then add a passkey in Settings › Sign-in so other devices can sign in without a link.",
-    );
-
-    const again = testCtx(fetch, { SWITCHYARD_ADMIN_TOKEN: "admintok" });
-    await init(again, {});
-    expect(again.lines[0]).toBe("Already set up. New single-use sign-in link for one device:");
-    expect(again.lines).toContain("  http://localhost:7400/enroll#token=t1");
-    expect(again.lines.some((l) => l.includes("passkey"))).toBe(false);
     expect(clockTime("2026-11-02T10:10:00.000Z")).toMatch(/^\d\d:\d\d$/);
-  });
-
-  it("init needs the admin token", async () => {
-    await expect(init(testCtx(fetch), {})).rejects.toThrow(/No admin token/);
   });
 
   it("host enroll takes exactly one of --token or --secret", async () => {

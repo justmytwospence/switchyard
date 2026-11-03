@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Packs dist-npm/, installs it into a throwaway prefix and checks the installed CLI really runs:
-# version, a standalone coordinator + host, the web app and an initialized server.
+# version, a standalone coordinator + host, the web app and the sign-in state.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 port="${SMOKE_PORT:-7499}"
@@ -34,6 +34,6 @@ curl -fsS "http://localhost:$port/healthz" | grep -q '"ok":true' || { cat "$tmp/
 echo "ok healthz"
 curl -fsS "http://localhost:$port/" | grep -q 'id="root"' || { echo "FAIL web app"; exit 1; }
 echo "ok web app"
-curl -fsS "http://localhost:$port/api/setup" | grep -q '"initialized":true' || { cat "$tmp/up.log"; echo "FAIL setup"; exit 1; }
-echo "ok initialized"
+curl -fsS "http://localhost:$port/api/setup" | grep -q '"passkey"' || { cat "$tmp/up.log"; echo "FAIL setup"; exit 1; }
+echo "ok sign-in"
 echo "smoke test passed"

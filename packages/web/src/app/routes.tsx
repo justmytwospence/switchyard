@@ -15,7 +15,7 @@ const SettingsView = lazy(() => import("../features/settings"));
 const MoreView = lazy(() => import("../features/more"));
 const EnrollView = lazy(() => import("../features/enroll"));
 
-/** Route paths (spec 10 canonical routes plus /enroll, /settings/*, /more). */
+/** Route paths (spec 10 canonical routes plus /sign-in, /settings/*, /more). */
 export const ROUTES = {
   code: "/code",
   session: (id: string) => `/code/${encodeURIComponent(id)}`,
@@ -29,7 +29,7 @@ export const ROUTES = {
   automation: (id: string) => `/automations/${encodeURIComponent(id)}`,
   settings: (section?: string) => (section ? `/settings/${section}` : "/settings"),
   more: "/more",
-  enroll: "/enroll",
+  signIn: "/sign-in",
 } as const;
 
 /** Top-level path segments that share one view (and one error boundary) with another. */
@@ -43,6 +43,12 @@ function Page({ children }: { children: React.ReactNode }) {
       <Suspense fallback={<LoadingState />}>{children}</Suspense>
     </ErrorBoundary>
   );
+}
+
+/** Old pairing links pointed at /enroll. */
+function LegacyEnrollRedirect() {
+  const l = useLocation();
+  return <Navigate to={{ pathname: "/sign-in", search: l.search, hash: l.hash }} replace />;
 }
 
 function NotFound() {
@@ -59,13 +65,14 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route
-        path="/enroll"
+        path="/sign-in"
         element={
           <Suspense fallback={<LoadingState />}>
             <EnrollView />
           </Suspense>
         }
       />
+      <Route path="/enroll" element={<LegacyEnrollRedirect />} />
       <Route element={<AuthGate />}>
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/code" replace />} />

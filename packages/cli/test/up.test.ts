@@ -37,10 +37,9 @@ describe("switchyard up (standalone)", () => {
     }
     try {
       // First start sets the server up and prints a sign-in link; no browser when not a TTY.
-      expect(first.firstLink).toMatch(/^http:\/\/localhost:\d+\/enroll#token=/);
-      expect(first.coordinator.owner.isInitialized()).toBe(true);
+      expect(first.firstLink).toMatch(/^http:\/\/localhost:\d+\/sign-in#token=/);
       expect(opened).toEqual([]);
-      expect(ctx.lines[0]).toMatch(/^Switchyard is set up\. Open this single-use link/);
+      expect(ctx.lines[0]).toMatch(/^Open this single-use sign-in link/);
       expect(ctx.lines).toContain(`  ${first.firstLink}`);
       const res = await fetch(`${first.localUrl}/healthz`);
       expect(await res.json()).toEqual({ ok: true });
@@ -50,6 +49,14 @@ describe("switchyard up (standalone)", () => {
         () => first.coordinator.store.hosts.get(first.host.hostId)?.connectivity === "connected",
       );
       expect(ctx.errors.some((l) => l.includes('Enrolled the local host "test-host"'))).toBe(true);
+      // Sign a browser in with the printed link, so the next start prints no new link.
+      const token = new URL(first.firstLink!).hash.replace(/^#token=/, "");
+      const redeemed = await fetch(`${first.localUrl}/api/enroll`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, name: "b", kind: "browser" }),
+      });
+      expect(redeemed.status).toBe(201);
     } finally {
       await first.stop();
     }
@@ -66,7 +73,7 @@ describe("switchyard up (standalone)", () => {
       // Already set up: no new link, nothing opened.
       expect(second.firstLink).toBeNull();
       expect(opened).toEqual([]);
-      expect(ctx.lines.slice(lines).some((l) => l.includes("/enroll#token="))).toBe(false);
+      expect(ctx.lines.slice(lines).some((l) => l.includes("/sign-in#token="))).toBe(false);
       expect(second.host.hostId).toBe(first.host.hostId);
       expect(second.coordinator.store.hosts.list().filter((h) => !h.revokedAt)).toHaveLength(1);
       await until(
@@ -140,7 +147,7 @@ describe("switchyard up (standalone)", () => {
       expect(opened).toEqual([]);
       expect(s.coordinator.config.hostEnrollSecret).toBe("x".repeat(40));
       const setup = await (await fetch(`${s.localUrl}/api/setup`)).json();
-      expect(setup).toMatchObject({ initialized: true, oidc: { label: "Sign in with Mock" } });
+      expect(setup).toMatchObject({ oidc: { label: "Sign in with Mock" } });
     } finally {
       await s.stop();
     }

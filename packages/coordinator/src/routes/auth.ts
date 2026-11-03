@@ -1,7 +1,6 @@
 import {
   type AuthMethods,
   EnrollRequest,
-  type InitResponse,
   type MeResponse,
   OidcBeginRequest,
   OidcClaimRequest,
@@ -11,11 +10,9 @@ import {
   SwitchyardError,
 } from "@switchyard/protocol";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { ADMIN_DEVICE_ID } from "../auth.js";
 import type { CoordinatorContext } from "../context.js";
 import { deviceOf, parse } from "../http.js";
 import { OIDC_CALLBACK_PATH } from "../oidc.js";
-import { enrollmentResponse } from "./devices.js";
 
 const HANDOFF_PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,7 +24,6 @@ const HANDOFF_PAGE = `<!doctype html>
 function setupState(ctx: CoordinatorContext): SetupState {
   const availability = ctx.owner.passkeyAvailability();
   return {
-    initialized: ctx.owner.isInitialized(),
     passkey: {
       available: availability.available,
       registered: ctx.passkeys.count() > 0,
@@ -155,18 +151,6 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: CoordinatorContext
     ctx.passkeys.remove((req.params as { id: string }).id);
     return { ok: true };
   });
-
-  // ---- admin: initialize the server ---------------------------------------------------------
-
-  app.post("/api/admin/init", async (req): Promise<InitResponse> => {
-    const device = deviceOf(req);
-    if (!device.isAdmin || device.id !== ADMIN_DEVICE_ID) {
-      throw new SwitchyardError("forbidden", "Only the server's local admin token can initialize");
-    }
-    const alreadyInitialized = !ctx.owner.markInitialized();
-    const enrollment = await enrollmentResponse(ctx, "device", device.id);
-    return { alreadyInitialized, enrollment };
-  });
 }
 
 /** OIDC callback failures go back to the sign-in page with a code and readable detail. */
@@ -181,5 +165,5 @@ function redirectError(
   if (!(err instanceof SwitchyardError)) req.log.warn({ err }, "OIDC sign-in failed");
   else if (err.code === "forbidden") ctx.log.info({ detail }, "OIDC sign-in refused");
   const qs = new URLSearchParams({ error: code, detail });
-  return reply.redirect(`/enroll?${qs.toString()}`, 302);
+  return reply.redirect(`/sign-in?${qs.toString()}`, 302);
 }

@@ -122,7 +122,7 @@ export function SignInSection() {
             )}
             {data.passkeys.length === 0 ? (
               <p className="text-sm text-muted">
-                No passkeys yet. Add one so your other devices can sign in without a link.
+                No passkeys yet. Add one as a backup to single sign-on, or to sign in without it.
               </p>
             ) : (
               <ul className="overflow-hidden rounded-lg border border-border">
@@ -233,7 +233,7 @@ export function SignInSection() {
         <p className="text-sm">
           Devices already signed in stay signed in. This passkey can no longer sign in new devices.
           {data && data.passkeys.length === 1 && !data.oidc
-            ? " It is your only passkey and no single sign-on is set up: afterwards new devices need a pairing link."
+            ? " It is your only passkey and no single sign-on is set up: afterwards new browsers need switchyard pair run on the server."
             : ""}
         </p>
       </ConfirmDialog>
@@ -247,7 +247,8 @@ export function SignInSection() {
         onConfirm={doSignOut}
       >
         <p className="text-sm">
-          You will need a passkey, single sign-on or a pairing link to sign in here again.
+          You will need single sign-on, a passkey or <code>switchyard pair</code> on the server to
+          sign in here again.
         </p>
       </ConfirmDialog>
     </SectionPage>

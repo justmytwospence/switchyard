@@ -24,7 +24,10 @@ function ServiceWorkerNavigation() {
 }
 
 initAuth();
-if (!location.pathname.startsWith("/enroll") || !/token=/.test(location.hash + location.search)) {
+if (
+  !/^\/(sign-in|enroll)/.test(location.pathname) ||
+  !/token=/.test(location.hash + location.search)
+) {
   void checkAuth();
 }
 

@@ -143,7 +143,6 @@ export default async function globalSetup(): Promise<void> {
     trustedOrigins: [E2E_URL, `http://localhost:${E2E_PORT}`],
     webDist,
     rateLimits: false,
-    // Initialized through /api/admin/init right below.
     setupHint: false,
     logger: createLogger({ level: "info", destination: createWriteStream(logFile) }),
   });
@@ -164,9 +163,6 @@ export default async function globalSetup(): Promise<void> {
     if (!res.ok) throw new Error(`${method} ${path} -> ${res.status} ${text}`);
     return json;
   };
-
-  // Set the server up the way `switchyard init` does, so /enroll offers sign-in.
-  await api("POST", "/api/admin/init");
 
   // Host enrollment with the admin token.
   const enrollment = await api("POST", "/api/hosts/enrollments");

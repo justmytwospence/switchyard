@@ -4,7 +4,7 @@
 #   export SWITCHYARD_PUBLIC_URL=https://switchyard.example.com   # the URL people will open
 #   mkdir -p data && sudo chown 1000:1000 data   # the container runs as uid 1000 (user "node")
 #   docker compose up -d
-#   docker compose exec switchyard switchyard init   # prints your first sign-in link
+#   docker compose exec switchyard switchyard pair   # prints a single-use sign-in link (localhost only; otherwise configure OIDC)
 #
 # If the image is not public, `docker login ghcr.io` first with a token that can read packages.
 #
@@ -40,8 +40,8 @@ services:
       # Optional pino level: trace, debug, info (default), warn, error, fatal, silent.
       # - SWITCHYARD_LOG_LEVEL=info
       #
-      # Single sign-on (any OpenID Connect provider). Declaring an owner makes the server owned
-      # at start, so no `switchyard init` is needed. Redirect URI at the provider:
+      # Single sign-on (any OpenID Connect provider) is required unless SWITCHYARD_PUBLIC_URL is
+      # localhost. Redirect URI at the provider:
       # ${SWITCHYARD_PUBLIC_URL}/api/auth/oidc/callback. At least one OWNER_* match is required.
       # - SWITCHYARD_OIDC_ISSUER=https://idp.example.com
       # - SWITCHYARD_OIDC_CLIENT_ID=switchyard

@@ -533,7 +533,7 @@ export const Device = z.object({
     permission: z.enum(["granted", "denied", "default", "unknown"]),
   }),
   preferredMobile: z.boolean(),
-  enrolledVia: z.enum(["enrollment", "passkey", "oidc", "admin"]).default("enrollment"),
+  enrolledVia: z.enum(["enrollment", "passkey", "oidc", "admin", "approval"]).default("enrollment"),
 });
 export type Device = z.infer<typeof Device>;
 

@@ -31,7 +31,6 @@ function healthy(over: Record<string, (c: unknown) => unknown> = {}) {
   return stubFetch({
     "GET /healthz": () => ({ ok: true }),
     "GET /api/setup": () => ({
-      initialized: true,
       passkey: { available: true, registered: true, reason: null },
       oidc: { label: "Sign in with SSO" },
     }),
@@ -65,23 +64,23 @@ describe("doctor", () => {
     expect(printDoctor(ctx, results)).toBe(0);
     expect(ctx.lines[0]).toBe("PASS  Node.js: v26.13.0 (>=24)");
     expect(results.find((r) => r.name === "Sign-in")?.detail).toBe(
-      "set up (passkey: registered, single sign-on: on (Sign in with SSO))",
+      "passkey: registered, single sign-on: on (Sign in with SSO)",
     );
   });
 
-  it("fails the sign-in check on a server that is not set up", async () => {
+  it("warns without single sign-on or a passkey", async () => {
     const { fetch } = healthy({
       "GET /api/setup": () => ({
-        initialized: false,
         passkey: { available: false, registered: false, reason: "Passkeys need HTTPS" },
         oidc: null,
       }),
     });
     const results = await runDoctor(testCtx(fetch), deps({}, HOST), flags);
     expect(results.find((r) => r.name === "Sign-in")).toEqual({
-      status: "FAIL",
+      status: "WARN",
       name: "Sign-in",
-      detail: "not set up: run `switchyard init` on the server",
+      detail:
+        "no single sign-on and no passkey: sign in with a link from `switchyard pair` on the server",
     });
   });
 

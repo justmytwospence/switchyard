@@ -40,7 +40,7 @@ export interface RequestOptions {
 type UnauthorizedListener = (code: ApiClientErrorCode) => void;
 const unauthorizedListeners = new Set<UnauthorizedListener>();
 
-/** Called when any request comes back 401 (the auth gate redirects to /enroll). */
+/** Called when any request comes back 401 (the auth gate redirects to /sign-in). */
 export function onUnauthorized(fn: UnauthorizedListener): () => void {
   unauthorizedListeners.add(fn);
   return () => unauthorizedListeners.delete(fn);

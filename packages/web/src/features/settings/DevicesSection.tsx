@@ -4,35 +4,22 @@ import {
   BellRing,
   Laptop,
   MonitorSmartphone,
-  Plus,
+  Pencil,
   ShieldOff,
   Smartphone,
   Star,
   Terminal,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { currentDeviceId, useAuth } from "../../app/auth";
 import { Button } from "../../components/ui/Button";
-import { Dialog } from "../../components/ui/Overlay";
 import { EmptyState, LoadingState } from "../../components/ui/states";
+import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import {
-  createEnrollment,
-  type Enrollment,
-  EnrollmentStatus,
-  ExpiryCountdown,
-} from "./EnrollmentPanel";
-import {
-  ConfirmDialog,
-  CopyButton,
-  InlineStatus,
-  LastKnownNote,
-  SectionPage,
-  useHydrated,
-} from "./shared";
+import { ConfirmDialog, InlineStatus, LastKnownNote, SectionPage, useHydrated } from "./shared";
 
 export const DEVICE_KIND_LABEL: Record<Device["kind"], string> = {
   browser: "Browser",
@@ -70,7 +57,10 @@ export function DevicesSection() {
         ),
     [devicesById, thisId],
   );
-  const [adding, setAdding] = useState(false);
+  const [renaming, setRenaming] = useState<Device | null>(null);
+  const [draft, setDraft] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<unknown>(null);
   const [revoking, setRevoking] = useState<Device | null>(null);
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState<unknown>(null);
@@ -103,20 +93,28 @@ export function DevicesSection() {
     }
   };
 
+  const rename = async () => {
+    if (!renaming) return;
+    const name = draft.trim();
+    if (!name) return;
+    setRenameBusy(true);
+    setRenameError(null);
+    try {
+      await apiPatch(`/api/devices/${encodeURIComponent(renaming.id)}`, { name });
+      toast.success(`Renamed to ${name}`);
+      setRenaming(null);
+    } catch (e) {
+      setRenameError(e);
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+
   return (
     <SectionPage
       testId="settings-devices"
       title="Devices"
-      description="Browsers, Home Screen apps and terminals signed in to this coordinator. Each has its own revocable credential."
-      actions={
-        <Button
-          variant="primary"
-          icon={<Plus className="size-4" />}
-          onClick={() => setAdding(true)}
-        >
-          Add device
-        </Button>
-      }
+      description="Browsers, Home Screen apps and terminals signed in to this coordinator. Revoke one to sign it out."
     >
       <LastKnownNote />
       {!hydrated ? (
@@ -125,8 +123,7 @@ export function DevicesSection() {
         <EmptyState
           icon={<MonitorSmartphone className="size-8" />}
           title="No devices"
-          description="Add a phone, tablet or another computer with a single-use QR link."
-          action={{ label: "Add device", onClick: () => setAdding(true) }}
+          description="Browsers and terminals appear here once they sign in."
         />
       ) : (
         <ul className="overflow-hidden rounded-lg border border-border bg-surface">
@@ -174,6 +171,19 @@ export function DevicesSection() {
                   <Button
                     size="sm"
                     variant="ghost"
+                    data-testid="device-rename"
+                    icon={<Pencil className="size-4" />}
+                    onClick={() => {
+                      setRenameError(null);
+                      setDraft(d.name);
+                      setRenaming(d);
+                    }}
+                  >
+                    Rename
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     className="text-danger"
                     icon={<ShieldOff className="size-4" />}
                     onClick={() => {
@@ -193,7 +203,28 @@ export function DevicesSection() {
         The preferred mobile device receives push notifications when no desktop was recently active.
       </p>
 
-      <AddDeviceDialog open={adding} onClose={() => setAdding(false)} />
+      <ConfirmDialog
+        open={renaming !== null}
+        onClose={() => setRenaming(null)}
+        title="Rename device"
+        confirmLabel="Save"
+        danger={false}
+        busy={renameBusy}
+        error={renameError}
+        confirmDisabled={!draft.trim()}
+        onConfirm={rename}
+      >
+        <TextInput
+          aria-label="Device name"
+          maxLength={80}
+          value={draft}
+          autoComplete="off"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && draft.trim() && !renameBusy) void rename();
+          }}
+        />
+      </ConfirmDialog>
       <ConfirmDialog
         open={revoking !== null}
         onClose={() => setRevoking(null)}
@@ -214,77 +245,5 @@ export function DevicesSection() {
         )}
       </ConfirmDialog>
     </SectionPage>
-  );
-}
-
-/** "Add device": single-use QR link with a countdown. */
-export function AddDeviceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  const create = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      setEnrollment(await createEnrollment("device"));
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-  // One single-use link per opening of the dialog.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only reacts to the dialog opening
-  useEffect(() => {
-    if (open) void create();
-  }, [open]);
-  const close = () => {
-    setEnrollment(null);
-    setError(null);
-    onClose();
-  };
-
-  return (
-    <Dialog
-      open={open}
-      onClose={close}
-      title="Add device"
-      description="Scan the code with the new device's camera, or open the link on it."
-      footer={<Button onClick={close}>Done</Button>}
-    >
-      <div data-testid="add-device-dialog" className="flex min-w-0 flex-col items-stretch gap-3">
-        <EnrollmentStatus busy={busy} error={error} onRetry={create} />
-        {enrollment && !busy && (
-          <>
-            {enrollment.qrSvg && (
-              <div
-                role="img"
-                aria-label="QR code for the enrollment link"
-                className="mx-auto size-56 max-w-full rounded-md bg-white p-2 [&>svg]:size-full"
-                // biome-ignore lint/security/noDangerouslySetInnerHtml: SVG generated by the coordinator from its own enrollment URL
-                dangerouslySetInnerHTML={{ __html: enrollment.qrSvg }}
-              />
-            )}
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-              <a
-                href={enrollment.url}
-                target="_blank"
-                rel="noreferrer"
-                className="min-w-0 flex-1 break-all font-mono text-sm text-accent underline"
-              >
-                {enrollment.url}
-              </a>
-              <CopyButton text={enrollment.url} label="Copy link" toastMessage="Link copied" />
-            </div>
-            <ExpiryCountdown expiresAt={enrollment.expiresAt} onRenew={create} busy={busy} />
-            <p className="text-xs text-muted">
-              Anyone with this link can enroll a device until it expires or is used. Share it only
-              with your own devices.
-            </p>
-          </>
-        )}
-      </div>
-    </Dialog>
   );
 }

@@ -1,5 +1,3 @@
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLogger } from "../src/index.js";
 import {
@@ -10,13 +8,22 @@ import {
   until,
 } from "./helpers.js";
 
+const TEST_OIDC = {
+  issuer: "https://idp.example.com",
+  clientId: "switchyard",
+  clientSecret: "s",
+  label: "Sign in with Example",
+  scopes: "openid profile email",
+  owner: { subject: null, email: "me@example.com", group: null },
+};
+
 let t: TestCoordinator;
 afterEach(async () => {
   await t?.cleanup();
 });
 
 describe("enrollment", () => {
-  it("does not mint any enrollment on first start and prints the init hint", async () => {
+  it("does not mint any enrollment on first start and prints the pair hint", async () => {
     const lines: string[] = [];
     const writes: string[] = [];
     const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
@@ -38,64 +45,21 @@ describe("enrollment", () => {
       n: number;
     };
     expect(enrollments.n).toBe(0);
-    expect(writes.join("")).toContain("Run `switchyard init` on this server");
-    expect(lines.join("")).toContain("not set up yet");
-    expect(lines.join("")).not.toContain("/enroll#token=");
-    expect(t.c.owner.isInitialized()).toBe(false);
+    expect(writes.join("")).toContain("Run `switchyard pair` on this machine");
+    expect(lines.join("")).toContain("no device signed in yet");
+    expect(lines.join("")).not.toContain("/sign-in#token=");
   });
 
-  it("init via admin creates a single-use link and marks the server set up; a second init reports alreadyInitialized", async () => {
-    t = await startCoordinator();
-    expect((await t.api("GET", "/api/setup")).body.initialized).toBe(false);
-    const first = await t.admin("POST", "/api/admin/init");
-    expect(first.status).toBe(200);
-    expect(first.body.alreadyInitialized).toBe(false);
-    expect(first.body.enrollment.url).toBe(
-      `${t.c.config.publicUrl}/enroll#token=${first.body.enrollment.token}`,
-    );
-    expect(first.body.enrollment.qrSvg).toContain("<svg");
-    expect((await t.api("GET", "/api/setup")).body.initialized).toBe(true);
-    const redeem = await t.api("POST", "/api/enroll", {
-      body: { token: first.body.enrollment.token, name: "first", kind: "terminal" },
-    });
-    expect(redeem.status).toBe(201);
-    const again = await t.api("POST", "/api/enroll", {
-      body: { token: first.body.enrollment.token, name: "again", kind: "terminal" },
-    });
-    expect(again.body.error.code).toBe("enrollment_used");
-    const second = await t.admin("POST", "/api/admin/init");
-    expect(second.body.alreadyInitialized).toBe(true);
-    expect(second.body.enrollment.token).not.toBe(first.body.enrollment.token);
-  });
-
-  it("non-admin devices cannot init", async () => {
-    t = await startCoordinator();
-    const dev = await enrollDevice(t, "terminal");
-    const r = await t.api("POST", "/api/admin/init", { token: dev.credential });
-    expect(r.status).toBe(403);
-    expect(r.body.error.message).toBe("Only the server's local admin token can initialize");
-    expect((await t.api("POST", "/api/admin/init")).status).toBe(401);
-  });
-
-  it("pair also marks the server set up", async () => {
-    t = await startCoordinator();
-    expect(t.c.owner.isInitialized()).toBe(false);
-    const e = await t.admin("POST", "/api/enrollments", { kind: "device" });
-    expect(e.status).toBe(201);
-    expect(t.c.owner.isInitialized()).toBe(true);
-  });
-
-  it("GET /api/setup is public and reports initialized, passkey availability and OIDC label", async () => {
+  it("GET /api/setup is public and reports passkey availability and the OIDC label", async () => {
     t = await startCoordinator();
     const local = await t.api("GET", "/api/setup");
     expect(local.status).toBe(200);
     expect(local.body).toEqual({
-      initialized: false,
       passkey: { available: true, registered: false, reason: null },
       oidc: null,
     });
     await t.cleanup();
-    t = await startCoordinator({ publicUrl: "http://192.168.1.5:7400" });
+    t = await startCoordinator({ publicUrl: "http://192.168.1.5:7400", oidc: TEST_OIDC });
     expect((await t.api("GET", "/api/setup")).body.passkey).toEqual({
       available: false,
       registered: false,
@@ -104,38 +68,21 @@ describe("enrollment", () => {
     await t.cleanup();
     t = await startCoordinator({
       publicUrl: "https://sy.example.com",
-      oidc: {
-        issuer: "https://idp.example.com",
-        clientId: "switchyard",
-        clientSecret: "s",
-        label: "Sign in with Example",
-        scopes: "openid profile email",
-        owner: { subject: null, email: "me@example.com", group: null },
-      },
+      oidc: TEST_OIDC,
     });
     expect((await t.api("GET", "/api/setup")).body).toEqual({
-      initialized: true,
       passkey: { available: true, registered: false, reason: null },
       oidc: { label: "Sign in with Example" },
     });
   });
 
-  it("marks servers that already have devices as set up when migrating", async () => {
-    t = await startCoordinator();
-    await enrollDevice(t);
-    const dir = t.dir;
-    await t.stop();
-    // Roll the database back to schema 1 (no owner marker), as a 0.1 server left it.
-    const db = new DatabaseSync(join(dir, "coordinator.db"));
-    db.exec(
-      "DELETE FROM settings WHERE key = 'owner.initialized_at'; DROP TABLE passkeys; DROP TABLE auth_flows; DELETE FROM schema_migrations WHERE version = 2;",
+  it("refuses a public URL off this machine without single sign-on", async () => {
+    await expect(startCoordinator({ publicUrl: "https://sy.example.com" })).rejects.toThrow(
+      /Single sign-on is required/,
     );
-    db.close();
-    const reopened = await startCoordinator({ dir });
-    try {
-      expect(reopened.c.owner.isInitialized()).toBe(true);
-    } finally {
-      await reopened.cleanup();
+    for (const url of ["http://127.0.0.1:7400", "http://localhost:7400"]) {
+      const local = await startCoordinator({ publicUrl: url });
+      await local.cleanup();
     }
   });
 
@@ -202,7 +149,7 @@ describe("enrollment", () => {
     t = await startCoordinator();
     const e = await t.admin("POST", "/api/enrollments", { kind: "device" });
     expect(e.status).toBe(201);
-    expect(e.body.url).toBe(`${t.c.config.publicUrl}/enroll#token=${e.body.token}`);
+    expect(e.body.url).toBe(`${t.c.config.publicUrl}/sign-in#token=${e.body.token}`);
     expect(e.body.qrSvg).toContain("<svg");
     expect(e.body.command).toBeNull();
 
@@ -303,7 +250,7 @@ describe("enrollment", () => {
   });
 
   it("marks the cookie Secure when the public URL is https", async () => {
-    t = await startCoordinator({ publicUrl: "https://switchyard.example.com" });
+    t = await startCoordinator({ publicUrl: "https://switchyard.example.com", oidc: TEST_OIDC });
     const e = await t.admin("POST", "/api/enrollments", { kind: "device" });
     const r = await t.api("POST", "/api/enroll", {
       body: { token: e.body.token, name: "phone", kind: "browser" },
@@ -396,7 +343,7 @@ describe("request authentication", () => {
     // Missing header.
     const noHeader = await t.api("POST", "/api/enrollments", {
       cookie: cookie!,
-      body: { kind: "device" },
+      body: { kind: "host" },
       headers: { origin },
     });
     expect(noHeader.status).toBe(403);
@@ -404,21 +351,21 @@ describe("request authentication", () => {
     // Untrusted origin.
     const badOrigin = await t.api("POST", "/api/enrollments", {
       cookie: cookie!,
-      body: { kind: "device" },
+      body: { kind: "host" },
       headers: { origin: "https://evil.example", "x-switchyard-request": "1" },
     });
     expect(badOrigin.status).toBe(403);
     // Missing origin.
     const noOrigin = await t.api("POST", "/api/enrollments", {
       cookie: cookie!,
-      body: { kind: "device" },
+      body: { kind: "host" },
       headers: { "x-switchyard-request": "1" },
     });
     expect(noOrigin.status).toBe(403);
     // Both present.
     const ok = await t.api("POST", "/api/enrollments", {
       cookie: cookie!,
-      body: { kind: "device" },
+      body: { kind: "host" },
       headers: { origin, "x-switchyard-request": "1" },
     });
     expect(ok.status).toBe(201);

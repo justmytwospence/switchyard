@@ -217,17 +217,21 @@ async function checkSignIn(
   try {
     const api = new ApiClient({ coordinatorUrl: url, credential: null, fetch: ctx.fetch });
     const s = await api.get<SetupState>("/api/setup");
-    if (!s.initialized) {
-      add("FAIL", "Sign-in", "not set up: run `switchyard init` on the server");
-      return;
-    }
     const passkey = !s.passkey.available
       ? `unavailable, ${s.passkey.reason ?? "unsupported"}`
       : s.passkey.registered
         ? "registered"
         : "none registered yet";
     const sso = s.oidc ? `on (${s.oidc.label})` : "off";
-    add("PASS", "Sign-in", `set up (passkey: ${passkey}, single sign-on: ${sso})`);
+    if (!s.oidc && !s.passkey.registered) {
+      add(
+        "WARN",
+        "Sign-in",
+        "no single sign-on and no passkey: sign in with a link from `switchyard pair` on the server",
+      );
+      return;
+    }
+    add("PASS", "Sign-in", `passkey: ${passkey}, single sign-on: ${sso}`);
   } catch (err) {
     add("WARN", "Sign-in", `could not read the setup state: ${(err as Error).message}`);
   }

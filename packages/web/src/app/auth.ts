@@ -89,7 +89,7 @@ function readCachedMe(): Me | null {
   }
 }
 
-/** Forget the local session and show enrollment. */
+/** Forget the local session and show sign-in. */
 export function signOut(reason: string | null): void {
   stopSync();
   void clearCache();
@@ -102,9 +102,9 @@ export function signOut(reason: string | null): void {
   useAuth.setState({ status: "unauthenticated", me: null, signedOutReason: reason });
 }
 
-/** Remember where to go after enrollment (deep links survive authentication). */
+/** Remember where to go after sign-in (deep links survive authentication). */
 export function saveReturnTo(url: string): void {
-  if (url.startsWith("/enroll")) return;
+  if (url.startsWith("/sign-in") || url.startsWith("/enroll")) return;
   try {
     localStorage.setItem(RETURN_KEY, url);
   } catch {
@@ -125,6 +125,7 @@ export function takeReturnTo(fromQuery: string | null): string {
   if (
     candidate?.startsWith("/") &&
     !candidate.startsWith("//") &&
+    !candidate.startsWith("/sign-in") &&
     !candidate.startsWith("/enroll")
   ) {
     return candidate;
