@@ -94,6 +94,8 @@ export interface BridgeEvent {
   scoped?: string[];
   kind?: UiPromptKind | string;
   title?: string | null;
+  /** A custom terminal dialog whose question is also shown to remote clients. */
+  remoteBacked?: boolean;
   seq: number;
   at: string;
   pid: number;

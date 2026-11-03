@@ -32,7 +32,7 @@ The herdr integration in [`integrations/herdr/`](../integrations/herdr/README.md
 
 - Slash commands from Switchyard clients run Pi's extension commands, prompt templates and skills. Switchyard itself handles /model, /thinking, /compact and /name. Pi's other built-in commands (/tree, /settings, /login, ...) work only in the terminal.
 - "Clear queue" cannot clear Pi's own queue, and the queue shown in clients is reconstructed by the extension, so it can lag what Pi shows.
-- `ctx.ui.custom()` interfaces work in the terminal only; clients show "Waiting in the terminal".
+- `ctx.ui.custom()` interfaces show in the terminal; clients show "Waiting in the terminal" unless the extension also asks through Switchyard's remote UI service (`switchyard.remote-ui.v1` on `pi.events`), as pi-plan-mode and pi-ask-user-question do. Then the question is a card too and the first answer wins.
 - No retry notices, and no extension error diagnostics in clients: Pi does not expose those events to extensions.
 - A message that is streaming while the host agent restarts can appear twice in clients.
 - The systemd unit uses `KillMode=process`, so holders survive agent restarts on Linux too; reinstall the unit with `switchyard host install-service` to pick it up. A host agent in a container loses its terminal sessions when the container is recreated.

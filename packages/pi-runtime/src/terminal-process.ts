@@ -318,6 +318,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
           type: rec.event === "ui_prompt_end" ? "ui_prompt_end" : "ui_prompt_start",
           kind: typeof rec.kind === "string" ? rec.kind : "unknown",
           title: typeof rec.title === "string" ? rec.title : null,
+          remoteBacked: rec.remoteBacked === true,
           seq: ++this.seq,
           at: new Date().toISOString(),
           pid: this.pid ?? 0,

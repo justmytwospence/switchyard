@@ -11,6 +11,9 @@
  * Dialogs: every extension's `ctx.ui` is the same object, so replacing `select`, `confirm`,
  * `input` and `editor` on it routes all dialogs through the race below. When that object cannot be
  * patched, `remoteDialogs` is false and the host tells remote clients to answer in the terminal.
+ *
+ * Other extensions that draw a custom terminal dialog can also ask the same question as a
+ * web-only dialog through `switchyard.remote-ui.v1` on `pi.events`; the first answer wins.
  */
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
@@ -18,6 +21,7 @@ import { modelInfo } from "./pi-model.js";
 
 const PATCHED = Symbol.for("switchyard.terminal");
 const WRAPPED = Symbol.for("switchyard.terminal.wrapped");
+const REMOTE_UI_CHANNEL = "switchyard.remote-ui.v1";
 
 type Json = Record<string, unknown>;
 type Body = { value?: string; confirmed?: boolean; cancelled?: boolean };
@@ -86,6 +90,7 @@ export default function switchyardTerminal(pi: any): void {
   const early: any[] = [];
   const queue = { steering: [] as string[], followUp: [] as string[] };
   let socket: Socket | null = null;
+  let remoteBacked = 0;
 
   const send = (obj: unknown): void => {
     try {
@@ -240,6 +245,53 @@ export default function switchyardTerminal(pi: any): void {
           },
         );
     });
+  };
+
+  /** A dialog shown only to remote clients (the caller shows its own in the terminal). */
+  const remoteOnly = (
+    method: "select" | "confirm" | "input" | "editor",
+    title: string,
+    fields: Json,
+    signal?: AbortSignal,
+  ): Promise<any> => {
+    const dflt = method === "confirm" ? false : undefined;
+    if (signal?.aborted) return Promise.resolve(dflt);
+    const id = randomUUID();
+    const request: Json = { type: "extension_ui_request", id, method, title, ...fields };
+    return new Promise((resolve) => {
+      let done = false;
+      const onAbort = () => {
+        send({
+          type: "extension_ui_closed",
+          id,
+          by: signal?.reason === "pi" ? "pi" : "terminal",
+        });
+        finish(dflt);
+      };
+      const finish = (value: unknown) => {
+        if (done) return;
+        done = true;
+        remoteBacked--;
+        pending.delete(id);
+        signal?.removeEventListener("abort", onAbort);
+        resolve(value);
+      };
+      remoteBacked++;
+      pending.set(id, { request, onRemote: (body) => finish(parseBody(method, body)) });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      send(request);
+    });
+  };
+
+  const remoteUi = {
+    select: (title: string, options: string[], opts?: { signal?: AbortSignal }) =>
+      remoteOnly("select", title, { options }, opts?.signal),
+    confirm: (title: string, message: string, opts?: { signal?: AbortSignal }) =>
+      remoteOnly("confirm", title, { message }, opts?.signal),
+    input: (title: string, placeholder?: string, opts?: { signal?: AbortSignal }) =>
+      remoteOnly("input", title, placeholder !== undefined ? { placeholder } : {}, opts?.signal),
+    editor: (title: string, prefill?: string, opts?: { signal?: AbortSignal }) =>
+      remoteOnly("editor", title, prefill !== undefined ? { prefill } : {}, opts?.signal),
   };
 
   const fire = (method: string, fields: Json) =>
@@ -545,6 +597,17 @@ export default function switchyardTerminal(pi: any): void {
     socket = null;
   }
 
+  try {
+    pi.events?.on?.(REMOTE_UI_CHANNEL, (data: unknown) => {
+      const r = data as { version?: number; ui?: unknown; provider?: string } | undefined;
+      if (r?.version !== 1 || r.ui || !socket) return;
+      r.ui = remoteUi;
+      r.provider = "switchyard";
+    });
+  } catch {
+    // optional service
+  }
+
   // ---- events ----
 
   const on = (name: string, fn: (event: any, c: any) => void) => {
@@ -630,7 +693,13 @@ export default function switchyardTerminal(pi: any): void {
     send({ type: "compaction_start", reason: event?.reason ?? "manual" }),
   );
   on("ui_prompt_start", (event) =>
-    send({ type: "ui_prompt", event: event.type, kind: event.kind, title: event.title ?? null }),
+    send({
+      type: "ui_prompt",
+      event: event.type,
+      kind: event.kind,
+      title: event.title ?? null,
+      remoteBacked: event.kind === "custom" && remoteBacked > 0,
+    }),
   );
   on("ui_prompt_end", (event) =>
     send({ type: "ui_prompt", event: event.type, kind: event.kind, title: event.title ?? null }),

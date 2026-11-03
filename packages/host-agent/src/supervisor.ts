@@ -1377,6 +1377,7 @@ export class SessionSupervisor {
    */
   private onTerminalPrompt(l: Live, b: BridgeEvent): void {
     if (b.type === "ui_prompt_start") {
+      if (b.kind === "custom" && b.remoteBacked) return;
       if (b.kind !== "custom" && l.ms?.remoteDialogs) return;
       if (l.terminalPrompt) return;
       const interaction: Interaction = {

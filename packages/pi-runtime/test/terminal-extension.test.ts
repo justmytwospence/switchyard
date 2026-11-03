@@ -54,8 +54,15 @@ async function until(pred: () => boolean, ms = 3000) {
 
 function fakePi() {
   const handlers = new Map<string, ((e: any, c: any) => void)[]>();
+  const bus = new Map<string, ((d: any) => void)[]>();
   return {
     handlers,
+    events: {
+      on: (ch: string, fn: (d: any) => void) => void bus.set(ch, [...(bus.get(ch) ?? []), fn]),
+      emit: (ch: string, d: any) => {
+        for (const fn of bus.get(ch) ?? []) fn(d);
+      },
+    },
     on: (name: string, fn: (e: any, c: any) => void) => {
       handlers.set(name, [...(handlers.get(name) ?? []), fn]);
     },
@@ -166,6 +173,29 @@ describe("switchyard terminal extension", () => {
     expect(calls[0]!.args[2].signal.aborted).toBe(true);
     await new Promise((r) => setTimeout(r, 50));
     expect(holder.lines.some((l) => l.type === "extension_ui_closed")).toBe(false);
+  });
+
+  it("offers web-only dialogs over pi.events", async () => {
+    const { ui, calls } = fakeUi();
+    const { pi } = await load(ui);
+    const req: any = { version: 1 };
+    pi.events.emit("switchyard.remote-ui.v1", req);
+    expect(req.ui).toBeTruthy();
+    const result = req.ui.select("Q", ["A", "B"], {});
+    await until(() => holder.lines.some((l) => l.type === "extension_ui_request"));
+    expect(calls.length).toBe(0);
+    pi.emit("ui_prompt_start", { kind: "custom", title: "x" }, null);
+    await until(() => holder.lines.some((l) => l.type === "ui_prompt"));
+    expect(holder.lines.find((l) => l.type === "ui_prompt").remoteBacked).toBe(true);
+    const id = holder.lines.find((l) => l.type === "extension_ui_request").id;
+    holder.send({ type: "extension_ui_response", id, value: "B" });
+    expect(await result).toBe("B");
+    const ac = new AbortController();
+    const second = req.ui.select("Q2", ["A"], { signal: ac.signal });
+    ac.abort("terminal");
+    expect(await second).toBeUndefined();
+    await until(() => holder.lines.some((l) => l.type === "extension_ui_closed"));
+    expect(holder.lines.find((l) => l.type === "extension_ui_closed").by).toBe("terminal");
   });
 
   it("reports a dialog answered in the terminal", async () => {
