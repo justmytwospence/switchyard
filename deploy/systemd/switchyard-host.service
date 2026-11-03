@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart="{{NODE}}" "{{CLI}}" host run --config "{{CONFIG}}"
+ExecStart="{{NODE}}" "{{CLI}}" host run --config "{{CONFIG}}" --state-dir "{{STATE_DIR}}"
 Environment="PATH={{PATH}}"
 WorkingDirectory={{HOME}}
 Restart=on-failure

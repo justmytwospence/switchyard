@@ -4,7 +4,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.switchyard.host</string>
+  <string>{{LABEL}}</string>
   <key>ProgramArguments</key>
   <!-- Through zsh (every Mac has /bin/zsh) so the agent and the Pi sessions it starts get the
        environment ~/.zshenv sets for a terminal, like provider settings; PATH below is the base. -->
@@ -18,6 +18,8 @@
     <string>run</string>
     <string>--config</string>
     <string>{{CONFIG}}</string>
+    <string>--state-dir</string>
+    <string>{{STATE_DIR}}</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

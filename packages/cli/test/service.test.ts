@@ -8,6 +8,7 @@ import {
   type ServiceVars,
   serviceFilePath,
   serviceKindFor,
+  serviceNames,
   stableNodePath,
   TEMPLATE_FILES,
   TEMPLATES,
@@ -19,6 +20,8 @@ const vars: ServiceVars = {
   node: "/opt/homebrew/bin/node",
   cli: "/Users/me/Projects/switchyard/packages/cli/dist/main.js",
   config: "/Users/me/.config/switchyard/host.json",
+  stateDir: "/Users/me/Library/Application Support/switchyard",
+  label: "com.switchyard.host",
   home: "/Users/me",
   path: "/opt/homebrew/bin:/usr/bin:/bin",
   logDir: "/Users/me/Library/Application Support/switchyard/logs",
@@ -152,6 +155,60 @@ describe("service files", () => {
       },
     );
     expect(bootstraps).toBe(3);
+  });
+
+  it("passes the state dir and names a second instance", async () => {
+    const plist = renderService("launchd", { ...vars, label: "com.switchyard.host.dev" });
+    expect(plist).toContain("<string>com.switchyard.host.dev</string>");
+    expect(plist).toContain(`<string>--state-dir</string>\n    <string>${vars.stateDir}</string>`);
+    expect(serviceNames()).toEqual({
+      label: "com.switchyard.host",
+      unit: "switchyard-host.service",
+    });
+    expect(serviceNames("dev")).toEqual({
+      label: "com.switchyard.host.dev",
+      unit: "switchyard-host-dev.service",
+    });
+    expect(() => serviceNames("Dev!")).toThrow(/Instance names/);
+    expect(serviceFilePath("systemd", "/home/me", "dev")).toBe(
+      "/home/me/.config/systemd/user/switchyard-host-dev.service",
+    );
+
+    const ctx = testCtx(async () => new Response("{}"));
+    const home = join(ctx.dir, "home");
+    const config = join(home, ".config", "switchyard-dev", "host.json");
+    mkdirSync(join(home, ".config", "switchyard-dev"), { recursive: true });
+    writeFileSync(config, "{}");
+    const deps = {
+      platform: "darwin" as const,
+      home,
+      uid: 501,
+      retryDelayMs: 0,
+      run: async () => ({ ok: true, output: "" }),
+    };
+    await expect(installService(ctx, { config, instance: "dev" }, deps)).rejects.toThrow(
+      /--instance needs --config and --state-dir/,
+    );
+    const ran: string[][] = [];
+    const stateDir = join(home, "state-dev");
+    const { file, content } = await installService(
+      ctx,
+      { config, instance: "dev", stateDir },
+      {
+        ...deps,
+        run: async (cmd) => {
+          ran.push(cmd);
+          return { ok: true, output: "" };
+        },
+      },
+    );
+    expect(file).toBe(join(home, "Library", "LaunchAgents", "com.switchyard.host.dev.plist"));
+    expect(content).toContain(`<string>${stateDir}</string>`);
+    expect(content).toContain(`<string>${stateDir}/logs/host.log</string>`);
+    expect(ran).toEqual([
+      ["launchctl", "bootout", "gui/501/com.switchyard.host.dev"],
+      ["launchctl", "bootstrap", "gui/501", file],
+    ]);
   });
 
   it("refuses to install before the host is enrolled", async () => {

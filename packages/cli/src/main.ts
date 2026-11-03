@@ -130,6 +130,11 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .command("install-service")
     .description("Install the host agent as a launchd agent (macOS) or systemd user unit (Linux)")
     .option("--config <path>", "host.json path")
+    .option("--state-dir <dir>", "state dir (default: the platform default)")
+    .option(
+      "--instance <name>",
+      "run a second host agent beside the default one, e.g. dev; needs --config and --state-dir",
+    )
     .option("--print", "print the service file without writing it")
     .option("--no-load", "write the file but do not load it")
     .action(async (o) => {

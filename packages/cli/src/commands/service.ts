@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { defaultConfigPath, defaultStateDir } from "@switchyard/host-agent";
 import { CliError } from "../config.js";
 import type { Ctx } from "../context.js";
@@ -26,7 +26,7 @@ export const TEMPLATES: Record<ServiceKind, string> = {
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.switchyard.host</string>
+  <string>{{LABEL}}</string>
   <key>ProgramArguments</key>
   <!-- Through zsh (every Mac has /bin/zsh) so the agent and the Pi sessions it starts get the
        environment ~/.zshenv sets for a terminal, like provider settings; PATH below is the base. -->
@@ -40,6 +40,8 @@ export const TEMPLATES: Record<ServiceKind, string> = {
     <string>run</string>
     <string>--config</string>
     <string>{{CONFIG}}</string>
+    <string>--state-dir</string>
+    <string>{{STATE_DIR}}</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -74,7 +76,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart="{{NODE}}" "{{CLI}}" host run --config "{{CONFIG}}"
+ExecStart="{{NODE}}" "{{CLI}}" host run --config "{{CONFIG}}" --state-dir "{{STATE_DIR}}"
 Environment="PATH={{PATH}}"
 WorkingDirectory={{HOME}}
 Restart=on-failure
@@ -96,6 +98,9 @@ export interface ServiceVars {
   node: string;
   cli: string;
   config: string;
+  stateDir: string;
+  /** launchd label (ignored by the systemd template). */
+  label: string;
   home: string;
   path: string;
   logDir: string;
@@ -129,7 +134,7 @@ export function renderService(
   template = TEMPLATES[kind],
 ): string {
   for (const [k, v] of Object.entries(vars)) {
-    if (k !== "path" && !v.startsWith("/")) {
+    if (k !== "path" && k !== "label" && !v.startsWith("/")) {
       throw new CliError(`Service file needs an absolute ${k} path, got "${v}"`);
     }
   }
@@ -141,7 +146,9 @@ export function renderService(
   return template
     .replaceAll("{{NODE}}", esc(vars.node))
     .replaceAll("{{CLI}}", esc(vars.cli))
+    .replaceAll("{{LABEL}}", esc(vars.label))
     .replaceAll("{{CONFIG}}", esc(vars.config))
+    .replaceAll("{{STATE_DIR}}", esc(vars.stateDir))
     .replaceAll("{{HOME}}", kind === "launchd" ? esc(vars.home) : vars.home)
     .replaceAll("{{PATH}}", kind === "launchd" ? esc(vars.path) : systemdEscape(vars.path, false))
     .replaceAll("{{LOG_DIR}}", esc(vars.logDir));
@@ -153,23 +160,39 @@ export function serviceKindFor(platform: NodeJS.Platform): ServiceKind {
   throw new CliError(`Service install is supported on macOS and Linux, not ${platform}`);
 }
 
-export function serviceFilePath(kind: ServiceKind, home = homedir()): string {
+/** launchd label and systemd unit for the default agent or a named second instance. */
+export function serviceNames(instance?: string): { label: string; unit: string } {
+  if (instance === undefined) return { label: LAUNCHD_LABEL, unit: SYSTEMD_UNIT };
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(instance)) {
+    throw new CliError("Instance names use lowercase letters, digits and dashes (at most 32)");
+  }
+  return { label: `${LAUNCHD_LABEL}.${instance}`, unit: `switchyard-host-${instance}.service` };
+}
+
+export function serviceFilePath(kind: ServiceKind, home = homedir(), instance?: string): string {
+  const { label, unit } = serviceNames(instance);
   return kind === "launchd"
-    ? join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`)
-    : join(home, ".config", "systemd", "user", SYSTEMD_UNIT);
+    ? join(home, "Library", "LaunchAgents", `${label}.plist`)
+    : join(home, ".config", "systemd", "user", unit);
 }
 
 /** Commands that load the service (and restart it when it is already loaded). */
-export function loadCommands(kind: ServiceKind, file: string, uid: number): string[][] {
+export function loadCommands(
+  kind: ServiceKind,
+  file: string,
+  uid: number,
+  instance?: string,
+): string[][] {
+  const { label, unit } = serviceNames(instance);
   return kind === "launchd"
     ? [
-        ["launchctl", "bootout", `gui/${uid}/${LAUNCHD_LABEL}`],
+        ["launchctl", "bootout", `gui/${uid}/${label}`],
         ["launchctl", "bootstrap", `gui/${uid}`, file],
       ]
     : [
         ["systemctl", "--user", "daemon-reload"],
-        ["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT],
-        ["systemctl", "--user", "restart", SYSTEMD_UNIT],
+        ["systemctl", "--user", "enable", "--now", unit],
+        ["systemctl", "--user", "restart", unit],
       ];
 }
 
@@ -191,6 +214,9 @@ export function stableNodePath(
 
 export interface InstallFlags {
   config?: string;
+  /** A second agent beside the default one (e.g. "dev"); needs `config` and `stateDir`. */
+  instance?: string;
+  stateDir?: string;
   print?: boolean;
   load?: boolean;
 }
@@ -224,26 +250,37 @@ export async function installService(
   deps: InstallDeps = defaultInstallDeps(),
 ): Promise<{ file: string; content: string }> {
   const kind = serviceKindFor(deps.platform);
+  const names = serviceNames(flags.instance);
+  if (flags.instance !== undefined && !(flags.config && flags.stateDir)) {
+    throw new CliError(
+      "--instance needs --config and --state-dir, so the second host agent keeps its own enrollment and state",
+    );
+  }
   const config = flags.config ?? defaultConfigPath(ctx.env, deps.home);
   if (!existsSync(config) && !flags.print) {
     throw new CliError(
       `No host config at ${config}. Enroll first: switchyard host enroll --coordinator <url> --token <t>`,
     );
   }
-  const logDir = join(defaultStateDir(ctx.env, deps.platform, deps.home), "logs");
+  const stateDir = flags.stateDir
+    ? resolve(flags.stateDir)
+    : defaultStateDir(ctx.env, deps.platform, deps.home);
+  const logDir = join(stateDir, "logs");
   const content = renderService(
     kind,
     {
       node: stableNodePath(process.execPath),
       cli: cliEntry(),
       config,
+      stateDir,
+      label: names.label,
       home: deps.home,
       path: ctx.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
       logDir,
     },
     loadTemplate(kind),
   );
-  const file = serviceFilePath(kind, deps.home);
+  const file = serviceFilePath(kind, deps.home, flags.instance);
   if (flags.print) {
     ctx.out(content.trimEnd());
     return { file, content };
@@ -254,10 +291,11 @@ export async function installService(
   ctx.out(`Wrote ${file}`);
   if (flags.load === false) {
     ctx.out("Not loaded (--no-load). Load it with:");
-    for (const c of loadCommands(kind, file, deps.uid).slice(1)) ctx.out(`  ${c.join(" ")}`);
+    for (const c of loadCommands(kind, file, deps.uid, flags.instance).slice(1))
+      ctx.out(`  ${c.join(" ")}`);
     return { file, content };
   }
-  for (const cmd of loadCommands(kind, file, deps.uid)) {
+  for (const cmd of loadCommands(kind, file, deps.uid, flags.instance)) {
     ctx.out(`$ ${cmd.join(" ")}`);
     let r = await deps.run(cmd);
     // launchd tears a booted-out agent down asynchronously; a bootstrap right after a bootout
@@ -272,7 +310,7 @@ export async function installService(
     }
   }
   ctx.out(
-    `The host agent runs as ${kind === "launchd" ? LAUNCHD_LABEL : SYSTEMD_UNIT}; logs: ${logDir}`,
+    `The host agent runs as ${kind === "launchd" ? names.label : names.unit}; logs: ${logDir}`,
   );
   return { file, content };
 }
