@@ -157,8 +157,7 @@ export type Key =
         | "cancel"
         | "backspace"
         | "clear"
-        | "deleteWord"
-        | "tab";
+        | "deleteWord";
     };
 
 const SEQUENCES: [string, Key["name"]][] = [
@@ -173,21 +172,22 @@ const SEQUENCES: [string, Key["name"]][] = [
   ["\x1b[F", "end"],
   ["\x1b[4~", "end"],
   ["\x1b\x7f", "deleteWord"],
+  ["\x1b[Z", "up"], // Shift+Tab
 ];
 
 const CONTROLS: Record<string, Key["name"]> = {
   "\r": "enter",
-  "\n": "enter",
+  "\n": "down", // Ctrl+J (Enter is \r in raw mode)
   "\x03": "cancel",
   "\x04": "cancel",
   "\x7f": "backspace",
   "\b": "backspace",
   "\x15": "clear",
   "\x17": "deleteWord",
-  "\x10": "up",
-  "\x0b": "up",
-  "\x0e": "down",
-  "\t": "tab",
+  "\x10": "up", // Ctrl+P
+  "\x0b": "up", // Ctrl+K
+  "\x0e": "down", // Ctrl+N
+  "\t": "down", // Tab
 };
 
 /** Split one stdin chunk into keys. A lone ESC is Esc; unknown sequences are dropped. */
@@ -502,7 +502,6 @@ export class Screen {
           selected = selected > 0 ? selected - 1 : ranked.length - 1;
           break;
         case "down":
-        case "tab":
           selected = selected < ranked.length - 1 ? selected + 1 : 0;
           break;
         case "pageup":
