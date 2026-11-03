@@ -252,6 +252,12 @@ test.describe("desktop coding view", () => {
       (r) => r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/thinking`),
     );
     await slider.focus();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowRight");
+    const outline = await page
+      .locator('[data-effort-dot="selected"]')
+      .evaluate((el) => getComputedStyle(el).outlineStyle);
+    expect(outline).not.toBe("none");
     await page.keyboard.press("End");
     expect((await sent).postDataJSON().level).toBe("high");
     await expect(composer.getByRole("button", { name: "Effort: high" })).toBeVisible();

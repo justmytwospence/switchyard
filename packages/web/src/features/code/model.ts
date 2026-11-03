@@ -944,11 +944,15 @@ export function clientCommandProblem(cmd: ClientCommand, running: boolean): stri
   return null;
 }
 
-/** Model name for a pill: no provider prefix (the name is specific enough). */
+/** Model name for a pill: no provider or vendor prefix (the name is specific enough). */
 export function pillModelLabel(m: SessionModel): string {
-  const label = modelLabel(m);
+  let label = m.name ?? "";
+  const vendor = /^[^:/]{1,40}:\s+(.+)$/.exec(label);
+  if (vendor) label = vendor[1]!;
+  if (!label) label = m.id.slice(m.id.lastIndexOf("/") + 1);
   const prefix = `${m.provider}/`;
-  return label.toLowerCase().startsWith(prefix.toLowerCase()) ? label.slice(prefix.length) : label;
+  if (label.toLowerCase().startsWith(prefix.toLowerCase())) label = label.slice(prefix.length);
+  return label || modelLabel(m);
 }
 
 export function effortIndex(

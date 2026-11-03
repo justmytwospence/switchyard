@@ -499,7 +499,15 @@ describe("terminal built-ins", () => {
   it("pill labels drop the provider prefix", () => {
     expect(pillModelLabel(mockModel("m", { name: "Mock One" }))).toBe("Mock One");
     expect(pillModelLabel(mockModel("mock/big"))).toBe("big");
-    expect(pillModelLabel(mockModel("other/big"))).toBe("other/big");
+    expect(pillModelLabel(mockModel("other/big"))).toBe("big");
+    expect(
+      pillModelLabel(mockModel("anthropic/claude-fable-5", { name: "Anthropic: Claude Fable 5" })),
+    ).toBe("Claude Fable 5");
+    expect(pillModelLabel(mockModel("anthropic/claude-fable-5"))).toBe("claude-fable-5");
+    expect(pillModelLabel(mockModel("x", { name: "Claude Opus 5.5" }))).toBe("Claude Opus 5.5");
+    expect(pillModelLabel(mockModel("x", { name: "Qwen3.8 27B — Quality Q8 / MTP (local)" }))).toBe(
+      "Qwen3.8 27B — Quality Q8 / MTP (local)",
+    );
   });
   it("effortIndex", () => {
     expect(effortIndex(["off", "low", "high"], "high")).toBe(2);

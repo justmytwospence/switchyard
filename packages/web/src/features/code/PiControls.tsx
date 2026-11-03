@@ -287,12 +287,7 @@ function EffortSlider({
         <span className="text-xs text-muted">Effort</span>
         <span className="text-sm font-medium capitalize">{level}</span>
       </div>
-      <div
-        className={cn(
-          "relative w-full focus-within:[&>input~*]:outline-none",
-          large ? "h-11" : "h-8",
-        )}
-      >
+      <div className={cn("group relative w-full", large ? "h-11" : "h-8")}>
         <div className="pointer-events-none absolute inset-x-2 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-border-strong" />
         <div
           className="pointer-events-none absolute left-2 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-accent transition-[width]"
@@ -302,10 +297,11 @@ function EffortSlider({
           <span
             key={l}
             aria-hidden
+            data-effort-dot={i === index ? "selected" : undefined}
             className={cn(
               "pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all",
               i === index
-                ? "size-4 bg-accent ring-4 ring-accent-soft"
+                ? "size-4 bg-accent ring-4 ring-accent-soft group-has-[input:focus-visible]:outline-2 group-has-[input:focus-visible]:outline-offset-2 group-has-[input:focus-visible]:outline-accent"
                 : i < index
                   ? "size-2.5 bg-accent"
                   : "size-2.5 bg-border-strong",
