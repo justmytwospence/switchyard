@@ -58,14 +58,15 @@ describe("bridge extension", () => {
         title: "Pick",
       });
       pi.fire("ui_prompt_start", { type: "ui_prompt_start", reason: "ui_prompt", kind: "custom" });
-      for (let i = 0; i < 50 && lines.length < 4; i++) await new Promise((r) => setTimeout(r, 10));
+      for (let i = 0; i < 50 && lines.length < 5; i++) await new Promise((r) => setTimeout(r, 10));
       expect(lines.map((l) => [l.type, l.kind ?? null, l.title])).toEqual([
         ["hello", null, null],
+        ["model_state", null, null],
         ["ui_prompt_start", "select", "Pick"],
         ["ui_prompt_end", "select", "Pick"],
         ["ui_prompt_start", "custom", null],
       ]);
-      expect(lines.map((l) => l.seq)).toEqual([1, 2, 3, 4]);
+      expect(lines.map((l) => l.seq)).toEqual([1, 2, 3, 4, 5]);
       pi.fire("session_shutdown", {});
     } finally {
       server.close();

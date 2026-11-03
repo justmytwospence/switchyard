@@ -37,7 +37,10 @@ export interface PiHarness {
 }
 
 /** Real Pi + mock model + isolated agent dir. Fails (never skips) when Pi is missing. */
-export async function setupPi(script: MockScript): Promise<PiHarness> {
+export async function setupPi(
+  script: MockScript,
+  opts: { settings?: Record<string, unknown> } = {},
+): Promise<PiHarness> {
   requirePi();
   if (!existsSync(bridgeExtensionPath())) {
     throw new Error(
@@ -48,7 +51,7 @@ export async function setupPi(script: MockScript): Promise<PiHarness> {
     throw new Error(`Fixture extension not built: ${fixtureExtensionPath()}`);
   }
   const mock = await startMockModel(script);
-  const env = makePiEnv({ mockUrl: mock.url });
+  const env = makePiEnv({ mockUrl: mock.url, settings: opts.settings });
   const sessions: ManagedSession[] = [];
   let n = 0;
   return {

@@ -1,3 +1,4 @@
+export { modelInfo, supportedThinkingLevels } from "./bridge/pi-model.js";
 export {
   assertCompatible,
   detectPi,
@@ -37,6 +38,7 @@ export {
   ManagedSession,
   type ManagedSessionEventMap,
   type ManagedSessionOptions,
+  type ModelState,
   type PartialBlock,
   type ProfileFlags,
   type PromptMode,

@@ -2,15 +2,20 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import {
+  type ContextUsage,
   type NativeHandle,
   newId,
   type Profile,
   type RuntimeState,
+  type SessionModel,
+  type SlashCommand,
   type StreamDelta,
   SwitchyardError,
+  ThinkingLevel,
   type ToolItemData,
   type TranscriptItem,
 } from "@switchyard/protocol";
+import { modelInfo } from "./bridge/pi-model.js";
 import { readSessionNameSync } from "./importable.js";
 import { type PiExit, PiRpcError, PiRpcProcess } from "./rpc-process.js";
 import { PiTerminalProcess } from "./terminal-process.js";
@@ -39,8 +44,13 @@ import {
 export type PromptMode = "prompt" | "steer" | "followUp";
 export type ProfileFlags = Pick<
   Profile,
-  "provider" | "model" | "thinking" | "projectTrust" | "extraArgs"
+  "provider" | "model" | "thinking" | "projectTrust" | "extraArgs" | "resources"
 >;
+
+export interface ModelState {
+  model: SessionModel | null;
+  thinking: ThinkingLevel | null;
+}
 
 export interface ManagedSessionOptions {
   /** Switchyard session id (`ses_...`), stamped on every item and stream delta. */
@@ -154,6 +164,9 @@ export interface ManagedSessionEventMap {
   pi_event: [PiEvent];
   diagnostic: [SessionDiagnostic];
   stderr: [string];
+  /** The live model or effort changed. */
+  model: [ModelState];
+  compacting: [boolean];
   exit: [PiExit];
 }
 
@@ -200,6 +213,10 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   private readonly items = new Map<string, TranscriptItem>();
   private readonly partialToolOutput = new Map<string, string>();
   private runAssistantText: string | null = null;
+  private _model: SessionModel | null = null;
+  private _thinking: ThinkingLevel | null = null;
+  private _compacting = false;
+  private lastModelJson = "";
 
   constructor(opts: ManagedSessionOptions) {
     super();
@@ -253,6 +270,12 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   get remoteDialogs(): boolean {
     return this.proc instanceof PiTerminalProcess ? this.proc.remoteDialogs : true;
   }
+  get modelState(): ModelState {
+    return { model: this._model ? { ...this._model } : null, thinking: this._thinking };
+  }
+  get compacting(): boolean {
+    return this._compacting;
+  }
   get isAlive(): boolean {
     return this.proc !== null && this.proc.exited === null;
   }
@@ -276,6 +299,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     if (profile.thinking) args.push("--thinking", profile.thinking);
     if (profile.projectTrust === "approve") args.push("--approve");
     else if (profile.projectTrust === "ignore") args.push("--no-approve");
+    if (profile.resources === "vanilla") {
+      args.push("--no-extensions", "--no-skills", "--no-prompt-templates");
+    }
     args.push(...profile.extraArgs);
     args.push(...(this.opts.extraArgs ?? []));
     for (const ext of this.opts.extensions ?? []) args.push("-e", ext);
@@ -349,6 +375,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     this._native = { sessionId: state.sessionId, sessionFile: state.sessionFile };
     this.started = true;
     this.busy = state.isStreaming;
+    this.applyModel(state.model);
+    this.applyThinking(state.thinkingLevel);
+    this.emitModelIfChanged();
     this.emit("native", { ...this._native });
     this.setRuntime();
   }
@@ -377,6 +406,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     }
     this.started = true;
     this.busy = state.isStreaming;
+    this.applyModel(state.model);
+    this.applyThinking(state.thinkingLevel);
+    this.emitModelIfChanged();
     this.setRuntime();
   }
 
@@ -454,10 +486,123 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     await this.call(this.requireAlive(), { type: "set_session_name", name: title });
   }
 
-  /** Token and cost totals (`get_session_stats`). */
-  async stats(): Promise<{ tokens: number | null; costUsd: number | null; raw: PiSessionStats }> {
-    const raw = await this.call<PiSessionStats>(this.requireAlive(), { type: "get_session_stats" });
+  /** Models Pi can use right now. */
+  async models(): Promise<SessionModel[]> {
+    const data = await this.call<{ models?: unknown[] }>(this.requireAlive(), {
+      type: "get_available_models",
+    });
+    const out: SessionModel[] = [];
+    for (const raw of data?.models ?? []) {
+      const m = this.toSessionModel(raw);
+      if (m) out.push(m);
+    }
+    return out.sort(
+      (a, b) =>
+        a.provider.localeCompare(b.provider) || (a.name ?? a.id).localeCompare(b.name ?? b.id),
+    );
+  }
+
+  /** Slash commands Pi knows (extension commands, prompt templates, skills). */
+  async commands(): Promise<SlashCommand[]> {
+    const data = await this.call<{ commands?: any[] }>(this.requireAlive(), {
+      type: "get_commands",
+    });
+    const out: SlashCommand[] = [];
+    for (const c of data?.commands ?? []) {
+      if (typeof c?.name !== "string" || !c.name) continue;
+      if (c.source !== "extension" && c.source !== "prompt" && c.source !== "skill") continue;
+      out.push({
+        name: c.name,
+        description: typeof c.description === "string" ? c.description : null,
+        source: c.source,
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async setModel(provider: string, modelId: string): Promise<ModelState> {
+    await this.call(this.requireAlive(), { type: "set_model", provider, modelId });
+    await this.refreshModelState();
+    return this.modelState;
+  }
+
+  async setThinking(level: ThinkingLevel): Promise<ModelState> {
+    await this.call(this.requireAlive(), { type: "set_thinking_level", level });
+    await this.refreshModelState();
+    return this.modelState;
+  }
+
+  /** Start a manual compaction. Terminal sessions answer at once; Pi's RPC answers when done. */
+  async compact(instructions: string | null): Promise<void> {
+    const proc = this.requireAlive();
+    const cmd = { type: "compact", ...(instructions ? { customInstructions: instructions } : {}) };
+    if (this.transport === "terminal") {
+      await this.call(proc, cmd, 10000);
+    } else {
+      this.call(proc, cmd, 30 * 60_000).catch(() => {});
+    }
+  }
+
+  private async refreshModelState(): Promise<void> {
+    const s = await this.state();
+    this.applyModel(s.model);
+    this.applyThinking(s.thinkingLevel);
+    this.emitModelIfChanged();
+  }
+
+  private toSessionModel(raw: unknown): SessionModel | null {
+    const info = modelInfo(raw);
+    if (!info) return null;
     return {
+      ...info,
+      thinkingLevels: info.thinkingLevels.flatMap((l) => {
+        const r = ThinkingLevel.safeParse(l);
+        return r.success ? [r.data] : [];
+      }),
+    };
+  }
+
+  private applyModel(raw: unknown): void {
+    this._model = this.toSessionModel(raw);
+  }
+
+  private applyThinking(raw: unknown): void {
+    const r = ThinkingLevel.safeParse(raw);
+    this._thinking = r.success ? r.data : null;
+  }
+
+  private emitModelIfChanged(): void {
+    const json = JSON.stringify(this.modelState);
+    if (json === this.lastModelJson) return;
+    this.lastModelJson = json;
+    this.emit("model", this.modelState);
+  }
+
+  private setCompacting(v: boolean): void {
+    if (this._compacting === v) return;
+    this._compacting = v;
+    this.emit("compacting", v);
+  }
+
+  /** Token and cost totals (`get_session_stats`). */
+  async stats(): Promise<{
+    tokens: number | null;
+    costUsd: number | null;
+    context: ContextUsage | null;
+    raw: PiSessionStats;
+  }> {
+    const raw = await this.call<PiSessionStats>(this.requireAlive(), { type: "get_session_stats" });
+    const cu = raw?.contextUsage;
+    const context: ContextUsage | null =
+      cu && typeof cu.contextWindow === "number"
+        ? {
+            tokens: typeof cu.tokens === "number" ? cu.tokens : null,
+            window: cu.contextWindow,
+            percent: typeof cu.percent === "number" ? cu.percent : null,
+          }
+        : null;
+    return {
+      context,
       tokens: typeof raw?.tokens?.total === "number" ? raw.tokens.total : null,
       costUsd: typeof raw?.cost === "number" ? raw.cost : null,
       raw,
@@ -611,6 +756,11 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     proc.on("bridge", (msg: BridgeEvent) => {
       this.emit("bridge", msg);
       if (msg.type === "ui_prompt_end") this.onPromptEnd(msg);
+      if (msg.type === "model_state") {
+        this.applyModel(msg.model);
+        this.applyThinking(msg.thinkingLevel);
+        this.emitModelIfChanged();
+      }
     });
     proc.on("stderr", (text: string) => this.emit("stderr", text));
     proc.on("protocol_error", (err: Error, line: string) => {
@@ -655,6 +805,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       this.emit("ui_resolved", { id, by: "exit", request: req });
     this.pending.clear();
     this.current = null;
+    this.setCompacting(false);
     const wasBusy = this.busy;
     this.busy = false;
     if (this.terminal === "failed") {
@@ -835,12 +986,29 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
           this.notice("error", `Retry failed: ${ev.finalError ?? "unknown error"}`);
         break;
       case "compaction_start":
+        this.setCompacting(true);
         this.notice("info", `Compacting context (${ev.reason ?? "manual"})`);
         break;
       case "compaction_end":
+        this.setCompacting(false);
         if (ev.result) this.notice("info", "Context compacted");
         else if (ev.aborted) this.notice("warning", "Compaction aborted");
-        else this.notice("error", `Compaction failed: ${ev.errorMessage ?? "unknown error"}`);
+        else {
+          const msg = String(ev.errorMessage ?? "unknown error").replace(
+            /^Compaction failed:\s*/,
+            "",
+          );
+          this.notice("error", `Compaction failed: ${msg}`);
+        }
+        break;
+      case "model_state":
+        this.applyModel(ev.model);
+        this.applyThinking(ev.thinkingLevel);
+        this.emitModelIfChanged();
+        break;
+      case "thinking_level_changed":
+        this.applyThinking(ev.level);
+        this.emitModelIfChanged();
         break;
       case "extension_error":
         this.emit("diagnostic", {

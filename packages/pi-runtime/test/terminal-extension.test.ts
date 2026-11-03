@@ -65,6 +65,13 @@ function fakePi() {
     sendUserMessage: vi.fn(),
     setSessionName: vi.fn(),
     getSessionName: () => "named",
+    commands: [] as any[],
+    getCommands() {
+      return this.commands;
+    },
+    setModel: vi.fn(async () => true),
+    setThinkingLevel: vi.fn(),
+    getThinkingLevel: () => "off",
   };
 }
 
@@ -245,7 +252,8 @@ describe("switchyard terminal extension", () => {
       data: { disposition: "started" },
     });
     expect(pi.sendUserMessage).toHaveBeenCalledWith("hi");
-    expect((await reply({ type: "prompt", id: "2", message: "/cmd" })).success).toBe(false);
+    expect((await reply({ type: "prompt", id: "2", message: "/cmd" })).success).toBe(true);
+    expect(pi.sendUserMessage).toHaveBeenLastCalledWith("/cmd");
     ctx.setIdle(false);
     expect((await reply({ type: "prompt", id: "3", message: "x" })).error).toContain(
       "Session is running",
@@ -262,6 +270,89 @@ describe("switchyard terminal extension", () => {
       data: { sessionId: "nat-1", sessionFile: "/tmp/nat-1.jsonl", isStreaming: true },
     });
     expect((await reply({ type: "nope", id: "7" })).error).toBe("Unknown command: nope");
+  });
+
+  async function ask(cmd: object & { id: string }) {
+    holder.send(cmd);
+    await until(() => holder.lines.some((l) => l.type === "response" && l.id === cmd.id));
+    return holder.lines.find((l) => l.type === "response" && l.id === cmd.id);
+  }
+
+  it("reports and sets the model and effort", async () => {
+    const { ui } = fakeUi();
+    const mock1 = { provider: "mock", id: "mock-1", name: "Mock 1", reasoning: false };
+    const mock2 = { provider: "mock", id: "mock-2", reasoning: true, contextWindow: 10 };
+    const { pi, ctx } = await load(ui, {
+      model: mock1,
+      thinkingLevel: "off",
+      modelRegistry: {
+        getAvailable: () => [mock1, mock2],
+        find: (p: string, id: string) =>
+          [mock1, mock2].find((m) => m.provider === p && m.id === id),
+      },
+    });
+    expect((await ask({ type: "get_state", id: "a" })).data.model.id).toBe("mock-1");
+    expect((await ask({ type: "get_available_models", id: "b" })).data.models).toHaveLength(2);
+    pi.setModel.mockImplementation(async (m: any) => {
+      (ctx as any).model = m;
+      return true;
+    });
+    expect(
+      (await ask({ type: "set_model", id: "c", provider: "mock", modelId: "mock-2" })).data.id,
+    ).toBe("mock-2");
+    expect((await ask({ type: "set_model", id: "d", provider: "x", modelId: "y" })).error).toBe(
+      "Model not found: x/y",
+    );
+    pi.setModel.mockResolvedValueOnce(false);
+    expect(
+      (await ask({ type: "set_model", id: "e", provider: "mock", modelId: "mock-1" })).error,
+    ).toContain("No API key for");
+    pi.emit("model_select", {}, null);
+    await until(() => holder.lines.some((l) => l.type === "model_state"));
+    await ask({ type: "set_thinking_level", id: "f", level: "high" });
+    expect(pi.setThinkingLevel).toHaveBeenCalledWith("high");
+  });
+
+  it("runs slash commands", async () => {
+    const { ui } = fakeUi();
+    const { pi, ctx } = await load(ui);
+    pi.commands = [
+      { name: "ext", source: "extension" },
+      { name: "tpl", source: "prompt" },
+    ];
+    ctx.setIdle(false);
+    expect((await ask({ type: "prompt", id: "1", message: "/ext a" })).data.disposition).toBe(
+      "handled",
+    );
+    expect(pi.sendUserMessage).toHaveBeenLastCalledWith("/ext a", { expandPromptTemplates: true });
+    expect((await ask({ type: "prompt", id: "2", message: "/tpl" })).error).toContain(
+      "Session is running",
+    );
+    ctx.setIdle(true);
+    expect((await ask({ type: "prompt", id: "3", message: "/tpl" })).data.disposition).toBe(
+      "started",
+    );
+    expect(pi.sendUserMessage).toHaveBeenLastCalledWith("/tpl", { expandPromptTemplates: true });
+  });
+
+  it("compacts and reports context use", async () => {
+    const { ui } = fakeUi();
+    const compact = vi.fn();
+    const { pi, ctx } = await load(ui, {
+      compact,
+      getContextUsage: () => ({ tokens: 5, contextWindow: 10, percent: 50 }),
+    });
+    ctx.setIdle(false);
+    expect((await ask({ type: "compact", id: "1" })).error).toContain("Session is running");
+    ctx.setIdle(true);
+    await ask({ type: "compact", id: "2", customInstructions: "keep tests" });
+    expect(compact.mock.calls[0][0].customInstructions).toBe("keep tests");
+    pi.emit("session_before_compact", { reason: "manual" }, null);
+    await until(() => holder.lines.some((l) => l.type === "compaction_start"));
+    expect(holder.lines.find((l) => l.type === "compaction_start").reason).toBe("manual");
+    expect(
+      (await ask({ type: "get_session_stats", id: "3" })).data.contextUsage.contextWindow,
+    ).toBe(10);
   });
 
   it("sums usage like Pi", () => {

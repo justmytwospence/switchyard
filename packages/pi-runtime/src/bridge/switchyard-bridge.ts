@@ -8,9 +8,12 @@
  * never throws: any socket error disables forwarding for the rest of the process.
  */
 import { createConnection, type Socket } from "node:net";
+import { modelInfo } from "./pi-model.js";
 
 export interface BridgeMessage {
-  type: "hello" | "ui_prompt_start" | "ui_prompt_end";
+  type: "hello" | "ui_prompt_start" | "ui_prompt_end" | "model_state";
+  model?: unknown;
+  thinkingLevel?: string | null;
   kind?: string;
   title?: string | null;
   seq: number;
@@ -53,8 +56,13 @@ export default function switchyardBridge(pi: any): void {
     }
   };
 
-  const send = (s: Socket, msg: { type: BridgeMessage["type"]; kind?: string; title?: string }) => {
+  const send = (
+    s: Socket,
+    msg: { type: BridgeMessage["type"]; kind?: string; title?: string },
+    extra: Record<string, unknown> = {},
+  ) => {
     const full: BridgeMessage = {
+      ...extra,
       type: msg.type,
       ...(msg.kind !== undefined ? { kind: msg.kind } : {}),
       title: msg.title ?? null,
@@ -83,14 +91,31 @@ export default function switchyardBridge(pi: any): void {
     }
   };
 
+  const sendModelState = (ctx: any) => {
+    try {
+      const s = ensureSocket();
+      if (!s) return;
+      send(
+        s,
+        { type: "model_state" },
+        { model: modelInfo(ctx?.model), thinkingLevel: ctx?.thinkingLevel ?? null },
+      );
+    } catch {
+      disabled = true;
+    }
+  };
+
   try {
-    pi.on("session_start", () => {
+    pi.on("session_start", (_event: any, ctx: any) => {
       try {
         ensureSocket();
       } catch {
         disabled = true;
       }
+      sendModelState(ctx);
     });
+    pi.on("model_select", (_event: any, ctx: any) => sendModelState(ctx));
+    pi.on("thinking_level_select", (_event: any, ctx: any) => sendModelState(ctx));
     pi.on("ui_prompt_start", forward);
     pi.on("ui_prompt_end", forward);
     pi.on("session_shutdown", () => {

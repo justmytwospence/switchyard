@@ -88,7 +88,9 @@ export type UiPromptKind = "select" | "confirm" | "input" | "editor" | "custom";
 
 /** A line from the bridge extension socket. */
 export interface BridgeEvent {
-  type: "hello" | "ui_prompt_start" | "ui_prompt_end";
+  type: "hello" | "ui_prompt_start" | "ui_prompt_end" | "model_state";
+  model?: unknown;
+  thinkingLevel?: string | null;
   kind?: UiPromptKind | string;
   title?: string | null;
   seq: number;

@@ -67,6 +67,7 @@ describe("capabilities", () => {
       widgetsComponent: false,
       tokenAccounting: true,
       costAccounting: true,
+      sessionControls: true,
     });
     expect(d.capabilities.unsupported).toEqual([
       { capability: "customUi", reason: "ctx.ui.custom() returns undefined in RPC mode" },

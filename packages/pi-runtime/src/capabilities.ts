@@ -24,6 +24,7 @@ export const PI_RPC_CAPABILITIES: RuntimeCapabilities = {
   widgetsComponent: false,
   tokenAccounting: true,
   costAccounting: true,
+  sessionControls: true,
   unsupported: [
     { capability: "customUi", reason: "ctx.ui.custom() returns undefined in RPC mode" },
     {
@@ -49,6 +50,7 @@ export function noCapabilities(reason: string): RuntimeCapabilities {
     widgetsComponent: false,
     tokenAccounting: false,
     costAccounting: false,
+    sessionControls: false,
     unsupported: [{ capability: "all", reason }],
   };
 }

@@ -14,6 +14,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
+import { modelInfo } from "./pi-model.js";
 
 const PATCHED = Symbol.for("switchyard.terminal");
 const WRAPPED = Symbol.for("switchyard.terminal.wrapped");
@@ -94,6 +95,13 @@ export default function switchyardTerminal(pi: any): void {
       // never throw into Pi
     }
   };
+
+  const sendModelState = () =>
+    send({
+      type: "model_state",
+      model: modelInfo(ctx?.model),
+      thinkingLevel: ctx?.thinkingLevel ?? pi.getThinkingLevel?.() ?? null,
+    });
 
   const sendQueue = () => send({ type: "queue_update", ...queue });
 
@@ -337,19 +345,30 @@ export default function switchyardTerminal(pi: any): void {
             sessionFile: ctx.sessionManager.getSessionFile() ?? null,
             sessionName: pi.getSessionName?.() ?? null,
             isStreaming: !ctx.isIdle(),
+            model: modelInfo(ctx.model),
+            thinkingLevel: ctx.thinkingLevel ?? pi.getThinkingLevel?.() ?? null,
             pendingMessageCount: ctx.hasPendingMessages() ? 1 : 0,
           });
           return;
         case "prompt": {
           const message = String(cmd.message ?? "");
           if (message.startsWith("/")) {
-            respond(
-              id,
-              type,
-              undefined,
-              "Slash commands from Switchyard need the terminal in terminal sessions: type it there",
-            );
-            return;
+            const name = message.slice(1).split(/\s/)[0];
+            const known = (pi.getCommands?.() ?? []).find((c: any) => c.name === name);
+            if (known?.source === "extension") {
+              pi.sendUserMessage(message, { expandPromptTemplates: true });
+              respond(id, type, { disposition: "handled" });
+              return;
+            }
+            if (known) {
+              if (!ctx.isIdle()) {
+                respond(id, type, undefined, "Session is running: choose Steer or Queue follow-up");
+                return;
+              }
+              pi.sendUserMessage(content(message, cmd.images), { expandPromptTemplates: true });
+              respond(id, type, { disposition: "started" });
+              return;
+            }
           }
           if (!ctx.isIdle()) {
             respond(id, type, undefined, "Session is running: choose Steer or Queue follow-up");
@@ -392,9 +411,69 @@ export default function switchyardTerminal(pi: any): void {
         }
         case "get_session_stats": {
           const totals = sessionTotals(ctx.sessionManager.getEntries());
-          respond(id, type, { tokens: { total: totals.tokens }, cost: totals.cost });
+          respond(id, type, {
+            tokens: { total: totals.tokens },
+            cost: totals.cost,
+            contextUsage: ctx.getContextUsage?.() ?? undefined,
+          });
           return;
         }
+        case "get_available_models":
+          respond(id, type, {
+            models: (ctx.modelRegistry?.getAvailable?.() ?? []).map(modelInfo).filter(Boolean),
+          });
+          return;
+        case "get_commands":
+          respond(id, type, {
+            commands: (pi.getCommands?.() ?? []).map((c: any) => ({
+              name: c.name,
+              description: c.description ?? null,
+              source: c.source,
+            })),
+          });
+          return;
+        case "set_model": {
+          const provider = String(cmd.provider ?? "");
+          const modelId = String(cmd.modelId ?? "");
+          const model = ctx.modelRegistry?.find?.(provider, modelId);
+          if (!model) {
+            respond(id, type, undefined, `Model not found: ${provider}/${modelId}`);
+            return;
+          }
+          Promise.resolve(pi.setModel(model)).then(
+            (ok) => {
+              if (ok === false)
+                respond(id, type, undefined, `No API key for ${provider}/${modelId}`);
+              else respond(id, type, modelInfo(ctx.model));
+            },
+            (err) => respond(id, type, undefined, err instanceof Error ? err.message : String(err)),
+          );
+          return;
+        }
+        case "set_thinking_level":
+          pi.setThinkingLevel(String(cmd.level));
+          respond(id, type);
+          return;
+        case "compact":
+          if (!ctx.isIdle()) {
+            respond(
+              id,
+              type,
+              undefined,
+              "Session is running: wait for it to finish before compacting",
+            );
+            return;
+          }
+          ctx.compact({
+            customInstructions:
+              typeof cmd.customInstructions === "string" && cmd.customInstructions
+                ? cmd.customInstructions
+                : undefined,
+            onComplete: () => {},
+            onError: () => {},
+          });
+          respond(id, type, { started: true });
+          return;
         case "shutdown":
           respond(id, type);
           setImmediate(() => {
@@ -484,6 +563,7 @@ export default function switchyardTerminal(pi: any): void {
     const sessionId = c.sessionManager.getSessionId();
     const sessionFile = c.sessionManager.getSessionFile() ?? null;
     send({ type: "extension_hello", pid: process.pid, remoteDialogs, sessionId, sessionFile });
+    sendModelState();
     if (event?.reason && event.reason !== "startup") {
       send({ type: "switchyard_native", sessionId, sessionFile });
     }
@@ -538,6 +618,11 @@ export default function switchyardTerminal(pi: any): void {
       aborted: event?.aborted === true,
       errorMessage: event?.errorMessage ?? "unknown error",
     }),
+  );
+  on("model_select", () => sendModelState());
+  on("thinking_level_select", () => sendModelState());
+  on("session_before_compact", (event) =>
+    send({ type: "compaction_start", reason: event?.reason ?? "manual" }),
   );
   on("ui_prompt_start", (event) =>
     send({ type: "ui_prompt", event: event.type, kind: event.kind, title: event.title ?? null }),

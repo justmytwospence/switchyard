@@ -14,6 +14,13 @@ const text = (t: string, details?: unknown): ToolResult => ({
 const noParams = { type: "object", properties: {}, additionalProperties: false };
 
 export default function fixtureExtension(pi: any): void {
+  pi.registerCommand("fixture-hello", {
+    description: "Say hello from the fixture extension",
+    handler: async (args: string, ctx: any) => {
+      ctx.ui.notify(`fixture hello ${args}`.trim(), "info");
+    },
+  });
+
   pi.registerTool({
     name: "fixture_select",
     label: "Fixture select",

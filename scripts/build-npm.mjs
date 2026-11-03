@@ -94,7 +94,7 @@ await build({
   logLevel: "warning",
 });
 
-for (const ext of ["switchyard-bridge.js", "switchyard-terminal.js"]) {
+for (const ext of ["switchyard-bridge.js", "switchyard-terminal.js", "pi-model.js"]) {
   cpSync(
     join(root, "packages", "pi-runtime", "dist", "bridge", ext),
     join(out, "dist", "bridge", ext),
