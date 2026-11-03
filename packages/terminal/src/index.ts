@@ -18,6 +18,7 @@ export {
 export * from "./interaction.js";
 export * from "./keys.js";
 export * from "./presence.js";
+export * from "./raw-terminal.js";
 export * from "./store.js";
 export * from "./uinode.js";
 export * from "./view.js";

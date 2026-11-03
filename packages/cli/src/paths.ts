@@ -31,6 +31,8 @@ export function configDir(env: Env = process.env, home = homedir()): string {
 
 /** Terminal/CLI credentials: `~/.config/switchyard/client.json`. */
 export function clientConfigPath(env: Env = process.env, home = homedir()): string {
+  const fromEnv = env.SWITCHYARD_CLIENT_CONFIG?.trim();
+  if (fromEnv) return resolve(fromEnv);
   return join(configDir(env, home), "client.json");
 }
 

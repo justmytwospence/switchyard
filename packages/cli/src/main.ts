@@ -12,9 +12,11 @@ import {
   coordinatorStart,
 } from "./commands/coordinator.js";
 import { defaultDoctorDeps, printDoctor, runDoctor } from "./commands/doctor.js";
+import { herdrDaemon, herdrPane, herdrStatus } from "./commands/herdr.js";
 import { hostBackup, hostEnroll, hostRun, hostStatus } from "./commands/host.js";
 import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
 import { installService } from "./commands/service.js";
+import { tuiCommand } from "./commands/tui.js";
 import { up } from "./commands/up.js";
 import {
   automationsList,
@@ -266,6 +268,34 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
       sessionId,
     });
     if (result.reason === "logout") throw new CliError(`Signed out: ${result.message}`);
+  });
+
+  connectionOptions(
+    program
+      .command("tui <sessionId>")
+      .description("Open a session's Pi terminal (Ctrl+] detaches; the session keeps running)"),
+  ).action(async (sessionId, o) => {
+    await tuiCommand(ctx, sessionId, connFlags(o));
+  });
+
+  const herdr = program
+    .command("herdr")
+    .description("herdr integration: one herdr space per live terminal session");
+  connectionOptions(herdr.command("daemon").description("Keep herdr spaces in sync"))
+    .option("--ensure", "start the daemon in the background unless it runs")
+    .option("--once", "sync once and print what changed")
+    .action(async (o) => {
+      await herdrDaemon(ctx, { ...connFlags(o), ensure: o.ensure, once: o.once });
+    });
+  connectionOptions(
+    herdr.command("pane <sessionId>").description("Run a session's terminal in a herdr pane"),
+  ).action(async (sessionId, o) => {
+    await herdrPane(ctx, sessionId, connFlags(o));
+  });
+  connectionOptions(
+    herdr.command("status").description("Which herdr pane shows which session"),
+  ).action(async (o) => {
+    await herdrStatus(ctx, connFlags(o));
   });
 
   const tasks = program.command("tasks").description("Tasks");
