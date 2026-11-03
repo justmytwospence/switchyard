@@ -1,6 +1,7 @@
 {
   "name": "@switchyard/adapter-sdk",
-  "version": "0.2.1",
+  "version": "0.3.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

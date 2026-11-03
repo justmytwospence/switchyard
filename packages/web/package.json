@@ -1,6 +1,7 @@
 {
   "name": "@switchyard/web",
-  "version": "0.2.1",
+  "version": "0.3.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
