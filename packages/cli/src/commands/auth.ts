@@ -181,6 +181,8 @@ export async function login(
     deviceId: res.deviceId,
   });
   ctx.out(`Enrolled "${name}" (${res.deviceId}) with ${url}.`);
-  ctx.out(`Credential saved to ${path} (mode 0600). Run \`switchyard attach\` to open sessions.`);
+  ctx.out(
+    `Credential saved to ${path} (mode 0600). Open a session's Pi terminal with \`switchyard tui <session>\`.`,
+  );
   return { path, deviceId: res.deviceId };
 }

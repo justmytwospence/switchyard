@@ -1,5 +1,5 @@
 import type { Session } from "@switchyard/protocol";
-import { ApiRequestError, runRawTerminal, runTerminal } from "@switchyard/terminal";
+import { ApiRequestError, runRawTerminal } from "@switchyard/terminal";
 import type { ConnectionFlags } from "../config.js";
 import { type Ctx, connect } from "../context.js";
 import { type HerdrCall, herdrCall, nextSeq } from "./client.js";
@@ -11,21 +11,18 @@ const LIVE = new Set(["starting", "idle", "running", "waiting_input"]);
 export interface PaneDeps {
   call: HerdrCall;
   runRaw: typeof runRawTerminal;
-  runInk: typeof runTerminal;
   readKey: () => Promise<string>;
 }
 
 const defaultDeps = (): PaneDeps => ({
   call: (method, params) => herdrCall(method, params),
   runRaw: runRawTerminal,
-  runInk: runTerminal,
   readKey,
 });
 
 /**
  * `switchyard herdr pane <id>`: a mirrored tab's pane. Claims the pane for the session (so herdr
- * can resume it after a restart), then shows the session: Pi's TUI for terminal sessions, the
- * Ink client otherwise. `q` closes the tab, which archives the session.
+ * can resume it after a restart), then shows the session's Pi TUI. `q` closes the tab, which archives the session.
  */
 export async function herdrPane(
   ctx: Ctx,
@@ -102,16 +99,20 @@ export async function herdrPane(
       }
       continue;
     }
-    if (session.terminal) {
-      const r = await deps.runRaw({
-        coordinatorUrl: conn.url,
-        credential: conn.credential,
-        sessionId,
-      });
-      if (r.reason === "closed") ctx.err(r.message);
-    } else {
-      await deps.runInk({ coordinatorUrl: conn.url, credential: conn.credential, sessionId });
+    if (!session.terminal) {
+      // Headless (RPC) sessions have no Pi terminal; the mirror closes their tabs.
+      const choice = await menu(
+        `This session runs without a terminal. Open it in the web app: ${conn.url}/code/${sessionId}\nEnter: retry   q: close tab`,
+      );
+      if (choice === "close") break;
+      continue;
     }
+    const r = await deps.runRaw({
+      coordinatorUrl: conn.url,
+      credential: conn.credential,
+      sessionId,
+    });
+    if (r.reason === "closed") ctx.err(r.message);
     const choice = await menu(
       `Detached from ${session.title}. Enter: reattach   q: close tab (archives it)`,
     );

@@ -211,7 +211,7 @@ export async function up(ctx: Ctx, flags: UpFlags): Promise<void> {
       `Switchyard is up: ${c.config.publicUrl} (listening on port ${c.port})`,
       `Data: ${c.config.dataDir}`,
       c.config.webDist ? null : "Web app bundle not found: API only (run `pnpm build`)",
-      "Another device: switchyard pair    Terminal: switchyard attach",
+      "Another device: switchyard pair    Terminal: switchyard tui <session>",
       "Schedules run only while this process is running.",
     ]
       .filter(Boolean)
