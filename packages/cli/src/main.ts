@@ -12,7 +12,7 @@ import {
   coordinatorStart,
 } from "./commands/coordinator.js";
 import { defaultDoctorDeps, printDoctor, runDoctor } from "./commands/doctor.js";
-import { herdrDaemon, herdrPane, herdrStatus } from "./commands/herdr.js";
+import { herdrDaemon, herdrNew, herdrPane, herdrStatus } from "./commands/herdr.js";
 import { hostBackup, hostEnroll, hostRun, hostStatus } from "./commands/host.js";
 import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
 import { installService } from "./commands/service.js";
@@ -280,20 +280,28 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
 
   const herdr = program
     .command("herdr")
-    .description("herdr integration: one herdr space per live terminal session");
-  connectionOptions(herdr.command("daemon").description("Keep herdr spaces in sync"))
+    .description("herdr integration: mirror Switchyard into a paired herdr session");
+  connectionOptions(
+    herdr.command("daemon").description("Mirror Switchyard into this herdr session"),
+  )
     .option("--ensure", "start the daemon in the background unless it runs")
     .option("--once", "sync once and print what changed")
     .action(async (o) => {
       await herdrDaemon(ctx, { ...connFlags(o), ensure: o.ensure, once: o.once });
     });
   connectionOptions(
-    herdr.command("pane <sessionId>").description("Run a session's terminal in a herdr pane"),
+    herdr.command("pane <sessionId>").description("Show a session in this herdr pane"),
   ).action(async (sessionId, o) => {
     await herdrPane(ctx, sessionId, connFlags(o));
   });
+  connectionOptions(herdr.command("new").description("Start a session from this herdr tab"))
+    .option("--workspace <id>", "the Switchyard workspace of this tab's space")
+    .option("--here", "open a new tab in the focused space and start there")
+    .action(async (o) => {
+      await herdrNew(ctx, { ...connFlags(o), workspace: o.workspace, here: o.here });
+    });
   connectionOptions(
-    herdr.command("status").description("Which herdr pane shows which session"),
+    herdr.command("status").description("Which herdr tab shows which session"),
   ).action(async (o) => {
     await herdrStatus(ctx, connFlags(o));
   });
