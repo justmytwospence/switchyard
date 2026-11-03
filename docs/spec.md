@@ -639,7 +639,7 @@ Provide history separate from development-board tasks.
 
 Hosts, devices, projects, Pi profiles, adapters, notifications, backups, diagnostics.
 
-Host detail shows capabilities, connectivity, checkout mappings, and version compatibility.
+Host detail shows capabilities, connectivity, project folders, checkout mappings, and version compatibility. Every Git repository directly inside a host's project folders becomes a project (or another checkout of the project with the same remote): scanned when the folders change, when the host connects, every 10 minutes and on demand; nothing is removed automatically.
 
 ## 16. Notifications and presence
 

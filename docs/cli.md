@@ -10,9 +10,10 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `init` | Set up this server and print a single-use sign-in link for your first device; on a set-up server, print a new link |
 | `pair [--host]` | Create a single-use link and QR for another device (or a host token); also the recovery path when every device is lost |
 | `coordinator start` / `backup` / `restore` / `migrate` | Run the coordinator; back up, restore and migrate its database |
-| `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service, back it up and inspect it |
+| `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it |
 | `login` | Enroll this terminal as a device (`--coordinator`, `--token <token or enrollment link>`) |
 | `attach [sessionId]` | Open the terminal client |
+| `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
 | `tasks create` / `list` / `move` | Create, list and move tasks |
 | `automations list` / `run` | List automations; fire one now |
