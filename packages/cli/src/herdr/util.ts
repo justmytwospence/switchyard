@@ -52,8 +52,23 @@ export async function isAtShell(call: HerdrCall, paneId: string): Promise<boolea
   return procs.length === 0 || procs.every((p) => p.pid === info.shell_pid);
 }
 
+/** How long `runInPane` waits for a new shell's prompt. */
+export const SHELL_READY_MS = 5_000;
+
 /** Type a command into a pane's shell and press Enter. */
 export async function runInPane(call: HerdrCall, paneId: string, command: string): Promise<void> {
+  // Text typed before a new tab's shell has started is echoed and read again by whatever runs
+  // next (the picker's query, or Pi's editor). Wait for the prompt, then type.
+  try {
+    await call("pane.wait_for_output", {
+      pane_id: paneId,
+      source: "visible",
+      match: { type: "regex", value: "\\S" },
+      timeout_ms: SHELL_READY_MS,
+    });
+  } catch {
+    // An older herdr, or a shell that prints nothing: type anyway.
+  }
   await call("pane.send_text", { pane_id: paneId, text: command });
   await call("pane.send_keys", { pane_id: paneId, keys: ["enter"] });
 }
