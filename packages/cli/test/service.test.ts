@@ -143,3 +143,17 @@ describe("service files", () => {
     ).rejects.toThrow(/Enroll first/);
   });
 });
+
+describe("entryFor", () => {
+  it("points service files at dist/main.js when built from the workspace", async () => {
+    const { entryFor } = await import("../src/paths.js");
+    expect(entryFor("/r/packages/cli/dist/paths.js", "/r/packages/cli")).toBe(
+      "/r/packages/cli/dist/main.js",
+    );
+  });
+  it("points at the bundle itself in the npm package", async () => {
+    const { entryFor } = await import("../src/paths.js");
+    const bundle = "/opt/lib/node_modules/@justmytwospence/switchyard/dist/switchyard.mjs";
+    expect(entryFor(bundle, "/opt/lib/node_modules/@justmytwospence/switchyard")).toBe(bundle);
+  });
+});

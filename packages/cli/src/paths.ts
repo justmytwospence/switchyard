@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type Env = Record<string, string | undefined>;
@@ -46,9 +46,17 @@ export function cliPackageRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..");
 }
 
-/** The built `dist/main.js` of this CLI (used in service files). */
+/**
+ * The entry file to run this CLI (used in service files). Built from the workspace, this module
+ * is `dist/paths.js` and the entry is `dist/main.js`; in the published npm bundle every module is
+ * one file, `dist/switchyard.mjs`, which is itself the entry.
+ */
+export function entryFor(selfPath: string, root: string): string {
+  return basename(selfPath) === "paths.js" ? join(root, "dist", "main.js") : selfPath;
+}
+
 export function cliEntry(): string {
-  return join(cliPackageRoot(), "dist", "main.js");
+  return entryFor(fileURLToPath(import.meta.url), cliPackageRoot());
 }
 
 /**

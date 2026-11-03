@@ -12,7 +12,8 @@
       "!**/test-results",
       "!**/*.md",
       "!pnpm-lock.yaml",
-      "!**/.tmp*"
+      "!**/.tmp*",
+      "!dist-npm"
     ]
   },
   "formatter": {
