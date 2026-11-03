@@ -1,4 +1,4 @@
-# CLI and terminal client
+# CLI
 
 Everything is one command, `switchyard`. Install it with `npm install -g @spencerboucher/switchyard` (Node 24 or newer); in the container image it is already on `PATH`, and from a source checkout it is `node packages/cli/dist/main.js`. `switchyard <command> --help` shows every flag.
 

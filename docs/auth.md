@@ -10,7 +10,7 @@ Switchyard has one owner. Every browser, phone and terminal that uses it is a **
   2. Declaring an owner in the server's configuration: setting the `SWITCHYARD_OIDC_*` variables (see [Single sign-on](#single-sign-on-oidc)) makes the server owned at start.
   3. `switchyard up` on your own machine, which does the equivalent of `init` for you.
 - Everything after that is started by the owner: pairing a device, adding a passkey, enrolling a host. A visitor cannot ask for access or be approved; an unauthenticated visitor sees a sign-in page and nothing else.
-- A request is authenticated by a **device credential** issued by the coordinator (an HttpOnly cookie in browsers, a bearer token in the terminal client). Passkeys and single sign-on do not authenticate requests themselves: they prove who you are once and mint a normal device. An expired provider session therefore never breaks an installed app, push notifications or a WebSocket.
+- A request is authenticated by a **device credential** issued by the coordinator (an HttpOnly cookie in browsers, a bearer token in the CLI and `switchyard tui`). Passkeys and single sign-on do not authenticate requests themselves: they prove who you are once and mint a normal device. An expired provider session therefore never breaks an installed app, push notifications or a WebSocket.
 
 ### Why there is no "unclaimed" state
 
