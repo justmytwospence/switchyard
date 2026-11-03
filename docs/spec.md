@@ -48,7 +48,7 @@ Vibe Kanban is a historical board-oriented precedent, not a deployment dependenc
 - Native macOS/Linux host agents.
 - Docker Compose coordinator.
 - Responsive web/PWA, terminal client, scriptable CLI.
-- QR enrollment and device revocation.
+- Single sign-on and passkey sign-in, browser-approved terminals, device revocation.
 - Remote headless execution.
 - Repo-local worktrees and discovery.
 - Persistent Pi conversations.
@@ -667,7 +667,7 @@ Support quiet hours, private previews, preferred device, permission status, and 
 
 ## 17. Security, pairing, and reliability
 
-Single-use, short-lived QR enrollment tokens. Separate revocable device credentials. Separate host enrollment.
+Single sign-on (required off localhost) or passkeys for browsers; terminals approved from a signed-in browser. Separate revocable device credentials. Separate host enrollment.
 
 Provider credentials stay on execution hosts.
 

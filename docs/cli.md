@@ -6,12 +6,11 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 
 | Command | Purpose |
 |---|---|
-| `up` | Run a coordinator and a local host in one process; sets the server up on first start and opens a sign-in link (`--no-open` to only print it) |
-| `init` | Set up this server and print a single-use sign-in link for your first device; on a set-up server, print a new link |
-| `pair [--host]` | Create a single-use link and QR for another device (or a host token); also the recovery path when every device is lost |
+| `up` | Run a coordinator and a local host in one process; prints a sign-in link on first start when there is no single sign-on or device, and opens it (`--no-open` to only print it) |
+| `pair [--host]` | Print a single-use sign-in link and QR for a browser (or a host token), using the admin token: for local servers and recovery |
 | `coordinator start` / `backup` / `restore` / `migrate` | Run the coordinator; back up, restore and migrate its database |
 | `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it |
-| `login` | Enroll this terminal as a device (`--coordinator`, `--token <token or enrollment link>`) |
+| `login` | Sign this terminal in by approving a code in a browser (`--coordinator`, `--name`, `--open`/`--no-open`; `--token <link>` from `pair` instead) |
 | `tui <sessionId>` | Open a terminal session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
 | `herdr daemon` / `pane` / `new` / `status` | The herdr integration: mirror Switchyard into a paired herdr session, a space per workspace and a tab per session ([integrations/herdr](../integrations/herdr/README.md)) |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
@@ -52,7 +51,7 @@ The full table, with defaults, is in [deployment.md](deployment.md#environment-r
 ## Pi terminal
 
 ```sh
-switchyard login --coordinator https://switchyard.example.com --token <enrollment token or link>
+switchyard login --coordinator https://switchyard.example.com
 switchyard tui <session id>
 ```
 

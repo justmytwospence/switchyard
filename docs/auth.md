@@ -1,60 +1,47 @@
 # Sign-in, devices and hosts
 
-Switchyard has one owner. Every browser, phone and terminal that uses it is a **device** with its own revocable credential, and every machine that runs Pi is a **host** with its own credential. This page explains how a server becomes owned, how devices and hosts get in, and how to revoke them. It assumes nothing about your network or identity provider; [deployment.md](deployment.md) covers the network side.
+Switchyard has one owner. Browsers sign in with **single sign-on** (any OpenID Connect provider) or a **passkey**; terminals are **approved from a browser** that is already signed in; every machine that runs Pi is a **host** with its own credential. Every browser, phone and terminal that uses Switchyard is a **device** with its own revocable credential. This page explains how the owner is declared, how each kind of client gets in, and how to revoke them. [deployment.md](deployment.md) covers the network side.
 
-## The owner model
+## Single sign-on is required
 
-- A server is **owned before it serves anything**. There is no "unclaimed" state in which the first visitor can take it over.
-- Ownership is created by someone who already controls the server, in one of three ways:
-  1. `switchyard init` on the server (below).
-  2. Declaring an owner in the server's configuration: setting the `SWITCHYARD_OIDC_*` variables (see [Single sign-on](#single-sign-on-oidc)) makes the server owned at start.
-  3. `switchyard up` on your own machine, which does the equivalent of `init` for you.
-- Everything after that is started by the owner: pairing a device, adding a passkey, enrolling a host. A visitor cannot ask for access or be approved; an unauthenticated visitor sees a sign-in page and nothing else.
-- A request is authenticated by a **device credential** issued by the coordinator (an HttpOnly cookie in browsers, a bearer token in the CLI and `switchyard tui`). Passkeys and single sign-on do not authenticate requests themselves: they prove who you are once and mint a normal device. An expired provider session therefore never breaks an installed app, push notifications or a WebSocket.
+- Unless `SWITCHYARD_PUBLIC_URL` is `localhost`, `127.x.x.x` or `::1`, the coordinator **refuses to start without single sign-on** ([below](#single-sign-on-oidc)). The owner is whoever matches the configured owner criteria, so a server is owned before it serves anything.
+- A request is authenticated by a **device credential** issued by the coordinator (an HttpOnly cookie in browsers, a bearer token in the CLI and `switchyard tui`). Single sign-on and passkeys do not authenticate requests themselves: they prove who you are once and mint a normal device. An expired provider session therefore never breaks an installed app, push notifications or a WebSocket.
+- At a localhost URL (`switchyard up`, local development) no identity provider is needed: see [Local use and recovery](#local-use-and-recovery).
 
 ### Why there is no "unclaimed" state
 
-A page that says "this server has no owner, claim it" announces to the network that the server is up for grabs, and whoever reaches it first wins. A claim code shown to visitors has the same flaw. Switchyard instead requires server access to create the owner, so ownership never depends on who can reach the URL first, and it works the same on a LAN, a VPN or the open internet. Before a server is set up, visitors only see "Switchyard isn't set up yet" with the command to run on the server.
+A page that says "this server has no owner, claim it" announces to the network that the server is up for grabs, and whoever reaches it first wins. Switchyard instead declares the owner in server configuration, so ownership never depends on who can reach the URL first, and it works the same on a LAN, a VPN or the open internet.
 
-### Bootstrap: `switchyard init`
+## Signing in a browser
 
-Run it on the machine that runs the coordinator. It authenticates with the local admin token (`admin.token` in the data dir) and prints a single-use sign-in link and QR code for your first device:
+- **Single sign-on:** the sign-in page offers one button for your provider. Pick it, sign in there, and you land back in the app.
+- **A passkey** (below) signs in without the provider, as a backup or alternative.
+- **A `switchyard pair` link** (local use and recovery, below).
+
+Devices are named automatically from the browser (for example "Safari on iPhone"). Rename one in Settings › Devices.
+
+## Terminals
+
+`switchyard login --coordinator <url>` prints a link and a code. Open the link in a browser that is signed in to Switchyard (it opens one for you when run interactively, not over SSH; `--open` and `--no-open` override), check that the code matches, and press Approve. The terminal polls until then and stores its own revocable credential in `~/.config/switchyard/client.json`. Over SSH, open the printed link on any signed-in device. The request expires after 10 minutes.
+
+`switchyard login --token <link or token>` redeems a single-use link from `switchyard pair` instead, for headless use.
+
+## Local use and recovery
+
+`switchyard up` on a localhost URL prints a single-use sign-in link with a QR code on first start (when no device is signed in yet) and opens it in your browser. `switchyard pair` prints a fresh one at any time, using the admin token (`admin.token` in the data dir) on the machine that runs the coordinator:
 
 ```
-switchyard init
-docker exec switchyard switchyard init       # the container image; `switchyard` is on PATH
-docker compose exec switchyard switchyard init
+switchyard pair
+docker exec switchyard switchyard pair
 ```
 
-The link expires after 10 minutes. Open it on your first device. Running `init` again on an already set up server prints a fresh single-use link (`Already set up. New single-use sign-in link for one device`). Add `--json` for scripting; `--coordinator <url>` and `--data-dir <dir>` select a running coordinator or data dir when the defaults do not find it. In the image the data dir is `/data` through `SWITCHYARD_DATA_DIR`, so no flags are needed.
-
-Until the server is set up, the coordinator prints "Switchyard is not set up yet. Run `switchyard init` on this server" at start and logs the same hint. It mints no enrollment on its own.
-
-`switchyard up` (local use) sets the server up in the same way on first start, prints the link and QR code, and opens the link in your browser when run in an interactive terminal (`--no-open` to prevent it, `--open` to force it).
-
-A server upgraded from a version that already had devices counts as set up.
-
-## Pairing more devices
-
-Pairing is always started by a signed-in owner:
-
-- **Settings › Devices › Add device** shows a QR code and link. Scan it with the new device's camera or open the link there. It is single use and expires after 10 minutes.
-- **`switchyard pair`** prints the same link and QR code on the server, using the admin token. It also prints a `switchyard login` command for a terminal client.
-- **A passkey or single sign-on** (below) lets a device sign in without a link.
-
-A link carries a URL and a one-time token, not network access: the new device must already be able to reach the server's URL.
-
-Terminal clients enroll with `switchyard login --coordinator <url> --token <token or link>`; see [deployment.md](deployment.md#terminal-client).
-
-### Recovery: lost every device
-
-Run `switchyard pair` (or `switchyard init`) on the server for a fresh link. Server access is the recovery path, which is why the admin token must be protected. With single sign-on configured you can also simply sign in again.
+The link expires after 10 minutes. It carries a URL and a one-time token, not network access. This is also the recovery path if single sign-on and every passkey are unavailable, which is why the admin token must be protected. `switchyard pair --host` prints a host token instead.
 
 ## Passkeys
 
-A passkey lets the owner sign in on any device with a fingerprint, face or screen lock, with no identity provider. Signing in with one mints a new device like a pairing link does.
+A passkey lets the owner sign in on any device with a fingerprint, face or screen lock, with no identity provider: a backup or alternative to single sign-on. Signing in with one mints a new device.
 
-1. Sign in once with a link (or single sign-on).
+1. Sign in once with single sign-on (or a `switchyard pair` link).
 2. Open **Settings › Sign-in › Add a passkey**, name it and approve the prompt.
 3. From then on the sign-in page offers "Sign in with a passkey".
 
@@ -113,7 +100,7 @@ A web app installed to the Home Screen (iOS in particular) has its own cookie ja
 3. after you approve at the provider, the browser shows "Signed in. Return to the Switchyard app to continue." (it does not receive the credential),
 4. the app claims the new device with a one-time poll token, checking every 2 seconds while visible and when you return to it, for up to 10 minutes.
 
-In an ordinary browser tab the flow is a direct redirect. Passkeys work directly inside an installed app. A pairing link opens in the browser, not in the installed app, so sign in to the installed app with a passkey or single sign-on.
+In an ordinary browser tab the flow is a direct redirect. Passkeys work directly inside an installed app. A `switchyard pair` link opens in the browser, not in the installed app, so sign in to the installed app with a passkey or single sign-on.
 
 ## Hosts
 
@@ -173,7 +160,7 @@ Public sign-in endpoints have a small in-process limit per client IP, in a fixed
 
 | Group | Limit | Routes |
 |---|---|---|
-| auth | 20 per minute | `/api/enroll`, `/api/auth/passkey/options`, `/api/auth/passkey/verify`, `/api/auth/oidc/begin`, `/api/auth/oidc/callback` |
+| auth | 20 per minute | `/api/enroll`, `/api/auth/passkey/options`, `/api/auth/passkey/verify`, `/api/auth/oidc/begin`, `/api/auth/oidc/callback`, `/api/auth/terminal/start` |
 | hosts | 10 per minute | `/api/hosts/enroll` |
 
 The counters live in memory and reset on restart. The single-use tokens and the one-time OIDC poll token are 256-bit secrets, so the limits mostly guard the passkey, provider and shared-secret paths.

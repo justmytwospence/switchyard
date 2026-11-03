@@ -101,7 +101,7 @@ The web app shows this under Settings > Diagnostics.
 - Pi installed and in the supported range (>=1.4.0 <1.6.0);
 - git available;
 - the coordinator answers `/healthz`;
-- a "Sign-in" line: PASS when the server is set up (showing whether a passkey is registered and single sign-on is configured), FAIL with "not set up: run `switchyard init`" otherwise;
+- a "Sign-in" line: PASS when single sign-on or a passkey is available (showing both), WARN when neither is;
 - the client credential works (`/api/me`);
 - a host link config (`host.json`, or the standalone one in the data dir) exists, and the coordinator sees that host as connected;
 - push is configured (VAPID keys) and at least one device subscribed.

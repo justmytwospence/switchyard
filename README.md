@@ -111,7 +111,7 @@ npm install -g @spencerboucher/switchyard
 switchyard up
 ```
 
-`up` runs the coordinator and a host in one process at `http://localhost:7400`, sets the server up on first start and opens a single-use sign-in link in your browser. Add a project in Settings › Projects (a path to a git repository), then start a session or create a task.
+`up` runs the coordinator and a host in one process at `http://localhost:7400`, prints and opens a single-use sign-in link in your browser on first start. Add a project in Settings › Projects (a path to a git repository), then start a session or create a task.
 
 **Run it as a server** with the container image (it runs only the coordinator):
 
@@ -119,7 +119,7 @@ switchyard up
 docker run -d --name switchyard -p 127.0.0.1:7400:7400 -v switchyard-data:/data \
   -e SWITCHYARD_PUBLIC_URL=https://switchyard.example.com \
   ghcr.io/justmytwospence/switchyard:0.6.0
-docker exec switchyard switchyard init    # prints a single-use sign-in link for your first device
+# Single sign-on is required off localhost: see docs/auth.md
 ```
 
 Put HTTPS in front of it (a reverse proxy, or a VPN or tailnet; the installed phone app, notifications and passkeys need HTTPS). Then, on each machine that should run agents, create a host token in Settings › Hosts › Add host and run:
@@ -136,8 +136,8 @@ Settings › Hosts › Add host shows these three commands with your token fille
 
 ## Security model
 
-- **A server is owned before it serves anything.** Ownership comes from `switchyard init` on the server, or from an owner declared in an OpenID Connect configuration. There is never an "unclaimed" web page.
-- **Only you add devices.** A new device gets in by a pairing link or QR code made from a device you already use, by a passkey, or by single sign-on that matches the configured owner. Each device has its own credential that you can revoke; signing out of an identity provider never breaks an installed app.
+- **A server is owned before it serves anything.** Off localhost, the owner is declared in an OpenID Connect configuration (required). There is never an "unclaimed" web page.
+- **Only you add devices.** A browser gets in by single sign-on that matches the configured owner or by a passkey; a terminal is approved from a browser that is already signed in. Each device has its own credential that you can revoke; signing out of an identity provider never breaks an installed app.
 - **Hosts dial out** with their own revocable credentials; the coordinator holds no provider credentials and needs no access to your home directory or Docker socket.
 - **Agents run with the host user's privileges.** Running the coordinator in a container does not sandbox the agents; run hosts as a user whose access you are comfortable giving an agent.
 
@@ -155,7 +155,7 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.6.0`
 | Guide | Covers |
 |---|---|
 | [Deployment](docs/deployment.md) | Single machine, server, reverse proxies, VPNs, hosts, environment reference, privilege model |
-| [Sign-in and devices](docs/auth.md) | The owner model, pairing, passkeys, single sign-on, host enrollment, revocation |
+| [Sign-in and devices](docs/auth.md) | The owner model, single sign-on, passkeys, terminal approval, single sign-on, host enrollment, revocation |
 | [CLI](docs/cli.md) | Every `switchyard` command and credentials |
 | [Terminal sessions](docs/terminal-sessions.md) | Pi's own TUI for every session, from any terminal, and the herdr integration |
 | [Operations](docs/operations.md) | Backup, restore, migrations, retention, logs, health, diagnostics |

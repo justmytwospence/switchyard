@@ -26,7 +26,7 @@ Sessions started anywhere else (the web app, your phone, automations) appear her
 
 ## Setup
 
-1. Sign this machine's CLI in to the coordinator: `switchyard login --coordinator <url> --token <link>`, with a link from Settings › Devices › Add device. Set `SWITCHYARD_CLIENT_CONFIG` to keep a separate login per coordinator.
+1. Sign this machine's CLI in to the coordinator: `switchyard login --coordinator <url>` (approve the code in a signed-in browser). Set `SWITCHYARD_CLIENT_CONFIG` to keep a separate login per coordinator.
 2. Pair a herdr session by creating `~/.config/switchyard-herdr/<herdr session>.env`, for example `switchyard-dev.env`:
 
    ```sh

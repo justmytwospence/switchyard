@@ -30,7 +30,7 @@ npm install -g @spencerboucher/switchyard
 switchyard up
 ```
 
-`up` runs the coordinator and a local host agent in one process. On first start it sets the server up, prints a single-use sign-in link with a QR code, and opens it in your browser when run in a terminal.
+`up` runs the coordinator and a local host agent in one process. On first start, without single sign-on and with no device signed in yet, it prints a single-use sign-in link with a QR code and opens it in your browser when run in a terminal.
 
 | Setting | Default | Override |
 |---|---|---|
@@ -44,7 +44,7 @@ switchyard up
 - The default public URL uses `localhost` so passkeys work on this machine. To reach it from another device, pass `--public-url` with the address that device uses (passkeys then need HTTPS and a domain name, see [auth.md](auth.md#passkeys)).
 - The local host is enrolled automatically on first start (`--name` sets its name). Its `host.json` and state live in `<data-dir>/host/`. Pi must be on `PATH` (or `SWITCHYARD_PI_BIN`).
 - `--dev` also trusts the Vite dev server origins (`http://localhost:5173`, `http://127.0.0.1:5173`) and turns on debug logs.
-- `up` records the local URL in `<data-dir>/cli-endpoint.json`, so `switchyard pair` and `init` on the same machine find it.
+- `up` records the local URL in `<data-dir>/cli-endpoint.json`, so `switchyard pair` on the same machine find it.
 - `up` reads the same server variables as `switchyard coordinator start` (the container's command): the ones in the table above plus the OIDC, trusted-proxy and shared-secret variables in the [environment reference](#environment-reference). With an OIDC owner declared it comes up already set up and prints no link.
 - Schedules (cron, once, webhooks, dependency triggers) only run while the process is awake. A sleeping laptop fires nothing; missed cron occurrences follow each automation's missed-run policy when it wakes.
 
@@ -57,12 +57,12 @@ cd deploy
 export SWITCHYARD_PUBLIC_URL=https://switchyard.example.com
 mkdir -p data && sudo chown 1000:1000 data
 docker compose up -d
-docker compose exec switchyard switchyard init
+docker compose exec switchyard switchyard pair   # localhost only; otherwise configure single sign-on first
 ```
 
 [`deploy/compose.yaml`](../deploy/compose.yaml) uses `ghcr.io/justmytwospence/switchyard:0.6.0` (multi-arch, `node:26-bookworm-slim`, runs as the `node` user), mounts `./data` at `/data` and has a `HEALTHCHECK` on `/healthz`. If the package is not public, `docker login ghcr.io` with a token that can read packages first. The compose file publishes the port on `127.0.0.1` only, for a proxy on the same machine; change it to `7400:7400` to serve plain HTTP on every interface, or remove it if the proxy shares a Docker network.
 
-`switchyard init` prints your first sign-in link. Alternatively declare an OIDC owner in the environment and the server comes up owned with no manual step ([auth.md](auth.md#single-sign-on-oidc)). To run without Docker, use `switchyard coordinator start` with the same variables.
+Single sign-on is required unless the public URL is localhost: declare an OIDC owner in the environment ([auth.md](auth.md#single-sign-on-oidc)). On localhost, `switchyard pair` prints a single-use sign-in link. To run without Docker, use `switchyard coordinator start` with the same variables.
 
 The coordinator container needs neither a home directory nor the Docker socket, and the compose file mounts neither.
 
@@ -214,14 +214,14 @@ The same image can run a host agent: `switchyard host run`. Use it only when the
 
 ## Pi terminal
 
-Terminals enroll with a single-use token from Settings › Devices › Add device or `switchyard pair`:
+Terminals sign in by approval in a browser you are already signed in to:
 
 ```
-switchyard login --coordinator https://switchyard.example.com --token <token>
+switchyard login --coordinator https://switchyard.example.com
 switchyard tui <session id>
 ```
 
-`--token` also accepts the whole link, in which case `--coordinator` is optional. `login` writes `~/.config/switchyard/client.json` (mode 0600) and registers the terminal as a device of kind `terminal`.
+`login` shows a link and a code; approve it in the browser. `--token <link from switchyard pair>` signs in without a browser. `login` writes `~/.config/switchyard/client.json` (mode 0600) and registers the terminal as a device of kind `terminal`.
 
 Work commands (`sessions`, `tasks`, `automations`, `tui`, `doctor`) resolve credentials in this order: `--coordinator`/`--credential` flags, `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`, `~/.config/switchyard/client.json`, then the local `admin.token` in the data dir against the coordinator recorded in `cli-endpoint.json`, else `http://127.0.0.1:7400`.
 

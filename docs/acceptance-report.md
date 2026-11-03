@@ -90,7 +90,8 @@ Recorded against v0.2.0 (`ghcr.io/justmytwospence/switchyard:0.2.0`, linux/amd64
 | Item | Status | Evidence |
 |---|---|---|
 | No ownerless state: a fresh server mints nothing and shows only "isn't set up yet" | Verified | `coordinator/test/auth.test.ts`; `web/e2e/sign-in.spec.ts` |
-| `switchyard init` / `pair` set the server up (admin token only) | Verified | `coordinator/test/auth.test.ts`; `cli/test/config.test.ts` |
+| `switchyard pair` prints admin-only sign-in links; SSO required off localhost | Verified | `coordinator/test/auth.test.ts`; `cli/test/config.test.ts` |
+| Terminal login approved from a signed-in browser | Verified | `coordinator/test/terminal-login.test.ts`; `web/e2e/sign-in.spec.ts` |
 | Passkey registration and sign-in on a new device | Verified, virtual authenticator | `coordinator/test/passkeys.test.ts`; `web/e2e/sign-in.spec.ts` (Chromium CDP authenticator) |
 | OIDC sign-in with owner match, claims from userinfo, non-owner refused, PWA handoff | Verified, mock IdP | `coordinator/test/oidc.test.ts`; `web/e2e/sign-in.spec.ts` |
 | Host self-enrollment with a shared secret; host waits without config | Verified | `integration/enrollment.test.ts`; `host-agent/test/wait-for-config.test.ts` |
