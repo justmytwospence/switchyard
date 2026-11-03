@@ -7,6 +7,7 @@ import {
   Interaction,
   Passkey,
   Priority,
+  ProjectScan,
   TaskPolicy,
   TaskState,
   TaskTemplate,
@@ -70,6 +71,32 @@ export const UpdateProjectRequest = z.object({
   worktreeDir: WorktreeDir.optional(),
 });
 export const AddCheckoutRequest = z.object({ hostId: z.string(), path: z.string().min(1) });
+
+/** A host project folder: absolute, or relative to the host user's home with `~`. */
+export function isProjectFolderPath(s: string): boolean {
+  if (s.includes("\0")) return false;
+  return s === "~" || s.startsWith("~/") || s.startsWith("/");
+}
+export const ProjectFolder = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1024)
+  .refine(isProjectFolderPath, "must be an absolute path or start with ~/");
+export const UpdateHostRequest = z.object({
+  projectFolders: z.array(ProjectFolder).max(20).optional(),
+});
+export const ProjectScanResult = ProjectScan.extend({
+  added: z.array(
+    z.object({
+      projectId: z.string(),
+      name: z.string(),
+      path: z.string(),
+      newProject: z.boolean(),
+    }),
+  ),
+});
+export type ProjectScanResult = z.infer<typeof ProjectScanResult>;
 
 export const ProfileInput = z.object({
   name: z.string().min(1),

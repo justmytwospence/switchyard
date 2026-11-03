@@ -3,6 +3,7 @@ import { NotificationRouter } from "./attention/router.js";
 import { Scheduler } from "./automations/scheduler.js";
 import { AutomationService } from "./automations/service.js";
 import type { CoordinatorContext } from "./context.js";
+import { PROJECT_SCAN_INTERVAL_MS, ProjectFolderService } from "./project-folders.js";
 import { type PushSender, PushService } from "./push.js";
 import { registerAutomationRoutes } from "./routes/automations.js";
 import { registerPushRoutes } from "./routes/push.js";
@@ -25,6 +26,8 @@ export interface BuiltinOptions {
   checksTimeoutMs?: number;
   /** Desktop "recently active" window for notification routing (default 5 min). */
   desktopRecentMs?: number;
+  /** Project folder rescan interval (default 10 min; 0 disables the timer). */
+  projectScanIntervalMs?: number;
 }
 
 /**
@@ -44,6 +47,9 @@ export function installBuiltins(
   const notifications = new NotificationRouter(ctx, push, {
     desktopRecentMs: opts.desktopRecentMs ?? 5 * 60_000,
   });
+  const projectFolders = new ProjectFolderService(ctx, {
+    intervalMs: opts.projectScanIntervalMs ?? PROJECT_SCAN_INTERVAL_MS,
+  });
   const services: BuiltinServices = {
     dispatcher,
     runs,
@@ -51,6 +57,7 @@ export function installBuiltins(
     scheduler,
     push,
     notifications,
+    projectFolders,
   };
   for (const [name, svc] of Object.entries(services)) ctx.services.set(name, svc);
   registerTaskRoutes(app, ctx);
@@ -65,8 +72,10 @@ export function installBuiltins(
       notifications.start();
       dispatcher.start();
       scheduler.start();
+      projectFolders.start();
     },
     stop() {
+      projectFolders.stop();
       scheduler.stop();
       dispatcher.stop();
       notifications.stop();

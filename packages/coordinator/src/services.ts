@@ -2,6 +2,7 @@ import type { NotificationRouter } from "./attention/router.js";
 import type { Scheduler } from "./automations/scheduler.js";
 import type { AutomationService } from "./automations/service.js";
 import type { CoordinatorContext } from "./context.js";
+import type { ProjectFolderService } from "./project-folders.js";
 import type { PushService } from "./push.js";
 import type { Dispatcher } from "./tasks/dispatcher.js";
 import type { RunsService } from "./tasks/runs.js";
@@ -14,6 +15,7 @@ export interface BuiltinServices {
   scheduler: Scheduler;
   push: PushService;
   notifications: NotificationRouter;
+  projectFolders: ProjectFolderService;
 }
 
 /** Typed lookup of a built-in service (undefined before `start()` registers it). */

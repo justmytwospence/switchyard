@@ -42,6 +42,21 @@ export const RuntimeCapabilities = z.object({
 });
 export type RuntimeCapabilities = z.infer<typeof RuntimeCapabilities>;
 
+export const ProjectScan = z.object({
+  state: z.enum(["running", "done", "failed"]),
+  startedAt: Iso,
+  finishedAt: Iso.nullable(),
+  /** Repositories found across all folders. */
+  repositories: z.number().int(),
+  /** New projects created by this scan. */
+  projectsCreated: z.number().int(),
+  /** New checkouts (including the ones of new projects). */
+  checkoutsAdded: z.number().int(),
+  /** "<folder>: <message>" per folder that failed; for state "failed", the reason last. */
+  errors: z.array(z.string()),
+});
+export type ProjectScan = z.infer<typeof ProjectScan>;
+
 export const Host = z.object({
   id: Id,
   name: z.string(),
@@ -54,6 +69,9 @@ export const Host = z.object({
   lastSeenAt: Iso.nullable(),
   revokedAt: Iso.nullable(),
   createdAt: Iso,
+  /** Folders on the host whose git repositories become projects (absolute or ~/...). */
+  projectFolders: z.array(z.string()).optional(),
+  projectScan: ProjectScan.nullable().optional(),
 });
 export type Host = z.infer<typeof Host>;
 

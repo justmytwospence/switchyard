@@ -68,6 +68,7 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.readNative"), sessionFile: z.string() }),
   z.object({ type: z.literal("session.snapshot"), sessionId: z.string() }),
   z.object({ type: z.literal("checkout.inspect"), path: z.string() }),
+  z.object({ type: z.literal("projects.scan"), folder: z.string().min(1) }),
   z.object({
     type: z.literal("workspace.discover"),
     checkoutPath: z.string(),
@@ -167,6 +168,16 @@ export const CheckoutInfo = z.object({
   defaultBranch: z.string(),
 });
 export type CheckoutInfo = z.infer<typeof CheckoutInfo>;
+
+export const ScannedRepository = CheckoutInfo.extend({ name: z.string() });
+export type ScannedRepository = z.infer<typeof ScannedRepository>;
+
+export const ProjectFolderScan = z.object({
+  /** The folder, ~ expanded and realpath'd. */
+  folder: z.string(),
+  repositories: z.array(ScannedRepository),
+});
+export type ProjectFolderScan = z.infer<typeof ProjectFolderScan>;
 
 export const DiffFile = z.object({
   path: z.string(),

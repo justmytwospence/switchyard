@@ -10,13 +10,9 @@ import {
 import type { FastifyInstance } from "fastify";
 import type { CoordinatorContext } from "../context.js";
 import { parse } from "../http.js";
+import { newProject } from "../project-folders.js";
 import { requireConnected } from "../sessions/service.js";
-import {
-  DEFAULT_WORKTREE_DIR,
-  inspectCheckout,
-  refreshCheckoutWorkspaces,
-  worktreeDirOf,
-} from "../workspaces.js";
+import { inspectCheckout, refreshCheckoutWorkspaces, worktreeDirOf } from "../workspaces.js";
 
 /** Projects stored before 0.2 have no worktree folder: report the default. */
 function withDefaults(p: Project): Project {
@@ -56,21 +52,17 @@ export function registerProjectRoutes(app: FastifyInstance, ctx: CoordinatorCont
           { projectId: dupe.id },
         );
       }
-      const project: Project = {
-        id: newId("prj"),
+      const project = newProject({
         name: body.name,
         repoIdentity: info.repoIdentity,
-        defaultProfileId: body.defaultProfileId ?? null,
-        defaultHostId: body.hostId,
-        maxConcurrentRuns: body.maxConcurrentRuns ?? 1,
-        automationEnabled: true,
-        setupCommand: body.setupCommand ?? null,
-        checks: body.checks ?? [],
-        workspaceSharing: "single_writer",
-        worktreeDir: body.worktreeDir ?? DEFAULT_WORKTREE_DIR,
-        createdAt: now,
-        updatedAt: now,
-      };
+        hostId: body.hostId,
+        now,
+        defaultProfileId: body.defaultProfileId,
+        setupCommand: body.setupCommand,
+        checks: body.checks,
+        maxConcurrentRuns: body.maxConcurrentRuns,
+        worktreeDir: body.worktreeDir,
+      });
       const checkout: Checkout = {
         id: newId("chk"),
         projectId: project.id,

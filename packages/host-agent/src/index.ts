@@ -9,5 +9,6 @@ export * from "./git.js";
 export * from "./link.js";
 export * from "./logger.js";
 export * from "./main.js";
+export * from "./project-folders.js";
 export * from "./supervisor.js";
 export * from "./workspaces.js";

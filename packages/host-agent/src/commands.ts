@@ -5,6 +5,7 @@ import type { Dispatcher } from "./dispatch.js";
 import { listDir, readWorkspaceFile } from "./files.js";
 import { diffWorkspace, discoverWorktrees, inspectCheckout, worktreeStatus } from "./git.js";
 import type { Logger } from "./logger.js";
+import { scanProjectFolder } from "./project-folders.js";
 import type { SessionSupervisor } from "./supervisor.js";
 import type { WorkspaceService } from "./workspaces.js";
 
@@ -255,6 +256,8 @@ export class CommandRouter {
         return sup.snapshot(c.sessionId);
       case "checkout.inspect":
         return inspectCheckout(c.path);
+      case "projects.scan":
+        return scanProjectFolder(c.folder);
       case "workspace.discover":
         return {
           worktrees: await discoverWorktrees(c.checkoutPath, { worktreeDir: c.worktreeDir }),

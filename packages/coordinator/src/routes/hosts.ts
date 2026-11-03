@@ -1,7 +1,9 @@
-import { HostEnrollRequest } from "@switchyard/protocol";
+import { HostEnrollRequest, SwitchyardError, UpdateHostRequest } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import type { CoordinatorContext } from "../context.js";
 import { deviceOf, parse } from "../http.js";
+import { normalizeProjectFolders } from "../project-folders.js";
+import { requireService } from "../services.js";
 import { enrollmentResponse } from "./devices.js";
 
 export function registerHostRoutes(app: FastifyInstance, ctx: CoordinatorContext): void {
@@ -29,6 +31,35 @@ export function registerHostRoutes(app: FastifyInstance, ctx: CoordinatorContext
     const { id } = req.params as { id: string };
     const host = ctx.store.hosts.require(id);
     return { ...host, adapters: ctx.store.adaptersByHost()[id] ?? [] };
+  });
+
+  /** Change a host's settings (its project folders); new folders are scanned in the background. */
+  app.patch("/api/hosts/:id", async (req) => {
+    const { id } = req.params as { id: string };
+    const body = parse(UpdateHostRequest, req.body);
+    let scan = false;
+    const host = ctx.store.tx(() => {
+      const h = ctx.store.hosts.require(id);
+      if (h.revokedAt) throw new SwitchyardError("forbidden", "This host was revoked");
+      const next = { ...h };
+      if (body.projectFolders !== undefined) {
+        const folders = normalizeProjectFolders(body.projectFolders);
+        scan =
+          folders.length > 0 && JSON.stringify(folders) !== JSON.stringify(h.projectFolders ?? []);
+        next.projectFolders = folders;
+      }
+      return ctx.store.putHost(next);
+    });
+    if (scan && ctx.hostHub.isConnected(id)) {
+      requireService(ctx, "projectFolders").background(id);
+    }
+    return host;
+  });
+
+  /** Scan the host's project folders now and wait for the result. */
+  app.post("/api/hosts/:id/scan-projects", async (req) => {
+    const { id } = req.params as { id: string };
+    return requireService(ctx, "projectFolders").scan(id);
   });
 
   const revoke = async (req: { params: unknown }) => {
