@@ -145,7 +145,7 @@ function setup(sessions: Session[]) {
       },
     ],
     projects: [{ id: "prj_sy", name: "switchyard" }] as any,
-    hosts: [{ id: "hst_mac", name: "mac" }] as any,
+    hosts: [{ id: "hst_mac", name: "mac", capabilities: { terminal: true } }] as any,
     checkouts: [],
   };
   const api: { path: string; body: unknown }[] = [];
