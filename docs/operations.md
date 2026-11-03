@@ -1,6 +1,6 @@
 # Operations
 
-Commands below assume the `switchyard` CLI. In the Docker image `switchyard` is on `PATH` and `SWITCHYARD_DATA_DIR=/data` is set, so `docker compose exec switchyard switchyard <args>` (or `docker exec <container> switchyard <args>`) works without flags; the image entrypoint is the CLI, so `docker compose run --rm switchyard <args>` runs a one-off command. Elsewhere, install it with `npm install -g @justmytwospence/switchyard`; from a source checkout use `node packages/cli/dist/main.js <args>`.
+Commands below assume the `switchyard` CLI. In the Docker image `switchyard` is on `PATH` and `SWITCHYARD_DATA_DIR=/data` is set, so `docker compose exec switchyard switchyard <args>` (or `docker exec <container> switchyard <args>`) works without flags; the image entrypoint is the CLI, so `docker compose run --rm switchyard <args>` runs a one-off command. Elsewhere, install it with `npm install -g @spencerboucher/switchyard`; from a source checkout use `node packages/cli/dist/main.js <args>`.
 
 ## Data directory
 
@@ -116,7 +116,7 @@ A missing Pi or git is a FAIL only on a machine with a host config; elsewhere (a
 2. Change the image tag in `deploy/compose.yaml` (for example `ghcr.io/justmytwospence/switchyard:0.3.0` to the new release), then `docker compose pull && docker compose up -d` (from `deploy/`). From source, pull, rebuild and restart.
 3. Migrations apply automatically at start. If something goes wrong, stop the service and restore the backup with the previous image.
 
-Hosts are upgraded separately: `npm update -g @justmytwospence/switchyard`, then restart the installed service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux). Hosts and the coordinator reconnect on their own; running Pi sessions on a host stop when its agent restarts and show as interrupted until resumed.
+Hosts are upgraded separately: `npm update -g @spencerboucher/switchyard`, then restart the installed service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux). Hosts and the coordinator reconnect on their own; running Pi sessions on a host stop when its agent restarts and show as interrupted until resumed.
 
 ## Revoking devices and hosts
 

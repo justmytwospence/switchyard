@@ -26,7 +26,7 @@ The browser tests start a real coordinator and host with the mock model, and use
 
 ## Building the npm package
 
-The published package, `@justmytwospence/switchyard`, is one bundled CLI: `scripts/build-npm.mjs` inlines the `@switchyard/*` workspace packages into `dist/switchyard.mjs` with esbuild, keeps third-party dependencies as ordinary npm dependencies, and ships the Pi bridge extension and the web app alongside.
+The published package, `@spencerboucher/switchyard`, is one bundled CLI: `scripts/build-npm.mjs` inlines the `@switchyard/*` workspace packages into `dist/switchyard.mjs` with esbuild, keeps third-party dependencies as ordinary npm dependencies, and ships the Pi bridge extension and the web app alongside.
 
 ```sh
 pnpm build && pnpm build:npm      # writes dist-npm/

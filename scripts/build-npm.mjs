@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the published npm package @justmytwospence/switchyard into dist-npm/:
+// Builds the published npm package @spencerboucher/switchyard into dist-npm/:
 // the CLI with the @switchyard/* workspace code inlined (esbuild), third-party dependencies left
 // as ordinary npm dependencies, the Pi bridge extension next to the bundle, and the web app.
 // Run after `pnpm build`.
@@ -18,7 +18,7 @@ import { build } from "esbuild";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(root, "dist-npm");
-const NAME = "@justmytwospence/switchyard";
+const NAME = "@spencerboucher/switchyard";
 const PACKAGES = [
   "cli",
   "coordinator",

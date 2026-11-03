@@ -153,7 +153,7 @@ describe("entryFor", () => {
   });
   it("points at the bundle itself in the npm package", async () => {
     const { entryFor } = await import("../src/paths.js");
-    const bundle = "/opt/lib/node_modules/@justmytwospence/switchyard/dist/switchyard.mjs";
-    expect(entryFor(bundle, "/opt/lib/node_modules/@justmytwospence/switchyard")).toBe(bundle);
+    const bundle = "/opt/lib/node_modules/@spencerboucher/switchyard/dist/switchyard.mjs";
+    expect(entryFor(bundle, "/opt/lib/node_modules/@spencerboucher/switchyard")).toBe(bundle);
   });
 });

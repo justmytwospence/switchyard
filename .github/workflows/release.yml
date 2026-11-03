@@ -57,8 +57,8 @@ jobs:
       - name: Publish (skipped when this version is already on npm)
         run: |
           V=$(node -p "require('./dist-npm/package.json').version")
-          if npm view "@justmytwospence/switchyard@$V" version >/dev/null 2>&1; then
-            echo "@justmytwospence/switchyard@$V is already published"
+          if npm view "@spencerboucher/switchyard@$V" version >/dev/null 2>&1; then
+            echo "@spencerboucher/switchyard@$V is already published"
           else
             npm publish ./dist-npm --access public --provenance
           fi

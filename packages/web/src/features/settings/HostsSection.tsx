@@ -130,7 +130,7 @@ function HostRow({ host }: { host: Host }) {
   );
 }
 
-export const NPM_PACKAGE = "@justmytwospence/switchyard";
+export const NPM_PACKAGE = "@spencerboucher/switchyard";
 
 /** Install, enroll and run as a service: what a new host needs, in order. */
 export function hostSetupScript(enrollCommand: string): string {

@@ -6,7 +6,7 @@ describe("hostSetupScript", () => {
     expect(
       hostSetupScript("switchyard host enroll --coordinator https://x --token t").split("\n"),
     ).toEqual([
-      "npm install -g @justmytwospence/switchyard",
+      "npm install -g @spencerboucher/switchyard",
       "switchyard host enroll --coordinator https://x --token t",
       "switchyard host install-service",
     ]);

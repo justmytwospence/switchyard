@@ -26,7 +26,7 @@ Three rules hold in every pattern:
 ## Local: `switchyard up`
 
 ```
-npm install -g @justmytwospence/switchyard
+npm install -g @spencerboucher/switchyard
 switchyard up
 ```
 
@@ -173,12 +173,12 @@ A host runs the Pi processes and owns the repositories and provider credentials.
 On the machine that has the repositories and Pi credentials, as the user that should run Pi:
 
 ```
-npm install -g @justmytwospence/switchyard
+npm install -g @spencerboucher/switchyard
 switchyard host enroll --coordinator https://switchyard.example.com --token <token> [--name laptop]
 switchyard host install-service
 ```
 
-To upgrade a host later: `npm update -g @justmytwospence/switchyard`, then restart its service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux).
+To upgrade a host later: `npm update -g @spencerboucher/switchyard`, then restart its service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux).
 
 Get the token from Settings › Hosts › Add host. `host enroll` writes `~/.config/switchyard/host.json` (mode 0600). With a shared secret you can skip it: set `SWITCHYARD_COORDINATOR_URL`, `SWITCHYARD_HOST_ENROLL_SECRET` and optionally `SWITCHYARD_HOST_NAME` in the service's environment and the host enrolls itself the first time it runs.
 

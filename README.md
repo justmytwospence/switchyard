@@ -105,7 +105,7 @@ sequenceDiagram
 **Try it on one machine** (Node 24 or newer, git, and Pi 1.4 or 1.5 on your PATH):
 
 ```sh
-npm install -g @justmytwospence/switchyard
+npm install -g @spencerboucher/switchyard
 switchyard up
 ```
 
@@ -123,7 +123,7 @@ docker exec switchyard switchyard init    # prints a single-use sign-in link for
 Put HTTPS in front of it (a reverse proxy, or a VPN or tailnet; the installed phone app, notifications and passkeys need HTTPS). Then, on each machine that should run agents, create a host token in Settings › Hosts › Add host and run:
 
 ```sh
-npm install -g @justmytwospence/switchyard
+npm install -g @spencerboucher/switchyard
 switchyard host enroll --coordinator https://switchyard.example.com --token <token>
 switchyard host install-service    # launchd on macOS, a systemd user service on Linux
 ```
