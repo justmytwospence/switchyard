@@ -136,6 +136,7 @@ describe("sessions", () => {
     });
     expect(r.status).toBe(202);
     expect(r.body.runtime).toBe("starting");
+    expect(r.body.runtimeDetail).toBe("Creating worktree…");
     expect(r.body.title).toBe("Fix the login bug");
     const start = await host!.waitForCommand("session.start");
     const cmd = start.command as HostCommandOf<"session.start">;

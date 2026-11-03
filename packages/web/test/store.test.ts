@@ -9,7 +9,7 @@ import {
   mergeTranscriptItems,
   toSyncState,
 } from "../src/sync/reduce";
-import { countAttention, groupTasksByState } from "../src/sync/store";
+import { countAttention, groupTasksByState, useSyncStore } from "../src/sync/store";
 import { assistant, attention, ev, interaction, session, snapshot, task } from "./fixtures";
 
 describe("snapshot", () => {
@@ -201,5 +201,22 @@ describe("transcripts", () => {
     });
     expect(s.transcripts.ses_1!.items.map((i) => i.id)).toEqual(["new"]);
     expect(s.transcripts.ses_1!.stale).toBe(false);
+  });
+});
+
+describe("upsertSessionIfMissing", () => {
+  it("inserts a new session, keeps an existing one, and sync events replace it", () => {
+    const store = useSyncStore;
+    store.getState().reset?.();
+    store.getState().upsertSessionIfMissing(session("ses_up", { title: "from http" }));
+    expect(store.getState().sessions.ses_up?.title).toBe("from http");
+    store.getState().upsertSessionIfMissing(session("ses_up", { title: "ignored" }));
+    expect(store.getState().sessions.ses_up?.title).toBe("from http");
+    store
+      .getState()
+      .applyEvent(
+        ev("session.updated", session("ses_up", { title: "from sync" }), store.getState().seq + 1),
+      );
+    expect(store.getState().sessions.ses_up?.title).toBe("from sync");
   });
 });

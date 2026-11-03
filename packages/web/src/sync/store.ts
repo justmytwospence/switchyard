@@ -55,6 +55,8 @@ export interface SyncStore extends SyncData {
   setConnection(patch: Partial<ConnectionInfo>): void;
   /** Store an interaction returned by a REST acknowledgement (answer, 409 already_answered). */
   upsertInteraction(interaction: Interaction): void;
+  /** Insert a session from an HTTP response; never replaces one sync already delivered. */
+  upsertSessionIfMissing(session: Session): void;
   /** Fetch the newest transcript page (or reload it after a resync). */
   loadTranscript(sessionId: string, opts?: { force?: boolean }): Promise<void>;
   /** Fetch the page before the oldest loaded item. */
@@ -130,6 +132,11 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
       if (prev && prev.revision > interaction.revision) return {};
       return { interactions: { ...s.interactions, [interaction.id]: interaction } };
     });
+  },
+  upsertSessionIfMissing(session) {
+    set((s) =>
+      s.sessions[session.id] ? {} : { sessions: { ...s.sessions, [session.id]: session } },
+    );
   },
   loadTranscript(sessionId, opts) {
     const t = get().transcripts[sessionId];

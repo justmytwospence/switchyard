@@ -316,9 +316,12 @@ describe("composer", () => {
     expect(
       composerBlockReason({ ...base, hostLink: "unreachable", session: session("s") })?.reason,
     ).toMatch(/^Host offline/);
-    expect(
-      composerBlockReason({ ...base, session: session("s", { runtime: "starting" }) })?.reason,
-    ).toMatch(/^Starting…/);
+    const starting = composerBlockReason({
+      ...base,
+      session: session("s", { runtime: "starting" }),
+    });
+    expect(starting?.reason).toMatch(/^Starting…/);
+    expect(starting?.pending).toBe(true);
     const stopped = composerBlockReason({
       ...base,
       session: session("s", {

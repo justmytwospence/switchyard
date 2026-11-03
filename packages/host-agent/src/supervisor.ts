@@ -574,6 +574,8 @@ export class SessionSupervisor {
         nextOrder = 0;
       }
     }
+    const t0 = Date.now();
+    let adaptersMs = 0;
     const now = nowIso();
     // The newest control wins: the launch's own, the record's, or a takeover that arrived while
     // the launch was still preparing its workspace.
@@ -597,7 +599,7 @@ export class SessionSupervisor {
       profile: p.profile,
       nativeHandle,
       runtime: "starting",
-      runtimeDetail: null,
+      runtimeDetail: "Starting Pi…",
       controlRevision: control.controlRevision,
       controlMode: control.controlMode,
       origin: p.origin,
@@ -618,7 +620,12 @@ export class SessionSupervisor {
     this.live.set(rec.id, l);
     this.db.tx(() => this.saveAndEmit(rec));
 
-    await this.openAdapters(l, p.workspacePath);
+    // Adapters load while Pi starts; Pi events queue behind them on the session chain.
+    const adaptersStart = Date.now();
+    this.enqueue(l, async () => {
+      await this.openAdapters(l, p.workspacePath);
+      adaptersMs = Date.now() - adaptersStart;
+    });
 
     const ms = new ManagedSession({
       sessionId: rec.id,
@@ -635,8 +642,19 @@ export class SessionSupervisor {
     });
     l.ms = ms;
     this.wire(l, ms);
+    const piStart = Date.now();
     try {
       await ms.start();
+      this.opts.log.info(
+        {
+          sessionId: rec.id,
+          piStartMs: Date.now() - piStart,
+          adaptersMs,
+          totalMs: Date.now() - t0,
+          transport: ms.transport,
+        },
+        "session started",
+      );
       const socketPath = ms.terminalSocket;
       rec.terminal = socketPath ? { socketPath } : null;
       this.db.tx(() => this.saveAndEmit(rec));

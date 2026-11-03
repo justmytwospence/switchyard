@@ -1,9 +1,9 @@
 import type { Checkout, Host, Workspace } from "@switchyard/protocol";
 import { GitBranch } from "lucide-react";
-import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
-import { ErrorState, LoadingState } from "../../components/ui/states";
+import { ErrorState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
@@ -11,6 +11,7 @@ import { errorMessage } from "../../sync/api";
 import { useProjects, useSyncStore } from "../../sync/store";
 import { codeApi } from "./api";
 import { branchProblem, workspaceLabel, worktreePath } from "./model";
+import { rememberInitialPrompt } from "./startingPrompts";
 
 type WsMode = "existing" | "new";
 
@@ -389,8 +390,8 @@ const STEPS = ["Project", "Workspace", "Profile", "Prompt"] as const;
 
 /**
  * New session: a dialog on desktop, sequential sheets on mobile. Creating
- * posts `/api/sessions` and shows "Starting…" until the session arrives over
- * sync; it never reports success before that.
+ * posts `/api/sessions` and opens the session at once; the session view shows
+ * its starting progress until Pi is ready.
  */
 export function NewSessionFlow({
   open,
@@ -408,35 +409,14 @@ export function NewSessionFlow({
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [createdId, setCreatedId] = useState<string | null>(null);
-  const [slow, setSlow] = useState(false);
-  const arrived = useSyncStore((s) => (createdId ? !!s.sessions[createdId] : false));
 
   useEffect(() => {
     if (!open) {
       setStep(0);
       setError(null);
-      setCreatedId(null);
-      setSlow(false);
       setSubmitting(false);
     }
   }, [open]);
-
-  const delivered = useRef<string | null>(null);
-  const { reset } = form;
-  useEffect(() => {
-    if (createdId && arrived && delivered.current !== createdId) {
-      delivered.current = createdId;
-      reset();
-      onCreated(createdId);
-    }
-  }, [createdId, arrived, onCreated, reset]);
-
-  useEffect(() => {
-    if (!createdId) return;
-    const t = setTimeout(() => setSlow(true), 10_000);
-    return () => clearTimeout(t);
-  }, [createdId]);
 
   const create = async () => {
     if (form.problems.length || submitting) return;
@@ -453,7 +433,10 @@ export function NewSessionFlow({
         profileId: v.profileId || null,
         prompt: v.prompt,
       });
-      setCreatedId(s.id);
+      useSyncStore.getState().upsertSessionIfMissing(s);
+      rememberInitialPrompt(s.id, v.prompt);
+      form.reset();
+      onCreated(s.id);
     } catch (e) {
       setError(e);
     } finally {
@@ -461,21 +444,6 @@ export function NewSessionFlow({
     }
   };
 
-  const starting = createdId !== null;
-  const status = starting ? (
-    <div className="flex flex-col items-center gap-2">
-      <LoadingState label="Starting…" className="py-4" />
-      {slow && (
-        <>
-          <p className="text-center text-sm text-muted">
-            The coordinator accepted the session but it has not synced yet. It may still be creating
-            the worktree.
-          </p>
-          <Button onClick={() => createdId && onCreated(createdId)}>Open session</Button>
-        </>
-      )}
-    </div>
-  ) : null;
   const errorBox =
     error !== null ? (
       <ErrorState
@@ -493,18 +461,18 @@ export function NewSessionFlow({
         onClose={onClose}
         title="New session"
         description="A task is not required."
-        dismissOnBackdrop={!submitting && !starting}
+        dismissOnBackdrop={!submitting}
         className="max-w-xl"
         footer={
           <>
-            <Button onClick={onClose}>{starting ? "Close" : "Cancel"}</Button>
+            <Button onClick={onClose}>Cancel</Button>
             <Button
               variant="primary"
-              busy={submitting || starting}
+              busy={submitting}
               disabled={form.problems.length > 0}
               onClick={() => void create()}
             >
-              {starting ? "Starting…" : "Create session"}
+              Create session
             </Button>
           </>
         }
@@ -526,7 +494,6 @@ export function NewSessionFlow({
             <Preview form={form} />
             <Problems problems={form.problems} />
             {errorBox}
-            {status}
           </form>
         )}
       </Dialog>
@@ -548,10 +515,10 @@ export function NewSessionFlow({
       onClose={onClose}
       title={`New session: ${STEPS[step]}`}
       description={`Step ${step + 1} of ${STEPS.length}`}
-      dismissOnBackdrop={!submitting && !starting}
+      dismissOnBackdrop={!submitting}
       footer={
         <>
-          {step > 0 && !starting && (
+          {step > 0 && (
             <Button onClick={() => setStep((s) => s - 1)} disabled={submitting}>
               Back
             </Button>
@@ -559,11 +526,11 @@ export function NewSessionFlow({
           {last ? (
             <Button
               variant="primary"
-              busy={submitting || starting}
+              busy={submitting}
               disabled={form.problems.length > 0}
               onClick={() => void create()}
             >
-              {starting ? "Starting…" : "Create session"}
+              Create session
             </Button>
           ) : (
             <Button
@@ -604,7 +571,6 @@ export function NewSessionFlow({
         {step === 1 && <Preview form={form} />}
         <Problems problems={last ? form.problems : stepProblems} />
         {errorBox}
-        {status}
       </div>
     </Sheet>
   );

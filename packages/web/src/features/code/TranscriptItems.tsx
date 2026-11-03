@@ -34,6 +34,7 @@ import { codeApi } from "./api";
 import { useCodeContext } from "./context";
 import { useNow } from "./hooks";
 import { interactionDomId, outputPreview, stringifyArgs, type TimelineEntry } from "./model";
+import { initialPromptFor } from "./startingPrompts";
 
 export interface TimelineRowProps {
   entry: TimelineEntry;
@@ -482,6 +483,43 @@ function StreamEntry({ stream }: { stream: StreamBuffer }) {
             <CodeBlock text={outputPreview(stream.toolOutput).text} className="mt-1" />
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Shown at the end of the transcript while a session's Pi is starting. */
+export function StartingCard({
+  sessionId,
+  detail,
+  showPrompt,
+}: {
+  sessionId: string;
+  detail: string | null;
+  showPrompt: boolean;
+}) {
+  const prompt = showPrompt ? initialPromptFor(sessionId) : null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="starting-card"
+      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-3"
+    >
+      <div className="flex items-center gap-2">
+        <Spinner className="size-4 text-info" />
+        <span className="font-medium">Starting session</span>
+      </div>
+      <p className="text-sm text-muted">{detail ?? "Starting Pi…"}</p>
+      {prompt && (
+        <>
+          <span className="text-xs font-medium text-muted">
+            Your first prompt (sent when Pi is ready)
+          </span>
+          <div className="line-clamp-6 rounded-md bg-surface-2 px-3 py-2 text-sm break-words whitespace-pre-wrap">
+            {prompt}
+          </div>
+        </>
       )}
     </div>
   );

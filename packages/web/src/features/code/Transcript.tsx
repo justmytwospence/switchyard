@@ -5,7 +5,7 @@ import { ErrorState, InteractionPending, LoadingState } from "../../components/u
 import { cn } from "../../lib/cn";
 import { usePendingInteractions, useStreams, useSyncStore, useTranscript } from "../../sync/store";
 import { buildTimeline, countAfter, interactionDomId } from "./model";
-import { TimelineRow } from "./TranscriptItems";
+import { StartingCard, TimelineRow } from "./TranscriptItems";
 
 /**
  * Center `target` inside `container` by scrolling only the container
@@ -51,6 +51,8 @@ export function Transcript({
   const t = useTranscript(sessionId);
   const streams = useStreams(sessionId);
   const pending = usePendingInteractions(sessionId);
+  const session = useSyncStore((s) => s.sessions[sessionId]);
+  const starting = session?.runtime === "starting";
   const loadOlder = useSyncStore((s) => s.loadOlderTranscript);
   const loadTranscript = useSyncStore((s) => s.loadTranscript);
   const entries = useMemo(
@@ -221,7 +223,7 @@ export function Transcript({
             />
           ) : !t.loaded && entries.length === 0 ? (
             <LoadingState label="Loading transcript…" />
-          ) : entries.length === 0 ? (
+          ) : entries.length === 0 && !starting ? (
             <p className="py-10 text-center text-sm text-muted">
               No messages yet. Write a prompt below to start.
             </p>
@@ -237,6 +239,13 @@ export function Transcript({
                 highlightInteractionId={highlight}
               />
             ))
+          )}
+          {starting && (
+            <StartingCard
+              sessionId={sessionId}
+              detail={session?.runtimeDetail ?? null}
+              showPrompt={entries.length === 0}
+            />
           )}
           {t.stale && t.loaded && (
             <p role="status" className="text-center text-xs text-muted">

@@ -16,6 +16,7 @@ import { useHideBottomNav } from "../../app/chrome";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Sheet } from "../../components/ui/Overlay";
+import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -280,6 +281,7 @@ export function Composer({
             role="status"
             className="flex flex-wrap items-center gap-2 rounded-md bg-surface-2 px-3 py-1.5 text-sm"
           >
+            {block.pending && <Spinner className="size-4 shrink-0 text-info" />}
             <span className="min-w-0 flex-1 font-medium">{block.reason}</span>
             {block.action === "resume" && onResume && (
               <Button

@@ -41,11 +41,15 @@ export class WorkspaceService {
     worktreeDir?: string,
   ): Promise<CreatedWorkspace> {
     const wt = await createWorktree(checkoutPath, branch, base, worktreeDir);
-    const git = await worktreeStatus(wt.path, wt.baseBranch).catch(() => null);
     const initial: SetupState = setupCommand
       ? { state: "running", log: "" }
       : { state: "none", log: "" };
-    this.emitUpdate(wt.path, { branch: wt.branch, baseBranch: wt.baseBranch, git, setup: initial });
+    this.emitUpdate(wt.path, { branch: wt.branch, baseBranch: wt.baseBranch, setup: initial });
+    // Status is not needed to start a session: it follows as an update.
+    void worktreeStatus(wt.path, wt.baseBranch).then(
+      (git) => this.emitUpdate(wt.path, { git }),
+      () => {},
+    );
     let setupDone: Promise<SetupState> = Promise.resolve(initial);
     if (setupCommand) {
       setupDone = runSetup(wt.path, setupCommand, (setup) => this.emitUpdate(wt.path, { setup }), {
@@ -70,7 +74,7 @@ export class WorkspaceService {
       branch: wt.branch,
       baseBranch: wt.baseBranch,
       provenance: "managed",
-      git,
+      git: null,
       setup: initial,
       setupDone,
     };

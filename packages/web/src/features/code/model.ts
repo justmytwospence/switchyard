@@ -481,7 +481,7 @@ export function composerBlockReason(input: {
   session: Session;
   hostLink: HostLink;
   hostName: string;
-}): { reason: string; action?: "resume" } | null {
+}): { reason: string; action?: "resume"; pending?: boolean } | null {
   const { session, hostLink: link } = input;
   if (session.readOnly) return { reason: SUBAGENT_READ_ONLY };
   if (session.archivedAt) return { reason: "Session archived: unarchive it to send" };
@@ -493,7 +493,8 @@ export function composerBlockReason(input: {
           : `Host offline: ${input.hostName} is unreachable`,
     };
   }
-  if (session.runtime === "starting") return { reason: "Starting… you can send once Pi is ready" };
+  if (session.runtime === "starting")
+    return { reason: "Starting… you can send once Pi is ready", pending: true };
   if (!isLive(session)) {
     return {
       reason: session.nativeHandle

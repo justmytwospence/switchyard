@@ -228,7 +228,7 @@ export function createSession(
     nativeHandle: null,
     profileSnapshot: profile,
     runtime: "starting",
-    runtimeDetail: null,
+    runtimeDetail: workspace ? "Starting Pi…" : "Creating worktree…",
     connectivity: host.connectivity,
     runId: null,
     taskId: null,
@@ -244,19 +244,33 @@ export function createSession(
   ctx.store.putSession(session);
   const choice = input.workspace;
   const started = (async () => {
+    const t0 = Date.now();
     try {
       let s = session;
       if (!("existingId" in choice)) {
         const ws = await createWorkspace(ctx, project, checkout!, choice.newBranch, choice.base);
+        ctx.log.info(
+          { sessionId: session.id, ms: Date.now() - t0 },
+          "session start: worktree ready",
+        );
         s = ctx.store.tx(() => {
           const cur = ctx.store.sessions.require(session.id);
-          return ctx.store.putSession({ ...cur, workspaceId: ws.id, cwd: ws.path });
+          return ctx.store.putSession({
+            ...cur,
+            workspaceId: ws.id,
+            cwd: ws.path,
+            runtimeDetail: "Starting Pi…",
+          });
         });
       }
       await startOnHost(ctx, s, {
         initialPrompt: input.prompt.trim() ? input.prompt : null,
         nativeHandle: null,
       });
+      ctx.log.info(
+        { sessionId: session.id, ms: Date.now() - t0 },
+        "session start: started on host",
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       ctx.log.warn({ err, sessionId: session.id }, "session start failed");
