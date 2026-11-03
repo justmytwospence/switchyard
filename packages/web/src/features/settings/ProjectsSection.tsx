@@ -46,7 +46,7 @@ export function ProjectsSection() {
     <SectionPage
       testId="settings-projects"
       title="Projects"
-      description="A project is one repository. It can have checkouts on several hosts."
+      description="A project is one repository. It can have checkouts on several hosts. Repositories in a host's project folders are added automatically."
       actions={
         <Link to={settingsPath("projects/new")} className={buttonClasses("primary")}>
           <Plus aria-hidden className="size-4" />

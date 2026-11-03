@@ -22,6 +22,7 @@ import {
   EnrollmentStatus,
   ExpiryCountdown,
 } from "./EnrollmentPanel";
+import { ProjectFoldersCard } from "./ProjectFoldersCard";
 import {
   Card,
   ConfirmDialog,
@@ -362,6 +363,8 @@ export function HostDetail() {
           </ul>
         )}
       </Card>
+
+      <ProjectFoldersCard host={host} />
 
       <Card
         title="Checkout mappings"
