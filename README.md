@@ -118,7 +118,7 @@ switchyard up
 ```sh
 docker run -d --name switchyard -p 127.0.0.1:7400:7400 -v switchyard-data:/data \
   -e SWITCHYARD_PUBLIC_URL=https://switchyard.example.com \
-  ghcr.io/justmytwospence/switchyard:0.5.0
+  ghcr.io/justmytwospence/switchyard:0.6.0
 docker exec switchyard switchyard init    # prints a single-use sign-in link for your first device
 ```
 
