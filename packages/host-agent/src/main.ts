@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { detectPi, type PiDetection } from "@switchyard/pi-runtime";
+import { detectPi, type PiDetection, terminalSupport } from "@switchyard/pi-runtime";
 import { PROTOCOL_VERSION, type Receipt } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
 import { CommandRouter, type HostTestHooks } from "./commands.js";
@@ -17,6 +17,7 @@ import { Dispatcher } from "./dispatch.js";
 import { CoordinatorLink } from "./link.js";
 import { createLogger, type Logger } from "./logger.js";
 import { SessionSupervisor } from "./supervisor.js";
+import { TerminalRelay } from "./terminal-relay.js";
 import { WorkspaceService } from "./workspaces.js";
 
 /** Host agent version reported in `hello` (this package's `package.json` version). */
@@ -54,6 +55,11 @@ export interface RunHostAgentOptions {
   signal?: AbortSignal;
   /** Test overrides for the waits while the config is missing. */
   configWaitTiming?: Partial<WaitTiming>;
+  /**
+   * Run sessions as interactive Pi in terminal holders (default: host.json `terminalSessions`,
+   * else `SWITCHYARD_TERMINAL_SESSIONS=1`).
+   */
+  terminalSessions?: boolean;
 }
 
 export interface HostAgentHandle {
@@ -69,8 +75,13 @@ export interface HostAgentHandle {
   interruptedOnStart: string[];
   /** Number of Pi processes spawned by this agent. */
   readonly spawnedPiProcesses: number;
-  /** Graceful shutdown: stop every Pi (runtime `stopped`), close the link and the DB. */
-  stop(): Promise<void>;
+  /** Whether sessions run in terminal holders. */
+  terminalSessions: boolean;
+  /**
+   * Graceful shutdown: stop every RPC Pi (runtime `stopped`), detach from terminal sessions (or
+   * stop them with `terminals: "stop"`), close the link and the DB.
+   */
+  stop(opts?: { terminals?: "detach" | "stop" }): Promise<void>;
 }
 
 /** Start the host agent: DB, Pi detection, adapters, supervisor, router and coordinator link. */
@@ -97,8 +108,24 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   if (!pi.compatible) log.warn({ reason: pi.reason }, "Pi is not usable; sessions will be refused");
   else log.info({ version: pi.version }, "Pi detected");
 
+  const wantTerminal =
+    opts.terminalSessions ??
+    config.terminalSessions ??
+    mergedEnv.SWITCHYARD_TERMINAL_SESSIONS === "1";
+  const termSupport = wantTerminal ? terminalSupport() : null;
+  const terminalEnabled = termSupport?.ok === true;
+  if (termSupport && !termSupport.ok) {
+    log.warn(
+      { reason: termSupport.reason },
+      "terminal sessions requested but unavailable; sessions use RPC",
+    );
+  } else if (terminalEnabled) {
+    log.info("terminal sessions enabled");
+  }
+
   let link!: CoordinatorLink;
   let router!: CommandRouter;
+  let relay!: TerminalRelay;
   link = new CoordinatorLink({
     db,
     coordinatorUrl: config.coordinatorUrl,
@@ -113,9 +140,10 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
       piVersion: pi.version,
       piCompatible: pi.compatible,
       platform: hostPlatform(),
-      capabilities: pi.capabilities,
+      capabilities: pi.capabilities ? { ...pi.capabilities, terminal: terminalEnabled } : null,
       protocolVersion: PROTOCOL_VERSION,
     }),
+    onTerm: (streamId, msg) => relay.handle(streamId, msg),
     onCommand: (commandId, command) => {
       // A command still in flight when stop() closes the DB must not crash the process.
       router.handle(commandId, command).catch((err: unknown) => {
@@ -149,7 +177,16 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     extraExtensions: opts.extraExtensions,
     runtimeDir: paths.runtime,
     pi: () => ({ compatible: pi.compatible, reason: pi.reason }),
+    terminalSessions: terminalEnabled,
   });
+  relay = new TerminalRelay({
+    supervisor,
+    send: (streamId, msg) => {
+      link.sendTerm(streamId, msg);
+    },
+    log,
+  });
+  link.events.on("disconnected", () => relay.closeAll());
   const workspaces = new WorkspaceService({
     db,
     link,
@@ -182,6 +219,14 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     );
   }
   router.pruneReceipts();
+  const reattach = await supervisor.reattachTerminals();
+  interruptedOnStart.push(...reattach.lost);
+  if (reattach.reattached.length > 0 || reattach.lost.length > 0) {
+    log.info(
+      { reattached: reattach.reattached.length, lost: reattach.lost.length },
+      "terminal sessions after restart",
+    );
+  }
 
   try {
     await catalog.init();
@@ -214,14 +259,16 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     dispatcher,
     pi,
     interruptedOnStart,
+    terminalSessions: terminalEnabled,
     get spawnedPiProcesses() {
       return supervisor.spawnedProcesses;
     },
-    stop() {
+    stop(stopOpts = {}) {
       stopping ??= (async () => {
         process.off("SIGTERM", onSignal);
         process.off("SIGINT", onSignal);
-        await supervisor.stopAll();
+        relay.closeAll();
+        await supervisor.stopAll(stopOpts);
         // Let the final session.updated events go out before closing the socket.
         await new Promise((r) => setTimeout(r, 50));
         await link.stop();

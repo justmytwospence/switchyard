@@ -52,6 +52,12 @@ export const UNSUPPORTED_TITLE = "Terminal-only interface requested";
 export const UNSUPPORTED_TEXT =
   "An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one.";
 export const SESSION_LIVE_CONFLICT = "Session already live on this host";
+export const TERMINAL_PROMPT_TITLE = "Waiting in the terminal";
+export const TERMINAL_PROMPT_TEXT =
+  "An extension is showing its own interface in this session's terminal. Open the terminal (switchyard tui) to answer it.";
+export const TERMINAL_ANSWERED = "Answered in the terminal";
+export const REATTACH_EXPIRED =
+  "Host agent restarted; if Pi is still asking, the question appears again";
 /** Panel adapter id for the generic status and widget panels. */
 export const GENERIC_ADAPTER_ID = "generic";
 
@@ -82,6 +88,8 @@ export interface HostSessionRecord {
   lastAssistantText: string | null;
   lastActivityAt: string;
   createdAt: string;
+  /** Terminal sessions: the holder's socket while the session is live. */
+  terminal?: { socketPath: string } | null;
 }
 
 export interface StartParams {
@@ -124,6 +132,8 @@ export interface SupervisorOptions {
   runtimeDir?: string;
   /** Pi compatibility; sessions are refused when not compatible. */
   pi: () => { compatible: boolean; reason: string | null };
+  /** Run new sessions as interactive Pi in a terminal holder. */
+  terminalSessions?: boolean;
 }
 
 interface Live {
@@ -138,6 +148,8 @@ interface Live {
   statuses: Map<string, string>;
   subagents: Map<string, { id: string; order: number }>;
   awaitingSettled: boolean;
+  /** Terminal sessions: the open "waiting in the terminal" interaction. */
+  terminalPrompt: string | null;
 }
 
 const LIVE_RUNTIMES: RuntimeState[] = ["starting", "idle", "running", "waiting_input"];
@@ -221,14 +233,24 @@ function toSdkRequest(req: PiDialogRequest): SdkUiRequest {
   return rest as SdkUiRequest;
 }
 
+const UNSUPPORTED_ACTIONS = [
+  { id: "abort", label: "Stop the run", tone: "danger" as const },
+  { id: "message", label: "Send a message to the agent", tone: "primary" as const },
+];
+
 /** Presentation of an unsupported terminal-only `ctx.ui.custom()` call. */
 export function unsupportedPresentation(): UINode {
   return ui.section(UNSUPPORTED_TITLE, [
     ui.text(UNSUPPORTED_TEXT),
-    ui.actions([
-      { id: "abort", label: "Stop the run", tone: "danger" },
-      { id: "message", label: "Send a message to the agent", tone: "primary" },
-    ]),
+    ui.actions(UNSUPPORTED_ACTIONS),
+  ]);
+}
+
+/** Presentation of a dialog that can only be answered in a terminal session's terminal. */
+export function terminalPromptPresentation(): UINode {
+  return ui.section(TERMINAL_PROMPT_TITLE, [
+    ui.text(TERMINAL_PROMPT_TEXT),
+    ui.actions(UNSUPPORTED_ACTIONS),
   ]);
 }
 
@@ -271,24 +293,121 @@ export class SessionSupervisor {
     this.db.tx(() => {
       for (const rec of this.records.values()) {
         if (!LIVE_RUNTIMES.includes(rec.runtime)) continue;
+        if (rec.terminal) {
+          // Its Pi lives in a terminal holder that outlived the agent: reattach later.
+          this.expirePending(rec.id, REATTACH_EXPIRED);
+          this.reattachCandidates.push(rec.id);
+          continue;
+        }
         affected.push(rec.id);
-        rec.runtime = "interrupted";
-        rec.runtimeDetail = "Host agent restarted";
-        rec.queue = { steering: [], followUp: [] };
-        this.expirePending(rec.id, "Host agent restarted before this question was answered");
-        const item: TranscriptItem = {
-          id: newId("itm"),
-          sessionId: rec.id,
-          order: rec.nextOrder++,
-          at: nowIso(),
-          kind: "notice",
-          data: { level: "warning", text: RESTART_NOTICE },
-        };
-        this.link.emit({ type: "transcript.item", sessionId: rec.id, data: item });
-        this.saveAndEmit(rec);
+        this.markLost(rec, "Host agent restarted before this question was answered");
       }
     });
     return affected;
+  }
+
+  /** Sessions whose terminal holders may still run after a host-agent restart. */
+  private readonly reattachCandidates: string[] = [];
+
+  /** Interrupted after a restart: never auto-resume; expire questions; add a notice. Call in a tx. */
+  private markLost(rec: HostSessionRecord, expireSummary: string): void {
+    rec.runtime = "interrupted";
+    rec.runtimeDetail = "Host agent restarted";
+    rec.queue = { steering: [], followUp: [] };
+    rec.terminal = null;
+    this.expirePending(rec.id, expireSummary);
+    const item: TranscriptItem = {
+      id: newId("itm"),
+      sessionId: rec.id,
+      order: rec.nextOrder++,
+      at: nowIso(),
+      kind: "notice",
+      data: { level: "warning", text: RESTART_NOTICE },
+    };
+    this.link.emit({ type: "transcript.item", sessionId: rec.id, data: item });
+    this.saveAndEmit(rec);
+  }
+
+  /**
+   * After `recoverAfterRestart()`: reattach to the terminal holders of sessions that were live.
+   * A holder that is gone makes its session interrupted, like an RPC session.
+   */
+  async reattachTerminals(): Promise<{ reattached: string[]; lost: string[] }> {
+    const reattached: string[] = [];
+    const lost: string[] = [];
+    for (const id of this.reattachCandidates.splice(0)) {
+      const rec = this.records.get(id);
+      if (!rec?.terminal) continue;
+      const l = this.newLive(rec);
+      this.live.set(rec.id, l);
+      await this.openAdapters(l, rec.cwd);
+      const ms = new ManagedSession({
+        sessionId: rec.id,
+        cwd: rec.cwd,
+        title: rec.title,
+        profile: rec.profile,
+        nativeHandle: rec.nativeHandle,
+        piBin: this.opts.piBin,
+        env: this.opts.env,
+        runtimeDir: this.opts.runtimeDir,
+        nextOrder: rec.nextOrder,
+        transport: "terminal",
+        terminalSocket: rec.terminal.socketPath,
+      });
+      l.ms = ms;
+      this.wire(l, ms);
+      try {
+        await ms.start();
+        reattached.push(rec.id);
+      } catch (err) {
+        this.opts.log.warn(
+          { sessionId: rec.id, err: errorMessage(err) },
+          "terminal session could not be reattached",
+        );
+        this.teardown(l);
+        this.db.tx(() =>
+          this.markLost(rec, "Host agent restarted before this question was answered"),
+        );
+        lost.push(rec.id);
+      }
+    }
+    return { reattached, lost };
+  }
+
+  private newLive(rec: HostSessionRecord): Live {
+    return {
+      rec,
+      ms: null,
+      registry: null,
+      adapters: null,
+      claims: new Map(),
+      byPiRequest: new Map(),
+      chain: Promise.resolve(),
+      statuses: new Map(),
+      subagents: new Map(),
+      awaitingSettled: false,
+      terminalPrompt: null,
+    };
+  }
+
+  private async openAdapters(l: Live, workspacePath: string): Promise<void> {
+    try {
+      l.registry = await this.opts.catalog.forWorkspace(workspacePath);
+      this.emitAdapters();
+      l.adapters = l.registry.openSession({
+        sessionId: l.rec.id,
+        emit: (effect) => this.onAdapterEffect(l, effect),
+        initialState: this.loadAdapterState(l.rec.id),
+      });
+    } catch (err) {
+      this.opts.log.warn({ err: errorMessage(err) }, "adapter loading failed; using generic only");
+      this.diagnostic(
+        l.rec.id,
+        null,
+        "error",
+        `Adapters could not be loaded: ${errorMessage(err)}`,
+      );
+    }
   }
 
   record(sessionId: string): HostSessionRecord | undefined {
@@ -342,6 +461,7 @@ export class SessionSupervisor {
       stats: rec.stats,
       lastAssistantText: rec.lastAssistantText,
       createdAt: rec.createdAt,
+      terminal: rec.terminal != null,
     };
   }
 
@@ -482,33 +602,11 @@ export class SessionSupervisor {
       createdAt: prev?.createdAt ?? now,
     };
     this.records.set(rec.id, rec);
-    const l: Live = {
-      rec,
-      ms: null,
-      registry: null,
-      adapters: null,
-      claims: new Map(),
-      byPiRequest: new Map(),
-      chain: Promise.resolve(),
-      statuses: new Map(),
-      subagents: new Map(),
-      awaitingSettled: false,
-    };
+    const l = this.newLive(rec);
     this.live.set(rec.id, l);
     this.db.tx(() => this.saveAndEmit(rec));
 
-    try {
-      l.registry = await this.opts.catalog.forWorkspace(p.workspacePath);
-      this.emitAdapters();
-      l.adapters = l.registry.openSession({
-        sessionId: rec.id,
-        emit: (effect) => this.onAdapterEffect(l, effect),
-        initialState: this.loadAdapterState(rec.id),
-      });
-    } catch (err) {
-      this.opts.log.warn({ err: errorMessage(err) }, "adapter loading failed; using generic only");
-      this.diagnostic(rec.id, null, "error", `Adapters could not be loaded: ${errorMessage(err)}`);
-    }
+    await this.openAdapters(l, p.workspacePath);
 
     const ms = new ManagedSession({
       sessionId: rec.id,
@@ -521,11 +619,15 @@ export class SessionSupervisor {
       extensions: this.opts.extraExtensions,
       runtimeDir: this.opts.runtimeDir,
       nextOrder,
+      transport: this.opts.terminalSessions ? "terminal" : "rpc",
     });
     l.ms = ms;
     this.wire(l, ms);
     try {
       await ms.start();
+      const socketPath = ms.terminalSocket;
+      rec.terminal = socketPath ? { socketPath } : null;
+      this.db.tx(() => this.saveAndEmit(rec));
     } catch (err) {
       if (ms.process) this.spawned++;
       this.teardown(l);
@@ -688,11 +790,22 @@ export class SessionSupervisor {
   }
 
   /** Stop every live session gracefully (SIGTERM path); each becomes `stopped`. */
-  async stopAll(): Promise<void> {
+  /**
+   * Agent shutdown. RPC sessions stop gracefully (runtime `stopped`). Terminal sessions are
+   * detached by default: their Pi keeps running in its holder and the next agent reattaches.
+   */
+  async stopAll(opts: { terminals?: "detach" | "stop" } = {}): Promise<void> {
     this.closing = true;
     await Promise.allSettled(
       [...this.live.values()].map(async (l) => {
-        await l.ms?.stop({ graceMs: 5000, termMs: 3000 });
+        const ms = l.ms;
+        if (ms?.transport === "terminal" && ms.isAlive && opts.terminals !== "stop") {
+          ms.detach();
+          await l.chain.catch(() => {});
+          this.teardown(l);
+          return;
+        }
+        await ms?.stop({ graceMs: 5000, termMs: 3000 });
         await l.chain.catch(() => {});
       }),
     );
@@ -906,6 +1019,10 @@ export class SessionSupervisor {
     ms.on("pi_event", (ev) => this.enqueue(l, () => this.onPiEvent(l, ev)));
     ms.on("exit", () => {
       // Runtime (stopped/interrupted) was already recorded by the runtime handler.
+      if (rec.terminal) {
+        rec.terminal = null;
+        this.db.tx(() => this.saveAndEmit(rec));
+      }
       void l.chain.finally(() => this.teardown(l));
     });
   }
@@ -1130,6 +1247,13 @@ export class SessionSupervisor {
     const current = this.interaction(interactionId);
     if (current?.state !== "pending") return;
     l.claims.delete(interactionId);
+    if (r.by === "terminal") {
+      this.updateInteraction(current, {
+        state: "resolved",
+        resolution: { by: "terminal", summary: TERMINAL_ANSWERED, at: nowIso() },
+      });
+      return;
+    }
     this.updateInteraction(current, {
       state: "expired",
       resolution: {
@@ -1141,6 +1265,10 @@ export class SessionSupervisor {
   }
 
   private onBridge(l: Live, b: BridgeEvent): void {
+    if (l.ms?.transport === "terminal") {
+      this.onTerminalPrompt(l, b);
+      return;
+    }
     if (b.type !== "ui_prompt_start" || b.kind !== "custom") return;
     const at = nowIso();
     const interaction: Interaction = {
@@ -1156,6 +1284,41 @@ export class SessionSupervisor {
       createdAt: at,
     };
     this.db.tx(() => this.insertInteraction(l, interaction));
+  }
+
+  /**
+   * Terminal sessions: a `custom()` interface (or any dialog, when remote answers are unavailable)
+   * can only be answered in the terminal. Show that, and mark it answered when the prompt ends.
+   */
+  private onTerminalPrompt(l: Live, b: BridgeEvent): void {
+    if (b.type === "ui_prompt_start") {
+      if (b.kind !== "custom" && l.ms?.remoteDialogs) return;
+      if (l.terminalPrompt) return;
+      const interaction: Interaction = {
+        id: newId("int"),
+        sessionId: l.rec.id,
+        revision: 1,
+        source: { kind: "unsupported_custom", title: b.title ?? null },
+        adapterId: null,
+        title: TERMINAL_PROMPT_TITLE,
+        presentation: terminalPromptPresentation(),
+        state: "unsupported",
+        resolution: null,
+        createdAt: nowIso(),
+      };
+      l.terminalPrompt = interaction.id;
+      this.db.tx(() => this.insertInteraction(l, interaction));
+      return;
+    }
+    if (b.type === "ui_prompt_end" && l.terminalPrompt) {
+      const current = this.interaction(l.terminalPrompt);
+      l.terminalPrompt = null;
+      if (current && current.resolution === null) {
+        this.updateInteraction(current, {
+          resolution: { by: "terminal", summary: TERMINAL_ANSWERED, at: nowIso() },
+        });
+      }
+    }
   }
 
   // ---- internals: adapters ----

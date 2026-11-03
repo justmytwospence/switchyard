@@ -10,6 +10,8 @@ import {
   newId,
   type Profile,
   type Receipt,
+  type TermCoordinatorMsg,
+  type TermServerToViewer,
 } from "@switchyard/protocol";
 import {
   fixtureExtensionPath,
@@ -49,6 +51,7 @@ export class FakeCoordinator {
   readonly events: ReceivedEvent[] = [];
   readonly hellos: Extract<HostToCoordinator, { type: "hello" }>[] = [];
   readonly receipts: Receipt[] = [];
+  readonly term: { streamId: string; msg: TermServerToViewer }[] = [];
   /** Cumulative ack, kept across restarts of this fake. */
   ackedHostSeq = 0;
   autoAck = true;
@@ -103,6 +106,9 @@ export class FakeCoordinator {
             }
             break;
           }
+          case "term":
+            this.term.push({ streamId: frame.streamId, msg: frame.msg });
+            break;
           default:
             break;
         }
@@ -128,6 +134,10 @@ export class FakeCoordinator {
 
   send(frame: CoordinatorToHost): void {
     this.socket?.send(JSON.stringify(frame));
+  }
+
+  sendTerm(streamId: string, msg: TermCoordinatorMsg): void {
+    this.send({ type: "term", streamId, msg });
   }
 
   get connected(): boolean {
@@ -234,6 +244,7 @@ export interface HarnessOptions {
   /** Start real Pi + mock model (default true). */
   withPi?: boolean;
   testHooks?: HostTestHooks;
+  terminalSessions?: boolean;
 }
 
 export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarness> {
@@ -262,6 +273,7 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarne
       backoffMs: [50, 100, 200],
       logger: silentLogger(),
       testHooks: hooks,
+      terminalSessions: opts.terminalSessions,
     });
     agents.push(agent);
     return agent;
@@ -276,7 +288,7 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarne
     mock,
     restartAgent: launch,
     async dispose() {
-      for (const a of agents) await a.stop().catch(() => {});
+      for (const a of agents) await a.stop({ terminals: "stop" }).catch(() => {});
       await coord.close();
       await mock?.close();
       pi?.cleanup();

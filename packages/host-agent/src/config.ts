@@ -9,6 +9,8 @@ export const HostConfigSchema = z.object({
   hostId: z.string().min(1),
   credential: z.string().min(1),
   name: z.string().min(1),
+  /** Run sessions as interactive Pi in a terminal holder (experimental; needs node-pty). */
+  terminalSessions: z.boolean().optional(),
 });
 export type HostConfig = z.infer<typeof HostConfigSchema>;
 

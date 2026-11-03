@@ -11,4 +11,5 @@ export * from "./logger.js";
 export * from "./main.js";
 export * from "./project-folders.js";
 export * from "./supervisor.js";
+export * from "./terminal-relay.js";
 export * from "./workspaces.js";
