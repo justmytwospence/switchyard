@@ -127,6 +127,33 @@ describe("service files", () => {
     expect(ctx.lines[0]).toBe(`Wrote ${file}`);
   });
 
+  it("retries a launchd bootstrap that races the previous bootout", async () => {
+    const ctx = testCtx(async () => new Response("{}"));
+    const home = join(ctx.dir, "home");
+    const config = join(home, ".config", "switchyard", "host.json");
+    mkdirSync(join(home, ".config", "switchyard"), { recursive: true });
+    writeFileSync(config, "{}");
+    let bootstraps = 0;
+    await installService(
+      ctx,
+      { config },
+      {
+        platform: "darwin",
+        home,
+        uid: 501,
+        retryDelayMs: 0,
+        run: async (cmd) => {
+          if (cmd[1] !== "bootstrap") return { ok: true, output: "" };
+          bootstraps++;
+          return bootstraps < 3
+            ? { ok: false, output: "Bootstrap failed: 5: Input/output error" }
+            : { ok: true, output: "" };
+        },
+      },
+    );
+    expect(bootstraps).toBe(3);
+  });
+
   it("refuses to install before the host is enrolled", async () => {
     const ctx = testCtx(async () => new Response("{}"));
     await expect(
