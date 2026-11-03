@@ -34,6 +34,12 @@ const TRUST_HELP: Record<Profile["projectTrust"], string> = {
 
 const THINKING_LEVELS = ThinkingLevel.options;
 
+const RESOURCES_HELP: Record<NonNullable<Profile["resources"]>, string> = {
+  all: "Loads your extensions, skills and prompt templates.",
+  vanilla:
+    "Starts Pi with --no-extensions --no-skills --no-prompt-templates (also no built-in MCP). Your logins, default model and AGENTS.md still apply, and Switchyard's model, effort, context and command controls keep working.",
+};
+
 /** Validate extra args one per line with the protocol schema; returns per-line errors. */
 export function validateExtraArgs(lines: string[]): string[] {
   const errors: string[] = [];
@@ -118,6 +124,7 @@ export function ProfilesSection() {
                   <span className="break-words text-muted">
                     {p.provider ?? "Default provider"} / {p.model ?? "default model"} · Thinking{" "}
                     {p.thinking ?? "default"} · Project trust {TRUST_LABEL[p.projectTrust]}
+                    {p.resources === "vanilla" && " · Vanilla Pi"}
                   </span>
                   {p.extraArgs.length > 0 && (
                     <span className="break-all font-mono text-xs text-muted">
@@ -187,6 +194,9 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
   const [model, setModel] = useState(profile?.model ?? "");
   const [thinking, setThinking] = useState<string>(profile?.thinking ?? "");
   const [trust, setTrust] = useState<Profile["projectTrust"]>(profile?.projectTrust ?? "ask");
+  const [resources, setResources] = useState<NonNullable<Profile["resources"]>>(
+    profile?.resources ?? "all",
+  );
   const [extra, setExtra] = useState((profile?.extraArgs ?? []).join("\n"));
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -207,6 +217,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
       model: model.trim() || null,
       thinking: thinking || null,
       projectTrust: trust,
+      resources,
       extraArgs: args,
     };
     setBusy(true);
@@ -307,6 +318,17 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
             </SelectInput>
           </Field>
         </div>
+        <Field id={`${ids}-resources`} label="Resources" hint={RESOURCES_HELP[resources]}>
+          <SelectInput
+            id={`${ids}-resources`}
+            value={resources}
+            onChange={(e) => setResources(e.target.value as NonNullable<Profile["resources"]>)}
+            {...describedBy(`${ids}-resources`, { hint: true })}
+          >
+            <option value="all">Your Pi setup</option>
+            <option value="vanilla">Vanilla Pi</option>
+          </SelectInput>
+        </Field>
         <Field
           id={`${ids}-extra`}
           label="Extra Pi arguments"

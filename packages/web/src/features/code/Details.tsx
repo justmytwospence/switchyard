@@ -17,7 +17,7 @@ import { codeApi } from "./api";
 import { ControlChip } from "./ConversationHeader";
 import { useCodeContext } from "./context";
 import type { SessionContext } from "./hooks";
-import { workspaceLabel } from "./model";
+import { contextMeter, modelLabel, workspaceLabel } from "./model";
 import type { SessionActions } from "./SessionActions";
 
 function Section({
@@ -441,6 +441,7 @@ export function MobileDetails({ ctx, actions }: { ctx: SessionContext; actions: 
   const { session, workspace, host } = ctx;
   const transcript = useTranscript(session.id);
   const subagents = transcript.items.filter((i) => i.kind === "subagent");
+  const meter = contextMeter(session);
   return (
     <div className="flex min-w-0 flex-col gap-5 px-3 py-3">
       <Section title="Automation and control">
@@ -482,11 +483,22 @@ export function MobileDetails({ ctx, actions }: { ctx: SessionContext; actions: 
             </>
           )}
           <dt className="text-muted">Profile</dt>
-          <dd className="min-w-0 break-words">
-            {session.profileSnapshot.name}
-            {session.profileSnapshot.model && ` · ${session.profileSnapshot.model}`}
-            {session.profileSnapshot.thinking && ` · effort ${session.profileSnapshot.thinking}`}
-          </dd>
+          <dd className="min-w-0 break-words">{session.profileSnapshot.name}</dd>
+          {session.model && (
+            <>
+              <dt className="text-muted">Model</dt>
+              <dd className="min-w-0 break-words">
+                {`${modelLabel(session.model)} (${session.model.provider}/${session.model.id})`}
+                {session.thinking && ` · effort ${session.thinking}`}
+              </dd>
+            </>
+          )}
+          {meter && (
+            <>
+              <dt className="text-muted">Context</dt>
+              <dd className="min-w-0 break-words">{`${meter.label} · ${meter.detail}`}</dd>
+            </>
+          )}
         </dl>
       </Section>
       <Section title="Subagents">

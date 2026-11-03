@@ -1,4 +1,14 @@
-import type { DiffResult, FileEntry, Run, Session, Task } from "@switchyard/protocol";
+import type {
+  DiffResult,
+  FileEntry,
+  ModelStateResult,
+  Run,
+  Session,
+  SessionModel,
+  SlashCommand,
+  Task,
+  ThinkingLevel,
+} from "@switchyard/protocol";
 import { apiGet, apiPost } from "../../sync/api";
 
 /** REST calls used by the Code feature (paths match packages/coordinator/src/routes). */
@@ -36,6 +46,16 @@ export const codeApi = {
       clientMessageId?: string;
     },
   ) => apiPost<PromptResult>(`${s(id)}/prompt`, body),
+  models: (id: string, signal?: AbortSignal) =>
+    apiGet<{ models: SessionModel[] }>(`${s(id)}/models`, undefined, signal),
+  commands: (id: string, signal?: AbortSignal) =>
+    apiGet<{ commands: SlashCommand[] }>(`${s(id)}/commands`, undefined, signal),
+  setModel: (id: string, provider: string, modelId: string) =>
+    apiPost<ModelStateResult>(`${s(id)}/model`, { provider, modelId }),
+  setThinking: (id: string, level: ThinkingLevel) =>
+    apiPost<ModelStateResult>(`${s(id)}/thinking`, { level }),
+  compact: (id: string, instructions?: string | null) =>
+    apiPost<{ ok: true }>(`${s(id)}/compact`, instructions ? { instructions } : {}),
   abort: (id: string, clearQueue = false) => apiPost(`${s(id)}/abort`, { clearQueue }),
   stop: (id: string) => apiPost<Session>(`${s(id)}/stop`),
   resume: (id: string) => apiPost<Session>(`${s(id)}/resume`),

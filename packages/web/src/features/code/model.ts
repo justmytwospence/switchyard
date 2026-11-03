@@ -4,13 +4,17 @@ import type {
   Connectivity,
   Host,
   Interaction,
+  Profile,
   Project,
   Run,
   RuntimeCapabilities,
   Session,
+  SessionModel,
+  SlashCommand,
   TranscriptItem,
   Workspace,
 } from "@switchyard/protocol";
+import { ThinkingLevel } from "@switchyard/protocol";
 import { PANE_LIMITS } from "../../prefs";
 import type { StreamBuffer } from "../../sync/store";
 
@@ -498,6 +502,7 @@ export function composerBlockReason(input: {
       action: session.nativeHandle ? "resume" : undefined,
     };
   }
+  if (session.compacting) return { reason: "Compacting context: you can send when it finishes" };
   return null;
 }
 
@@ -688,4 +693,234 @@ export function fitPanes(
     n -= give;
   }
   return { nav: n, insp: i };
+}
+
+// ---- session controls: slash commands, model, effort, context ----
+
+export type CommandSource = "switchyard" | SlashCommand["source"];
+
+export interface CommandEntry {
+  name: string;
+  description: string | null;
+  source: CommandSource;
+  argumentHint: string | null;
+}
+
+export const CLIENT_COMMANDS: CommandEntry[] = [
+  {
+    name: "model",
+    description: "Switch this session's model",
+    source: "switchyard",
+    argumentHint: "<provider>/<model>",
+  },
+  {
+    name: "thinking",
+    description: "Set the effort (thinking level)",
+    source: "switchyard",
+    argumentHint: "<level>",
+  },
+  {
+    name: "compact",
+    description: "Compact the session context",
+    source: "switchyard",
+    argumentHint: "[instructions]",
+  },
+  {
+    name: "name",
+    description: "Rename this session",
+    source: "switchyard",
+    argumentHint: "<name>",
+  },
+];
+
+export const TERMINAL_ONLY_COMMANDS = [
+  "settings",
+  "tree",
+  "scoped-models",
+  "export",
+  "import",
+  "share",
+  "bug",
+  "copy",
+  "session",
+  "changelog",
+  "hotkeys",
+  "fork",
+  "clone",
+  "trust",
+  "login",
+  "logout",
+  "new",
+  "resume",
+  "reload",
+  "quit",
+];
+
+const SOURCE_ORDER: Record<string, number> = { extension: 0, prompt: 1, skill: 2 };
+
+export function mergeCommands(client: CommandEntry[], remote: SlashCommand[]): CommandEntry[] {
+  const names = new Set(client.map((c) => c.name));
+  const rest: CommandEntry[] = remote
+    .filter((c) => !names.has(c.name))
+    .map((c) => ({
+      name: c.name,
+      description: c.description,
+      source: c.source,
+      argumentHint: null,
+    }))
+    .sort(
+      (a, b) =>
+        (SOURCE_ORDER[a.source] ?? 9) - (SOURCE_ORDER[b.source] ?? 9) ||
+        a.name.localeCompare(b.name),
+    );
+  return [...client, ...rest];
+}
+
+export function filterCommands(entries: CommandEntry[], query: string, limit = 50): CommandEntry[] {
+  const q = query.toLowerCase();
+  if (!q) return entries.slice(0, limit);
+  const scored: { e: CommandEntry; score: number; i: number }[] = [];
+  entries.forEach((e, i) => {
+    const name = e.name.toLowerCase();
+    const score = name.startsWith(q)
+      ? 0
+      : name.includes(q)
+        ? 1
+        : (e.description ?? "").toLowerCase().includes(q)
+          ? 2
+          : -1;
+    if (score >= 0) scored.push({ e, score, i });
+  });
+  scored.sort((a, b) => a.score - b.score || a.i - b.i);
+  return scored.slice(0, limit).map((s) => s.e);
+}
+
+export type ClientCommand =
+  | { kind: "model-picker" }
+  | { kind: "model"; provider: string; modelId: string }
+  | { kind: "thinking"; level: ThinkingLevel }
+  | { kind: "compact"; instructions: string | null }
+  | { kind: "name"; title: string }
+  | { kind: "invalid"; reason: string }
+  | { kind: "terminal-only"; name: string };
+
+export function parseClientCommand(text: string): ClientCommand | null {
+  const m = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (!m) return null;
+  const name = m[1]!;
+  const arg = (m[2] ?? "").trim();
+  switch (name) {
+    case "model": {
+      if (!arg) return { kind: "model-picker" };
+      const slash = arg.indexOf("/");
+      if (slash <= 0 || slash === arg.length - 1 || /\s/.test(arg)) {
+        return {
+          kind: "invalid",
+          reason: "Use /model <provider>/<model>, or /model alone to pick one",
+        };
+      }
+      return { kind: "model", provider: arg.slice(0, slash), modelId: arg.slice(slash + 1) };
+    }
+    case "thinking": {
+      const r = ThinkingLevel.safeParse(arg.toLowerCase());
+      if (!r.success) {
+        return {
+          kind: "invalid",
+          reason: `Use /thinking <level>: ${ThinkingLevel.options.join(", ")}`,
+        };
+      }
+      return { kind: "thinking", level: r.data };
+    }
+    case "compact":
+      return { kind: "compact", instructions: arg || null };
+    case "name":
+      if (!arg) return { kind: "invalid", reason: "Use /name <new name>" };
+      if (arg.length > 200) {
+        return { kind: "invalid", reason: "Session names are at most 200 characters" };
+      }
+      return { kind: "name", title: arg };
+    default:
+      return TERMINAL_ONLY_COMMANDS.includes(name) ? { kind: "terminal-only", name } : null;
+  }
+}
+
+export function clientCommandProblem(cmd: ClientCommand, running: boolean): string | null {
+  if (cmd.kind === "invalid") return cmd.reason;
+  if (cmd.kind === "terminal-only") {
+    return `/${cmd.name} is a Pi terminal command: open the session's terminal to use it`;
+  }
+  if (cmd.kind === "compact" && running) return "Wait for the run to finish before compacting";
+  return null;
+}
+
+export function modelLabel(m: SessionModel): string {
+  return m.name ?? m.id;
+}
+
+export function profileSummary(p: Profile): string {
+  return [
+    p.name,
+    p.provider && p.model ? `${p.provider}/${p.model}` : (p.model ?? null),
+    p.thinking ? `effort ${p.thinking}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export function modelSummary(session: Session): string {
+  const model = session.model;
+  if (!model) return profileSummary(session.profileSnapshot);
+  const effort =
+    session.thinking && model.thinkingLevels.length > 1 ? ` · effort ${session.thinking}` : "";
+  return `${modelLabel(model)}${effort}`;
+}
+
+export function groupModels(
+  models: SessionModel[],
+  query: string,
+): { provider: string; models: SessionModel[] }[] {
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const groups: { provider: string; models: SessionModel[] }[] = [];
+  for (const m of models) {
+    const hay = `${m.provider}/${m.id} ${m.name ?? ""}`.toLowerCase();
+    if (!tokens.every((t) => hay.includes(t))) continue;
+    let g = groups.find((x) => x.provider === m.provider);
+    if (!g) {
+      g = { provider: m.provider, models: [] };
+      groups.push(g);
+    }
+    g.models.push(m);
+  }
+  return groups;
+}
+
+export function contextMeter(s: Pick<Session, "stats" | "compacting">): {
+  label: string;
+  detail: string;
+  percent: number | null;
+  tone: "muted" | "warning" | "danger";
+} | null {
+  const c = s.stats?.context;
+  if (!c) return null;
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  const label = s.compacting
+    ? "Compacting…"
+    : c.percent === null
+      ? "—"
+      : `${Math.round(c.percent)}%`;
+  const detail =
+    c.tokens === null
+      ? `Known after the next reply (window ${fmt(c.window)} tokens)`
+      : `${fmt(c.tokens)} of ${fmt(c.window)} tokens`;
+  const p = c.percent ?? 0;
+  return {
+    label,
+    detail,
+    percent: c.percent,
+    tone: p >= 90 ? "danger" : p >= 75 ? "warning" : "muted",
+  };
+}
+
+export function piControlsAvailable(host: Host | undefined, block: unknown): boolean {
+  return !block && host?.capabilities?.sessionControls === true;
 }

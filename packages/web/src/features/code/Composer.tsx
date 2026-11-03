@@ -25,13 +25,24 @@ import { errorMessage } from "../../sync/api";
 import { codeApi, type PromptMode } from "./api";
 import type { SessionContext } from "./hooks";
 import {
+  CLIENT_COMMANDS,
+  type CommandEntry,
+  clientCommandProblem,
   composerBlockReason,
+  filterCommands,
   type ImageAttachment,
   isBusy,
+  mergeCommands,
+  modelSummary,
+  parseClientCommand,
+  piControlsAvailable,
   readImageFile,
   SUBAGENT_READ_ONLY,
   sendModes,
 } from "./model";
+import { ContextMeter, EffortMenu, ModelChip, ModelPicker } from "./PiControls";
+import { SlashPicker } from "./SlashPicker";
+import { useSessionCommands } from "./useSessionCommands";
 
 export interface ComposerProps {
   ctx: SessionContext;
@@ -75,6 +86,8 @@ export function Composer({
   const [attachSheet, setAttachSheet] = useState(false);
   const [commandSheet, setCommandSheet] = useState(false);
   const [slashDismissed, setSlashDismissed] = useState(false);
+  const [active, setActive] = useState(0);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -97,13 +110,41 @@ export function Composer({
     (a) => a.status === "active" && a.capabilities.includes("commands"),
   );
   const slashOpen = !mobile && !slashDismissed && /^\/\S*$/.test(draft) && focused;
+  const controls = piControlsAvailable(host, block);
+  const {
+    commands,
+    error: cmdError,
+    loading: cmdLoading,
+    refresh,
+  } = useSessionCommands(session.id, controls);
+  const entries = controls ? mergeCommands(CLIENT_COMMANDS, commands) : [];
+  const shown = slashOpen ? filterCommands(entries, draft.slice(1)) : [];
+  const clientCmd = controls ? parseClientCommand(text) : null;
+  const commandProblem = clientCmd ? clientCommandProblem(clientCmd, running) : null;
+  const pick = (e: CommandEntry) => {
+    setDraft(`/${e.name} `);
+    textRef.current?.focus();
+  };
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight as the draft changes
+  useEffect(() => setActive(0), [draft]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refresh when the picker opens
+  useEffect(() => {
+    if (slashOpen || commandSheet) refresh();
+  }, [slashOpen, commandSheet]);
 
   const send = async (mode: PromptMode) => {
-    if (block || noText || busy) return;
+    if (block || noText || busy || commandProblem) return;
     const sent = draft;
     setBusy(mode);
     setError(null);
     try {
+      if (clientCmd) {
+        await runClientCommand(clientCmd);
+        if (textRef.current?.value === sent) clearDraft();
+        setSlashDismissed(false);
+        return;
+      }
       const res = await codeApi.prompt(session.id, {
         text,
         mode,
@@ -121,6 +162,32 @@ export function Composer({
       setError({ error: e, mode });
     } finally {
       setBusy(null);
+    }
+  };
+
+  const runClientCommand = async (cmd: NonNullable<typeof clientCmd>) => {
+    switch (cmd.kind) {
+      case "model-picker":
+        setModelPickerOpen(true);
+        return;
+      case "model":
+        await codeApi.setModel(session.id, cmd.provider, cmd.modelId);
+        toast.success(`Model: ${cmd.provider}/${cmd.modelId}`);
+        return;
+      case "thinking":
+        await codeApi.setThinking(session.id, cmd.level);
+        toast.success(`Effort: ${cmd.level}`);
+        return;
+      case "compact":
+        await codeApi.compact(session.id, cmd.instructions);
+        toast.success("Compacting context");
+        return;
+      case "name":
+        await codeApi.rename(session.id, cmd.title);
+        toast.success("Session renamed");
+        return;
+      default:
+        return;
     }
   };
 
@@ -146,11 +213,13 @@ export function Composer({
 
   const sendReason = block
     ? block.reason
-    : running && !primaryMode
-      ? "Pi is running and this runtime cannot queue messages; wait or stop the session"
-      : noText && attachments.length > 0
-        ? "Add a message to send with the images"
-        : null;
+    : commandProblem
+      ? commandProblem
+      : running && !primaryMode
+        ? "Pi is running and this runtime cannot queue messages; wait or stop the session"
+        : noText && attachments.length > 0
+          ? "Add a message to send with the images"
+          : null;
 
   // Mobile: tapping Send must not blur the draft first. The blur would bring back the bottom
   // nav (hidden while composing) and shift the composer under the finger, losing the tap.
@@ -158,16 +227,6 @@ export function Composer({
     ? { onPointerDown: (e: React.PointerEvent) => e.preventDefault() }
     : undefined;
 
-  const profile = session.profileSnapshot;
-  const profileText = [
-    profile.name,
-    profile.provider && profile.model
-      ? `${profile.provider}/${profile.model}`
-      : (profile.model ?? null),
-    profile.thinking ? `effort ${profile.thinking}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   const queued = session.queue.steering.length + session.queue.followUp.length;
 
   return (
@@ -255,7 +314,26 @@ export function Composer({
         )}
 
         <div className="relative min-w-0">
-          {slashOpen && (
+          {slashOpen && controls && (
+            <SlashPicker
+              className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-1 shadow-pop"
+              id={`${hintId}-cmds`}
+              entries={shown}
+              active={active}
+              onPick={pick}
+              onHover={setActive}
+              status={
+                cmdLoading && commands.length === 0
+                  ? "Loading Pi's commands…"
+                  : cmdError
+                    ? `Pi's commands could not be loaded: ${errorMessage(cmdError)}`
+                    : shown.length === 0
+                      ? "No matching command; Enter sends the text to Pi"
+                      : null
+              }
+            />
+          )}
+          {slashOpen && !controls && (
             <SlashHint
               className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-3 shadow-pop"
               adapters={commandAdapters.map((a) => a.id)}
@@ -272,6 +350,15 @@ export function Composer({
             minRows={mobile ? 1 : 2}
             maxHeight="33vh"
             disabled={session.readOnly}
+            {...(slashOpen && controls
+              ? {
+                  role: "combobox" as const,
+                  "aria-autocomplete": "list" as const,
+                  "aria-expanded": true,
+                  "aria-controls": `${hintId}-cmds`,
+                  "aria-activedescendant": shown.length ? `${hintId}-cmds-${active}` : undefined,
+                }
+              : {})}
             aria-describedby={sendReason ? `${hintId}-reason` : undefined}
             placeholder={
               session.readOnly
@@ -295,6 +382,22 @@ export function Composer({
             }}
             enterKeyHint={mobile ? "enter" : "send"}
             onKeyDown={(e) => {
+              if (slashOpen && controls && shown.length > 0) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const n = shown.length;
+                  setActive((a) => (e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n));
+                  return;
+                }
+                if (
+                  e.key === "Tab" ||
+                  (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing)
+                ) {
+                  e.preventDefault();
+                  pick(shown[Math.min(active, shown.length - 1)]!);
+                  return;
+                }
+              }
               if (e.key === "Escape" && slashOpen) {
                 e.preventDefault();
                 setSlashDismissed(true);
@@ -354,13 +457,29 @@ export function Composer({
               textRef.current?.focus();
             }}
           />
-          <span
-            className="hidden min-w-0 flex-1 truncate text-xs text-muted sm:inline"
-            title="Profile, model and effort come from the session's Pi profile (Settings › Profiles). They apply when a session starts."
-          >
-            {profileText}
-          </span>
-          <span className="min-w-0 flex-1 sm:hidden" />
+          {controls && session.model ? (
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+              <ModelChip
+                session={session}
+                enabled={controls}
+                onOpen={() => setModelPickerOpen(true)}
+              />
+              <span className="hidden sm:inline-flex">
+                <EffortMenu session={session} enabled={controls} />
+              </span>
+              <ContextMeter session={session} enabled={controls} />
+            </div>
+          ) : (
+            <>
+              <span
+                className="hidden min-w-0 flex-1 truncate text-xs text-muted sm:inline"
+                title="Profile, model and effort come from the session's Pi profile (Settings › Profiles). They apply when a session starts."
+              >
+                {modelSummary(session)}
+              </span>
+              <span className="min-w-0 flex-1 sm:hidden" />
+            </>
+          )}
           {!mobile && !running && (
             <span className="hidden text-xs text-subtle lg:inline">
               {sendWithEnter ? "Enter to send · Shift+Enter for newline" : "Ctrl+Enter to send"}
@@ -373,7 +492,9 @@ export function Composer({
                   size="sm"
                   icon={<Navigation className="size-3.5" />}
                   busy={busy === "steer"}
-                  disabled={!!block || noText || (busy !== null && busy !== "steer")}
+                  disabled={
+                    !!block || noText || !!commandProblem || (busy !== null && busy !== "steer")
+                  }
                   onClick={() => void send("steer")}
                   {...keepFocus}
                 >
@@ -386,7 +507,9 @@ export function Composer({
                   variant="primary"
                   icon={<ListPlus className="size-3.5" />}
                   busy={busy === "followUp"}
-                  disabled={!!block || noText || (busy !== null && busy !== "followUp")}
+                  disabled={
+                    !!block || noText || !!commandProblem || (busy !== null && busy !== "followUp")
+                  }
                   onClick={() => void send("followUp")}
                   {...keepFocus}
                 >
@@ -400,7 +523,7 @@ export function Composer({
               variant="primary"
               icon={<SendHorizontal className="size-3.5" />}
               busy={busy === "prompt"}
-              disabled={!!block || noText}
+              disabled={!!block || noText || !!commandProblem}
               onClick={() => void send("prompt")}
               {...keepFocus}
             >
@@ -452,8 +575,34 @@ export function Composer({
           <p className="text-xs text-muted">Images up to 10 MB are sent with your next message.</p>
         </div>
       </Sheet>
+      <ModelPicker
+        open={modelPickerOpen}
+        onClose={() => setModelPickerOpen(false)}
+        session={session}
+        mobile={mobile}
+      />
       <Sheet open={commandSheet} onClose={() => setCommandSheet(false)} title="Commands">
-        <SlashHint adapters={commandAdapters.map((a) => a.id)} />
+        {controls ? (
+          <SlashPicker
+            id={`${hintId}-sheet-cmds`}
+            entries={entries}
+            active={-1}
+            status={
+              cmdLoading && commands.length === 0
+                ? "Loading Pi's commands…"
+                : cmdError
+                  ? `Pi's commands could not be loaded: ${errorMessage(cmdError)}`
+                  : null
+            }
+            onPick={(e) => {
+              setDraft(`/${e.name} `);
+              setCommandSheet(false);
+              requestAnimationFrame(() => textRef.current?.focus());
+            }}
+          />
+        ) : (
+          <SlashHint adapters={commandAdapters.map((a) => a.id)} />
+        )}
         <div className="mt-3">
           <Button
             block

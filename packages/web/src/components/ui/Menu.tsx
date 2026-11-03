@@ -34,12 +34,14 @@ export interface MenuProps {
   }) => ReactNode;
   items: (MenuItem | MenuHeading | "separator")[];
   align?: "start" | "end";
+  /** Open below (default) or above the trigger. */
+  side?: "bottom" | "top";
   /** Accessible name of the menu. */
   label: string;
 }
 
 /** Popup menu with arrow-key navigation, Escape and outside click to close. */
-export function Menu({ trigger, items, align = "end", label }: MenuProps) {
+export function Menu({ trigger, items, align = "end", side = "bottom", label }: MenuProps) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -90,7 +92,8 @@ export function Menu({ trigger, items, align = "end", label }: MenuProps) {
           aria-label={label}
           tabIndex={-1}
           className={cn(
-            "absolute top-full z-40 mt-1 min-w-48 max-w-[min(20rem,calc(100vw-1rem))] rounded-lg border border-border bg-surface py-1 shadow-pop",
+            "absolute z-40 min-w-48 max-w-[min(20rem,calc(100vw-1rem))] rounded-lg border border-border bg-surface py-1 shadow-pop",
+            side === "top" ? "bottom-full mb-1" : "top-full mt-1",
             align === "end" ? "right-0" : "left-0",
           )}
           onKeyDown={(e) => {

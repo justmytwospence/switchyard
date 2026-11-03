@@ -5,16 +5,25 @@ import {
   branchProblem,
   buildNavTree,
   buildTimeline,
+  CLIENT_COMMANDS,
+  clientCommandProblem,
   composerBlockReason,
+  contextMeter,
   countAfter,
+  filterCommands,
   fitPanes,
+  groupModels,
   isSubagentView,
+  mergeCommands,
+  modelSummary,
   type NavGroup,
   type NavTree,
   navGroupKeys,
   navTreeIsEmpty,
   outputPreview,
+  parseClientCommand,
   parseDataUrl,
+  piControlsAvailable,
   sendModes,
   worktreePath,
 } from "../src/features/code/model";
@@ -407,5 +416,123 @@ describe("workspace file responses", () => {
       size: 1,
     });
     expect(normalizeFile({ content: "AA==", encoding: "base64", binary: true }).binary).toBe(true);
+  });
+});
+
+const mockModel = (id: string, over = {}) => ({
+  provider: "mock",
+  id,
+  name: null,
+  contextWindow: 1000,
+  reasoning: false,
+  thinkingLevels: ["off" as const],
+  ...over,
+});
+
+describe("slash commands", () => {
+  it("parses Switchyard's commands", () => {
+    expect(parseClientCommand("/model")).toEqual({ kind: "model-picker" });
+    expect(parseClientCommand("/model openrouter/anthropic/claude")).toEqual({
+      kind: "model",
+      provider: "openrouter",
+      modelId: "anthropic/claude",
+    });
+    expect(parseClientCommand("/model foo")?.kind).toBe("invalid");
+    expect(parseClientCommand("/thinking HIGH")).toEqual({ kind: "thinking", level: "high" });
+    expect(parseClientCommand("/thinking loud")?.kind).toBe("invalid");
+    expect(parseClientCommand("/compact keep tests")).toEqual({
+      kind: "compact",
+      instructions: "keep tests",
+    });
+    expect(parseClientCommand("/name")?.kind).toBe("invalid");
+    expect(parseClientCommand("/name New title")).toEqual({ kind: "name", title: "New title" });
+    expect(parseClientCommand("/tree")).toEqual({ kind: "terminal-only", name: "tree" });
+    expect(parseClientCommand("/fixture-hello")).toBeNull();
+    expect(parseClientCommand("plain text")).toBeNull();
+  });
+
+  it("explains problems", () => {
+    const compact = parseClientCommand("/compact")!;
+    expect(clientCommandProblem(compact, true)).toContain("Wait for the run");
+    expect(clientCommandProblem(compact, false)).toBeNull();
+    expect(clientCommandProblem(parseClientCommand("/tree")!, false)).toContain("terminal");
+  });
+
+  it("filters, ranks and merges", () => {
+    const merged = mergeCommands(CLIENT_COMMANDS, [
+      { name: "model", description: null, source: "extension" },
+      { name: "zeta", description: "does mod things", source: "skill" },
+      { name: "alpha", description: null, source: "extension" },
+    ]);
+    expect(merged.map((e) => e.name)).toEqual([
+      "model",
+      "thinking",
+      "compact",
+      "name",
+      "alpha",
+      "zeta",
+    ]);
+    expect(filterCommands(merged, "mo")[0]?.name).toBe("model");
+    expect(filterCommands(merged, "mod").map((e) => e.name)).toEqual(["model", "zeta"]);
+    expect(filterCommands(merged, "", 2)).toHaveLength(2);
+    expect(filterCommands(merged, "nothing")).toEqual([]);
+  });
+});
+
+describe("model controls", () => {
+  it("groups models by provider with every search token", () => {
+    const models = [
+      mockModel("a"),
+      mockModel("b", { name: "Big One" }),
+      { ...mockModel("c"), provider: "other" },
+    ];
+    expect(groupModels(models, "").map((g) => [g.provider, g.models.length])).toEqual([
+      ["mock", 2],
+      ["other", 1],
+    ]);
+    expect(groupModels(models, "mock big")[0]?.models.map((m) => m.id)).toEqual(["b"]);
+  });
+
+  it("summarizes the model, falling back to the profile", () => {
+    expect(modelSummary(session("s"))).toBe("Default");
+    const withModel = session("s", {
+      model: mockModel("m", { name: "Mock", thinkingLevels: ["off", "high"] }),
+      thinking: "high",
+    });
+    expect(modelSummary(withModel)).toBe("Mock · effort high");
+  });
+
+  it("meters context use", () => {
+    const ctx = (tokens: number | null, percent: number | null, compacting = false) =>
+      contextMeter({
+        stats: { tokens: 0, costUsd: 0, context: { tokens, window: 1000, percent } },
+        compacting,
+      });
+    expect(contextMeter({ stats: null, compacting: false })).toBeNull();
+    expect(ctx(100, 10, true)?.label).toBe("Compacting…");
+    expect(ctx(null, null)).toMatchObject({ label: "—", percent: null });
+    expect(ctx(null, null)?.detail).toContain("Known after the next reply");
+    expect(ctx(800, 80)).toMatchObject({
+      label: "80%",
+      tone: "warning",
+      detail: "800 of 1,000 tokens",
+    });
+    expect(ctx(950, 95)?.tone).toBe("danger");
+    expect(ctx(100, 10)?.tone).toBe("muted");
+  });
+
+  it("blocks sending while compacting and gates the controls on the capability", () => {
+    expect(
+      composerBlockReason({
+        hostLink: "connected",
+        hostName: "mac",
+        session: session("s", { compacting: true }),
+      })?.reason,
+    ).toContain("Compacting");
+    const caps = { sessionControls: true } as never;
+    expect(piControlsAvailable(host("h", { capabilities: caps }), null)).toBe(true);
+    expect(piControlsAvailable(host("h", { capabilities: caps }), { reason: "x" })).toBe(false);
+    expect(piControlsAvailable(host("h"), null)).toBe(false);
+    expect(piControlsAvailable(undefined, null)).toBe(false);
   });
 });

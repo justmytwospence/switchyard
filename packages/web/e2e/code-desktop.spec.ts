@@ -201,6 +201,28 @@ test.describe("desktop coding view", () => {
     expect(prompts).toHaveLength(1);
   });
 
+  test("model chip, effort and slash picker", async ({ page, state }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    const composer = page.getByTestId("composer");
+    await expect(composer.getByRole("button", { name: /^Model: Mock 1/ })).toBeVisible();
+    const box = page.getByLabel("Message to Pi");
+    await box.click();
+    await page.keyboard.type("/fix");
+    await expect(
+      page
+        .getByRole("listbox", { name: "Commands" })
+        .getByRole("option", { name: /fixture-hello/ }),
+    ).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(box).toHaveValue("/fixture-hello ");
+    await box.fill("");
+    await page.keyboard.type("/mo");
+    await expect(
+      page.getByRole("listbox", { name: "Commands" }).getByRole("option", { name: /^\/model/ }),
+    ).toBeVisible();
+    await expect(composer.getByRole("button", { name: /^Context/ })).toBeVisible();
+  });
+
   test("review comments are batched into one follow-up", async ({ page, state, api }, info) => {
     const id = await createSession(api, state, `Review ${uid(info)}`, "hello review");
     const prompts = promptRequests(page, id);
