@@ -183,7 +183,7 @@ export function newWorktreeItems(
     }));
 }
 
-const HINT_PICK = "↑↓ move · enter select · esc back · ctrl+c cancel";
+const HINT_PICK = "↑↓ ctrl+j/k/n/p tab move · enter select · esc back · ctrl+c cancel";
 const HINT_ASK = "enter confirm · esc back · ctrl+c cancel";
 
 /**

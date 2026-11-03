@@ -166,6 +166,18 @@ describe("fuzzy matching", () => {
 });
 
 describe("keys", () => {
+  it("moves with Ctrl+J/K/N/P, Tab and Shift+Tab", () => {
+    expect(parseKeys("\n\x0b\x0e\x10\t\x1b[Z\r").map((k) => k.name)).toEqual([
+      "down",
+      "up",
+      "down",
+      "up",
+      "down",
+      "up",
+      "enter",
+    ]);
+  });
+
   it("parses arrows, controls, Esc and text, dropping unknown sequences", () => {
     expect(parseKeys("\x1b[Aab\r\x1b\x03\x1b[1;5C\x7f").map((k) => k.name)).toEqual([
       "up",
