@@ -33,9 +33,11 @@ import {
   type Profile,
   type RuntimeState,
   type Session,
+  type SessionModel,
   type SessionStats,
   type SnapshotResult,
   SwitchyardError,
+  type ThinkingLevel,
   type TranscriptItem,
   type UINode,
   ui,
@@ -85,6 +87,9 @@ export interface HostSessionRecord {
   nextOrder: number;
   queue: Session["queue"];
   stats: SessionStats | null;
+  model?: SessionModel | null;
+  thinking?: ThinkingLevel | null;
+  compacting?: boolean;
   lastAssistantText: string | null;
   lastActivityAt: string;
   createdAt: string;
@@ -313,6 +318,7 @@ export class SessionSupervisor {
   private markLost(rec: HostSessionRecord, expireSummary: string): void {
     rec.runtime = "interrupted";
     rec.runtimeDetail = "Host agent restarted";
+    rec.compacting = false;
     rec.queue = { steering: [], followUp: [] };
     rec.terminal = null;
     this.expirePending(rec.id, expireSummary);
@@ -459,6 +465,9 @@ export class SessionSupervisor {
       archivedAt: null,
       queue: rec.queue,
       stats: rec.stats,
+      model: rec.model ?? null,
+      thinking: rec.thinking ?? null,
+      compacting: rec.compacting ?? false,
       lastAssistantText: rec.lastAssistantText,
       createdAt: rec.createdAt,
       terminal: rec.terminal != null,
@@ -597,6 +606,9 @@ export class SessionSupervisor {
       nextOrder,
       queue: { steering: [], followUp: [] },
       stats: prev?.stats ?? null,
+      model: prev?.model ?? null,
+      thinking: prev?.thinking ?? null,
+      compacting: false,
       lastAssistantText: prev?.lastAssistantText ?? null,
       lastActivityAt: now,
       createdAt: prev?.createdAt ?? now,
@@ -701,6 +713,32 @@ export class SessionSupervisor {
     rec.title = title;
     this.db.tx(() => this.saveAndEmit(rec));
     return { title };
+  }
+
+  async models(sessionId: string) {
+    return { models: await this.requireLive(sessionId).models() };
+  }
+
+  async commands(sessionId: string) {
+    return { commands: await this.requireLive(sessionId).commands() };
+  }
+
+  async setModel(sessionId: string, provider: string, modelId: string) {
+    return this.requireLive(sessionId).setModel(provider, modelId);
+  }
+
+  async setThinking(sessionId: string, level: ThinkingLevel) {
+    return this.requireLive(sessionId).setThinking(level);
+  }
+
+  async compact(sessionId: string, instructions: string | null) {
+    const ms = this.requireLive(sessionId);
+    if (ms.compacting) throw new SwitchyardError("conflict", "Compaction is already running");
+    if (ms.runtime !== "idle") {
+      throw new SwitchyardError("conflict", "Wait for the run to finish before compacting");
+    }
+    await ms.compact(instructions);
+    return { ok: true };
   }
 
   async adapterAction(sessionId: string, adapterId: string, actionId: string, payload: unknown) {
@@ -1009,6 +1047,17 @@ export class SessionSupervisor {
         this.db.tx(() => this.saveAndEmit(rec));
       }
     });
+    ms.on("model", (m) => {
+      rec.model = m.model;
+      rec.thinking = m.thinking;
+      this.db.tx(() => this.saveAndEmit(rec));
+      void this.refreshStats(l);
+    });
+    ms.on("compacting", (c) => {
+      rec.compacting = c;
+      this.db.tx(() => this.saveAndEmit(rec));
+      if (!c) void this.refreshStats(l);
+    });
     ms.on("diagnostic", (d) => this.diagnostic(rec.id, null, d.level, d.message));
     ms.on("stderr", (text) =>
       this.opts.log.debug({ sessionId: rec.id, stderr: text.slice(0, 2000) }, "pi stderr"),
@@ -1055,7 +1104,7 @@ export class SessionSupervisor {
     if (!ms?.isAlive) return;
     try {
       const s = await ms.stats();
-      const stats = { tokens: s.tokens, costUsd: s.costUsd };
+      const stats = { tokens: s.tokens, costUsd: s.costUsd, context: s.context };
       if (JSON.stringify(stats) === JSON.stringify(l.rec.stats)) return;
       l.rec.stats = stats;
       this.db.tx(() => this.saveAndEmit(l.rec));
@@ -1102,6 +1151,7 @@ export class SessionSupervisor {
         return;
       case "message_end": {
         const m = ev.message;
+        if (m?.role === "assistant") void this.refreshStats(l);
         if (adapters && m?.role === "custom" && typeof m.customType === "string") {
           await adapters.onCustomMessage({
             customType: m.customType,

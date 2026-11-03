@@ -127,6 +127,59 @@ describe("host agent with real Pi", () => {
     expect(again).toMatchObject({ sessionId: id, reused: true });
   });
 
+  it("answers model, effort, command and compaction commands", async () => {
+    const id = sid();
+    await startSession(h, id, h.pi!.cwd);
+    const models = await h.coord.ok<{ models: { id: string }[] }>({
+      type: "session.models",
+      sessionId: id,
+    });
+    expect(models.models.some((m) => m.id === "mock-2")).toBe(true);
+    await h.coord.ok({
+      type: "session.setModel",
+      sessionId: id,
+      provider: "mock",
+      modelId: "mock-2",
+    });
+    await h.coord.waitUntil(
+      () =>
+        h.coord.eventsOf("session.updated", id).some((e) => (e.data as any).model?.id === "mock-2"),
+      10000,
+      "model update",
+    );
+    await h.coord.ok({ type: "session.setThinking", sessionId: id, level: "medium" });
+    await h.coord.waitUntil(
+      () =>
+        h.coord.eventsOf("session.updated", id).some((e) => (e.data as any).thinking === "medium"),
+      10000,
+      "thinking update",
+    );
+    const cmds = await h.coord.ok<{ commands: { name: string }[] }>({
+      type: "session.commands",
+      sessionId: id,
+    });
+    expect(cmds.commands.some((c) => c.name === "fixture-hello")).toBe(true);
+
+    await h.coord.ok({
+      type: "session.prompt",
+      sessionId: id,
+      text: "please pick a fruit",
+      images: [],
+      mode: "prompt",
+      origin: "human",
+      controlRevision: 1,
+    });
+    await waitFor(
+      () => interactions(h, id).some((i) => i.state === "pending"),
+      30000,
+      "pending interaction",
+    );
+    const r = await h.coord.command({ type: "session.compact", sessionId: id, instructions: null });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("conflict");
+    await h.coord.ok({ type: "session.abort", sessionId: id, clearQueue: true });
+  });
+
   it("lists importable native sessions and reads a native transcript", async () => {
     const id = sid();
     const r = await startSession(h, id, h.pi!.cwd, { initialPrompt: "hello native" });

@@ -40,6 +40,29 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions on the h
       .at(-1);
     expect(updated).toMatchObject({ runtime: "idle", terminal: true });
 
+    // Slash commands from a client run in the terminal session.
+    const hi = await h.coord.ok<{ disposition: string }>({
+      type: "session.prompt",
+      sessionId: id,
+      text: "/fixture-hello hi",
+      images: [],
+      mode: "prompt",
+      origin: "human",
+      controlRevision: 1,
+    });
+    expect(hi.disposition).toBe("handled");
+    await h.coord.waitUntil(
+      () =>
+        h.coord
+          .eventsOf("transcript.item", id)
+          .some(
+            (e) =>
+              (e.data as any).kind === "notice" && (e.data as any).data.text === "fixture hello hi",
+          ),
+      10000,
+      "fixture hello notice",
+    );
+
     // The relay paints the terminal for a viewer.
     h.coord.sendTerm("trm_1", { t: "open", sessionId: id, cols: 100, rows: 30 });
     await h.coord.waitUntil(

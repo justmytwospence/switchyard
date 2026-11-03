@@ -86,6 +86,11 @@ When a run settles (`agent_settled`), the single `session.updated` that moves th
 | `session.importable` | `{sessions: ImportableSession[]}` |
 | `session.readNative` | `{sessionId, cwd, name, items}` |
 | `session.snapshot` | `SnapshotResult` plus `runtime` |
+| `session.models` | `{models: SessionModel[]}` |
+| `session.commands` | `{commands: SlashCommand[]}` |
+| `session.setModel` | `{model, thinking}` |
+| `session.setThinking` | `{model, thinking}` |
+| `session.compact` | `{ok: true}` (progress via `session.updated` `compacting`) |
 | `checkout.inspect` | `CheckoutInfo` |
 | `workspace.discover` | `{worktrees: DiscoveredWorktree[]}` |
 | `workspace.create` | `{path, branch, baseBranch, provenance, git, setup}`; setup output streams as `workspace.updated {path, setup}` |

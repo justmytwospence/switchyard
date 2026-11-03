@@ -65,7 +65,9 @@ export function queueKey(command: HostCommand): string {
     command.type === "session.abort" ||
     command.type === "session.setControl" ||
     command.type === "session.adapterAction" ||
-    command.type === "session.snapshot"
+    command.type === "session.snapshot" ||
+    command.type === "session.models" ||
+    command.type === "session.commands"
   ) {
     return `control:${command.sessionId}`;
   }
@@ -254,6 +256,16 @@ export class CommandRouter {
         return sup.readNative(c.sessionFile);
       case "session.snapshot":
         return sup.snapshot(c.sessionId);
+      case "session.models":
+        return sup.models(c.sessionId);
+      case "session.commands":
+        return sup.commands(c.sessionId);
+      case "session.setModel":
+        return sup.setModel(c.sessionId, c.provider, c.modelId);
+      case "session.setThinking":
+        return sup.setThinking(c.sessionId, c.level);
+      case "session.compact":
+        return sup.compact(c.sessionId, c.instructions);
       case "checkout.inspect":
         return inspectCheckout(c.path);
       case "projects.scan":
