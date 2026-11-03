@@ -40,7 +40,7 @@ import {
   SUBAGENT_READ_ONLY,
   sendModes,
 } from "./model";
-import { ContextMeter, EffortMenu, ModelChip, ModelPicker } from "./PiControls";
+import { ContextMeter, EffortControl, ModelControl } from "./PiControls";
 import { SlashPicker } from "./SlashPicker";
 import { useSessionCommands } from "./useSessionCommands";
 
@@ -227,6 +227,20 @@ export function Composer({
     ? { onPointerDown: (e: React.PointerEvent) => e.preventDefault() }
     : undefined;
 
+  const pills =
+    controls && session.model ? (
+      <>
+        <ModelControl
+          session={session}
+          enabled={controls}
+          mobile={mobile}
+          open={modelPickerOpen}
+          onOpenChange={setModelPickerOpen}
+        />
+        <EffortControl session={session} enabled={controls} mobile={mobile} />
+        <ContextMeter session={session} enabled={controls} />
+      </>
+    ) : null;
   const queued = session.queue.steering.length + session.queue.followUp.length;
 
   return (
@@ -412,6 +426,11 @@ export function Composer({
           />
         </div>
 
+        {pills && mobile && (
+          <div data-testid="session-controls" className="flex w-full min-w-0 items-center gap-1.5">
+            {pills}
+          </div>
+        )}
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <input
             ref={fileRef}
@@ -457,18 +476,17 @@ export function Composer({
               textRef.current?.focus();
             }}
           />
-          {controls && session.model ? (
-            <div className="flex min-w-0 flex-1 items-center gap-1">
-              <ModelChip
-                session={session}
-                enabled={controls}
-                onOpen={() => setModelPickerOpen(true)}
-              />
-              <span className="hidden sm:inline-flex">
-                <EffortMenu session={session} enabled={controls} />
-              </span>
-              <ContextMeter session={session} enabled={controls} />
-            </div>
+          {pills ? (
+            mobile ? (
+              <span className="min-w-0 flex-1" />
+            ) : (
+              <div
+                data-testid="session-controls"
+                className="flex min-w-0 flex-1 items-center gap-1.5"
+              >
+                {pills}
+              </div>
+            )
           ) : (
             <>
               <span
@@ -575,12 +593,6 @@ export function Composer({
           <p className="text-xs text-muted">Images up to 10 MB are sent with your next message.</p>
         </div>
       </Sheet>
-      <ModelPicker
-        open={modelPickerOpen}
-        onClose={() => setModelPickerOpen(false)}
-        session={session}
-        mobile={mobile}
-      />
       <Sheet open={commandSheet} onClose={() => setCommandSheet(false)} title="Commands">
         {controls ? (
           <SlashPicker

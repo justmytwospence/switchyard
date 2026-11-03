@@ -225,4 +225,43 @@ test.describe("mobile coding view", () => {
     ).toHaveAttribute("aria-checked", "true");
     await expect(page.getByRole("region", { name: "Changes" })).toBeVisible();
   });
+
+  test("model and effort sheets are thumb-sized and stay on screen", async ({
+    page,
+    state,
+    api,
+  }, info) => {
+    const id = await createSession(api, state, `Mobile effort ${uid(info)}`, "hello there");
+    await page.goto(`/code/${id}`);
+    const controls = page.getByTestId("session-controls");
+    const noOverflow = async () =>
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+    const model = controls.getByRole("button", { name: /^Model: Mock 1/ });
+    expect((await model.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await noOverflow();
+    await model.tap();
+    const dialog = page.getByRole("dialog", { name: "Model" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: /Mock 2/ }).tap();
+    await expect(dialog).toHaveCount(0);
+    const effort = controls.getByRole("button", { name: /^Effort: / });
+    expect((await effort.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await noOverflow();
+    await effort.tap();
+    const sheet = page.getByRole("dialog", { name: "Effort" });
+    await expect(sheet).toBeVisible();
+    const sent = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/thinking`),
+    );
+    await sheet.getByRole("slider", { name: "Effort" }).evaluate((el: HTMLInputElement) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(el, "4");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await sheet.getByRole("button", { name: "Close" }).tap();
+    expect((await sent).postDataJSON().level).toBe("high");
+    await noOverflow();
+  });
 });

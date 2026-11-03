@@ -201,26 +201,60 @@ test.describe("desktop coding view", () => {
     expect(prompts).toHaveLength(1);
   });
 
-  test("model chip, effort and slash picker", async ({ page, state }) => {
+  test("model popover and slash picker list every command", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
     const composer = page.getByTestId("composer");
-    await expect(composer.getByRole("button", { name: /^Model: Mock 1/ })).toBeVisible();
+    const modelButton = composer.getByRole("button", { name: /^Model: Mock 1/ });
+    await expect(modelButton).toBeVisible();
+    await modelButton.click();
+    const dialog = page.getByRole("dialog", { name: "Model" });
+    await expect(dialog).toBeVisible();
+    await expect(page.getByLabel("Search models")).toBeFocused();
+    await page.keyboard.type("2");
+    await expect(dialog.getByRole("button", { name: /Mock 2/ })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /Mock 1/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(modelButton).toBeFocused();
+
     const box = page.getByLabel("Message to Pi");
     await box.click();
     await page.keyboard.type("/fix");
-    await expect(
-      page
-        .getByRole("listbox", { name: "Commands" })
-        .getByRole("option", { name: /fixture-hello/ }),
-    ).toBeVisible();
+    const list = page.getByRole("listbox", { name: "Commands" });
+    await expect(list.getByRole("option", { name: /fixture-hello/ })).toBeVisible();
     await page.keyboard.press("Tab");
     await expect(box).toHaveValue("/fixture-hello ");
+    await box.fill("/tr");
+    const tree = list.getByRole("option", { name: /^\/tree/ });
+    await expect(tree).toBeVisible();
+    await expect(tree).toContainText("Terminal only");
     await box.fill("");
-    await page.keyboard.type("/mo");
-    await expect(
-      page.getByRole("listbox", { name: "Commands" }).getByRole("option", { name: /^\/model/ }),
-    ).toBeVisible();
     await expect(composer.getByRole("button", { name: /^Context/ })).toBeVisible();
+  });
+
+  test("effort slider on a reasoning model", async ({ page, state, api }, info) => {
+    const id = await createSession(api, state, `Effort ${uid(info)}`, "hello there");
+    await page.goto(`/code/${id}`);
+    const composer = page.getByTestId("composer");
+    await composer.getByRole("button", { name: /^Model: / }).click();
+    await page
+      .getByRole("dialog", { name: "Model" })
+      .getByRole("button", { name: /Mock 2/ })
+      .click();
+    const effort = composer.getByRole("button", { name: /^Effort: / });
+    await expect(effort).toBeVisible();
+    await effort.click();
+    const slider = page
+      .getByRole("dialog", { name: "Effort" })
+      .getByRole("slider", { name: "Effort" });
+    await expect(slider).toBeVisible();
+    const sent = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/thinking`),
+    );
+    await slider.focus();
+    await page.keyboard.press("End");
+    expect((await sent).postDataJSON().level).toBe("high");
+    await expect(composer.getByRole("button", { name: "Effort: high" })).toBeVisible();
   });
 
   test("review comments are batched into one follow-up", async ({ page, state, api }, info) => {

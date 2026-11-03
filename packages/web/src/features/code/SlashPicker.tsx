@@ -8,6 +8,7 @@ const SOURCE_LABEL: Record<CommandSource, string> = {
   extension: "Extension",
   prompt: "Prompt",
   skill: "Skill",
+  terminal: "Terminal only",
 };
 
 export interface SlashPickerProps {
@@ -51,10 +52,12 @@ export function SlashPicker({
             role="option"
             id={`${id}-${i}`}
             aria-selected={i === active}
+            aria-disabled={e.source === "terminal" ? true : undefined}
             tabIndex={-1}
             className={cn(
               "cursor-pointer rounded-md px-2 py-1.5 text-sm",
               i === active && "bg-surface-2",
+              e.source === "terminal" && "opacity-60",
             )}
             onMouseDown={(ev) => ev.preventDefault()}
             onClick={() => onPick(e)}

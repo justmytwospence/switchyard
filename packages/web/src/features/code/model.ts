@@ -697,7 +697,7 @@ export function fitPanes(
 
 // ---- session controls: slash commands, model, effort, context ----
 
-export type CommandSource = "switchyard" | SlashCommand["source"];
+export type CommandSource = "switchyard" | SlashCommand["source"] | "terminal";
 
 export interface CommandEntry {
   name: string;
@@ -733,35 +733,126 @@ export const CLIENT_COMMANDS: CommandEntry[] = [
   },
 ];
 
-export const TERMINAL_ONLY_COMMANDS = [
-  "settings",
-  "tree",
-  "scoped-models",
-  "export",
-  "import",
-  "share",
-  "bug",
-  "copy",
-  "session",
-  "changelog",
-  "hotkeys",
-  "fork",
-  "clone",
-  "trust",
-  "login",
-  "logout",
-  "new",
-  "resume",
-  "reload",
-  "quit",
+export const TERMINAL_COMMANDS: CommandEntry[] = [
+  { name: "settings", description: "Open settings menu", source: "terminal", argumentHint: null },
+  {
+    name: "tree",
+    description: "Navigate session tree (switch branches)",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "scoped-models",
+    description: "Enable/disable models for Ctrl+P cycling",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "export",
+    description: "Export session (HTML default, or specify path: .html/.jsonl)",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "import",
+    description: "Import and resume a session from a JSONL file",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "share",
+    description: "Share session via a Radius artifact or a GitHub gist",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "bug",
+    description: "Report a bug to the Pi developers",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "copy",
+    description: "Copy last agent message to clipboard",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "session",
+    description: "Show session info and stats",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "changelog",
+    description: "Show changelog entries",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "hotkeys",
+    description: "Show all keyboard shortcuts",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "fork",
+    description: "Create a new fork from a previous user message",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "clone",
+    description: "Duplicate the current session at the current position",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "trust",
+    description: "Save project trust decision for future sessions",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "login",
+    description: "Configure provider authentication",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "logout",
+    description: "Remove provider authentication",
+    source: "terminal",
+    argumentHint: null,
+  },
+  { name: "new", description: "Start a new session", source: "terminal", argumentHint: null },
+  {
+    name: "resume",
+    description: "Resume a different session",
+    source: "terminal",
+    argumentHint: null,
+  },
+  {
+    name: "reload",
+    description: "Reload keybindings, extensions, skills, prompts, themes, and context files",
+    source: "terminal",
+    argumentHint: null,
+  },
+  { name: "quit", description: "Quit Pi", source: "terminal", argumentHint: null },
 ];
+
+export const TERMINAL_ONLY_COMMANDS = TERMINAL_COMMANDS.map((c) => c.name);
 
 const SOURCE_ORDER: Record<string, number> = { extension: 0, prompt: 1, skill: 2 };
 
 export function mergeCommands(client: CommandEntry[], remote: SlashCommand[]): CommandEntry[] {
-  const names = new Set(client.map((c) => c.name));
+  const names = new Set([...client.map((c) => c.name), ...remote.map((c) => c.name)]);
+  const terminal = TERMINAL_COMMANDS.filter((c) => !names.has(c.name)).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+  const taken = new Set(client.map((c) => c.name));
   const rest: CommandEntry[] = remote
-    .filter((c) => !names.has(c.name))
+    .filter((c) => !taken.has(c.name))
     .map((c) => ({
       name: c.name,
       description: c.description,
@@ -773,7 +864,7 @@ export function mergeCommands(client: CommandEntry[], remote: SlashCommand[]): C
         (SOURCE_ORDER[a.source] ?? 9) - (SOURCE_ORDER[b.source] ?? 9) ||
         a.name.localeCompare(b.name),
     );
-  return [...client, ...rest];
+  return [...client, ...rest, ...terminal];
 }
 
 export function filterCommands(entries: CommandEntry[], query: string, limit = 50): CommandEntry[] {
@@ -851,6 +942,14 @@ export function clientCommandProblem(cmd: ClientCommand, running: boolean): stri
   }
   if (cmd.kind === "compact" && running) return "Wait for the run to finish before compacting";
   return null;
+}
+
+export function effortIndex(
+  levels: readonly string[],
+  thinking: string | null | undefined,
+): number {
+  const i = thinking ? levels.indexOf(thinking) : -1;
+  return Math.max(i, 0);
 }
 
 export function modelLabel(m: SessionModel): string {

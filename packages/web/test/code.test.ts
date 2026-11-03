@@ -10,6 +10,7 @@ import {
   composerBlockReason,
   contextMeter,
   countAfter,
+  effortIndex,
   filterCommands,
   fitPanes,
   groupModels,
@@ -25,6 +26,7 @@ import {
   parseDataUrl,
   piControlsAvailable,
   sendModes,
+  TERMINAL_COMMANDS,
   worktreePath,
 } from "../src/features/code/model";
 import type { StreamBuffer } from "../src/sync/store";
@@ -471,11 +473,32 @@ describe("slash commands", () => {
       "name",
       "alpha",
       "zeta",
+      ...TERMINAL_COMMANDS.map((c) => c.name).sort(),
     ]);
     expect(filterCommands(merged, "mo")[0]?.name).toBe("model");
-    expect(filterCommands(merged, "mod").map((e) => e.name)).toEqual(["model", "zeta"]);
+    expect(filterCommands(merged, "mod").map((e) => e.name)).toEqual([
+      "model",
+      "scoped-models",
+      "zeta",
+    ]);
     expect(filterCommands(merged, "", 2)).toHaveLength(2);
     expect(filterCommands(merged, "nothing")).toEqual([]);
+  });
+});
+
+describe("terminal built-ins", () => {
+  it("are listed but blocked", () => {
+    const merged = mergeCommands(CLIENT_COMMANDS, []);
+    expect(merged).toContainEqual(expect.objectContaining({ name: "tree", source: "terminal" }));
+    for (const n of ["model", "thinking", "compact", "name"]) {
+      expect(TERMINAL_COMMANDS.some((c) => c.name === n)).toBe(false);
+    }
+    expect(parseClientCommand("/tree")?.kind).toBe("terminal-only");
+  });
+  it("effortIndex", () => {
+    expect(effortIndex(["off", "low", "high"], "high")).toBe(2);
+    expect(effortIndex(["off", "low", "high"], "zzz")).toBe(0);
+    expect(effortIndex(["off", "low", "high"], null)).toBe(0);
   });
 });
 

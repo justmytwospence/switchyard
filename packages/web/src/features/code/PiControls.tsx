@@ -1,78 +1,350 @@
-import type { Session, SessionModel } from "@switchyard/protocol";
-import { Brain, Check, Cpu, Gauge, Shrink } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { Session, SessionModel, ThinkingLevel } from "@switchyard/protocol";
+import { Brain, Check, ChevronDown, Cpu, Gauge, Shrink } from "lucide-react";
+import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
-import { Dialog, Sheet } from "../../components/ui/Overlay";
-import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { Sheet } from "../../components/ui/Overlay";
+import { Popover } from "../../components/ui/Popover";
 import { ErrorState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { errorMessage } from "../../sync/api";
 import { codeApi } from "./api";
-import { contextMeter, groupModels, isBusy, modelLabel } from "./model";
+import { contextMeter, effortIndex, groupModels, isBusy, modelLabel } from "./model";
 
-export function ModelChip({
-  session,
-  enabled,
-  onOpen,
-}: {
-  session: Session;
-  enabled: boolean;
-  onOpen: () => void;
-}) {
-  const m = session.model;
-  if (!m) return null;
-  const label = modelLabel(m);
+interface PillProps {
+  icon: ReactNode;
+  label: string;
+  ariaLabel: string;
+  disabled?: boolean;
+  mobile: boolean;
+  ref?: Ref<HTMLButtonElement>;
+  onClick: () => void;
+  [aria: `aria-${string}`]: unknown;
+}
+
+function ControlPill({ icon, label, ariaLabel, disabled, mobile, ...trigger }: PillProps) {
   return (
-    <Button
-      size="sm"
-      variant="ghost"
-      icon={<Cpu className="size-3.5" />}
-      disabled={!enabled}
-      onClick={onOpen}
-      aria-label={enabled ? `Model: ${label}. Change model` : `Model: ${label}`}
-      title={`${m.provider}/${m.id} (profile ${session.profileSnapshot.name})`}
+    <button
+      type="button"
+      disabled={disabled}
+      aria-label={ariaLabel}
+      className={cn(
+        "tap inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-surface px-3 text-sm hover:bg-surface-2 disabled:opacity-55",
+        mobile ? "h-11 flex-1 justify-center" : "h-8",
+      )}
+      {...trigger}
     >
-      <span className="max-w-48 truncate">{label}</span>
-    </Button>
+      <span aria-hidden className="shrink-0">
+        {icon}
+      </span>
+      <span className="min-w-0 truncate">{label}</span>
+      <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted" />
+    </button>
   );
 }
 
-export function EffortMenu({ session, enabled }: { session: Session; enabled: boolean }) {
-  const m = session.model;
-  if (!m || m.thinkingLevels.length <= 1) return null;
-  const current = session.thinking ?? "default";
-  const items: MenuItem[] = m.thinkingLevels.map((level) => ({
-    id: level,
-    label: level,
-    kind: "radio",
-    checked: level === session.thinking,
-    onSelect: () => {
-      codeApi.setThinking(session.id, level).catch((e) => toast.error(errorMessage(e)));
-    },
-  }));
+function ModelList({
+  session,
+  searchInFooter,
+  searchRef,
+  onChosen,
+}: {
+  session: Session;
+  searchInFooter: boolean;
+  searchRef: React.RefObject<HTMLInputElement | null>;
+  onChosen: () => void;
+}) {
+  const [models, setModels] = useState<SessionModel[] | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [changeError, setChangeError] = useState<unknown>(null);
+  const [query, setQuery] = useState("");
+  const [pending, setPending] = useState(false);
+
+  const load = useCallback(() => {
+    const ac = new AbortController();
+    setError(null);
+    codeApi.models(session.id, ac.signal).then(
+      (r) => setModels(r.models),
+      (e) => {
+        if (!ac.signal.aborted) setError(e);
+      },
+    );
+    return () => ac.abort();
+  }, [session.id]);
+
+  useEffect(() => load(), [load]);
+
+  const choose = async (m: SessionModel) => {
+    setPending(true);
+    setChangeError(null);
+    try {
+      await codeApi.setModel(session.id, m.provider, m.id);
+      toast.success(`Model: ${modelLabel(m)}`);
+      onChosen();
+    } catch (e) {
+      setChangeError(e);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const groups = models ? groupModels(models, query) : [];
+  const search = (
+    <TextInput
+      ref={searchRef}
+      placeholder="Search models"
+      aria-label="Search models"
+      value={query}
+      onChange={(e) => setQuery(e.target.value)}
+    />
+  );
   return (
-    <Menu
+    <div className="flex min-w-0 flex-col gap-3">
+      {!searchInFooter && search}
+      {changeError != null && <ErrorState compact title="Could not change" error={changeError} />}
+      <div className="flex max-h-[60vh] min-w-0 flex-col gap-3 overflow-y-auto">
+        {error != null ? (
+          <ErrorState title="Could not load models" error={error} onRetry={load} />
+        ) : !models ? (
+          <LoadingState label="Loading models…" />
+        ) : groups.length === 0 ? (
+          <p className="text-sm text-muted">No models match</p>
+        ) : (
+          groups.map((g) => (
+            <section key={g.provider} className="flex flex-col gap-1">
+              <h3 className="text-xs font-medium text-muted">{g.provider}</h3>
+              {g.models.map((m) => {
+                const current = session.model?.provider === m.provider && session.model.id === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    disabled={pending}
+                    aria-current={current ? "true" : undefined}
+                    onClick={() => void choose(m)}
+                    className="tap flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-2 disabled:opacity-55"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{modelLabel(m)}</span>
+                      <span className="block truncate font-mono text-xs text-muted">
+                        {m.provider}/{m.id}
+                        {m.contextWindow !== null &&
+                          ` · ${Math.round(m.contextWindow / 1000)}k context`}
+                      </span>
+                    </span>
+                    {m.reasoning && <Badge>reasoning</Badge>}
+                    {current && <Check aria-hidden className="size-4" />}
+                  </button>
+                );
+              })}
+            </section>
+          ))
+        )}
+      </div>
+      {searchInFooter && <div className="sticky bottom-0 bg-surface pt-2">{search}</div>}
+    </div>
+  );
+}
+
+export function ModelControl({
+  session,
+  enabled,
+  mobile,
+  open,
+  onOpenChange,
+}: {
+  session: Session;
+  enabled: boolean;
+  mobile: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const searchRef = useRef<HTMLInputElement>(null);
+  const m = session.model;
+  if (!m) return null;
+  const label = modelLabel(m);
+  const ariaLabel = enabled ? `Model: ${label}. Change model` : `Model: ${label}`;
+  const list = (footer: boolean) => (
+    <ModelList
+      session={session}
+      searchInFooter={footer}
+      searchRef={searchRef}
+      onChosen={() => onOpenChange(false)}
+    />
+  );
+  if (mobile) {
+    return (
+      <>
+        <ControlPill
+          mobile
+          icon={<Cpu className="size-4" />}
+          label={label}
+          ariaLabel={ariaLabel}
+          disabled={!enabled}
+          onClick={() => onOpenChange(true)}
+        />
+        <Sheet open={open} onClose={() => onOpenChange(false)} title="Model">
+          {list(true)}
+        </Sheet>
+      </>
+    );
+  }
+  return (
+    <Popover
+      open={open}
+      onOpenChange={onOpenChange}
+      side="top"
+      align="start"
+      label="Model"
+      className="w-96"
+      initialFocus={searchRef}
+      trigger={(p) => (
+        <ControlPill
+          {...p}
+          mobile={false}
+          icon={<Cpu className="size-4" />}
+          label={label}
+          ariaLabel={ariaLabel}
+          disabled={!enabled}
+        />
+      )}
+    >
+      {list(false)}
+    </Popover>
+  );
+}
+
+function useEffortDraft(session: Session) {
+  const levels = session.model?.thinkingLevels ?? [];
+  const server = session.thinking ?? levels[0] ?? "off";
+  const [draft, setDraft] = useState<string>(server);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef({ draft, session });
+  latest.current = { draft, session };
+
+  const commit = useCallback((l: string) => {
+    const s = latest.current.session;
+    if (l === s.thinking) return;
+    codeApi.setThinking(s.id, l as ThinkingLevel).catch((e) => {
+      toast.error(errorMessage(e));
+      setDraft(s.thinking ?? s.model?.thinkingLevels[0] ?? "off");
+    });
+  }, []);
+
+  const flush = useCallback(() => {
+    if (timer.current === null) return;
+    clearTimeout(timer.current);
+    timer.current = null;
+    commit(latest.current.draft);
+  }, [commit]);
+
+  const setLevel = (l: string) => {
+    setDraft(l);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      commit(l);
+    }, 400);
+  };
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the server unless a change is pending
+  useEffect(() => {
+    if (timer.current === null) setDraft(server);
+  }, [session.thinking, session.model?.id]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: flush once on unmount
+  useEffect(() => flush, []);
+
+  return { level: draft, setLevel, flush };
+}
+
+function EffortSlider({
+  levels,
+  level,
+  onChange,
+  large,
+}: {
+  levels: readonly string[];
+  level: string;
+  onChange: (l: string) => void;
+  large: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs text-muted">Effort</span>
+        <span className="text-sm font-medium capitalize">{level}</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={levels.length - 1}
+        step={1}
+        value={effortIndex(levels, level)}
+        onChange={(e) => onChange(levels[Number(e.target.value)]!)}
+        aria-label="Effort"
+        aria-valuetext={level}
+        className={cn("w-full accent-accent", large ? "h-11" : "h-6")}
+      />
+      <div className="flex justify-between text-xs text-muted">
+        {levels.map((l) => (
+          <span key={l} className={cn(l === level && "font-medium text-text")}>
+            {l}
+          </span>
+        ))}
+      </div>
+      <p className="text-xs text-muted">Applies from the next turn.</p>
+    </div>
+  );
+}
+
+export function EffortControl({
+  session,
+  enabled,
+  mobile,
+}: {
+  session: Session;
+  enabled: boolean;
+  mobile: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const draft = useEffortDraft(session);
+  const levels = session.model?.thinkingLevels ?? [];
+  if (!session.model || levels.length <= 1) return null;
+  const change = (o: boolean) => {
+    if (!o) draft.flush();
+    setOpen(o);
+  };
+  const pill = {
+    icon: <Brain className="size-4" />,
+    label: draft.level,
+    ariaLabel: `Effort: ${draft.level}`,
+    disabled: !enabled,
+  };
+  if (mobile) {
+    return (
+      <>
+        <ControlPill mobile {...pill} onClick={() => change(true)} />
+        <Sheet open={open} onClose={() => change(false)} title="Effort">
+          <EffortSlider levels={levels} level={draft.level} onChange={draft.setLevel} large />
+        </Sheet>
+      </>
+    );
+  }
+  return (
+    <Popover
+      open={open}
+      onOpenChange={change}
       side="top"
       align="start"
       label="Effort"
-      items={items}
-      trigger={(p) => (
-        <Button
-          {...p}
-          size="sm"
-          variant="ghost"
-          icon={<Brain className="size-3.5" />}
-          disabled={!enabled}
-          aria-label={`Effort: ${current}`}
-        >
-          {`effort ${current}`}
-        </Button>
-      )}
-    />
+      className="w-72"
+      trigger={(p) => <ControlPill {...p} mobile={false} {...pill} />}
+    >
+      <EffortSlider levels={levels} level={draft.level} onChange={draft.setLevel} large={false} />
+    </Popover>
   );
 }
 
@@ -128,128 +400,5 @@ export function ContextMeter({ session, enabled }: { session: Session; enabled: 
         </Button>
       )}
     />
-  );
-}
-
-export function ModelPicker({
-  open,
-  onClose,
-  session,
-  mobile,
-}: {
-  open: boolean;
-  onClose: () => void;
-  session: Session;
-  mobile: boolean;
-}) {
-  const [models, setModels] = useState<SessionModel[] | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const [changeError, setChangeError] = useState<unknown>(null);
-  const [query, setQuery] = useState("");
-  const [pending, setPending] = useState(false);
-  const search = useRef<HTMLInputElement>(null);
-
-  const load = useCallback(() => {
-    const ac = new AbortController();
-    setError(null);
-    codeApi.models(session.id, ac.signal).then(
-      (r) => setModels(r.models),
-      (e) => {
-        if (!ac.signal.aborted) setError(e);
-      },
-    );
-    return () => ac.abort();
-  }, [session.id]);
-
-  useEffect(() => {
-    if (!open) return;
-    setModels(null);
-    setQuery("");
-    setChangeError(null);
-    return load();
-  }, [open, load]);
-
-  const choose = async (m: SessionModel) => {
-    setPending(true);
-    setChangeError(null);
-    try {
-      await codeApi.setModel(session.id, m.provider, m.id);
-      toast.success(`Model: ${modelLabel(m)}`);
-      onClose();
-    } catch (e) {
-      setChangeError(e);
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const Surface = mobile ? Sheet : Dialog;
-  const levels = session.model?.thinkingLevels ?? [];
-  const groups = models ? groupModels(models, query) : [];
-  return (
-    <Surface open={open} onClose={onClose} title="Model and effort" initialFocus={search}>
-      <div className="flex min-w-0 flex-col gap-3">
-        {levels.length > 1 && (
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted">Effort</span>
-            <SegmentedControl
-              label="Effort"
-              className="flex-wrap"
-              value={session.thinking ?? levels[0]!}
-              options={levels.map((l) => ({ value: l, label: l }))}
-              onChange={(l) => {
-                setChangeError(null);
-                codeApi.setThinking(session.id, l).catch(setChangeError);
-              }}
-            />
-          </div>
-        )}
-        <TextInput
-          ref={search}
-          placeholder="Search models"
-          aria-label="Search models"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {changeError != null && <ErrorState compact title="Could not change" error={changeError} />}
-        {error != null ? (
-          <ErrorState title="Could not load models" error={error} onRetry={load} />
-        ) : !models ? (
-          <LoadingState label="Loading models…" />
-        ) : groups.length === 0 ? (
-          <p className="text-sm text-muted">No models match</p>
-        ) : (
-          groups.map((g) => (
-            <section key={g.provider} className="flex flex-col gap-1">
-              <h3 className="text-xs font-medium text-muted">{g.provider}</h3>
-              {g.models.map((m) => {
-                const current = session.model?.provider === m.provider && session.model.id === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    disabled={pending}
-                    aria-current={current ? "true" : undefined}
-                    onClick={() => void choose(m)}
-                    className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-2 disabled:opacity-55"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">{modelLabel(m)}</span>
-                      <span className="block truncate font-mono text-xs text-muted">
-                        {m.provider}/{m.id}
-                        {m.contextWindow !== null &&
-                          ` · ${Math.round(m.contextWindow / 1000)}k context`}
-                      </span>
-                    </span>
-                    {m.reasoning && <Badge>reasoning</Badge>}
-                    {current && <Check aria-hidden className="size-4" />}
-                  </button>
-                );
-              })}
-            </section>
-          ))
-        )}
-      </div>
-    </Surface>
   );
 }
