@@ -26,7 +26,7 @@ switchyard tui <session id>       # Ctrl+] detaches; the session keeps running
 
 `tui` resumes a stopped session first. Several viewers can watch the same session; they share one terminal size, and the most recent viewer to attach or resize sets it. Quitting Pi in the terminal (`/quit`, Ctrl+D) stops the session, and the next prompt or `tui` resumes it.
 
-The herdr integration in [`integrations/herdr/`](../integrations/herdr/README.md) opens one herdr space per live terminal session.
+The herdr integration in [`integrations/herdr/`](../integrations/herdr/README.md) pairs a whole herdr session with a coordinator: a space per workspace and a tab per session, showing Pi's own TUI for terminal sessions.
 
 ## Limits
 

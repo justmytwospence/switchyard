@@ -1,22 +1,28 @@
 id = "switchyard"
 name = "Switchyard"
-version = "0.1.0"
-min_herdr_version = "0.9.4"
-description = "One herdr space per live Switchyard terminal session: Pi's own TUI, its state in the sidebar."
+version = "0.2.0"
+min_herdr_version = "0.9.5"
+description = "Pair a herdr session with a Switchyard coordinator: a space per workspace, a tab per session, Pi's own TUI in each."
 platforms = ["linux", "macos"]
 
-# Starts the sync daemon (one space per live terminal session) once.
+# Starts the mirror daemon in herdr sessions that are paired (have an env file); a no-op elsewhere.
 [[startup]]
 command = ["sh", "switchyard-herdr.sh", "daemon", "--ensure"]
 
 [[actions]]
 id = "sync"
-title = "switchyard: sync session spaces now"
+title = "switchyard: sync now"
 contexts = ["global"]
 command = ["sh", "switchyard-herdr.sh", "daemon", "--once"]
 
 [[actions]]
+id = "new"
+title = "switchyard: new session"
+contexts = ["global"]
+command = ["sh", "switchyard-herdr.sh", "new-here"]
+
+[[actions]]
 id = "status"
-title = "switchyard: session spaces"
+title = "switchyard: session tabs"
 contexts = ["global"]
 command = ["sh", "switchyard-herdr.sh", "status"]

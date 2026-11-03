@@ -14,7 +14,7 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `login` | Enroll this terminal as a device (`--coordinator`, `--token <token or enrollment link>`) |
 | `attach [sessionId]` | Open the terminal client |
 | `tui <sessionId>` | Open a terminal session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
-| `herdr daemon` / `pane` / `status` | The herdr integration: one herdr space per live terminal session ([integrations/herdr](../integrations/herdr/README.md)) |
+| `herdr daemon` / `pane` / `new` / `status` | The herdr integration: mirror Switchyard into a paired herdr session, a space per workspace and a tab per session ([integrations/herdr](../integrations/herdr/README.md)) |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
 | `tasks create` / `list` / `move` | Create, list and move tasks |
