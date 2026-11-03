@@ -28,7 +28,12 @@ export const TEMPLATES: Record<ServiceKind, string> = {
   <key>Label</key>
   <string>com.switchyard.host</string>
   <key>ProgramArguments</key>
+  <!-- Through zsh (every Mac has /bin/zsh) so the agent and the Pi sessions it starts get the
+       environment ~/.zshenv sets for a terminal, like provider settings; PATH below is the base. -->
   <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>exec "$0" "$@"</string>
     <string>{{NODE}}</string>
     <string>{{CLI}}</string>
     <string>host</string>
