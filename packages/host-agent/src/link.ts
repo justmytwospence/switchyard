@@ -8,6 +8,8 @@ import {
   newId,
   type Receipt,
   type StreamDelta,
+  type TermCoordinatorMsg,
+  type TermServerToViewer,
 } from "@switchyard/protocol";
 import WebSocket from "ws";
 import type { HostDb } from "./db/index.js";
@@ -32,6 +34,8 @@ export interface CoordinatorLinkOptions {
   /** Hello payload, evaluated on every connect. */
   hello: () => HelloInfo;
   onCommand: (commandId: string, command: unknown) => void;
+  /** Terminal relay frames from the coordinator. */
+  onTerm?: (streamId: string, msg: TermCoordinatorMsg) => void;
   log: Logger;
   backoffMs?: number[];
   /** Interval for the WebSocket keepalive ping (default 20 s). */
@@ -206,6 +210,11 @@ export class CoordinatorLink {
     if (this.ready) this.send({ type: "stream", delta });
   }
 
+  /** Send a terminal relay frame now if connected. */
+  sendTerm(streamId: string, msg: TermServerToViewer): boolean {
+    return this.ready ? this.send({ type: "term", streamId, msg }) : false;
+  }
+
   /** Send a receipt now if connected (stored receipts are resent on a duplicate command). */
   sendReceipt(receipt: Receipt): boolean {
     if (!this.ready) return false;
@@ -315,6 +324,13 @@ export class CoordinatorLink {
         return;
       case "ping":
         this.send({ type: "pong" });
+        return;
+      case "term":
+        try {
+          this.opts.onTerm?.(frame.streamId, frame.msg);
+        } catch (err) {
+          this.opts.log.warn({ err: (err as Error).message }, "terminal frame failed");
+        }
         return;
       case "reject":
         this.opts.log.warn({ error: frame.error }, "coordinator rejected the host link");
