@@ -16,15 +16,17 @@ export function useSessionCommands(
   const abort = useRef<AbortController | null>(null);
 
   const load = useCallback(() => {
-    if (!enabled) return;
+    // Per-session state first: never show another session's commands, loading flag or error.
     const hit = CACHE.get(sessionId);
-    if (hit) setCommands(hit.commands);
-    if (hit && Date.now() - hit.at < STALE_MS) return;
+    setCommands(hit?.commands ?? []);
+    setError(null);
+    setLoading(false);
     abort.current?.abort();
+    if (!enabled) return;
+    if (hit && Date.now() - hit.at < STALE_MS) return;
     const ac = new AbortController();
     abort.current = ac;
     setLoading(true);
-    setError(null);
     codeApi
       .commands(sessionId, ac.signal)
       .then((r) => {
