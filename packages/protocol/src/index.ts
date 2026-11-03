@@ -5,6 +5,7 @@ export * from "./errors.js";
 export * from "./events.js";
 export * from "./host-wire.js";
 export * from "./ids.js";
+export * from "./terminal-wire.js";
 export * from "./ui.js";
 
 export const PROTOCOL_VERSION = 1;

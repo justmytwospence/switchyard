@@ -38,6 +38,8 @@ export const RuntimeCapabilities = z.object({
   widgetsComponent: z.boolean(),
   tokenAccounting: z.boolean(),
   costAccounting: z.boolean(),
+  /** The host runs sessions as interactive Pi in a terminal that clients can attach to. */
+  terminal: z.boolean().optional(),
   unsupported: z.array(z.object({ capability: z.string(), reason: z.string() })),
 });
 export type RuntimeCapabilities = z.infer<typeof RuntimeCapabilities>;
@@ -208,6 +210,8 @@ export const Session = z.object({
   stats: SessionStats.nullable(),
   lastAssistantText: z.string().nullable(),
   createdAt: Iso,
+  /** A live terminal session: `switchyard tui` can attach to its Pi terminal. */
+  terminal: z.boolean().optional(),
 });
 export type Session = z.infer<typeof Session>;
 

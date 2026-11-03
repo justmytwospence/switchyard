@@ -17,6 +17,7 @@ export const ID_PREFIXES = [
   "hst",
   "enr",
   "cmd",
+  "trm",
   "evt",
   "prf",
   "itm",
