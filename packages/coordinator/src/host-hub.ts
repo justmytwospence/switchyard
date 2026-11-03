@@ -60,6 +60,9 @@ const HOST_SESSION_FIELDS = [
   "runtimeDetail",
   "queue",
   "stats",
+  "model",
+  "thinking",
+  "compacting",
   "lastAssistantText",
   "lastActivityAt",
   "terminal",
@@ -637,7 +640,7 @@ export class HostHub {
         cwd: "",
         nativeHandle: null,
         profileSnapshot:
-          this.store.profiles.list(undefined, [], "created_at")[0] ?? FALLBACK_PROFILE,
+          this.store.profiles.list(undefined, [], "created_at, rowid")[0] ?? FALLBACK_PROFILE,
         runtime: "idle",
         runtimeDetail: null,
         runId: null,

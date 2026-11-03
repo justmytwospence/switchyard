@@ -1,12 +1,18 @@
 import {
   AdapterActionRequest,
+  CompactRequest,
   CreateSessionRequest,
   ImportableSession,
   ImportSessionRequest,
+  ModelStateResult,
   newId,
   PromptRequest,
   RenameRequest,
   type Session,
+  SessionCommandsResult,
+  SessionModelsResult,
+  SetModelRequest,
+  SetThinkingRequest,
   SwitchyardError,
   TranscriptItem,
 } from "@switchyard/protocol";
@@ -24,6 +30,29 @@ import {
   startOnHost,
 } from "../sessions/service.js";
 import { refreshSubagentTranscript, SUBAGENT_READ_ONLY } from "../sessions/subagents.js";
+
+function requireLiveSession(ctx: CoordinatorContext, s: Session): void {
+  if (s.readOnly) throw new SwitchyardError("forbidden", SUBAGENT_READ_ONLY);
+  if (!LIVE_RUNTIMES.includes(s.runtime) || s.runtime === "starting") {
+    throw new SwitchyardError(
+      "conflict",
+      s.runtime === "starting"
+        ? "Session is still starting"
+        : `Session ${s.runtime}: Resume to send`,
+    );
+  }
+  requireConnected(ctx, s.hostId);
+}
+
+function requireSessionControls(ctx: CoordinatorContext, s: Session): void {
+  requireLiveSession(ctx, s);
+  if (ctx.store.hosts.get(s.hostId)?.capabilities?.sessionControls !== true) {
+    throw new SwitchyardError(
+      "invalid_request",
+      "Update Switchyard on this host to change the model, effort or commands from here",
+    );
+  }
+}
 
 const ListQuery = z.object({
   projectId: z.string().optional(),
@@ -180,16 +209,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   app.post("/api/sessions/:id/prompt", async (req) => {
     const s = get(idOf(req));
     const body = parse(PromptRequest, req.body);
-    if (s.readOnly) throw new SwitchyardError("forbidden", SUBAGENT_READ_ONLY);
-    if (!LIVE_RUNTIMES.includes(s.runtime) || s.runtime === "starting") {
-      throw new SwitchyardError(
-        "conflict",
-        s.runtime === "starting"
-          ? "Session is still starting"
-          : `Session ${s.runtime}: Resume to send`,
-      );
-    }
-    requireConnected(ctx, s.hostId);
+    requireLiveSession(ctx, s);
     const run = ctx.store.runForSession(s);
     const result = await ctx.hostHub.request(s.hostId, {
       type: "session.prompt",
@@ -206,6 +226,65 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
       result: result ?? null,
       automationActive: run?.controlMode === "automation",
     };
+  });
+
+  app.get("/api/sessions/:id/models", async (req) => {
+    const s = get(idOf(req));
+    requireSessionControls(ctx, s);
+    return SessionModelsResult.parse(
+      await ctx.hostHub.request(s.hostId, { type: "session.models", sessionId: s.id }),
+    );
+  });
+
+  app.get("/api/sessions/:id/commands", async (req) => {
+    const s = get(idOf(req));
+    requireSessionControls(ctx, s);
+    return SessionCommandsResult.parse(
+      await ctx.hostHub.request(s.hostId, { type: "session.commands", sessionId: s.id }),
+    );
+  });
+
+  app.post("/api/sessions/:id/model", async (req) => {
+    const s = get(idOf(req));
+    const body = parse(SetModelRequest, req.body);
+    requireSessionControls(ctx, s);
+    return ModelStateResult.parse(
+      await ctx.hostHub.request(s.hostId, {
+        type: "session.setModel",
+        sessionId: s.id,
+        provider: body.provider,
+        modelId: body.modelId,
+      }),
+    );
+  });
+
+  app.post("/api/sessions/:id/thinking", async (req) => {
+    const s = get(idOf(req));
+    const body = parse(SetThinkingRequest, req.body);
+    requireSessionControls(ctx, s);
+    return ModelStateResult.parse(
+      await ctx.hostHub.request(s.hostId, {
+        type: "session.setThinking",
+        sessionId: s.id,
+        level: body.level,
+      }),
+    );
+  });
+
+  app.post("/api/sessions/:id/compact", async (req) => {
+    const s = get(idOf(req));
+    const body = parse(CompactRequest, req.body ?? {});
+    requireSessionControls(ctx, s);
+    if (s.runtime !== "idle") {
+      throw new SwitchyardError("conflict", "Wait for the run to finish before compacting");
+    }
+    if (s.compacting) throw new SwitchyardError("conflict", "Compaction is already running");
+    await ctx.hostHub.request(s.hostId, {
+      type: "session.compact",
+      sessionId: s.id,
+      instructions: body.instructions?.trim() || null,
+    });
+    return { ok: true };
   });
 
   app.post("/api/sessions/:id/abort", async (req) => {

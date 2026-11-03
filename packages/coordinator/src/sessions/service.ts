@@ -47,7 +47,7 @@ export function resolveProfile(
 ): Profile {
   const id = profileId ?? project?.defaultProfileId ?? null;
   if (id) return ctx.store.profiles.require(id);
-  const first = ctx.store.profiles.list(undefined, [], "created_at")[0];
+  const first = ctx.store.profiles.list(undefined, [], "created_at, rowid")[0];
   if (!first) throw new SwitchyardError("invalid_request", "No Pi profile configured");
   return first;
 }

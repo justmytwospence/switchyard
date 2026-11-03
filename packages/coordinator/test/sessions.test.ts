@@ -8,6 +8,7 @@ import {
   type TestCoordinator,
   until,
 } from "./helpers.js";
+import { fullCapabilities } from "./task-helpers.js";
 
 let t: TestCoordinator | undefined;
 let host: FakeHost | undefined;
@@ -351,5 +352,99 @@ describe("sessions", () => {
     const ok = await t!.admin("POST", "/api/sessions/ses_idle/archive");
     expect(ok.status).toBe(200);
     expect(host!.commands.some((c) => c.command.type === "session.stop")).toBe(true);
+  });
+});
+
+describe("session controls", () => {
+  async function controlSetup(capable = true) {
+    await setup();
+    await host!.close();
+    await host!.open({
+      capabilities: capable ? fullCapabilities({ sessionControls: true }) : fullCapabilities(),
+    });
+    host!.handler = (cmd) => {
+      switch (cmd.type) {
+        case "session.models":
+          return {
+            models: [
+              {
+                provider: "mock",
+                id: "m1",
+                name: null,
+                contextWindow: 1000,
+                reasoning: false,
+                thinkingLevels: ["off"],
+              },
+            ],
+          };
+        case "session.setModel":
+        case "session.setThinking":
+          return { model: null, thinking: "high" };
+        default:
+          return gitHandler(cmd);
+      }
+    };
+    await host!.event("session.updated", hostSession("ses_c", { runtime: "idle" }));
+  }
+
+  it("forwards models, model, thinking and compact", async () => {
+    await controlSetup();
+    const models = await t!.admin("GET", "/api/sessions/ses_c/models");
+    expect(models.body.models[0].id).toBe("m1");
+    const m = await t!.admin("POST", "/api/sessions/ses_c/model", {
+      provider: "mock",
+      modelId: "m1",
+    });
+    expect(m.status).toBe(200);
+    const sent = host!.commands.find((c) => c.command.type === "session.setModel")!
+      .command as HostCommandOf<"session.setModel">;
+    expect(sent).toMatchObject({ provider: "mock", modelId: "m1" });
+    expect(
+      (await t!.admin("POST", "/api/sessions/ses_c/thinking", { level: "bogus" })).status,
+    ).toBe(400);
+    expect(
+      (await t!.admin("POST", "/api/sessions/ses_c/thinking", { level: "high" })).body.thinking,
+    ).toBe("high");
+    expect((await t!.admin("POST", "/api/sessions/ses_c/compact", {})).status).toBe(200);
+    const compact = host!.commands.find((c) => c.command.type === "session.compact")!
+      .command as HostCommandOf<"session.compact">;
+    expect(compact.instructions).toBeNull();
+
+    await host!.event("session.updated", hostSession("ses_c", { runtime: "running" }));
+    expect((await t!.admin("POST", "/api/sessions/ses_c/compact", {})).status).toBe(409);
+    await host!.event("session.updated", hostSession("ses_c", { runtime: "stopped" }));
+    expect((await t!.admin("GET", "/api/sessions/ses_c/models")).status).toBe(409);
+  });
+
+  it("refuses hosts without the capability", async () => {
+    await controlSetup(false);
+    const r = await t!.admin("GET", "/api/sessions/ses_c/commands");
+    expect(r.status).toBe(400);
+    expect(r.body.error.message).toContain("Update Switchyard");
+  });
+
+  it("projects live model fields from the host", async () => {
+    await controlSetup();
+    await host!.event(
+      "session.updated",
+      hostSession("ses_c", {
+        model: {
+          provider: "mock",
+          id: "m1",
+          name: null,
+          contextWindow: 1000,
+          reasoning: false,
+          thinkingLevels: ["off"],
+        },
+        thinking: "off",
+        compacting: true,
+        stats: { tokens: 1, costUsd: 0, context: { tokens: 5, window: 10, percent: 50 } },
+      }),
+    );
+    const s = t!.c.store.sessions.require("ses_c");
+    expect(s.model?.id).toBe("m1");
+    expect(s.thinking).toBe("off");
+    expect(s.compacting).toBe(true);
+    expect(s.stats?.context?.window).toBe(10);
   });
 });

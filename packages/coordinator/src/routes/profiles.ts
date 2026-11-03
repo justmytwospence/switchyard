@@ -5,24 +5,43 @@ import { parse } from "../http.js";
 
 const ProfilePatch = Profile.omit({ id: true }).partial();
 
-/** Seed the "Default" profile (no provider/model overrides) when none exist. */
-export function seedDefaultProfile(ctx: Pick<CoordinatorContext, "store">): void {
+/**
+ * Seed the "Default" profile (no provider/model overrides) when none exist, and, once, a
+ * "Vanilla" profile (stock Pi: no extensions, skills or prompt templates).
+ */
+export function seedDefaultProfiles(ctx: Pick<CoordinatorContext, "store">): void {
   ctx.store.tx(() => {
-    if (ctx.store.profiles.count() > 0) return;
-    ctx.store.putProfile({
-      id: newId("prf"),
-      name: "Default",
-      provider: null,
-      model: null,
-      thinking: null,
-      projectTrust: "ask",
-      extraArgs: [],
-    });
+    if (ctx.store.profiles.count() === 0) {
+      ctx.store.putProfile({
+        id: newId("prf"),
+        name: "Default",
+        provider: null,
+        model: null,
+        thinking: null,
+        projectTrust: "ask",
+        extraArgs: [],
+      });
+    }
+    if (ctx.store.getSetting("profiles.vanillaSeeded", false)) return;
+    const has = ctx.store.profiles.list().some((p) => p.resources === "vanilla");
+    if (!has) {
+      ctx.store.putProfile({
+        id: newId("prf"),
+        name: "Vanilla",
+        provider: null,
+        model: null,
+        thinking: null,
+        projectTrust: "ask",
+        extraArgs: [],
+        resources: "vanilla",
+      });
+    }
+    ctx.store.setSetting("profiles.vanillaSeeded", true);
   });
 }
 
 export function registerProfileRoutes(app: FastifyInstance, ctx: CoordinatorContext): void {
-  app.get("/api/profiles", async () => ctx.store.profiles.list(undefined, [], "created_at"));
+  app.get("/api/profiles", async () => ctx.store.profiles.list(undefined, [], "created_at, rowid"));
 
   app.get("/api/profiles/:id", async (req) =>
     ctx.store.profiles.require((req.params as { id: string }).id),

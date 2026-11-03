@@ -1070,7 +1070,7 @@ export class Store {
       projects: this.projects.list(undefined, [], "created_at"),
       checkouts: this.checkouts.list(),
       workspaces: this.workspaces.list("archived_at IS NULL"),
-      profiles: this.profiles.list(undefined, [], "created_at"),
+      profiles: this.profiles.list(undefined, [], "created_at, rowid"),
       sessions,
       tasks,
       runs,

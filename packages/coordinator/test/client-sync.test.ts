@@ -29,7 +29,7 @@ describe("client sync", () => {
     expect(m.type).toBe("snapshot");
     if (m.type !== "snapshot") return;
     expect(m.seq).toBe(t.c.store.currentSeq());
-    expect(m.state.profiles.map((p) => p.name)).toEqual(["Default"]);
+    expect(m.state.profiles.map((p) => p.name)).toEqual(["Default", "Vanilla"]);
     expect(m.state.devices.map((d) => d.id)).toEqual([dev.deviceId]);
     expect(m.state.dispatchPaused).toBe(false);
     c.close();

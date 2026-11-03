@@ -27,7 +27,7 @@ import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerHostRoutes } from "./routes/hosts.js";
 import { registerInteractionRoutes } from "./routes/interactions.js";
 import { registerOpsRoutes } from "./routes/ops.js";
-import { registerProfileRoutes, seedDefaultProfile } from "./routes/profiles.js";
+import { registerProfileRoutes, seedDefaultProfiles } from "./routes/profiles.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerStaticRoutes } from "./routes/static.js";
@@ -217,7 +217,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
       storeClock,
     ),
   };
-  seedDefaultProfile({ store });
+  seedDefaultProfiles({ store });
   const attention = new AttentionService(store, hub);
   const hostHub = new HostHub(store, hub, attention, log.child({ mod: "host-hub" }), {
     unreachableAfterMs: config.unreachableAfterMs,
