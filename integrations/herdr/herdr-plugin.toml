@@ -1,0 +1,22 @@
+id = "switchyard"
+name = "Switchyard"
+version = "0.1.0"
+min_herdr_version = "0.9.4"
+description = "One herdr space per live Switchyard terminal session: Pi's own TUI, its state in the sidebar."
+platforms = ["linux", "macos"]
+
+# Starts the sync daemon (one space per live terminal session) once.
+[[startup]]
+command = ["sh", "switchyard-herdr.sh", "daemon", "--ensure"]
+
+[[actions]]
+id = "sync"
+title = "switchyard: sync session spaces now"
+contexts = ["global"]
+command = ["sh", "switchyard-herdr.sh", "daemon", "--once"]
+
+[[actions]]
+id = "status"
+title = "switchyard: session spaces"
+contexts = ["global"]
+command = ["sh", "switchyard-herdr.sh", "status"]
