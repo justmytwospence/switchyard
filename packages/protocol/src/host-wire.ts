@@ -11,6 +11,7 @@ import {
 } from "./entities.js";
 import { ErrorBody } from "./errors.js";
 import { HostEvent, StreamDelta } from "./events.js";
+import { TermCoordinatorMsg, TermServerToViewer } from "./terminal-wire.js";
 import { InteractionResponseSchema } from "./ui.js";
 
 const Origin = z.enum(["human", "automation"]);
@@ -266,6 +267,7 @@ export const HostToCoordinator = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stream"), delta: StreamDelta }),
   z.object({ type: z.literal("receipt"), receipt: Receipt }),
   z.object({ type: z.literal("pong") }),
+  z.object({ type: z.literal("term"), streamId: z.string(), msg: TermServerToViewer }),
 ]);
 export type HostToCoordinator = z.infer<typeof HostToCoordinator>;
 
@@ -280,5 +282,6 @@ export const CoordinatorToHost = z.discriminatedUnion("type", [
   z.object({ type: z.literal("command"), commandId: z.string(), command: HostCommand }),
   z.object({ type: z.literal("ping") }),
   z.object({ type: z.literal("reject"), error: ErrorBody }),
+  z.object({ type: z.literal("term"), streamId: z.string(), msg: TermCoordinatorMsg }),
 ]);
 export type CoordinatorToHost = z.infer<typeof CoordinatorToHost>;
