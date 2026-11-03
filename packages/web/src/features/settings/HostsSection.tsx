@@ -130,6 +130,15 @@ function HostRow({ host }: { host: Host }) {
   );
 }
 
+export const NPM_PACKAGE = "@justmytwospence/switchyard";
+
+/** Install, enroll and run as a service: what a new host needs, in order. */
+export function hostSetupScript(enrollCommand: string): string {
+  return [`npm install -g ${NPM_PACKAGE}`, enrollCommand, "switchyard host install-service"].join(
+    "\n",
+  );
+}
+
 /** "Add host": a single-use enrollment with the command to run on the host. */
 function AddHostDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
@@ -174,11 +183,14 @@ function AddHostDialog({ open, onClose }: { open: boolean; onClose: () => void }
         <EnrollmentStatus busy={busy} error={error} onRetry={create} />
         {enrollment && !busy && (
           <>
-            <p className="text-sm">Run this on the host, as the user that should run Pi:</p>
+            <p className="text-sm">
+              Run this on the host, as the user that should run Pi (it needs Node 24 or newer, git
+              and Pi):
+            </p>
             <CopyBlock
-              text={enrollment.command ?? enrollment.url}
-              label={enrollment.command ? "Host enrollment command" : "Host enrollment link"}
-              copyLabel="Copy command"
+              text={enrollment.command ? hostSetupScript(enrollment.command) : enrollment.url}
+              label={enrollment.command ? "Host setup commands" : "Host enrollment link"}
+              copyLabel="Copy commands"
             />
             <ExpiryCountdown expiresAt={enrollment.expiresAt} onRenew={create} busy={busy} />
           </>
