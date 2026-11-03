@@ -1,6 +1,6 @@
 # CLI and terminal client
 
-Everything is one command, `switchyard` (from source: `node packages/cli/dist/main.js`; in the container image it is on `PATH`). `switchyard <command> --help` shows every flag.
+Everything is one command, `switchyard`. Install it with `npm install -g @justmytwospence/switchyard` (Node 24 or newer); in the container image it is already on `PATH`, and from a source checkout it is `node packages/cli/dist/main.js`. `switchyard <command> --help` shows every flag.
 
 ## Commands
 

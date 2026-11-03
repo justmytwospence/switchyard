@@ -24,6 +24,20 @@ Most runtime, host and integration tests start the real `pi --mode rpc` with an 
 
 The browser tests start a real coordinator and host with the mock model, and use a mock OpenID Connect provider and a virtual WebAuthn authenticator for the sign-in flows.
 
+## Building the npm package
+
+The published package, `@justmytwospence/switchyard`, is one bundled CLI: `scripts/build-npm.mjs` inlines the `@switchyard/*` workspace packages into `dist/switchyard.mjs` with esbuild, keeps third-party dependencies as ordinary npm dependencies, and ships the Pi bridge extension and the web app alongside.
+
+```sh
+pnpm build && pnpm build:npm      # writes dist-npm/
+bash scripts/smoke-npm.sh         # packs it, installs it into a temp prefix, runs `switchyard up`
+```
+
 ## Releases
 
-Pushing a `v*` tag builds the container image for linux/amd64 and linux/arm64 and publishes it to GHCR (`.github/workflows/release.yml`). Every package shares the version in its `package.json`.
+Pushing a `v*` tag runs `.github/workflows/release.yml`:
+
+- **image:** builds the container for linux/amd64 and linux/arm64 and publishes it to GHCR;
+- **npm:** builds and smoke-tests the npm package, then publishes it with npm trusted publishing (GitHub OIDC, with provenance), skipping a version that is already on npm.
+
+Every package shares the version in its `package.json`.

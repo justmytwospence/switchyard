@@ -13,7 +13,7 @@
 # and no mount of any home directory. Do not add either. See docs/deployment.md and docs/auth.md.
 services:
   switchyard:
-    image: ghcr.io/justmytwospence/switchyard:0.2.1
+    image: ghcr.io/justmytwospence/switchyard:0.3.0
     restart: unless-stopped
     volumes:
       # coordinator.db (+ WAL), admin.token (0600) and coordinator.lock. Protect this directory:
@@ -81,7 +81,7 @@ services:
   # needs no Docker socket either.
   #
   # switchyard-host:
-  #   image: ghcr.io/justmytwospence/switchyard:0.2.1   # or your derived image that adds Pi
+  #   image: ghcr.io/justmytwospence/switchyard:0.3.0   # or your derived image that adds Pi
   #   restart: unless-stopped
   #   user: "1000:1000"                  # the owner of the home below
   #   command: ["host", "run"]

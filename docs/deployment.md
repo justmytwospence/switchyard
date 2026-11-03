@@ -26,8 +26,8 @@ Three rules hold in every pattern:
 ## Local: `switchyard up`
 
 ```
-pnpm i && pnpm build
-node packages/cli/dist/main.js up
+npm install -g @justmytwospence/switchyard
+switchyard up
 ```
 
 `up` runs the coordinator and a local host agent in one process. On first start it sets the server up, prints a single-use sign-in link with a QR code, and opens it in your browser when run in a terminal.
@@ -60,7 +60,7 @@ docker compose up -d
 docker compose exec switchyard switchyard init
 ```
 
-[`deploy/compose.yaml`](../deploy/compose.yaml) uses `ghcr.io/justmytwospence/switchyard:0.2.1` (multi-arch, `node:26-bookworm-slim`, runs as the `node` user), mounts `./data` at `/data` and has a `HEALTHCHECK` on `/healthz`. If the package is not public, `docker login ghcr.io` with a token that can read packages first. The compose file publishes the port on `127.0.0.1` only, for a proxy on the same machine; change it to `7400:7400` to serve plain HTTP on every interface, or remove it if the proxy shares a Docker network.
+[`deploy/compose.yaml`](../deploy/compose.yaml) uses `ghcr.io/justmytwospence/switchyard:0.3.0` (multi-arch, `node:26-bookworm-slim`, runs as the `node` user), mounts `./data` at `/data` and has a `HEALTHCHECK` on `/healthz`. If the package is not public, `docker login ghcr.io` with a token that can read packages first. The compose file publishes the port on `127.0.0.1` only, for a proxy on the same machine; change it to `7400:7400` to serve plain HTTP on every interface, or remove it if the proxy shares a Docker network.
 
 `switchyard init` prints your first sign-in link. Alternatively declare an OIDC owner in the environment and the server comes up owned with no manual step ([auth.md](auth.md#single-sign-on-oidc)). To run without Docker, use `switchyard coordinator start` with the same variables.
 
@@ -173,9 +173,12 @@ A host runs the Pi processes and owns the repositories and provider credentials.
 On the machine that has the repositories and Pi credentials, as the user that should run Pi:
 
 ```
+npm install -g @justmytwospence/switchyard
 switchyard host enroll --coordinator https://switchyard.example.com --token <token> [--name laptop]
 switchyard host install-service
 ```
+
+To upgrade a host later: `npm update -g @justmytwospence/switchyard`, then restart its service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux).
 
 Get the token from Settings › Hosts › Add host. `host enroll` writes `~/.config/switchyard/host.json` (mode 0600). With a shared secret you can skip it: set `SWITCHYARD_COORDINATOR_URL`, `SWITCHYARD_HOST_ENROLL_SECRET` and optionally `SWITCHYARD_HOST_NAME` in the service's environment and the host enrolls itself the first time it runs.
 
@@ -197,7 +200,7 @@ The same image can run a host agent: `switchyard host run`. Use it only when the
 - **Pi on `PATH`.** The image does not include Pi. Build a small image on top of it, or mount a Pi install and set `SWITCHYARD_PI_BIN`:
 
   ```
-  FROM ghcr.io/justmytwospence/switchyard:0.2.1
+  FROM ghcr.io/justmytwospence/switchyard:0.3.0
   USER root
   RUN npm install -g @earendil-works/pi-coding-agent@1.4.0
   USER node

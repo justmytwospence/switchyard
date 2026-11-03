@@ -102,11 +102,11 @@ sequenceDiagram
 
 ## Quick start
 
-**Try it on one machine** (Node 24 or newer, pnpm, git, and Pi 1.4 or 1.5 on your PATH):
+**Try it on one machine** (Node 24 or newer, git, and Pi 1.4 or 1.5 on your PATH):
 
 ```sh
-pnpm i && pnpm build
-node packages/cli/dist/main.js up
+npm install -g @justmytwospence/switchyard
+switchyard up
 ```
 
 `up` runs the coordinator and a host in one process at `http://localhost:7400`, sets the server up on first start and opens a single-use sign-in link in your browser. Add a project in Settings › Projects (a path to a git repository), then start a session or create a task.
@@ -116,16 +116,19 @@ node packages/cli/dist/main.js up
 ```sh
 docker run -d --name switchyard -p 127.0.0.1:7400:7400 -v switchyard-data:/data \
   -e SWITCHYARD_PUBLIC_URL=https://switchyard.example.com \
-  ghcr.io/justmytwospence/switchyard:0.2.1
+  ghcr.io/justmytwospence/switchyard:0.3.0
 docker exec switchyard switchyard init    # prints a single-use sign-in link for your first device
 ```
 
 Put HTTPS in front of it (a reverse proxy, or a VPN or tailnet; the installed phone app, notifications and passkeys need HTTPS). Then, on each machine that should run agents, create a host token in Settings › Hosts › Add host and run:
 
 ```sh
+npm install -g @justmytwospence/switchyard
 switchyard host enroll --coordinator https://switchyard.example.com --token <token>
 switchyard host install-service    # launchd on macOS, a systemd user service on Linux
 ```
+
+Settings › Hosts › Add host shows these three commands with your token filled in. To build from source instead, see [docs/development.md](docs/development.md).
 
 [docs/deployment.md](docs/deployment.md) has recipes for Caddy, Traefik, nginx and Tailscale, a compose file, and every setting.
 
@@ -139,6 +142,9 @@ switchyard host install-service    # launchd on macOS, a systemd user service on
 Details: [docs/auth.md](docs/auth.md) and the [privilege model](docs/deployment.md#privilege-model).
 
 ## Status
+
+License: [MIT](LICENSE).
+
 
 Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.6.0` (see [docs/compatibility.md](docs/compatibility.md) for supported and unsupported Pi capabilities) and runs on macOS and Linux hosts. What has and has not been verified is recorded in [docs/acceptance-report.md](docs/acceptance-report.md).
 
