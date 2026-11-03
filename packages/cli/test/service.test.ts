@@ -61,6 +61,7 @@ describe("service files", () => {
     expect(unit).toContain('Environment="PATH=/usr/bin:/bin:$HOME/x"');
     expect(unit).toContain("WorkingDirectory=/home/me");
     expect(unit).toContain("WantedBy=default.target");
+    expect(unit).toContain("KillMode=process");
   });
 
   it("refuses relative paths", () => {

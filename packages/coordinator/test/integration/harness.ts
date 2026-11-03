@@ -466,6 +466,7 @@ export class Integration {
       extraExtensions: [fixtureExtensionPath(), ...(this.opts.extraExtensions ?? [])],
       ownerAdapterDir: this.ownerAdapterDir,
       handleSignals: false,
+      terminalSessions: false,
       backoffMs: [50, 100, 200],
       logger: silentLogger(),
       testHooks: {
