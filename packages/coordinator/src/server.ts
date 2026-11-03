@@ -33,6 +33,7 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { type Clock, Store } from "./store.js";
+import { TerminalHub } from "./terminal-hub.js";
 
 /** Minimum length of `SWITCHYARD_HOST_ENROLL_SECRET`. */
 export const MIN_HOST_ENROLL_SECRET_LENGTH = 32;
@@ -222,6 +223,8 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
     unreachableAfterMs: config.unreachableAfterMs,
     commandTimeoutMs: config.commandTimeoutMs,
   });
+  const terminalHub = new TerminalHub(store, hostHub, log.child({ mod: "terminal-hub" }));
+  hostHub.setTerminalSink(terminalHub);
   const clientHub = new ClientHub(store, hub, log.child({ mod: "client-hub" }), {
     foregroundLeaseMs: config.foregroundLeaseMs,
   });
@@ -272,6 +275,20 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
     scope.get("/ws/client", { websocket: true }, (socket, req) =>
       clientHub.handleSocket(socket, req.device!),
     );
+    scope.get("/ws/terminal/:sessionId", { websocket: true }, (socket, req) => {
+      const { sessionId } = req.params as { sessionId: string };
+      const q = req.query as { cols?: string; rows?: string };
+      const size = (v: string | undefined, min: number, max: number, dflt: number) => {
+        const n = Number.parseInt(v ?? "", 10);
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt;
+      };
+      terminalHub.handleSocket(
+        socket,
+        sessionId,
+        size(q.cols, 10, 1000, 80),
+        size(q.rows, 5, 500, 24),
+      );
+    });
   });
 
   registerOpsRoutes(app, ctx);

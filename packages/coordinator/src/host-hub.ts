@@ -16,6 +16,8 @@ import {
   Session,
   StreamDelta,
   SwitchyardError,
+  type TermCoordinatorMsg,
+  type TermServerToViewer,
   TranscriptItem,
   Workspace,
 } from "@switchyard/protocol";
@@ -60,7 +62,14 @@ const HOST_SESSION_FIELDS = [
   "stats",
   "lastAssistantText",
   "lastActivityAt",
+  "terminal",
 ] as const;
+
+/** Where host terminal frames go (the coordinator's TerminalHub). */
+export interface TerminalSink {
+  frame(hostId: string, streamId: string, msg: TermServerToViewer): void;
+  disconnected(hostId: string): void;
+}
 
 const FALLBACK_PROFILE: Profile = {
   id: "prf_unknown",
@@ -87,6 +96,7 @@ export class HostHub {
   /** Partial workspace updates for paths the coordinator has not recorded yet. */
   private workspaceBuffer = new Map<string, Record<string, unknown>>();
   private pingTimer: NodeJS.Timeout | null = null;
+  private terminalSink: TerminalSink | null = null;
 
   constructor(
     private readonly store: Store,
@@ -118,6 +128,18 @@ export class HostHub {
     this.pending.clear();
     for (const c of this.conns.values()) c.socket.close(1001, "coordinator stopping");
     this.conns.clear();
+  }
+
+  setTerminalSink(sink: TerminalSink): void {
+    this.terminalSink = sink;
+  }
+
+  /** Send a terminal relay frame; false when the host is not connected. */
+  sendTerm(hostId: string, streamId: string, msg: TermCoordinatorMsg): boolean {
+    const conn = this.conns.get(hostId);
+    if (!conn || conn.socket.readyState !== WsOpen) return false;
+    this.sendFrame(conn.socket, { type: "term", streamId, msg });
+    return true;
   }
 
   isConnected(hostId: string): boolean {
@@ -375,6 +397,9 @@ export class HostHub {
       }
       case "pong":
         return;
+      case "term":
+        this.terminalSink?.frame(hostId, frame.streamId, frame.msg);
+        return;
     }
   }
 
@@ -397,6 +422,7 @@ export class HostHub {
   // ---- connectivity ----------------------------------------------------------------------
 
   private onDisconnected(hostId: string): void {
+    this.terminalSink?.disconnected(hostId);
     this.log.info({ hostId }, "host disconnected");
     this.setConnectivity(hostId, "reconnecting");
     this.armUnreachable(hostId);
