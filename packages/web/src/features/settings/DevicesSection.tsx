@@ -236,7 +236,7 @@ export function DevicesSection() {
       >
         <p className="text-sm">
           Its credential stops working immediately and its push subscription is removed. To use it
-          again, add it with a new link.
+          again, sign in on it again.
         </p>
         {revoking?.id === thisId && (
           <p className="text-sm font-medium text-danger">

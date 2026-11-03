@@ -64,7 +64,7 @@ The coordinator writes structured JSON (pino) to stdout. Set the level with `SWI
 docker compose logs -f switchyard
 ```
 
-These fields are redacted and appear as `[redacted]`: `req.headers.authorization`, `req.headers.cookie`, and any nested `credential`, `token`, `keys`, `p256dh` or `auth` field. Sign-in and enrollment links contain a single-use token and are never written to the log: `switchyard init`, `pair` and `up` print them to your terminal only. Device links expire after 10 minutes, host enrollments after 30. When the server is not set up yet, the coordinator logs and prints only the hint to run `switchyard init`.
+These fields are redacted and appear as `[redacted]`: `req.headers.authorization`, `req.headers.cookie`, and any nested `credential`, `token`, `keys`, `p256dh` or `auth` field. Sign-in and enrollment links contain a single-use token and are never written to the log: `pair` and `up` print them to your terminal only. Device links expire after 10 minutes, host enrollments after 30. A server without single sign-on and with no device or passkey logs and prints only the hint to run `switchyard pair`.
 
 ## Webhooks
 
