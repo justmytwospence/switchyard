@@ -38,6 +38,8 @@ describe("service files", () => {
   it("renders the launchd plist with absolute node and cli paths", () => {
     const plist = renderService("launchd", { ...vars, home: "/Users/me & co" });
     expect(plist).toContain("<string>/opt/homebrew/bin/node</string>");
+    // Pi sessions inherit the job's scheduling; Background would throttle them.
+    expect(plist).toContain("<key>ProcessType</key>\n  <string>Interactive</string>");
     expect(plist).toContain(`<string>${vars.cli}</string>`);
     expect(plist).toContain("<string>host</string>\n    <string>run</string>");
     expect(plist).toContain(`<string>${vars.config}</string>`);

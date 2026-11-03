@@ -59,8 +59,10 @@ export const TEMPLATES: Record<ServiceKind, string> = {
   </dict>
   <key>ThrottleInterval</key>
   <integer>10</integer>
+  <!-- Interactive, not Background: the Pi sessions it starts inherit the job's scheduling, and
+       macOS throttles Background jobs' CPU, I/O and timers (prompts took seconds to start). -->
   <key>ProcessType</key>
-  <string>Background</string>
+  <string>Interactive</string>
   <key>StandardOutPath</key>
   <string>{{LOG_DIR}}/host.log</string>
   <key>StandardErrorPath</key>
