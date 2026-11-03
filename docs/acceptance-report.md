@@ -85,7 +85,7 @@ These are upstream limits, disclosed in the product rather than hidden:
 
 ## 0.2.0 bootstrap and sign-in (2026-11-02)
 
-Recorded against v0.2.0 (`ghcr.io/justmytwospence/switchyard:0.2.0`, linux/amd64 and linux/arm64), pi-plugins `ca7f9e22`.
+Recorded against v0.2.0 (`ghcr.io/justmytwospence/switchyard:0.2.1`, linux/amd64 and linux/arm64), pi-plugins `ca7f9e22`.
 
 | Item | Status | Evidence |
 |---|---|---|

@@ -39,7 +39,7 @@ As a server, from the container image (the coordinator only; hosts run Pi on you
 ```
 docker run -d --name switchyard -p 127.0.0.1:7400:7400 -v switchyard-data:/data \
   -e SWITCHYARD_PUBLIC_URL=http://localhost:7400 \
-  ghcr.io/justmytwospence/switchyard:0.2.0
+  ghcr.io/justmytwospence/switchyard:0.2.1
 docker exec switchyard switchyard init
 ```
 
