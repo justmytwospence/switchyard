@@ -13,6 +13,7 @@ import {
 } from "@switchyard/protocol";
 import { readSessionNameSync } from "./importable.js";
 import { type PiExit, PiRpcError, PiRpcProcess } from "./rpc-process.js";
+import { PiTerminalProcess } from "./terminal-process.js";
 import {
   contentText,
   genericToolSummary,
@@ -22,6 +23,7 @@ import {
   messagesToItems,
   toolOutputText,
 } from "./transcript.js";
+import type { PiTransport } from "./transport.js";
 import {
   type BridgeEvent,
   isDialogRequest,
@@ -71,7 +73,17 @@ export interface ManagedSessionOptions {
    * Hosts return false for messages an adapter renders instead.
    */
   customMessageNotice?: (message: any) => boolean;
+  /** `rpc` (default): `pi --mode rpc`. `terminal`: interactive Pi in a pty holder. */
+  transport?: "rpc" | "terminal";
+  /** Terminal transport: attach to this running holder instead of starting Pi. */
+  terminalSocket?: string;
 }
+
+export const STARTING_IN_TERMINAL =
+  "Waiting for Pi to start; if it is asking something, answer it in the terminal";
+export const GAP_NOTICE =
+  "Some activity while the host agent was restarting is not shown here; open the terminal to see it";
+export const QUIT_IN_TERMINAL = "Pi was quit in the terminal";
 
 export interface RuntimeChange {
   runtime: RuntimeState;
@@ -90,8 +102,11 @@ export interface QueueState {
 
 export interface UiResolved {
   id: string;
-  /** `host` = answered through `respondUi`; `pi` = Pi closed it (timeout/abort); `exit` = Pi died. */
-  by: "host" | "pi" | "exit";
+  /**
+   * `host` = answered through `respondUi`; `pi` = Pi closed it (timeout/abort); `exit` = Pi died;
+   * `terminal` = answered in the session's terminal.
+   */
+  by: "host" | "pi" | "exit" | "terminal";
   request: PiDialogRequest;
 }
 
@@ -162,7 +177,7 @@ const TRACKED_ITEMS = 500;
 export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   readonly sessionId: string;
   private readonly opts: ManagedSessionOptions;
-  private proc: PiRpcProcess | null = null;
+  private proc: PiTransport | null = null;
   private order: number;
   private readonly newItemId: () => string;
   /** UUID passed as `--session-id` when starting a new native session. */
@@ -224,8 +239,19 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     return [...this.pending.values()];
   }
   /** The underlying process (for diagnostics and tests). */
-  get process(): PiRpcProcess | null {
-    return this.proc;
+  get process(): PiRpcProcess | PiTerminalProcess | null {
+    return this.proc as PiRpcProcess | PiTerminalProcess | null;
+  }
+  get transport(): "rpc" | "terminal" {
+    return this.opts.transport ?? "rpc";
+  }
+  /** The terminal holder's socket (terminal transport while attached). */
+  get terminalSocket(): string | null {
+    return this.proc instanceof PiTerminalProcess ? this.proc.socketPath : null;
+  }
+  /** Whether remote clients can answer extension dialogs (always for RPC). */
+  get remoteDialogs(): boolean {
+    return this.proc instanceof PiTerminalProcess ? this.proc.remoteDialogs : true;
   }
   get isAlive(): boolean {
     return this.proc !== null && this.proc.exited === null;
@@ -260,6 +286,10 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   async start(): Promise<void> {
     if (this.proc) throw new Error("ManagedSession already started");
     this.setRuntime();
+    if (this.transport === "terminal" && this.opts.terminalSocket) {
+      await this.attachTerminal(this.opts.terminalSocket);
+      return;
+    }
     if (this._native && !existsSync(this._native.sessionFile)) {
       const message = `Native session file not found: ${this._native.sessionFile}`;
       this.fail(message);
@@ -275,24 +305,29 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       this.fail((err as Error).message);
       throw err;
     }
+    const terminal = this.transport === "terminal";
     try {
-      this.proc = await PiRpcProcess.start({
+      const startOpts = {
         piBin: this.opts.piBin,
         cwd: this.opts.cwd,
         args,
         env: this.opts.env,
         runtimeDir: this.opts.runtimeDir,
-      });
+      };
+      this.proc = terminal
+        ? await PiTerminalProcess.start(startOpts)
+        : await PiRpcProcess.start(startOpts);
     } catch (err) {
       this.fail((err as Error).message);
       throw new SwitchyardError("internal", (err as Error).message);
     }
     this.wire(this.proc);
+    if (terminal) this.setRuntime(STARTING_IN_TERMINAL);
     let state: PiState;
     try {
       state = await this.proc.request<PiState>(
         { type: "get_state" },
-        this.opts.startTimeoutMs ?? 30000,
+        this.opts.startTimeoutMs ?? (terminal ? 15 * 60_000 : 30000),
       );
     } catch (err) {
       const message = `Pi did not start: ${(err as Error).message}`;
@@ -316,6 +351,46 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     this.busy = state.isStreaming;
     this.emit("native", { ...this._native });
     this.setRuntime();
+  }
+
+  /** Terminal transport: attach to a running holder and adopt its Pi's state. */
+  private async attachTerminal(socketPath: string): Promise<void> {
+    try {
+      this.proc = await PiTerminalProcess.attach(socketPath);
+    } catch (err) {
+      this.fail((err as Error).message);
+      throw new SwitchyardError("internal", (err as Error).message);
+    }
+    this.wire(this.proc);
+    let state: PiState;
+    try {
+      state = await this.proc.request<PiState>({ type: "get_state" }, 10000);
+    } catch (err) {
+      const message = `Terminal session did not answer: ${(err as Error).message}`;
+      this.fail(message);
+      (this.proc as PiTerminalProcess).detach();
+      throw new SwitchyardError("internal", message);
+    }
+    if (state.sessionFile) {
+      this._native = { sessionId: state.sessionId, sessionFile: state.sessionFile };
+      this.emit("native", { ...this._native });
+    }
+    this.started = true;
+    this.busy = state.isStreaming;
+    this.setRuntime();
+  }
+
+  /** Terminal transport: let go of the holder; Pi keeps running and no exit is reported. */
+  detach(): void {
+    if (!(this.proc instanceof PiTerminalProcess)) {
+      throw new Error("detach needs a terminal session");
+    }
+    const proc = this.proc;
+    proc.removeAllListeners();
+    proc.on("error", () => {});
+    proc.detach();
+    this.proc = null;
+    this.started = false;
   }
 
   /** Send a prompt, steer or follow-up; returns Pi's disposition. */
@@ -469,7 +544,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
 
   // ---- internals ----
 
-  private requireAlive(): PiRpcProcess {
+  private requireAlive(): PiTransport {
     if (!this.proc || this.proc.exited || !this.started) {
       throw new SwitchyardError("invalid_request", `Session is not running (${this._runtime})`);
     }
@@ -477,7 +552,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   }
 
   private async call<T = any>(
-    proc: PiRpcProcess,
+    proc: PiTransport,
     cmd: { type: string; [k: string]: unknown },
     timeoutMs = 60000,
   ): Promise<T> {
@@ -513,7 +588,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     this.emit("runtime", { runtime: next, detail: nextDetail });
   }
 
-  private wire(proc: PiRpcProcess): void {
+  private wire(proc: PiTransport): void {
     proc.on("event", (ev: PiEvent) => {
       try {
         this.onEvent(ev);
@@ -546,9 +621,22 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       });
     });
     proc.on("exit", (info: PiExit) => this.onExit(info));
+    proc.on("ui_closed", (c: { id: string; by: "pi" | "terminal" }) => this.onUiClosed(c));
+    proc.on("gap", () => this.notice("warning", GAP_NOTICE));
+  }
+
+  /** Terminal transport: the extension reports how each dialog closed. */
+  private onUiClosed({ id, by }: { id: string; by: "pi" | "terminal" }): void {
+    const req = this.pending.get(id);
+    if (!req) return;
+    this.pending.delete(id);
+    this.emit("ui_resolved", { id, by, request: req });
+    this.setRuntime();
   }
 
   private onPromptEnd(msg: BridgeEvent): void {
+    // The terminal extension reports every dialog it closes (`ui_closed`).
+    if (this.transport === "terminal") return;
     // Pi only reports the outermost prompt; expire pending dialogs that match it.
     const title = msg.title ?? undefined;
     let changed = false;
@@ -574,6 +662,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     } else if (this.closeRequested || info.requested) {
       this.terminal = "stopped";
       this._detail = null;
+    } else if (this.started && this.transport === "terminal" && info.code === 0) {
+      this.terminal = "stopped";
+      this._detail = QUIT_IN_TERMINAL;
     } else if (!this.started) {
       this.terminal = "failed";
       this._detail = `Pi exited during startup (code ${info.code}, signal ${info.signal})`;
@@ -760,6 +851,12 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
         break;
       case "session_info_changed":
         this.emit("title", typeof ev.name === "string" ? ev.name : null);
+        break;
+      case "switchyard_native":
+        if (typeof ev.sessionId === "string" && typeof ev.sessionFile === "string") {
+          this._native = { sessionId: ev.sessionId, sessionFile: ev.sessionFile };
+          this.emit("native", { ...this._native });
+        }
         break;
       default:
         break;

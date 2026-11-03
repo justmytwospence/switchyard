@@ -57,8 +57,9 @@ interface PendingRequest {
 
 const MAX_SOCKET_PATH = 100;
 
-function bridgeSocketPath(runtimeDir: string): string {
-  const name = `bridge-${randomUUID().slice(0, 8)}.sock`;
+/** A fresh Unix socket path in `runtimeDir`, or in a short `/tmp` directory when that is too long. */
+export function shortSocketPath(runtimeDir: string, prefix: string): string {
+  const name = `${prefix}-${randomUUID().slice(0, 8)}.sock`;
   let dir = runtimeDir;
   if (join(dir, name).length > MAX_SOCKET_PATH) {
     // Unix socket paths are limited (104 bytes on macOS); fall back to a short directory.
@@ -141,7 +142,7 @@ export class PiRpcProcess extends EventEmitter {
     let proc: PiRpcProcess | null = null;
     const early: Socket[] = [];
     if (useBridge) {
-      socketPath = bridgeSocketPath(opts.runtimeDir ?? join(tmpdir(), "switchyard"));
+      socketPath = shortSocketPath(opts.runtimeDir ?? join(tmpdir(), "switchyard"), "bridge");
       server = createServer((socket) => {
         if (proc) proc.attachBridgeSocket(socket);
         else early.push(socket);
