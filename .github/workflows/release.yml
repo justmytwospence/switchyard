@@ -33,3 +33,32 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing (GitHub OIDC) needs npm >= 11.5.
+      - run: npm install -g npm@latest
+      # The smoke test starts a standalone coordinator and host; the host needs Pi.
+      - run: npm install -g @earendil-works/pi-coding-agent@1.4.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm build:npm
+      - run: bash scripts/smoke-npm.sh
+      - name: Publish (skipped when this version is already on npm)
+        run: |
+          V=$(node -p "require('./dist-npm/package.json').version")
+          if npm view "@justmytwospence/switchyard@$V" version >/dev/null 2>&1; then
+            echo "@justmytwospence/switchyard@$V is already published"
+          else
+            npm publish ./dist-npm --access public --provenance
+          fi
