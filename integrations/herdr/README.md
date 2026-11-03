@@ -13,8 +13,9 @@ herdr is one client of Switchyard, not a requirement: this is `switchyard herdr 
 
 ## What you can do in the paired session
 
-- **Open a tab** in a space: it asks `Start a Switchyard session in <space>? [Y/n]`. Answer n to keep a plain shell.
-- **Open a space**: it asks for a project and a workspace, or a new worktree.
+- **Open a tab** in a space: it offers a session in that space's workspace, or another project or workspace.
+- **Open a space**: a fuzzy picker asks for a project, then a workspace. Type a branch name to start a new worktree instead; a project without workspaces only offers that. A title is optional.
+- **In the picker**, type to filter, ↑↓ to move, Enter to choose, Esc to go back a step, and Ctrl+C (or Esc at the first step) to keep a plain shell. Only hosts that run terminal sessions are offered.
 - **The `switchyard: new session` action** does the same in a new tab of the focused space.
 - **Rename a tab** to rename its session.
 - **Close a tab** to archive its session. A running session is not archived: herdr shows a notice and the tab comes back. Stop the run first.
