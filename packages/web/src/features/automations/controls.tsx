@@ -18,7 +18,7 @@ import {
   useState,
 } from "react";
 import { create } from "zustand";
-import { Spinner } from "../../components/ui/Button";
+import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";

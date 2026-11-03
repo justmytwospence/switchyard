@@ -25,6 +25,7 @@ import { useBreakpoint } from "../../app/useBreakpoint";
 import { TONE_CLASSES, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Overlay";
+import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
@@ -247,7 +248,7 @@ export function InlineStatus({
         className,
       )}
     >
-      <Icon aria-hidden className={cn("size-3.5 shrink-0", spin && "animate-spin")} />
+      {spin ? <Spinner className="size-3.5" /> : <Icon aria-hidden className="size-3.5 shrink-0" />}
       <span className="min-w-0 truncate">{label}</span>
     </span>
   );

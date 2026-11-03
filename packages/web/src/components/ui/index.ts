@@ -1,11 +1,12 @@
 export { Badge, CountBadge, TONE_CLASSES, type Tone } from "./Badge";
-export { Button, type ButtonProps, buttonClasses, Spinner } from "./Button";
+export { Button, type ButtonProps, buttonClasses } from "./Button";
 export { ErrorBoundary } from "./ErrorBoundary";
 export { IconButton, type IconButtonProps } from "./IconButton";
 export { Menu, type MenuItem, type MenuProps } from "./Menu";
 export { Dialog, Drawer, type DrawerProps, type OverlayProps, Sheet } from "./Overlay";
 export { Popover, type PopoverProps } from "./Popover";
 export { SegmentedControl, type SegmentOption } from "./SegmentedControl";
+export { Spinner } from "./Spinner";
 export { Splitter, type SplitterProps } from "./Splitter";
 export {
   ATTENTION_STATUS,

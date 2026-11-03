@@ -535,8 +535,8 @@ function RefreshRow({ diff }: { diff: WorkspaceDiff }) {
       <Button
         size="sm"
         variant={diff.outdated ? "secondary" : "ghost"}
-        icon={<RefreshCw className={cn("size-3.5", diff.loading && "animate-spin")} />}
-        disabled={diff.loading}
+        icon={<RefreshCw className="size-3.5" />}
+        busy={diff.loading}
         onClick={diff.refresh}
       >
         {diff.loading ? "Refreshing…" : "Refresh"}

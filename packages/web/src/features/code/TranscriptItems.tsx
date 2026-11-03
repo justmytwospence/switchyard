@@ -23,6 +23,7 @@ import { Markdown } from "../../components/intent/Markdown";
 import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
 import { Button } from "../../components/ui/Button";
 import { Sheet } from "../../components/ui/Overlay";
+import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatTime } from "../../lib/time";
@@ -137,7 +138,7 @@ function AssistantMessage({
         Pi
         {streaming && (
           <span className="inline-flex items-center gap-1 font-normal">
-            <LoaderCircle aria-hidden className="size-3 animate-spin" />
+            <Spinner className="size-3" />
             Writing…
           </span>
         )}
@@ -204,15 +205,18 @@ export function ToolCard({
       className="min-w-0 rounded-md border border-border bg-surface"
     >
       <header className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2">
-        <Icon
-          aria-hidden
-          className={cn(
-            "size-4 shrink-0",
-            running && "animate-spin text-info",
-            data.status === "ok" && "text-success",
-            data.status === "error" && "text-danger",
-          )}
-        />
+        {running ? (
+          <Spinner className="size-4 text-info" />
+        ) : (
+          <Icon
+            aria-hidden
+            className={cn(
+              "size-4 shrink-0",
+              data.status === "ok" && "text-success",
+              data.status === "error" && "text-danger",
+            )}
+          />
+        )}
         <span className="min-w-0 truncate font-mono text-sm font-medium">{data.name}</span>
         <span
           className={cn(
@@ -379,10 +383,11 @@ function SubagentRow({ data }: { data: Extract<TranscriptItem, { kind: "subagent
         : Network;
   return (
     <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-surface px-3 py-2">
-      <Icon
-        aria-hidden
-        className={cn("mt-0.5 size-4 shrink-0 text-muted", Icon === LoaderCircle && "animate-spin")}
-      />
+      {Icon === LoaderCircle ? (
+        <Spinner className="mt-0.5 size-4 text-muted" />
+      ) : (
+        <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted" />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           <span className="text-xs font-medium text-muted">Subagent</span>
@@ -467,7 +472,7 @@ function StreamEntry({ stream }: { stream: StreamBuffer }) {
       {(stream.toolArgs || stream.toolOutput) && (
         <div className="min-w-0 rounded-md border border-border bg-surface px-3 py-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
-            <LoaderCircle aria-hidden className="size-3.5 animate-spin" />
+            <Spinner className="size-3.5" />
             Tool running…
           </div>
           {stream.toolArgs && (

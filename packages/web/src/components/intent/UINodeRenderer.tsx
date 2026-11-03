@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { Link } from "react-router";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/Button";
+import { Spinner } from "../ui/Spinner";
 import { TabPanel, Tabs } from "../ui/Tabs";
 import { CodeBlock } from "./CodeBlock";
 import { ConfirmRenderer } from "./ConfirmRenderer";
@@ -210,15 +211,18 @@ function ProgressView({ node }: { node: Extract<UINode, { t: "progress" }> }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex items-center gap-2 text-sm">
-        <Icon
-          aria-hidden
-          className={cn(
-            "size-4 shrink-0",
-            status === "ok" && "text-success",
-            status === "error" && "text-danger",
-            status === "running" && "animate-spin text-info",
-          )}
-        />
+        {status === "running" ? (
+          <Spinner className="size-4 text-info" />
+        ) : (
+          <Icon
+            aria-hidden
+            className={cn(
+              "size-4 shrink-0",
+              status === "ok" && "text-success",
+              status === "error" && "text-danger",
+            )}
+          />
+        )}
         <span className="min-w-0 flex-1 truncate">{node.label}</span>
         <span className="shrink-0 text-xs text-muted">
           {statusText}

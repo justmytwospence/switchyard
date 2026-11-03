@@ -115,6 +115,10 @@
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
+@theme {
+  --animate-spin: spin 1.4s linear infinite;
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;

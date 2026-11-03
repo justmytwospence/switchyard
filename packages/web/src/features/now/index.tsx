@@ -20,7 +20,8 @@ import {
 import { useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ROUTES } from "../../app/routes";
-import { buttonClasses, Spinner } from "../../components/ui/Button";
+import { buttonClasses } from "../../components/ui/Button";
+import { Spinner } from "../../components/ui/Spinner";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
   EmptyState,

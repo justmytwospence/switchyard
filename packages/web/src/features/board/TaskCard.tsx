@@ -13,8 +13,8 @@ import {
 import type { HTMLAttributes, ReactNode, Ref } from "react";
 import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
-import { Spinner } from "../../components/ui/Button";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
+import { Spinner } from "../../components/ui/Spinner";
 import { ATTENTION_STATUS, TASK_STATUS } from "../../components/ui/StatusChip";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
@@ -161,7 +161,13 @@ export function TaskCard({ task, showProject, wait, onOpen, drag, full, selected
 
       {exec && (
         <Line
-          icon={<exec.icon aria-hidden className={cn("size-3.5", exec.spin && "animate-spin")} />}
+          icon={
+            exec.spin ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <exec.icon aria-hidden className={cn("size-3.5", exec.pulse && "animate-pulse")} />
+            )
+          }
           className={TONE_TEXT[exec.tone]}
         >
           {exec.text}

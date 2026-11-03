@@ -97,6 +97,7 @@ export interface ExecutionLine {
   text: string;
   tone: StatusInfo["tone"];
   spin?: boolean;
+  pulse?: boolean;
 }
 
 /** One line describing what is happening now (or why it is blocked/waiting). */
@@ -110,7 +111,13 @@ export function executionLine(
   if (task.state === "in_progress" && run) {
     const s = RUN_STATUS[run.state];
     const control = run.controlMode === "human" ? " · You have control" : "";
-    return { icon: s.icon, text: `${s.label}${control}`, tone: s.tone, spin: s.spin };
+    return {
+      icon: s.icon,
+      text: `${s.label}${control}`,
+      tone: s.tone,
+      spin: s.spin,
+      pulse: s.pulse,
+    };
   }
   if (task.state === "ready") {
     if (wait && !wait.eligible)

@@ -13,6 +13,7 @@ import {
 import { useEffect, useRef } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { CountBadge } from "../components/ui/Badge";
+import { Spinner } from "../components/ui/Spinner";
 import { statusInfo } from "../components/ui/StatusChip";
 import { ReconnectingBanner } from "../components/ui/states";
 import { Toaster } from "../components/ui/Toast";
@@ -200,16 +201,25 @@ function Rail() {
             className="flex h-9 items-center gap-3 px-3 text-xs text-muted"
             title={`Connection: ${conn.label}`}
           >
-            <ConnIcon
-              aria-hidden
-              className={cn(
-                "size-4 shrink-0",
-                conn.tone === "success" && "text-success",
-                conn.tone === "warning" && "text-warning",
-                conn.tone === "danger" && "text-danger",
-                conn.spin && "animate-spin",
-              )}
-            />
+            {conn.spin ? (
+              <Spinner
+                className={cn(
+                  "size-4",
+                  conn.tone === "warning" && "text-warning",
+                  conn.tone === "info" && "text-info",
+                )}
+              />
+            ) : (
+              <ConnIcon
+                aria-hidden
+                className={cn(
+                  "size-4 shrink-0",
+                  conn.tone === "success" && "text-success",
+                  conn.tone === "warning" && "text-warning",
+                  conn.tone === "danger" && "text-danger",
+                )}
+              />
+            )}
             <span className={expanded ? "truncate" : "sr-only"}>{conn.label}</span>
           </div>
           <button

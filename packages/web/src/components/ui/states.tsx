@@ -12,7 +12,8 @@ import { Link } from "react-router";
 import { cn } from "../../lib/cn";
 import { formatRelative, formatTime } from "../../lib/time";
 import type { ConnectionState } from "../../sync/store";
-import { Button, buttonClasses, Spinner } from "./Button";
+import { Button, buttonClasses } from "./Button";
+import { Spinner } from "./Spinner";
 
 /*
  * The nine UI states every primary view implements (spec 18):
@@ -159,7 +160,7 @@ export function ReconnectingBanner({
       {offline ? (
         <ServerOff aria-hidden className="size-4 shrink-0 text-warning" />
       ) : (
-        <RefreshCw aria-hidden className="size-4 shrink-0 animate-spin text-warning" />
+        <Spinner className="size-4 text-warning" />
       )}
       <span className="min-w-0 flex-1">
         {offline ? "Offline" : "Reconnecting…"} showing last known data from{" "}

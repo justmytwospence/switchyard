@@ -8,6 +8,7 @@ import type {
   TaskState,
 } from "@switchyard/protocol";
 import {
+  Activity,
   Ban,
   CircleAlert,
   CircleCheck,
@@ -36,6 +37,7 @@ import {
 import { cn } from "../../lib/cn";
 import type { ConnectionState } from "../../sync/store";
 import { TONE_CLASSES, type Tone } from "./Badge";
+import { Spinner } from "./Spinner";
 
 /** A status presentation: always an icon plus a text label (never color alone). */
 export interface StatusInfo {
@@ -44,12 +46,14 @@ export interface StatusInfo {
   tone: Tone;
   /** Spin the icon (in-flight states). */
   spin?: boolean;
+  /** Pulse the icon (ongoing, not transitional). */
+  pulse?: boolean;
 }
 
 export const RUNTIME_STATUS: Record<RuntimeState, StatusInfo> = {
   starting: { label: "Starting…", icon: LoaderCircle, tone: "info", spin: true },
   idle: { label: "Idle", icon: CircleDot, tone: "neutral" },
-  running: { label: "Running", icon: LoaderCircle, tone: "info", spin: true },
+  running: { label: "Running", icon: Activity, tone: "info", pulse: true },
   waiting_input: { label: "Needs input", icon: MessageCircleQuestion, tone: "warning" },
   interrupted: { label: "Interrupted", icon: CirclePause, tone: "warning" },
   failed: { label: "Failed", icon: CircleX, tone: "danger" },
@@ -69,7 +73,7 @@ export const RUN_STATUS: Record<RunState, StatusInfo> = {
   queued: { label: "Queued", icon: Clock, tone: "neutral" },
   dispatching: { label: "Dispatching…", icon: LoaderCircle, tone: "info", spin: true },
   uncertain: { label: "Awaiting host confirmation", icon: Hourglass, tone: "warning" },
-  running: { label: "Running", icon: LoaderCircle, tone: "info", spin: true },
+  running: { label: "Running", icon: Activity, tone: "info", pulse: true },
   waiting_input: { label: "Needs input", icon: MessageCircleQuestion, tone: "warning" },
   checking: { label: "Running checks", icon: ListChecks, tone: "info", spin: false },
   succeeded: { label: "Succeeded", icon: CircleCheck, tone: "success" },
@@ -198,10 +202,14 @@ export function StatusChip(props: StatusChipProps) {
         props.className,
       )}
     >
-      <Icon
-        aria-hidden
-        className={cn(sm ? "size-3" : "size-3.5", "shrink-0", info.spin && "animate-spin")}
-      />
+      {info.spin ? (
+        <Spinner className={sm ? "size-3" : "size-3.5"} />
+      ) : (
+        <Icon
+          aria-hidden
+          className={cn(sm ? "size-3" : "size-3.5", "shrink-0", info.pulse && "animate-pulse")}
+        />
+      )}
       <span className="truncate">{props.label ?? info.label}</span>
     </span>
   );
