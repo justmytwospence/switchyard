@@ -140,7 +140,7 @@ function Overview() {
   return (
     <SectionPage title="Settings" description="Configure Switchyard and check its health.">
       <LastKnownNote />
-      <ul className="grid min-w-0 gap-3 lg:grid-cols-2">
+      <ul className="grid min-w-0 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
         {SECTIONS.map(({ path, label, description, icon: Icon }) => (
           <li key={path} className="min-w-0">
             <Link

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, isMobile, test, uid } from "./support";
+import { expect, isMobile, test, uid, viewportOf } from "./support";
 
 async function noHorizontalOverflow(
   page: Page,
@@ -68,6 +68,25 @@ test.describe("shared behavior", () => {
       if (squeezed.length) failures.push(`${path}: squeezed heading ${squeezed.join(", ")}`);
     }
     expect(failures).toEqual([]);
+  });
+
+  test("the expanded rail pushes the content", async ({ page, signIn }, info) => {
+    test.skip(viewportOf(info) === "mobile", "The rail is not shown on mobile");
+    await signIn();
+    await page.goto("/board");
+    await settled(page);
+    const mainX = async () => (await page.locator("#main").boundingBox())!.x;
+    const before = await mainX();
+    await page.getByRole("button", { name: "Expand navigation labels" }).click();
+    await expect.poll(mainX).toBeGreaterThan(before + 134);
+    expect(Math.abs((await mainX()) - before - 136)).toBeLessThanOrEqual(2);
+    await page.locator("#main").click({ position: { x: 5, y: 5 } });
+    await expect(page.getByRole("button", { name: "Collapse navigation labels" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await page.getByRole("button", { name: "Collapse navigation labels" }).click();
+    await expect.poll(mainX).toBe(before);
   });
 
   test("drafts survive navigation and reload", async ({ page, signIn, state }, info) => {

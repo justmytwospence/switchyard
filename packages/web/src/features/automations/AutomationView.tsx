@@ -428,7 +428,7 @@ function Editor({ automation }: { automation: Automation | null }) {
   return (
     <div
       data-testid="automation-editor"
-      className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4 px-4 pt-4 md:px-6"
+      className="flex w-full min-w-0 flex-col gap-4 px-4 pt-4 md:px-6"
     >
       <header className="flex min-w-0 flex-col gap-2">
         <Link

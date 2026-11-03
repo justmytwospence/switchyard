@@ -10,7 +10,7 @@ import {
   Timer,
   Workflow,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { CountBadge } from "../components/ui/Badge";
 import { Spinner } from "../components/ui/Spinner";
@@ -78,9 +78,8 @@ function isActive(d: Destination, pathname: string): boolean {
 }
 
 /**
- * App frame: a 64 px global rail (labels on expansion to 200 px, as an
- * overlay so pane widths stay stable) at >= 768 px; a bottom nav below 768 px
- * that hides while composing with the on-screen keyboard.
+ * App frame: a 64 px global rail that pushes the content aside when expanded to 200 px at
+ * >= 768 px; a bottom nav below 768 px that hides while composing with the on-screen keyboard.
  */
 export function AppShell() {
   const bp = useBreakpoint();
@@ -127,36 +126,17 @@ function Rail() {
   const { pathname } = useLocation();
   const count = useAttentionCount();
   const connection = useConnection();
-  const navRef = useRef<HTMLElement>(null);
   const conn = statusInfo({ kind: "connection", value: connection.state });
   const ConnIcon = conn.icon;
 
-  useEffect(() => {
-    if (!expanded) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPref("railExpanded", false);
-    };
-    const onDown = (e: PointerEvent) => {
-      if (!navRef.current?.contains(e.target as Node)) setPref("railExpanded", false);
-    };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("pointerdown", onDown);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("pointerdown", onDown);
-    };
-  }, [expanded, setPref]);
-
   return (
-    <div className="relative z-30 w-16 shrink-0" style={{ width: "var(--rail-width)" }}>
+    <div
+      className="relative z-30 shrink-0 transition-[width] duration-200 ease-out motion-reduce:transition-none"
+      style={{ width: expanded ? "var(--rail-expanded-width)" : "var(--rail-width)" }}
+    >
       <nav
-        ref={navRef}
         aria-label="Primary"
-        className={cn(
-          "absolute inset-y-0 left-0 flex flex-col border-r border-border bg-surface safe-pt safe-pb",
-          expanded ? "shadow-pop" : "",
-        )}
-        style={{ width: expanded ? "var(--rail-expanded-width)" : "var(--rail-width)" }}
+        className="flex h-full w-full flex-col overflow-hidden border-r border-border bg-surface safe-pt safe-pb"
       >
         <div className="flex h-14 items-center gap-2 px-3.5" aria-hidden={!expanded}>
           <img src="/icon.svg" alt="" className="size-9 shrink-0 rounded-lg" />
@@ -172,7 +152,6 @@ function Rail() {
                   to={d.to}
                   title={expanded ? undefined : d.label}
                   aria-current={active ? "page" : undefined}
-                  onClick={() => expanded && setPref("railExpanded", false)}
                   className={cn(
                     "tap relative flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium",
                     active

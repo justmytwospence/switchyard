@@ -128,7 +128,7 @@ export default function AutomationsView() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4 px-4 py-4 md:px-6">
+    <div className="flex w-full min-w-0 flex-col gap-4 px-4 py-4 md:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold">Automations</h1>

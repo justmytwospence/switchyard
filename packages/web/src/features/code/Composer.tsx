@@ -267,9 +267,9 @@ export function Composer({
     <section
       data-testid="composer"
       aria-label="Composer"
-      className={cn("shrink-0 border-t border-border bg-surface px-3 pt-2 pb-2", className)}
+      className={cn("shrink-0 border-t border-border bg-surface px-3 pt-2 pb-2 md:px-6", className)}
     >
-      <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-2">
+      <div className="flex w-full min-w-0 flex-col gap-2">
         {controls && session.model && <ContextMeter session={session} enabled={controls} />}
         {ctx.control === "automation" && !block && (
           <div

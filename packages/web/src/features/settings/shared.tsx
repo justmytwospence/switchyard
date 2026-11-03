@@ -135,10 +135,7 @@ export function SectionPage({
   const bp = useBreakpoint();
   const backLink = back ?? (bp === "mobile" ? { to: "/settings", label: "Settings" } : null);
   return (
-    <section
-      data-testid={testId}
-      className="mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-4 px-4 py-4 md:px-6"
-    >
+    <section data-testid={testId} className="flex w-full min-w-0 flex-col gap-4 px-4 py-4 md:px-6">
       {backLink && (
         <Link
           to={backLink.to}
@@ -298,7 +295,7 @@ export function Field({
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
+    <div className={cn("flex w-full min-w-0 max-w-2xl flex-col gap-1", className)}>
       <label htmlFor={id} className="text-sm font-medium">
         {label}
       </label>

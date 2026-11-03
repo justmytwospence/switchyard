@@ -100,7 +100,7 @@ export default function NowView() {
     );
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-4 px-4 py-4 safe-pt">
+    <div className="flex w-full min-w-0 flex-col gap-4 px-4 py-4 safe-pt md:px-6">
       <header className="flex min-w-0 flex-wrap items-center gap-3">
         <h1 className="flex-1 text-lg font-semibold">Now</h1>
         <DispatchToggle />
@@ -139,7 +139,7 @@ export default function NowView() {
           action={{ label: "Go to Board", to: ROUTES.board }}
         />
       ) : (
-        <>
+        <div className="grid min-w-0 gap-4 xl:grid-cols-2 xl:items-start">
           <section aria-labelledby="now-running" className="flex min-w-0 flex-col gap-2">
             <h2 id="now-running" className="text-base font-semibold">
               Running <span className="text-sm font-normal text-muted">({running.length})</span>
@@ -176,7 +176,7 @@ export default function NowView() {
               </ul>
             )}
           </section>
-        </>
+        </div>
       )}
     </div>
   );

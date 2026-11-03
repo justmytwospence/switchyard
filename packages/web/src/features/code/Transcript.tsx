@@ -197,9 +197,9 @@ export function Transcript({
         aria-live="off"
         aria-label="Transcript"
         onScroll={onScroll}
-        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 [overflow-anchor:none] focus-visible:outline-offset-[-2px]"
+        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 md:px-6 [overflow-anchor:none] focus-visible:outline-offset-[-2px]"
       >
-        <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-3">
+        <div className="flex w-full min-w-0 flex-col gap-3">
           {t.loaded && t.hasMore && (
             <div className="flex justify-center">
               <Button size="sm" variant="ghost" busy={t.loading} onClick={requestOlder}>

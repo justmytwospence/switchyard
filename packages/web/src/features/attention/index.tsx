@@ -61,7 +61,7 @@ export default function AttentionView() {
   const groups = useMemo(() => groupAttention(items), [items]);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-4 px-4 py-4 safe-pt">
+    <div className="flex w-full min-w-0 flex-col gap-4 px-4 py-4 safe-pt md:px-6">
       <header className="flex min-w-0 flex-wrap items-center gap-3">
         <h1 className="flex-1 text-lg font-semibold">Attention</h1>
         <SegmentedControl
@@ -118,7 +118,7 @@ export default function AttentionView() {
                 </h2>
                 <p className="text-sm text-muted">{GROUP_HINT[reason]}</p>
               </div>
-              <ul className="flex min-w-0 flex-col gap-2">
+              <ul className="grid min-w-0 gap-2 2xl:grid-cols-2">
                 {groups[reason].map((a) => (
                   <li key={a.id}>
                     <AttentionRow item={a} />
