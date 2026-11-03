@@ -212,18 +212,18 @@ The same image can run a host agent: `switchyard host run`. Use it only when the
 
 [`deploy/compose.yaml`](../deploy/compose.yaml) has a commented `switchyard-host` service with these settings.
 
-## Terminal client
+## Pi terminal
 
-Terminal clients enroll with a single-use token from Settings › Devices › Add device or `switchyard pair`:
+Terminals enroll with a single-use token from Settings › Devices › Add device or `switchyard pair`:
 
 ```
 switchyard login --coordinator https://switchyard.example.com --token <token>
-switchyard attach
+switchyard tui <session id>
 ```
 
 `--token` also accepts the whole link, in which case `--coordinator` is optional. `login` writes `~/.config/switchyard/client.json` (mode 0600) and registers the terminal as a device of kind `terminal`.
 
-Work commands (`sessions`, `tasks`, `automations`, `attach`, `doctor`) resolve credentials in this order: `--coordinator`/`--credential` flags, `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`, `~/.config/switchyard/client.json`, then the local `admin.token` in the data dir against the coordinator recorded in `cli-endpoint.json`, else `http://127.0.0.1:7400`.
+Work commands (`sessions`, `tasks`, `automations`, `tui`, `doctor`) resolve credentials in this order: `--coordinator`/`--credential` flags, `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`, `~/.config/switchyard/client.json`, then the local `admin.token` in the data dir against the coordinator recorded in `cli-endpoint.json`, else `http://127.0.0.1:7400`.
 
 ## iOS Home Screen push
 

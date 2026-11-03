@@ -13,7 +13,7 @@ flowchart TB
   subgraph clients["Clients: windows onto the same work"]
     phone["Phone<br/>(installable web app)"]
     browser["Desktop browser"]
-    term["Terminal client and CLI"]
+    term["Pi terminal and CLI"]
   end
 
   coord["<b>Coordinator</b><br/>tasks, schedules, notifications,<br/>sign-in, sync<br/><i>never runs code</i>"]
@@ -37,7 +37,7 @@ There are three kinds of parts:
 
 - **The coordinator** is the one always-on service. It keeps tasks, schedules, notifications, devices and the shared view of every session, and it decides what runs where. It never runs an agent and never holds your provider credentials, so it can live anywhere: a container, a small server, or your laptop.
 - **Hosts** are your machines. A host agent runs Pi as your OS user, with your repositories, worktrees, Pi packages and model logins, and connects *outbound* to the coordinator. A host needs no open ports, and a laptop can come and go: its sessions keep running while the coordinator is down, and the events catch up when it returns.
-- **Clients** are views. The web app works on desktop and as an installed app on a phone; the terminal client and the scriptable CLI work over the same API. Any client can watch, answer and steer a session; none of them owns it.
+- **Clients** are views. The web app works on desktop and as an installed app on a phone; in a terminal you get Pi's own TUI for any session (`switchyard tui`, or a whole herdr session mirroring Switchyard), and the scriptable CLI works over the same API. Any client can watch, answer and steer a session; none of them owns it.
 
 For a single machine, `switchyard up` runs the coordinator and a host in one process. For more, run the coordinator as a server and enroll each machine as a host. The protocol is the same either way.
 
@@ -154,8 +154,8 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.6.0`
 |---|---|
 | [Deployment](docs/deployment.md) | Single machine, server, reverse proxies, VPNs, hosts, environment reference, privilege model |
 | [Sign-in and devices](docs/auth.md) | The owner model, pairing, passkeys, single sign-on, host enrollment, revocation |
-| [CLI and terminal client](docs/cli.md) | Every `switchyard` command, credentials, terminal key bindings |
-| [Terminal sessions](docs/terminal-sessions.md) | Experimental: Pi's own TUI for every session, from any terminal, and the herdr integration |
+| [CLI](docs/cli.md) | Every `switchyard` command and credentials |
+| [Terminal sessions](docs/terminal-sessions.md) | Pi's own TUI for every session, from any terminal, and the herdr integration |
 | [Operations](docs/operations.md) | Backup, restore, migrations, retention, logs, health, diagnostics |
 | [Adapters](docs/adapters.md) | Rendering a Pi plugin's UI in every client; shipping an adapter with your Pi package |
 | [Architecture](docs/architecture.md) | Components, data ownership, the host and client protocols, packages |

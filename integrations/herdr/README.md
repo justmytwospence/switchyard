@@ -7,7 +7,7 @@ A [herdr](https://herdr.dev) plugin that turns one whole herdr session into anot
 | Workspace (main checkout or worktree) | Space, labelled `project` or `project · branch` (plus `· host` when the project has checkouts on several hosts) |
 | Session (not archived) | Tab, labelled with the session title |
 | Terminal session | Pi's own TUI in the tab |
-| RPC session | The Switchyard terminal client in the tab |
+| Session without a Pi terminal (its host can't run one) | Not shown; use the web app |
 
 herdr is one client of Switchyard, not a requirement: this is `switchyard herdr ...` commands, and Switchyard works the same without it.
 
