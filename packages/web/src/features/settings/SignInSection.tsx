@@ -3,8 +3,10 @@ import type { AuthMethods, Passkey } from "@switchyard/protocol";
 import { CircleCheck, KeyRound, LogOut, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { signOut } from "../../app/auth";
+import { usePasskeyCeremony } from "../../app/passkeyCeremony";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Overlay";
+import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -269,10 +271,12 @@ function AddPasskeyDialog({
   const [name, setName] = useState(() => defaultDeviceName());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const ceremony = usePasskeyCeremony();
   const nameError = name.trim() ? null : "Enter a name for this passkey.";
 
   const close = () => {
-    if (busy) return;
+    if (ceremony.waiting) ceremony.cancel();
+    else if (busy) return;
     setError(null);
     onClose();
   };
@@ -285,9 +289,16 @@ function AddPasskeyDialog({
       const { challengeId, options } = await apiPost<{ challengeId: string; options: unknown }>(
         "/api/auth/passkeys/register/options",
       );
-      const response = await startRegistration({
-        optionsJSON: options as Parameters<typeof startRegistration>[0]["optionsJSON"],
-      });
+      const result = await ceremony.run(() =>
+        startRegistration({
+          optionsJSON: options as Parameters<typeof startRegistration>[0]["optionsJSON"],
+        }),
+      );
+      if (!result.ok) {
+        setBusy(false);
+        return;
+      }
+      const response = result.value;
       await apiPost("/api/auth/passkeys/register/verify", {
         challengeId,
         name: name.trim().slice(0, 80),
@@ -312,12 +323,12 @@ function AddPasskeyDialog({
     <Dialog
       open={open}
       onClose={close}
-      dismissOnBackdrop={!busy}
+      dismissOnBackdrop={!busy || ceremony.waiting}
       title="Add a passkey"
       description="Name it after where it is stored, then confirm with your device."
       footer={
         <>
-          <Button onClick={close} disabled={busy}>
+          <Button onClick={close} disabled={busy && !ceremony.waiting}>
             Cancel
           </Button>
           <Button type="submit" form={formId} variant="primary" busy={busy}>
@@ -337,6 +348,11 @@ function AddPasskeyDialog({
             {...describedBy(`${ids}-name`, { error: nameError })}
           />
         </Field>
+        {ceremony.waiting && (
+          <p role="status" className="flex items-center gap-2 text-sm text-muted">
+            <Spinner /> Waiting for your passkey… Cancel stops it.
+          </p>
+        )}
         <InlineError error={error} />
       </form>
     </Dialog>

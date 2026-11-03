@@ -65,7 +65,10 @@ async function startLocal(over: Partial<CreateCoordinatorOptions> = {}): Promise
 }
 
 /** Enable WebAuthn on the page and attach a platform authenticator with user verification. */
-async function virtualAuthenticator(page: Page): Promise<{ cdp: CDPSession; id: string }> {
+async function virtualAuthenticator(
+  page: Page,
+  { presence = true }: { presence?: boolean } = {},
+): Promise<{ cdp: CDPSession; id: string }> {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
@@ -75,6 +78,7 @@ async function virtualAuthenticator(page: Page): Promise<{ cdp: CDPSession; id: 
       hasResidentKey: true,
       hasUserVerification: true,
       isUserVerified: true,
+      automaticPresenceSimulation: presence,
     },
   });
   return { cdp, id: authenticatorId };
@@ -171,6 +175,62 @@ test.describe("owner sign-in", () => {
         name: expect.stringMatching(/^Chrome on /),
         enrolledVia: "passkey",
       });
+    } finally {
+      await other?.close();
+      await server.close();
+    }
+  });
+
+  test("a passkey prompt can be cancelled", async ({ page, browser }) => {
+    const server = await startLocal();
+    let other: BrowserContext | undefined;
+    try {
+      const init = await server.admin<{ url: string }>("POST", "/api/enrollments", {
+        kind: "device",
+      });
+      const first = await virtualAuthenticator(page);
+      await page.goto(init.url);
+      await page.getByTestId("signin-link").click();
+      await expectAuthenticated(page, server.url);
+      await page.goto(`${server.url}/settings/sign-in`);
+      const section = page.getByTestId("settings-signin");
+      await section.getByTestId("passkey-add").click();
+      const dialog = page.getByRole("dialog", { name: "Add a passkey" });
+      await dialog.getByLabel("Passkey name").fill("Virtual key");
+      await dialog.getByRole("button", { name: "Create passkey" }).click();
+      await expect(section.getByTestId("passkey-row")).toHaveCount(1);
+      const { credentials } = await first.cdp.send("WebAuthn.getCredentials", {
+        authenticatorId: first.id,
+      });
+
+      // Registering with an authenticator that never answers: Cancel closes the dialog.
+      await first.cdp.send("WebAuthn.setAutomaticPresenceSimulation", {
+        authenticatorId: first.id,
+        enabled: false,
+      });
+      await section.getByTestId("passkey-add").click();
+      await dialog.getByRole("button", { name: "Create passkey" }).click();
+      await expect(dialog.getByText(/Waiting for your passkey/)).toBeVisible();
+      await dialog.getByRole("button", { name: "Cancel" }).click();
+      await expect(dialog).toHaveCount(0);
+
+      // Signing in with one that never answers: Cancel resets the screen.
+      other = await browser.newContext();
+      const page2 = await other.newPage();
+      const second = await virtualAuthenticator(page2, { presence: false });
+      for (const credential of credentials) {
+        await second.cdp.send("WebAuthn.addCredential", {
+          authenticatorId: second.id,
+          credential,
+        });
+      }
+      await page2.goto(`${server.url}/`);
+      await page2.getByTestId("signin-passkey").click();
+      await expect(page2.getByText("Waiting for your passkey…")).toBeVisible();
+      await page2.getByRole("button", { name: "Cancel" }).click();
+      await expect(page2.getByText("Passkey sign-in was cancelled.")).toBeVisible();
+      await expect(page2.getByTestId("signin-passkey")).toBeEnabled();
+      await expect(page2.getByTestId("signin-passkey")).not.toHaveAttribute("aria-busy", "true");
     } finally {
       await other?.close();
       await server.close();

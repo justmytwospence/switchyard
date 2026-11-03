@@ -4,7 +4,9 @@ import { KeyRound, LogIn, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { checkAuth, takeReturnTo, useAuth } from "../../app/auth";
+import { usePasskeyCeremony } from "../../app/passkeyCeremony";
 import { Button } from "../../components/ui/Button";
+import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState, LoadingState } from "../../components/ui/states";
 import { isStandalone } from "../../push";
 import { apiGet, apiPost, isApiError } from "../../sync/api";
@@ -168,6 +170,7 @@ function SignInPanel({ next }: { next: string | null }) {
   });
   const [handoff, setHandoff] = useState<{ flowId: string; pollToken: string } | null>(null);
   const authorizeUrlRef = useRef<string | null>(null);
+  const ceremony = usePasskeyCeremony();
 
   // Show a callback error once, then drop it from the address bar.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once on mount
@@ -223,9 +226,16 @@ function SignInPanel({ next }: { next: string | null }) {
       const { challengeId, options } = await apiPost<ChallengeResponse>(
         "/api/auth/passkey/options",
       );
-      const response = await startAuthentication({
-        optionsJSON: options as Parameters<typeof startAuthentication>[0]["optionsJSON"],
-      });
+      const result = await ceremony.run(() =>
+        startAuthentication({
+          optionsJSON: options as Parameters<typeof startAuthentication>[0]["optionsJSON"],
+        }),
+      );
+      if (!result.ok) {
+        setNotice({ code: "cancelled", message: "Passkey sign-in was cancelled." });
+        return;
+      }
+      const response = result.value;
       await apiPost("/api/auth/passkey/verify", {
         challengeId,
         response,
@@ -318,6 +328,15 @@ function SignInPanel({ next }: { next: string | null }) {
           >
             Sign in with a passkey
           </Button>
+        )}
+        {ceremony.waiting && (
+          <div role="status" className="flex items-center gap-2 text-sm text-muted">
+            <Spinner />
+            <span className="flex-1">Waiting for your passkey…</span>
+            <Button size="sm" variant="ghost" onClick={ceremony.cancel}>
+              Cancel
+            </Button>
+          </div>
         )}
         {setup.passkey.registered && !setup.passkey.available && setup.passkey.reason && (
           <p className="text-xs text-muted">Passkeys are unavailable: {setup.passkey.reason}.</p>
