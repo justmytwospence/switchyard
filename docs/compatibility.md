@@ -27,6 +27,10 @@ The gate tests run the real installed `pi` (override with `SWITCHYARD_PI_BIN`) a
 | `customUi`         | Unsupported | ctx.ui.custom() returns undefined in RPC mode. Pi sends no request; the bridge reports `ui_prompt_start`/`ui_prompt_end` with kind `custom` so Switchyard can show an unsupported-interaction notice.                                                                               |
 | `widgetsComponent` | Unsupported | component widget factories are ignored in RPC mode                                                                                                                                                                                                                                  |
 
+## Terminal transport
+
+Hosts with [terminal sessions](terminal-sessions.md) enabled run interactive `pi` in a pty instead of `pi --mode rpc`, with the `switchyard-terminal.js` extension as the control channel. `gate-terminal.test.ts` runs the same real-Pi checks through it: prompt, a select answered remotely and one answered in the terminal, steer, abort, detach and reattach, stop. Pi features the extension API does not expose are listed under the doc's Limits.
+
 ## Gate tests
 
 All in `packages/pi-runtime/test/`, run with `pnpm exec vitest run --project pi-runtime`. Result on 2026-11-02 with Pi 1.4.0: 11 files, 34 tests, all passing (not skipped), stable over repeated runs.

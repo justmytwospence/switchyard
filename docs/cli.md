@@ -13,6 +13,8 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it |
 | `login` | Enroll this terminal as a device (`--coordinator`, `--token <token or enrollment link>`) |
 | `attach [sessionId]` | Open the terminal client |
+| `tui <sessionId>` | Open a terminal session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
+| `herdr daemon` / `pane` / `status` | The herdr integration: one herdr space per live terminal session ([integrations/herdr](../integrations/herdr/README.md)) |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
 | `tasks create` / `list` / `move` | Create, list and move tasks |
@@ -45,6 +47,8 @@ The full table, with defaults, is in [deployment.md](deployment.md#environment-r
 | `SWITCHYARD_HOST_CONFIG`, `SWITCHYARD_STATE_DIR`, `SWITCHYARD_PI_BIN` | The host agent |
 | `SWITCHYARD_ADMIN_TOKEN` | `init`, `pair` |
 | `SWITCHYARD_URL`, `SWITCHYARD_TOKEN` | Work commands |
+| `SWITCHYARD_CLIENT_CONFIG` | Work commands and `login`: use this client.json instead of `~/.config/switchyard/client.json` |
+| `SWITCHYARD_TERMINAL_SESSIONS` | The host agent: `1` runs sessions as [terminal sessions](terminal-sessions.md) |
 
 ## Terminal client
 
