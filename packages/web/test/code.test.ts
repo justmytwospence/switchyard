@@ -1,4 +1,4 @@
-import type { Host, Project, Workspace } from "@switchyard/protocol";
+import type { Host, Project, Session, Workspace } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import { normalizeEntries, normalizeFile } from "../src/features/code/api";
 import {
@@ -9,6 +9,10 @@ import {
   countAfter,
   fitPanes,
   isSubagentView,
+  type NavGroup,
+  type NavTree,
+  navGroupKeys,
+  navTreeIsEmpty,
   outputPreview,
   parseDataUrl,
   sendModes,
@@ -113,38 +117,153 @@ describe("worktree preview", () => {
 describe("navigator tree", () => {
   const input = {
     projects: { prj_1: project("prj_1", "beta"), prj_2: project("prj_2", "alpha") },
-    workspaces: { w1: workspace("w1"), w2: workspace("w2") },
-    hosts: { hst_1: host("hst_1") },
+    workspaces: { w1: workspace("w1"), w2: workspace("w2") } as Record<string, Workspace>,
+    hosts: { hst_1: host("hst_1") } as Record<string, Host>,
     sessions: {
       a: session("a", { workspaceId: "w1", runtime: "running", lastActivityAt: T0 }),
       b: session("b", { workspaceId: "w1", runtime: "stopped" }),
       c: session("c", { workspaceId: "w2", runtime: "stopped" }),
       d: session("d", { archivedAt: T0, runtime: "idle" }),
       e: session("e", { projectId: null, cwd: "/tmp/x", runtime: "idle" }),
-    },
+    } as Record<string, Session>,
     attention: { att: attention("att", { sessionId: "c" }) },
     interactions: {},
   };
+  const ids = (tree: NavTree): string[] => {
+    const out = tree.rows.map((r) => r.session.id);
+    const walk = (gs: NavGroup[]) => {
+      for (const g of gs) {
+        out.push(...g.rows.map((r) => r.session.id));
+        walk(g.groups);
+      }
+    };
+    walk(tree.groups);
+    return out;
+  };
 
-  it("groups project -> workspace -> sessions and filters active", () => {
+  it("defaults to Projects, attention first, and puts a shared host on the header", () => {
     const tree = buildNavTree(input, { filter: "active", query: "" });
-    expect(tree.map((p) => p.label)).toEqual(["beta", "Other sessions"]);
-    const beta = tree[0]!;
-    const ids = beta.workspaces.flatMap((w) => w.sessions.map((s) => s.session.id));
+    expect(tree.rows).toEqual([]);
+    expect(tree.groups.map((p) => p.label)).toEqual(["beta", "Other sessions"]);
+    const beta = tree.groups[0]!;
+    expect(beta.groups).toEqual([]);
     // b is stopped without attention; c is stopped but needs attention; d is archived.
-    expect(ids.sort()).toEqual(["a", "c"]);
-    const w2 = beta.workspaces.find((w) => w.key === "w2")!;
-    expect(w2.sessions[0]!.attention).toBe(true);
-    expect(w2.label).toBe("feat/w2");
-    expect(w2.hostName).toBe("Host hst_1");
+    expect(beta.rows.map((r) => r.session.id)).toEqual(["c", "a"]);
+    expect(beta.detail).toBe("Host hst_1");
+    const a = beta.rows[1]!;
+    expect(a).toMatchObject({ host: null, branch: "feat/w1", project: null });
+    expect(tree.groups[1]!.rows[0]).toMatchObject({ branch: "x" });
   });
 
-  it("all includes stopped sessions and empty projects; search matches branches", () => {
-    const all = buildNavTree(input, { filter: "all", query: "" });
-    expect(all.map((p) => p.label)).toEqual(["alpha", "beta", "Other sessions"]);
-    const found = buildNavTree(input, { filter: "all", query: "W2" });
-    expect(found).toHaveLength(1);
-    expect(found[0]!.workspaces.map((w) => w.key)).toEqual(["w2"]);
+  it("Projects shows the host on each row when a project spans hosts", () => {
+    const tree = buildNavTree(
+      {
+        ...input,
+        hosts: { ...input.hosts, hst_2: host("hst_2") },
+        workspaces: { ...input.workspaces, w3: workspace("w3", { hostId: "hst_2" }) },
+        sessions: { ...input.sessions, f: session("f", { workspaceId: "w3", hostId: "hst_2" }) },
+      },
+      { filter: "active", query: "" },
+    );
+    const beta = tree.groups[0]!;
+    expect(beta.detail).toBeNull();
+    const hosts = Object.fromEntries(beta.rows.map((r) => [r.session.id, r.host]));
+    expect(hosts).toEqual({ a: "Host hst_1", c: "Host hst_1", f: "Host hst_2" });
+  });
+
+  it("rows on the main checkout show no branch", () => {
+    const tree = buildNavTree(
+      {
+        ...input,
+        workspaces: {
+          ...input.workspaces,
+          wm: workspace("wm", { provenance: "main", branch: "main", projectId: "prj_2" }),
+        },
+        sessions: { m: session("m", { workspaceId: "wm", projectId: "prj_2" }) },
+      },
+      { filter: "active", query: "" },
+    );
+    expect(tree.groups[0]!.rows[0]).toMatchObject({ branch: null });
+  });
+
+  it("Worktrees keeps project -> workspace; all adds empty projects; search matches branches", () => {
+    const tree = buildNavTree(input, { filter: "active", query: "", layout: "worktrees" });
+    const beta = tree.groups[0]!;
+    const w2 = beta.groups.find((w) => w.key === "w:w2")!;
+    expect(w2.label).toBe("feat/w2");
+    expect(w2.detail).toBe("Host hst_1");
+    expect(w2.rows[0]!.attention).toBe(true);
+    expect(beta.sessionCount).toBe(2);
+    const all = buildNavTree(input, { filter: "all", query: "", layout: "worktrees" });
+    expect(all.groups.map((p) => p.label)).toEqual(["alpha", "beta", "Other sessions"]);
+    const found = buildNavTree(input, { filter: "all", query: "W2", layout: "worktrees" });
+    expect(found.groups).toHaveLength(1);
+    expect(found.groups[0]!.groups.map((w) => w.key)).toEqual(["w:w2"]);
+  });
+
+  it("Worktrees flattens a project whose only workspace is the main checkout", () => {
+    const tree = buildNavTree(
+      {
+        ...input,
+        workspaces: {
+          ...input.workspaces,
+          wm: workspace("wm", { provenance: "main", branch: "main", projectId: "prj_2" }),
+        },
+        sessions: {
+          ...input.sessions,
+          m: session("m", { workspaceId: "wm", projectId: "prj_2", runtime: "stopped" }),
+        },
+      },
+      { filter: "all", query: "", layout: "worktrees" },
+    );
+    const alpha = tree.groups.find((g) => g.label === "alpha")!;
+    expect(alpha.groups).toEqual([]);
+    expect(alpha.rows.map((r) => r.session.id)).toEqual(["m"]);
+    expect(alpha.detail).toBe("Host hst_1");
+    expect(tree.groups.find((g) => g.label === "beta")!.groups).toHaveLength(2);
+  });
+
+  it("Recent is one list, attention first, with full context", () => {
+    const tree = buildNavTree(input, { filter: "all", query: "", layout: "recent" });
+    expect(tree.groups).toEqual([]);
+    expect(tree.rows.map((r) => r.session.id).sort()).toEqual(["a", "b", "c", "e"]);
+    expect(tree.rows[0]!.session.id).toBe("c");
+    for (const r of tree.rows) {
+      expect(r.project).not.toBeNull();
+      expect(r.host).not.toBeNull();
+    }
+    expect(tree.rows.find((r) => r.session.id === "e")!.project).toBe("Other sessions");
+  });
+
+  it("Hosts groups host -> project with the host's state", () => {
+    const tree = buildNavTree(
+      {
+        ...input,
+        hosts: { ...input.hosts, hst_2: host("hst_2", { connectivity: "unreachable" }) },
+        workspaces: { ...input.workspaces, w3: workspace("w3", { hostId: "hst_2" }) },
+        sessions: { ...input.sessions, f: session("f", { workspaceId: "w3", hostId: "hst_2" }) },
+      },
+      { filter: "active", query: "", layout: "hosts" },
+    );
+    expect(tree.groups.map((g) => g.label)).toEqual(["Host hst_1", "Host hst_2"]);
+    expect(tree.groups[0]!.groups.map((g) => g.label)).toEqual(["beta", "Other sessions"]);
+    expect(tree.groups[0]!.hostState).toBe("connected");
+    expect(tree.groups[1]!.hostState).toBe("unreachable");
+    expect(tree.groups[1]!.sessionCount).toBe(1);
+  });
+
+  it("hides subagents unless asked", () => {
+    const withSub = {
+      ...input,
+      sessions: {
+        ...input.sessions,
+        s: session("s", { workspaceId: "w1", provenance: "subagent", readOnly: true }),
+      },
+    };
+    expect(ids(buildNavTree(withSub, { filter: "all", query: "" }))).not.toContain("s");
+    expect(ids(buildNavTree(withSub, { filter: "all", query: "", showSubagents: true }))).toContain(
+      "s",
+    );
   });
 
   it("attention filter keeps only sessions needing input", () => {
@@ -152,10 +271,20 @@ describe("navigator tree", () => {
       { ...input, interactions: { i1: interaction("i1", { sessionId: "a" }) } },
       { filter: "attention", query: "" },
     );
-    const ids = tree.flatMap((p) =>
-      p.workspaces.flatMap((w) => w.sessions.map((s) => s.session.id)),
+    expect(ids(tree).sort()).toEqual(["a", "c"]);
+  });
+
+  it("empty trees and group keys", () => {
+    const empty = buildNavTree({ ...input, sessions: {} }, { filter: "all", query: "" });
+    expect(empty.groups.length).toBeGreaterThan(0);
+    expect(navTreeIsEmpty(empty)).toBe(true);
+    expect(navTreeIsEmpty(buildNavTree(input, { filter: "all", query: "" }))).toBe(false);
+    const keys = navGroupKeys(
+      buildNavTree(input, { filter: "active", query: "", layout: "worktrees" }),
     );
-    expect(ids.sort()).toEqual(["a", "c"]);
+    expect(keys).toContain("p:prj_1");
+    expect(keys).toContain("w:w1");
+    expect(keys).toContain("w:w2");
   });
 });
 

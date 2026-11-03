@@ -359,13 +359,16 @@ At compact widths, inspector overlays or replaces conversation temporarily; do n
 
 ### Navigator
 
-Hierarchy:
+Layouts, chosen from View options (persisted per device):
 
-Project → workspace → sessions.
+- **Projects** (default on desktop): project → sessions. Each row shows host (or the project header does, when all its sessions share one) and branch unless it is the main checkout.
+- **Worktrees**: project → workspace → sessions. A project whose only workspace is the main checkout is shown without the workspace level.
+- **Recent**: one list, sessions needing input first, then by last activity, with project, host and branch on each row.
+- **Hosts**: host (with connection state) → project → sessions.
 
-Workspace rows show branch and host. Session rows show title, textual status, last activity, and attention indicator.
+Subagent sessions are hidden unless "Show subagents" is on. Within a group, sessions needing input come first. Session rows show title, textual status, last activity, and attention indicator.
 
-Provide search, active/all filter, collapse controls, and New session.
+Provide search, active/all filter, view options, collapse controls, and New session.
 
 Empty state: "Add a project" and "Connect a host," based on what is missing.
 
@@ -491,7 +494,7 @@ When a plugin panel is not mobile-compatible, show its fallback and exact limita
 
 ### Session list
 
-Grouped by project with status filters and search.
+Same layouts as the desktop navigator; defaults to Recent. Status filters and search.
 
 Start a new session from mobile using the same creation fields as desktop, presented as sequential sheets.
 

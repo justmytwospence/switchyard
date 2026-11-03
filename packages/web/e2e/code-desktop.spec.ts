@@ -309,6 +309,30 @@ test.describe("desktop coding view", () => {
     );
   });
 
+  test("navigator layouts switch and persist", async ({ page, state }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    const nav = page.getByTestId("navigator");
+    const projectBtn = nav.getByRole("button", { name: /Demo project/ });
+    await expect(projectBtn).toBeVisible();
+
+    await nav.getByRole("button", { name: "View options" }).click();
+    await page.getByRole("menuitemradio", { name: /Recent/ }).click();
+    await expect(projectBtn).toHaveCount(0);
+    await expect(nav.getByRole("list", { name: "Recent sessions" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: /Question session/ })).toBeVisible();
+
+    await page.reload();
+    await expect(nav.getByRole("list", { name: "Recent sessions" })).toBeVisible();
+
+    await nav.getByRole("button", { name: "View options" }).click();
+    await expect(page.getByRole("menuitemradio", { name: /Recent/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await page.getByRole("menuitemradio", { name: /Projects/ }).click();
+    await expect(projectBtn).toBeVisible();
+  });
+
   test("Review changes on the board opens the Changes tab", async ({ page, state }, info) => {
     const compact = viewportOf(info) === "compact";
     await page.goto(`/code/${state.sessions.long}`);

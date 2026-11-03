@@ -1,6 +1,7 @@
 import type {
   AttentionItem,
   Checkout,
+  Connectivity,
   Host,
   Interaction,
   Project,
@@ -73,26 +74,57 @@ export function branchProblem(branch: string): string | null {
 
 export type NavFilter = "active" | "attention" | "all";
 
-export interface NavSessionRow {
+export type NavLayout = "projects" | "worktrees" | "recent" | "hosts";
+
+export const NAV_LAYOUTS: { value: NavLayout; label: string; hint: string }[] = [
+  { value: "projects", label: "Projects", hint: "Sessions under each project" },
+  { value: "worktrees", label: "Worktrees", hint: "Project, then branch or worktree" },
+  { value: "recent", label: "Recent", hint: "One list, needs-you first" },
+  { value: "hosts", label: "Hosts", hint: "Host, then project" },
+];
+
+export interface NavRow {
   session: Session;
   attention: boolean;
+  /** Context shown on the row's second line; null = not shown in this layout. */
+  project: string | null;
+  host: string | null;
+  branch: string | null;
 }
 
-export interface NavWorkspaceGroup {
+export interface NavGroup {
+  /**
+   * Collapse key: "p:<projectId|__none>", "w:<workspaceId>" or "w:<projectKey>:cwd:<hostId>:<cwd>",
+   * "h:<hostId>", or "h:<hostId>/p:<projectId|__none>".
+   */
   key: string;
-  workspace: Workspace | null;
-  /** Branch, or a description when the workspace is unknown. */
+  kind: "project" | "workspace" | "host";
   label: string;
-  hostName: string | null;
-  sessions: NavSessionRow[];
-}
-
-export interface NavProjectGroup {
-  key: string;
-  project: Project | null;
-  label: string;
-  workspaces: NavWorkspaceGroup[];
+  /** Muted text beside the label: the shared host on project/workspace headers. */
+  detail: string | null;
+  /** Workspace path (tooltip), workspace groups only. */
+  path: string | null;
+  /** Host connection state, host groups only ("unreachable" when revoked). */
+  hostState: Connectivity | null;
+  groups: NavGroup[];
+  rows: NavRow[];
+  /** Sessions in this group and its child groups. */
   sessionCount: number;
+}
+
+export interface NavTree {
+  groups: NavGroup[];
+  /** Ungrouped rows (the Recent layout only). */
+  rows: NavRow[];
+}
+
+export interface NavOptions {
+  filter: NavFilter;
+  query: string;
+  /** Default "projects". */
+  layout?: NavLayout;
+  /** Default false. */
+  showSubagents?: boolean;
 }
 
 export interface NavInput {
@@ -126,84 +158,207 @@ export function workspaceLabel(ws: Workspace | null | undefined, cwd?: string): 
   return `${lastSegment(ws.path)} (detached)`;
 }
 
+interface NavEntry {
+  session: Session;
+  attention: boolean;
+  ws: Workspace | null;
+  projectId: string | null;
+  project: Project | null;
+  hostId: string;
+  hostName: string;
+}
+
+function emptyGroup(
+  key: string,
+  kind: NavGroup["kind"],
+  label: string,
+  patch: Partial<NavGroup> = {},
+): NavGroup {
+  return {
+    key,
+    kind,
+    label,
+    detail: null,
+    path: null,
+    hostState: null,
+    groups: [],
+    rows: [],
+    sessionCount: 0,
+    ...patch,
+  };
+}
+
+function projectLabel(projectId: string | null, project: Project | null): string {
+  return project?.name ?? (projectId ? "Unknown project" : "Other sessions");
+}
+
+/** Branch context for a row: hidden for the main checkout; the cwd folder for project-less sessions. */
+function branchFor(e: NavEntry): string | null {
+  if (e.ws) return e.ws.provenance === "main" ? null : workspaceLabel(e.ws);
+  return e.projectId === null ? lastSegment(e.session.cwd) : null;
+}
+
+function latest(g: NavGroup): string {
+  let best = "";
+  for (const r of g.rows) if (r.session.lastActivityAt > best) best = r.session.lastActivityAt;
+  for (const c of g.groups) {
+    const l = latest(c);
+    if (l > best) best = l;
+  }
+  return best;
+}
+
+function sortGroups(groups: NavGroup[]): NavGroup[] {
+  const last = (g: NavGroup) =>
+    g.key.endsWith("__none") || (g.kind === "host" && g.label === "Unknown host") ? 1 : 0;
+  return groups.sort((a, b) => last(a) - last(b) || a.label.localeCompare(b.label));
+}
+
+function countSessions(g: NavGroup): number {
+  g.sessionCount = g.rows.length + g.groups.reduce((n, c) => n + countSessions(c), 0);
+  return g.sessionCount;
+}
+
 /**
- * Project -> workspace -> sessions. `active` keeps live sessions and those
- * needing attention (and workspaces/projects that still have rows). `all`
- * includes stopped sessions and workspaces without sessions. Archived sessions
- * are never listed.
+ * The navigator tree for a layout. `active` keeps live sessions and those
+ * needing attention; `attention` only the latter; `all` includes stopped
+ * sessions (and, in Projects and Worktrees, projects and workspaces without
+ * sessions). Archived sessions are never listed; subagents only on request.
+ * Rows needing attention come first, then by last activity.
  */
-export function buildNavTree(
-  input: NavInput,
-  opts: { filter: NavFilter; query: string },
-): NavProjectGroup[] {
+export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
+  const layout = opts.layout ?? "projects";
   const q = opts.query.trim().toLowerCase();
   const attn = sessionsNeedingAttention(input.attention, input.interactions);
-  const projects = new Map<string, NavProjectGroup>();
-  const wsGroups = new Map<string, NavWorkspaceGroup>();
 
-  const projectGroup = (projectId: string | null): NavProjectGroup => {
-    const key = projectId ?? "__none";
-    let g = projects.get(key);
-    if (!g) {
-      const project = projectId ? (input.projects[projectId] ?? null) : null;
-      g = {
-        key,
-        project,
-        label: project?.name ?? (projectId ? "Unknown project" : "Other sessions"),
-        workspaces: [],
-        sessionCount: 0,
-      };
-      projects.set(key, g);
-    }
-    return g;
-  };
-  const wsGroup = (
-    pg: NavProjectGroup,
-    ws: Workspace | null,
-    fallbackKey: string,
-    session?: Session,
-  ): NavWorkspaceGroup => {
-    const key = ws ? ws.id : `${pg.key}:${fallbackKey}`;
-    let g = wsGroups.get(key);
-    if (!g) {
-      const hostId = ws?.hostId ?? session?.hostId ?? null;
-      g = {
-        key,
-        workspace: ws,
-        label: workspaceLabel(ws, session?.cwd),
-        hostName: hostId ? (input.hosts[hostId]?.name ?? "Unknown host") : null,
-        sessions: [],
-      };
-      wsGroups.set(key, g);
-      pg.workspaces.push(g);
-    }
-    return g;
-  };
-
-  const matches = (s: Session, ws: Workspace | null, project: Project | null) => {
-    if (!q) return true;
-    return [s.title, s.subtitle ?? "", ws?.branch ?? "", project?.name ?? "", s.cwd]
-      .join("\n")
-      .toLowerCase()
-      .includes(q);
-  };
-
-  const sessions = Object.values(input.sessions)
-    .filter((s) => s.archivedAt === null)
-    .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
-
-  for (const s of sessions) {
+  const entries: NavEntry[] = [];
+  for (const s of Object.values(input.sessions)) {
+    if (s.archivedAt !== null) continue;
+    if (s.provenance === "subagent" && !opts.showSubagents) continue;
     const needs = attn.has(s.id);
     if (opts.filter === "active" && !isLive(s) && !needs) continue;
     if (opts.filter === "attention" && !needs) continue;
     const ws = s.workspaceId ? (input.workspaces[s.workspaceId] ?? null) : null;
     const projectId = s.projectId ?? ws?.projectId ?? null;
     const project = projectId ? (input.projects[projectId] ?? null) : null;
-    if (!matches(s, ws, project)) continue;
-    const pg = projectGroup(projectId);
-    const wg = wsGroup(pg, ws, ws ? ws.id : `cwd:${s.hostId}:${s.cwd}`, s);
-    wg.sessions.push({ session: s, attention: needs });
-    pg.sessionCount++;
+    const hostId = ws?.hostId ?? s.hostId;
+    const hostName = input.hosts[hostId]?.name ?? "Unknown host";
+    if (
+      q &&
+      ![s.title, s.subtitle ?? "", ws?.branch ?? "", project?.name ?? "", hostName, s.cwd]
+        .join("\n")
+        .toLowerCase()
+        .includes(q)
+    )
+      continue;
+    entries.push({ session: s, attention: needs, ws, projectId, project, hostId, hostName });
+  }
+  entries.sort(
+    (a, b) =>
+      Number(b.attention) - Number(a.attention) ||
+      b.session.lastActivityAt.localeCompare(a.session.lastActivityAt),
+  );
+
+  const row = (e: NavEntry, ctx: Omit<NavRow, "session" | "attention">): NavRow => ({
+    session: e.session,
+    attention: e.attention,
+    ...ctx,
+  });
+
+  if (layout === "recent") {
+    return {
+      groups: [],
+      rows: entries.map((e) =>
+        row(e, {
+          project: projectLabel(e.projectId, e.project),
+          host: e.hostName,
+          branch: branchFor(e),
+        }),
+      ),
+    };
+  }
+
+  if (layout === "hosts") {
+    const hosts = new Map<string, NavGroup>();
+    for (const e of entries) {
+      let hg = hosts.get(e.hostId);
+      if (!hg) {
+        const host = input.hosts[e.hostId];
+        hg = emptyGroup(`h:${e.hostId}`, "host", e.hostName, {
+          hostState: host ? (host.revokedAt ? "unreachable" : host.connectivity) : "unreachable",
+        });
+        hosts.set(e.hostId, hg);
+      }
+      const key = `${hg.key}/p:${e.projectId ?? "__none"}`;
+      let pg = hg.groups.find((g) => g.key === key);
+      if (!pg) {
+        pg = emptyGroup(key, "project", projectLabel(e.projectId, e.project));
+        hg.groups.push(pg);
+      }
+      pg.rows.push(row(e, { project: null, host: null, branch: branchFor(e) }));
+    }
+    const groups = sortGroups([...hosts.values()]);
+    for (const g of groups) {
+      sortGroups(g.groups);
+      countSessions(g);
+    }
+    return { groups, rows: [] };
+  }
+
+  const projects = new Map<string, NavGroup>();
+  const projectGroup = (projectId: string | null): NavGroup => {
+    const key = `p:${projectId ?? "__none"}`;
+    let g = projects.get(key);
+    if (!g) {
+      const project = projectId ? (input.projects[projectId] ?? null) : null;
+      g = emptyGroup(key, "project", projectLabel(projectId, project));
+      projects.set(key, g);
+    }
+    return g;
+  };
+
+  if (layout === "projects") {
+    const hostIds = new Map<NavGroup, Set<string>>();
+    for (const e of entries) {
+      const pg = projectGroup(e.projectId);
+      pg.rows.push(row(e, { project: null, host: e.hostName, branch: branchFor(e) }));
+      const ids = hostIds.get(pg) ?? new Set<string>();
+      ids.add(e.hostId);
+      hostIds.set(pg, ids);
+    }
+    for (const [pg, ids] of hostIds) {
+      if (ids.size !== 1) continue;
+      pg.detail = pg.rows[0]!.host;
+      for (const r of pg.rows) r.host = null;
+    }
+    if (opts.filter === "all" && !q)
+      for (const p of Object.values(input.projects)) projectGroup(p.id);
+    const groups = sortGroups([...projects.values()]);
+    for (const g of groups) countSessions(g);
+    return { groups, rows: [] };
+  }
+
+  // Worktrees: project -> workspace -> sessions.
+  const wsGroups = new Map<string, NavGroup>();
+  const wsOf = new Map<NavGroup, Workspace | null>();
+  const wsGroup = (pg: NavGroup, ws: Workspace | null, hostId: string, cwd: string): NavGroup => {
+    const key = ws ? `w:${ws.id}` : `w:${pg.key}:cwd:${hostId}:${cwd}`;
+    let g = wsGroups.get(key);
+    if (!g) {
+      g = emptyGroup(key, "workspace", workspaceLabel(ws, cwd), {
+        detail: input.hosts[hostId]?.name ?? "Unknown host",
+        path: ws?.path ?? null,
+      });
+      wsGroups.set(key, g);
+      wsOf.set(g, ws);
+      pg.groups.push(g);
+    }
+    return g;
+  };
+
+  for (const e of entries) {
+    const wg = wsGroup(projectGroup(e.projectId), e.ws, e.hostId, e.session.cwd);
+    wg.rows.push(row(e, { project: null, host: null, branch: null }));
   }
 
   if (opts.filter === "all") {
@@ -216,28 +371,53 @@ export function buildNavTree(
         ![ws.branch ?? "", project?.name ?? "", ws.path].join("\n").toLowerCase().includes(q)
       )
         continue;
-      wsGroup(projectGroup(ws.projectId), ws, ws.id);
+      wsGroup(projectGroup(ws.projectId), ws, ws.hostId, ws.path);
     }
     if (!q) for (const p of Object.values(input.projects)) projectGroup(p.id);
   }
 
-  const groups = [...projects.values()];
+  const groups = sortGroups([...projects.values()]);
   for (const g of groups) {
-    g.workspaces.sort((a, b) => {
-      const la = a.sessions[0]?.session.lastActivityAt ?? "";
-      const lb = b.sessions[0]?.session.lastActivityAt ?? "";
+    g.groups.sort((a, b) => {
+      const la = latest(a);
+      const lb = latest(b);
       if (la !== lb) return lb.localeCompare(la);
       // The main checkout first, then by branch.
-      const ma = a.workspace?.provenance === "main" ? 0 : 1;
-      const mb = b.workspace?.provenance === "main" ? 0 : 1;
+      const ma = wsOf.get(a)?.provenance === "main" ? 0 : 1;
+      const mb = wsOf.get(b)?.provenance === "main" ? 0 : 1;
       return ma - mb || a.label.localeCompare(b.label);
     });
+    // A project with only its main checkout (or one plain folder) needs no workspace level.
+    const only = g.groups.length === 1 ? g.groups[0]! : null;
+    if (only && (only.path === null || wsOf.get(only)?.provenance === "main")) {
+      g.rows = only.rows;
+      g.detail = only.detail;
+      g.groups = [];
+    }
+    countSessions(g);
   }
-  return groups.sort((a, b) => {
-    if (a.key === "__none") return 1;
-    if (b.key === "__none") return -1;
-    return a.label.localeCompare(b.label);
-  });
+  return { groups, rows: [] };
+}
+
+/** True when the tree has no sessions and nothing to expand. */
+export function navTreeIsEmpty(tree: NavTree): boolean {
+  return (
+    tree.rows.length === 0 &&
+    tree.groups.every((g) => g.sessionCount === 0 && g.groups.length === 0)
+  );
+}
+
+/** Every group key, depth-first (for Collapse all). */
+export function navGroupKeys(tree: NavTree): string[] {
+  const out: string[] = [];
+  const walk = (gs: NavGroup[]) => {
+    for (const g of gs) {
+      out.push(g.key);
+      walk(g.groups);
+    }
+  };
+  walk(tree.groups);
+  return out;
 }
 
 /* ------------------------------------------------------------------ */

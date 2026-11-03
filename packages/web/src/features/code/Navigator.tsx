@@ -9,11 +9,13 @@ import {
   Plus,
   Search,
   Server,
+  SlidersHorizontal,
 } from "lucide-react";
 import { type CSSProperties, type ReactNode, useMemo } from "react";
 import { Link } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
+import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
@@ -22,15 +24,35 @@ import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
-import { buildNavTree, type NavFilter, type NavProjectGroup, type NavSessionRow } from "./model";
+import {
+  buildNavTree,
+  NAV_LAYOUTS,
+  type NavFilter,
+  type NavGroup,
+  type NavLayout,
+  type NavRow,
+  navGroupKeys,
+  navTreeIsEmpty,
+} from "./model";
 
 interface NavPrefs {
   filter: NavFilter;
   query: string;
   collapsed: string[];
+  layout: NavLayout;
+  showSubagents: boolean;
 }
 
-const DEFAULT_PREFS: NavPrefs = { filter: "active", query: "", collapsed: [] };
+/** The phone session list defaults to Recent; the desktop navigator to Projects. */
+function defaultPrefs(screen: boolean): NavPrefs {
+  return {
+    filter: "active",
+    query: "",
+    collapsed: [],
+    layout: screen ? "recent" : "projects",
+    showSubagents: false,
+  };
+}
 
 export interface NavigatorProps {
   selectedId: string | null;
@@ -41,14 +63,12 @@ export interface NavigatorProps {
   style?: CSSProperties;
 }
 
-/** Project -> workspace -> sessions, with search, filters, collapse controls and New session. */
+/** Sessions in a chosen layout, with search, filters, view options, collapse controls and New session. */
 export function Navigator({ selectedId, onNewSession, variant, className, style }: NavigatorProps) {
   const screen = variant === "screen";
-  const [stored, setPrefs] = useFilter<NavPrefs>(
-    screen ? "sessionList" : "navigator",
-    DEFAULT_PREFS,
-  );
-  const prefs = { ...DEFAULT_PREFS, ...stored };
+  const defaults = defaultPrefs(screen);
+  const [stored, setPrefs] = useFilter<NavPrefs>(screen ? "sessionList" : "navigator", defaults);
+  const prefs = { ...defaults, ...stored };
   const hydrated = useSyncStore((s) => s.hydrated);
   const projects = useSyncStore((s) => s.projects);
   const workspaces = useSyncStore((s) => s.workspaces);
@@ -62,9 +82,25 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     () =>
       buildNavTree(
         { projects, workspaces, sessions, hosts: hostsMap, attention, interactions },
-        { filter: prefs.filter, query: prefs.query },
+        {
+          filter: prefs.filter,
+          query: prefs.query,
+          layout: prefs.layout,
+          showSubagents: prefs.showSubagents,
+        },
       ),
-    [projects, workspaces, sessions, hostsMap, attention, interactions, prefs.filter, prefs.query],
+    [
+      projects,
+      workspaces,
+      sessions,
+      hostsMap,
+      attention,
+      interactions,
+      prefs.filter,
+      prefs.query,
+      prefs.layout,
+      prefs.showSubagents,
+    ],
   );
   const collapsed = new Set(prefs.collapsed);
   const toggle = (key: string) => {
@@ -73,7 +109,28 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     else next.add(key);
     setPrefs({ ...prefs, collapsed: [...next] });
   };
-  const allKeys = tree.flatMap((p) => [p.key, ...p.workspaces.map((w) => w.key)]);
+  const allKeys = navGroupKeys(tree);
+  const viewItems: (MenuItem | MenuHeading | "separator")[] = [
+    { id: "layout-heading", heading: "Group sessions" },
+    ...NAV_LAYOUTS.map(
+      (l): MenuItem => ({
+        id: `layout-${l.value}`,
+        label: l.label,
+        hint: l.hint,
+        kind: "radio",
+        checked: prefs.layout === l.value,
+        onSelect: () => setPrefs({ ...prefs, layout: l.value }),
+      }),
+    ),
+    "separator",
+    {
+      id: "subagents",
+      label: "Show subagents",
+      kind: "checkbox",
+      checked: prefs.showSubagents,
+      onSelect: () => setPrefs({ ...prefs, showSubagents: !prefs.showSubagents }),
+    },
+  ];
   const anyExpanded = allKeys.some((k) => !collapsed.has(k));
 
   const filterOptions: { value: NavFilter; label: string }[] = screen
@@ -113,7 +170,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         action={{ label: "Add a project", to: "/settings/projects" }}
       />
     );
-  } else if (tree.length === 0 || tree.every((p) => p.workspaces.length === 0)) {
+  } else if (navTreeIsEmpty(tree)) {
     body = prefs.query ? (
       <EmptyState
         icon={<Search className="size-8" />}
@@ -139,17 +196,38 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         }
       />
     );
+  } else if (prefs.layout === "recent") {
+    body = (
+      <ul aria-label="Recent sessions" className="flex min-w-0 flex-col gap-0.5 pb-4">
+        {tree.rows.map((row) => (
+          <SessionRow
+            key={row.session.id}
+            row={row}
+            indent={0}
+            selected={row.session.id === selectedId}
+            screen={screen}
+          />
+        ))}
+      </ul>
+    );
   } else {
     body = (
-      <ul aria-label="Projects" className="flex min-w-0 flex-col gap-1 pb-4">
-        {tree.map((p) => (
-          <ProjectNode
-            key={p.key}
-            group={p}
+      <ul
+        aria-label={prefs.layout === "hosts" ? "Hosts" : "Projects"}
+        className="flex min-w-0 flex-col gap-1 pb-4"
+      >
+        {tree.groups.map((g) => (
+          <GroupNode
+            key={g.key}
+            group={g}
+            depth={0}
             collapsed={collapsed}
             toggle={toggle}
             selectedId={selectedId}
             screen={screen}
+            emptyText={
+              prefs.layout === "worktrees" ? "No workspaces discovered yet." : "No sessions."
+            }
           />
         ))}
       </ul>
@@ -209,17 +287,30 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             className="min-w-0 flex-1"
             block
           />
-          <IconButton
-            label={anyExpanded ? "Collapse all" : "Expand all"}
-            icon={
-              anyExpanded ? (
-                <ChevronsDownUp className="size-4" />
-              ) : (
-                <ChevronsUpDown className="size-4" />
-              )
-            }
-            onClick={() => setPrefs({ ...prefs, collapsed: anyExpanded ? allKeys : [] })}
+          <Menu
+            label="View options"
+            items={viewItems}
+            trigger={(p) => (
+              <IconButton
+                {...p}
+                label="View options"
+                icon={<SlidersHorizontal className="size-4" />}
+              />
+            )}
           />
+          {tree.groups.length > 0 && (
+            <IconButton
+              label={anyExpanded ? "Collapse all" : "Expand all"}
+              icon={
+                anyExpanded ? (
+                  <ChevronsDownUp className="size-4" />
+                ) : (
+                  <ChevronsUpDown className="size-4" />
+                )
+              }
+              onClick={() => setPrefs({ ...prefs, collapsed: anyExpanded ? allKeys : [] })}
+            />
+          )}
         </div>
       </div>
       <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 pt-2">
@@ -229,94 +320,134 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   );
 }
 
-function ProjectNode({
+function GroupHeader({ group, depth, open }: { group: NavGroup; depth: number; open: boolean }) {
+  const Chevron = open ? ChevronDown : ChevronRight;
+  if (depth === 0) {
+    return (
+      <>
+        <Chevron aria-hidden className="size-4 shrink-0 text-muted" />
+        {group.kind === "host" && <Server aria-hidden className="size-3.5 shrink-0 text-muted" />}
+        <span className="min-w-0 flex-1 truncate">
+          {group.label}
+          {group.detail && (
+            <span className="ml-1.5 text-xs font-normal text-muted">{group.detail}</span>
+          )}
+        </span>
+        {group.hostState && group.hostState !== "connected" && (
+          <StatusChip kind="host" value={group.hostState} size="sm" />
+        )}
+        <span className="shrink-0 text-xs font-normal text-muted">
+          {group.sessionCount}
+          <span className="sr-only"> sessions</span>
+        </span>
+      </>
+    );
+  }
+  if (group.kind === "workspace") {
+    return (
+      <>
+        <Chevron aria-hidden className="size-3.5 shrink-0 text-muted" />
+        <GitBranch aria-hidden className="size-3.5 shrink-0 text-muted" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-mono text-xs" title={group.path ?? undefined}>
+            {group.label}
+          </span>
+          {group.detail && (
+            <span className="block truncate text-xs text-muted">{group.detail}</span>
+          )}
+        </span>
+      </>
+    );
+  }
+  return (
+    <>
+      <Chevron aria-hidden className="size-3.5 shrink-0 text-muted" />
+      <FolderGit2 aria-hidden className="size-3.5 shrink-0 text-muted" />
+      <span className="min-w-0 flex-1 truncate text-sm">{group.label}</span>
+    </>
+  );
+}
+
+function GroupNode({
   group,
+  depth,
   collapsed,
   toggle,
   selectedId,
   screen,
+  emptyText,
 }: {
-  group: NavProjectGroup;
+  group: NavGroup;
+  depth: number;
   collapsed: Set<string>;
   toggle: (key: string) => void;
   selectedId: string | null;
   screen: boolean;
+  emptyText: string;
 }) {
   const open = !collapsed.has(group.key);
-  const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <li className="min-w-0">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => toggle(group.key)}
-        className="tap flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-sm font-semibold hover:bg-surface-2"
+        className={cn(
+          "tap flex w-full min-w-0 items-center gap-1.5 rounded-md text-left hover:bg-surface-2",
+          depth === 0 ? "px-1.5 py-1.5 text-sm font-semibold" : "py-1 pr-1.5 pl-4",
+        )}
       >
-        <Chevron aria-hidden className="size-4 shrink-0 text-muted" />
-        <span className="min-w-0 flex-1 truncate">{group.label}</span>
-        <span className="shrink-0 text-xs font-normal text-muted">
-          {group.sessionCount}
-          <span className="sr-only"> sessions</span>
-        </span>
+        <GroupHeader group={group} depth={depth} open={open} />
       </button>
       {open && (
-        <ul className="flex min-w-0 flex-col">
-          {group.workspaces.length === 0 && (
-            <li className="px-7 py-1 text-xs text-muted">No workspaces discovered yet.</li>
+        <ul className={cn("flex min-w-0 flex-col", depth > 0 && "gap-0.5 py-0.5")}>
+          {group.rows.length === 0 && group.groups.length === 0 && (
+            <li className="px-7 py-1 text-xs text-muted">{emptyText}</li>
           )}
-          {group.workspaces.map((w) => {
-            const wOpen = !collapsed.has(w.key);
-            const WChevron = wOpen ? ChevronDown : ChevronRight;
-            return (
-              <li key={w.key} className="min-w-0">
-                <button
-                  type="button"
-                  aria-expanded={wOpen}
-                  onClick={() => toggle(w.key)}
-                  className="tap flex w-full min-w-0 items-center gap-1.5 rounded-md py-1 pr-1.5 pl-4 text-left hover:bg-surface-2"
-                >
-                  <WChevron aria-hidden className="size-3.5 shrink-0 text-muted" />
-                  <GitBranch aria-hidden className="size-3.5 shrink-0 text-muted" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-xs" title={w.workspace?.path}>
-                      {w.label}
-                    </span>
-                    {w.hostName && (
-                      <span className="block truncate text-xs text-muted">{w.hostName}</span>
-                    )}
-                  </span>
-                </button>
-                {wOpen && w.sessions.length > 0 && (
-                  <ul className="flex min-w-0 flex-col gap-0.5 py-0.5">
-                    {w.sessions.map((row) => (
-                      <SessionRow
-                        key={row.session.id}
-                        row={row}
-                        selected={row.session.id === selectedId}
-                        screen={screen}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </li>
-            );
-          })}
+          {group.groups.map((g) => (
+            <GroupNode
+              key={g.key}
+              group={g}
+              depth={depth + 1}
+              collapsed={collapsed}
+              toggle={toggle}
+              selectedId={selectedId}
+              screen={screen}
+              emptyText={emptyText}
+            />
+          ))}
+          {group.rows.map((row) => (
+            <SessionRow
+              key={row.session.id}
+              row={row}
+              indent={depth === 0 ? 1 : 2}
+              selected={row.session.id === selectedId}
+              screen={screen}
+            />
+          ))}
         </ul>
       )}
     </li>
   );
 }
 
+const INDENT = ["pl-2", "pl-7", "pl-9"] as const;
+
 function SessionRow({
   row,
+  indent,
   selected,
   screen,
 }: {
-  row: NavSessionRow;
+  row: NavRow;
+  indent: 0 | 1 | 2;
   selected: boolean;
   screen: boolean;
 }) {
   const { session, attention } = row;
+  const context = [formatRelative(session.lastActivityAt), row.project, row.host, row.branch]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <li className="min-w-0">
       <Link
@@ -324,7 +455,8 @@ function SessionRow({
         to={`/code/${encodeURIComponent(session.id)}`}
         aria-current={selected ? "page" : undefined}
         className={cn(
-          "tap flex min-w-0 flex-col gap-0.5 rounded-md py-1.5 pr-2 pl-9 hover:bg-surface-2",
+          "tap flex min-w-0 flex-col gap-0.5 rounded-md py-1.5 pr-2 hover:bg-surface-2",
+          INDENT[indent],
           screen && "py-2.5",
           selected && "bg-accent-soft hover:bg-accent-soft",
         )}
@@ -338,14 +470,12 @@ function SessionRow({
             </span>
           )}
         </span>
-        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        <span className="flex min-w-0 items-center gap-x-1.5">
           <StatusChip kind="runtime" value={session.runtime} size="sm" />
           {session.provenance === "subagent" && (
-            <span className="text-xs text-muted">Subagent</span>
+            <span className="shrink-0 text-xs text-muted">Subagent</span>
           )}
-          <span className="truncate text-xs text-muted">
-            {formatRelative(session.lastActivityAt)}
-          </span>
+          <span className="min-w-0 truncate text-xs text-muted">{context}</span>
         </span>
       </Link>
     </li>
