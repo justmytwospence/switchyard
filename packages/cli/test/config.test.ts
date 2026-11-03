@@ -11,10 +11,17 @@ import {
 import { hostEnroll } from "../src/commands/host.js";
 import { DEV_ORIGINS, upOptions } from "../src/commands/up.js";
 import { resolveConnection, writeClientConfig, writeEndpoint } from "../src/config.js";
-import { defaultDataDir } from "../src/paths.js";
+import { clientConfigPath, defaultDataDir } from "../src/paths.js";
 import { stubFetch, testCtx } from "./helpers.js";
 
 describe("paths and options", () => {
+  it("lets SWITCHYARD_CLIENT_CONFIG choose the client config", () => {
+    expect(clientConfigPath({}, "/home/me")).toBe("/home/me/.config/switchyard/client.json");
+    expect(clientConfigPath({ SWITCHYARD_CLIENT_CONFIG: "/x/dev.json" }, "/home/me")).toBe(
+      "/x/dev.json",
+    );
+  });
+
   it("defaults the data dir per platform", () => {
     expect(defaultDataDir({}, "darwin", "/Users/me")).toBe(
       "/Users/me/Library/Application Support/switchyard/coordinator",
