@@ -33,16 +33,26 @@ const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
 const rootPkg = readJson(join(root, "package.json"));
 
 const deps = {};
+// Optional native dependencies (node-pty for terminal sessions): the CLI works without them.
+const optionalDeps = {};
 for (const name of PACKAGES) {
   const pkg = readJson(join(root, "packages", name, "package.json"));
-  for (const [dep, range] of Object.entries(pkg.dependencies ?? {})) {
-    if (dep.startsWith("@switchyard/")) continue;
-    if (deps[dep] && deps[dep] !== range) {
-      throw new Error(`Conflicting ranges for ${dep}: ${deps[dep]} vs ${range} (packages/${name})`);
+  for (const [field, target] of [
+    ["dependencies", deps],
+    ["optionalDependencies", optionalDeps],
+  ]) {
+    for (const [dep, range] of Object.entries(pkg[field] ?? {})) {
+      if (dep.startsWith("@switchyard/")) continue;
+      if (target[dep] && target[dep] !== range) {
+        throw new Error(
+          `Conflicting ranges for ${dep}: ${target[dep]} vs ${range} (packages/${name})`,
+        );
+      }
+      target[dep] = range;
     }
-    deps[dep] = range;
   }
 }
+const externals = [...Object.keys(deps), ...Object.keys(optionalDeps)];
 
 const entry = join(root, "packages", "cli", "dist", "main.js");
 for (const p of [entry, join(root, "packages", "web", "dist", "index.html")]) {
@@ -51,6 +61,7 @@ for (const p of [entry, join(root, "packages", "web", "dist", "index.html")]) {
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, "dist", "bridge"), { recursive: true });
+mkdirSync(join(out, "dist", "terminal"), { recursive: true });
 
 await build({
   entryPoints: [entry],
@@ -59,7 +70,7 @@ await build({
   format: "esm",
   target: "node24",
   outfile: join(out, "dist", "switchyard.mjs"),
-  external: [...Object.keys(deps), ...Object.keys(deps).map((d) => `${d}/*`)],
+  external: [...externals, ...externals.map((d) => `${d}/*`)],
   banner: { js: "#!/usr/bin/env node" },
   // The entry's own shebang would end up after the banner; esbuild keeps only a leading one.
   logLevel: "warning",
@@ -71,10 +82,24 @@ const cleaned = [lines[0], ...lines.slice(1).filter((l) => !l.startsWith("#!"))]
 writeFileSync(bundle, cleaned);
 chmodSync(bundle, 0o755);
 
-cpSync(
-  join(root, "packages", "pi-runtime", "dist", "bridge", "switchyard-bridge.js"),
-  join(out, "dist", "bridge", "switchyard-bridge.js"),
-);
+// The terminal holder runs as its own process (one per terminal session).
+await build({
+  entryPoints: [join(root, "packages", "pi-runtime", "dist", "terminal", "holder.js")],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node24",
+  outfile: join(out, "dist", "terminal", "holder.js"),
+  external: [...externals, ...externals.map((d) => `${d}/*`)],
+  logLevel: "warning",
+});
+
+for (const ext of ["switchyard-bridge.js", "switchyard-terminal.js"]) {
+  cpSync(
+    join(root, "packages", "pi-runtime", "dist", "bridge", ext),
+    join(out, "dist", "bridge", ext),
+  );
+}
 cpSync(join(root, "packages", "web", "dist"), join(out, "web-dist"), { recursive: true });
 cpSync(join(root, "README.md"), join(out, "README.md"));
 cpSync(join(root, "LICENSE"), join(out, "LICENSE"));
@@ -94,6 +119,9 @@ const pkg = {
   engines: { node: ">=24" },
   files: ["dist", "web-dist", "README.md", "LICENSE"],
   dependencies: Object.fromEntries(Object.entries(deps).sort(([a], [b]) => a.localeCompare(b))),
+  optionalDependencies: Object.fromEntries(
+    Object.entries(optionalDeps).sort(([a], [b]) => a.localeCompare(b)),
+  ),
   publishConfig: { access: "public" },
 };
 writeFileSync(join(out, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
