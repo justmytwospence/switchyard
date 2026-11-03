@@ -31,6 +31,32 @@ export interface HolderConfig {
   rows: number;
 }
 
+/**
+ * The part of node-pty the holder uses. node-pty is an optional dependency (it may be absent where
+ * it cannot be built), so its types are not imported.
+ */
+interface Pty {
+  readonly pid: number;
+  onData(listener: (data: string) => void): unknown;
+  onExit(listener: (e: { exitCode: number; signal?: number }) => void): unknown;
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  kill(signal?: string): void;
+}
+interface PtyModule {
+  spawn(
+    file: string,
+    args: string[],
+    options: {
+      name: string;
+      cols: number;
+      rows: number;
+      cwd: string;
+      env: Record<string, string>;
+    },
+  ): Pty;
+}
+
 const MAX_BUFFER = 20_000;
 const MAX_TO_EXTENSION = 1000;
 const EXIT_WAIT_MS = 5 * 60_000;
@@ -81,7 +107,7 @@ function write(socket: Socket | null, line: string): void {
 
 export function runHolder(cfg: HolderConfig): void {
   ensureSpawnHelper();
-  const pty = require("node-pty") as typeof import("node-pty");
+  const pty = require("node-pty") as PtyModule;
   const { Terminal } = require("@xterm/headless") as typeof import("@xterm/headless");
   const { SerializeAddon } =
     require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
