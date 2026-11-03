@@ -21,6 +21,12 @@ export interface ToolStartEvent {
   args: unknown;
 }
 
+/** `tool_execution_update`: `details` is `partialResult.details` when present. */
+export interface ToolUpdateEvent extends ToolStartEvent {
+  partialResult: unknown;
+  details?: unknown;
+}
+
 /** `tool_execution_end`. `details` is `result.details` when present. */
 export interface ToolEndEvent extends ToolStartEvent {
   result: unknown;
@@ -163,6 +169,7 @@ export interface ServerAdapter {
   toolCard?(tool: ToolInfo, ctx: AdapterContext): MaybePromise<UINode | undefined>;
   claimInteraction?(req: PiUiRequest, ctx: AdapterContext): MaybePromise<Claim | undefined>;
   onToolStart?(e: ToolStartEvent, ctx: AdapterContext): MaybePromise<void>;
+  onToolUpdate?(e: ToolUpdateEvent, ctx: AdapterContext): MaybePromise<void>;
   onToolEnd?(e: ToolEndEvent, ctx: AdapterContext): MaybePromise<void>;
   onEntry?(entry: SessionEntryInfo, ctx: AdapterContext): MaybePromise<void>;
   onCustomMessage?(m: CustomMessageInfo, ctx: AdapterContext): MaybePromise<void>;

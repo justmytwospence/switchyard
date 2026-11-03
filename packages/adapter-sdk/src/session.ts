@@ -26,6 +26,7 @@ import type {
   ToolEndEvent,
   ToolInfo,
   ToolStartEvent,
+  ToolUpdateEvent,
 } from "./types.js";
 
 export const DEFAULT_HOOK_TIMEOUT_MS = 2000;
@@ -170,6 +171,11 @@ export class AdapterSession {
   async onToolStart(e: ToolStartEvent): Promise<void> {
     this.activeTools.set(e.toolCallId, e);
     await this.callAll("onToolStart", e);
+  }
+
+  /** `tool_execution_update`: runs `onToolUpdate` hooks with the partial result. */
+  async onToolUpdate(e: ToolUpdateEvent): Promise<void> {
+    await this.callAll("onToolUpdate", e);
   }
 
   /** `tool_execution_end`: runs `onToolEnd` hooks, then expires answers queued for the call. */

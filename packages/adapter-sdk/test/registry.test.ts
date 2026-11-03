@@ -37,6 +37,27 @@ function open(registry: AdapterRegistry, sessionId = "ses_1") {
   return { session: registry.openSession({ sessionId, emit: s.emit }), effects: s.effects };
 }
 
+describe("onToolUpdate", () => {
+  it("delivers partial results to adapters that have the hook", async () => {
+    const seen: unknown[] = [];
+    const registry = new AdapterRegistry();
+    registry.setAdapters([
+      inline("upd", { onToolUpdate: (e) => void seen.push(e) }),
+      inline("plain", {}),
+    ]);
+    const { session } = open(registry);
+    const e = {
+      toolCallId: "c1",
+      name: "t",
+      args: { a: 1 },
+      partialResult: { content: [] },
+      details: { plan: "x" },
+    };
+    await session.onToolUpdate(e);
+    expect(seen).toEqual([e]);
+  });
+});
+
 describe("precedence", () => {
   it("orders project > owner > plugin > bundled and lets the highest tier claim", async () => {
     const root = tmp();

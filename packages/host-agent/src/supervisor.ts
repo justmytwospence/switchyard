@@ -1144,6 +1144,23 @@ export class SessionSupervisor {
         await this.applyToolCard(l, e);
         return;
       }
+      case "tool_execution_update": {
+        if (ev.parentToolCallId || !adapters) return;
+        const id = String(ev.toolCallId);
+        const pr = ev.partialResult;
+        const details =
+          pr && typeof pr === "object" && "details" in pr
+            ? (pr as { details?: unknown }).details
+            : undefined;
+        await adapters.onToolUpdate({
+          toolCallId: id,
+          name: String(ev.toolName),
+          args: ms?.toolItem(id)?.data.args ?? {},
+          partialResult: pr,
+          details,
+        });
+        return;
+      }
       case "tool_execution_end": {
         if (ev.parentToolCallId || !adapters) return;
         const result = ev.result;

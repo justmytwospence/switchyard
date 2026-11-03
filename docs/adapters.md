@@ -90,7 +90,7 @@ The real-world example is [pi-plugins](https://github.com/justmytwospence/pi-plu
 interface ServerAdapter {
   toolCard?(tool, ctx): UINode | undefined;
   claimInteraction?(req: PiUiRequest, ctx): Claim | undefined;
-  onToolStart?(e, ctx); onToolEnd?(e, ctx);
+  onToolStart?(e, ctx); onToolUpdate?(e, ctx); onToolEnd?(e, ctx);
   onEntry?(entry, ctx); onCustomMessage?(m, ctx);
   onStatus?(key, text | undefined, ctx); onWidget?(key, lines | undefined, ctx);
   onAction?(actionId, payload, ctx);
@@ -100,7 +100,7 @@ interface ServerAdapter {
 Every hook is optional and may be async. The host calls them in precedence order:
 
 - `toolCard` and `claimInteraction`: the first adapter that returns something wins.
-- Observation hooks (`onToolStart`, `onToolEnd`, `onEntry`, `onCustomMessage`, `onStatus`, `onWidget`): every adapter is called. `onStatus` and `onWidget` may return `true` to say they presented the value; the generic status and widget panels are still kept.
+- Observation hooks (`onToolStart`, `onToolUpdate`, `onToolEnd`, `onEntry`, `onCustomMessage`, `onStatus`, `onWidget`): every adapter is called. `onToolUpdate` gets each `tool_execution_update` with the partial result and its `details`. `onStatus` and `onWidget` may return `true` to say they presented the value; the generic status and widget panels are still kept.
 - `onAction`: only the adapter named in the action.
 
 **Failure isolation.** Each call runs inside try/catch with a 2 s timeout. A throw, a timeout, or an invalid result (a card or claim that fails `validateUINode`, a response that does not fit the dialog) disables that adapter for the rest of the session and emits an error diagnostic. The caller then falls back to generic. Nothing is ever answered automatically: a failed claim becomes the generic form, and the Pi call stays blocked until a human answers it.
@@ -153,6 +153,7 @@ else showInteraction(out); // out.claim, out.adapterId (null = generic)
 const r = await session.respond(out, response);
 if (r.kind === "respond") pi.respondUi(req.id, r.response);
 else showInteraction(r); // adapter failed: generic claim, still waiting for a human
+await session.onToolUpdate({ toolCallId, name, args, partialResult, details });
 await session.onToolEnd({ toolCallId, name, args, result, isError, details });
 ```
 
