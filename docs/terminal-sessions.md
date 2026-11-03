@@ -30,7 +30,7 @@ The herdr integration in [`integrations/herdr/`](../integrations/herdr/README.md
 
 ## Limits
 
-- Slash commands sent from Switchyard clients are refused in terminal sessions ("type it in the terminal"): Pi's extension API cannot run them.
+- Slash commands from Switchyard clients run Pi's extension commands, prompt templates and skills. Switchyard itself handles /model, /thinking, /compact and /name. Pi's other built-in commands (/tree, /settings, /login, ...) work only in the terminal.
 - "Clear queue" cannot clear Pi's own queue, and the queue shown in clients is reconstructed by the extension, so it can lag what Pi shows.
 - `ctx.ui.custom()` interfaces work in the terminal only; clients show "Waiting in the terminal".
 - No retry notices, and no extension error diagnostics in clients: Pi does not expose those events to extensions.

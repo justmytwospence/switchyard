@@ -31,7 +31,6 @@ export function SlashPicker({
   className,
 }: SlashPickerProps) {
   const ref = useRef<HTMLDivElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the active row changes
   useEffect(() => {
     ref.current
       ?.querySelector<HTMLElement>(`[id="${id}-${active}"]`)
@@ -39,7 +38,6 @@ export function SlashPicker({
   }, [active, id]);
   return (
     <div className={className}>
-      {/* biome-ignore lint/a11y/useSemanticElements: ARIA listbox for a custom combobox */}
       <div
         ref={ref}
         role="listbox"
@@ -48,8 +46,6 @@ export function SlashPicker({
         className="max-h-72 overflow-y-auto"
       >
         {entries.map((e, i) => (
-          // biome-ignore lint/a11y/useFocusableInteractive: focus stays in the textarea
-          // biome-ignore lint/a11y/useSemanticElements: ARIA option in a listbox
           <div
             key={`${e.source}:${e.name}`}
             role="option"

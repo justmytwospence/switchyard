@@ -76,7 +76,7 @@ sequenceDiagram
 
 | Area | What you get |
 |---|---|
-| **Sessions** | Persistent Pi conversations on any host; the same live session in every client; steer or queue follow-ups; take over and return to automation; resume after crashes with the same conversation (never a silent new one); import existing Pi sessions |
+| **Sessions** | Persistent Pi conversations on any host; the same live session in every client; steer or queue follow-ups; take over and return to automation; resume after crashes with the same conversation (never a silent new one); import existing Pi sessions; switch model and effort, see context use and compact, a slash-command picker |
 | **Workspaces** | A git worktree per task or session inside the repository, discovery of worktrees you made yourself, setup commands, removal that refuses to lose uncommitted or unmerged work, and project folders per host whose repositories are added automatically |
 | **Tasks and board** | Backlog, Ready, In progress, Review, Done; dependencies with cycle detection; priorities; per-project concurrency limits; a Now view explaining why queued work waits |
 | **Review** | Changed files and diffs on desktop and phone, line comments sent as one follow-up, request changes, accept |
@@ -99,6 +99,8 @@ sequenceDiagram
 | **Run** | One attempt at a task, carried out in a session |
 | **Device** | A signed-in client: a browser, an installed web app or a terminal |
 | **Adapter** | Code that renders a specific Pi plugin's questions and state as structured UI |
+
+A seeded **Vanilla** profile runs stock Pi (no extensions, skills or prompt templates).
 
 ## Quick start
 
