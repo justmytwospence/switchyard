@@ -32,7 +32,7 @@ All steps run in one test, `packages/coordinator/test/integration/journey.test.t
 | Task finishes into Review | Verified | journey |
 | A notification opens the result | Partly verified | Routing, tag and deep link `/tasks/<id>` verified with a stubbed push sender (journey, `notifications.test.ts`); deep links through enrollment and reconnect verified in Playwright `shared.spec.ts`. Real OS delivery and click: Unverified (see below) |
 | Restarting the coordinator never duplicates the run | Verified | journey; `coordinator-restart.test.ts`; `coordinator-restart-checks.test.ts` |
-| Dispatch to "the NUC" | Unverified on the NUC itself | The host was this Mac. The protocol is the same for any enrolled host, but no run was made on the NUC |
+| Dispatch to a remote host | Verified separately | The journey test runs host and coordinator on one machine; dispatch to a remote Linux host was verified in a live deployment |
 
 ## Section 19: automated coverage
 
@@ -96,5 +96,5 @@ Recorded against v0.2.0 (`ghcr.io/justmytwospence/switchyard:0.2.0`, linux/amd64
 | Host self-enrollment with a shared secret; host waits without config | Verified | `integration/enrollment.test.ts`; `host-agent/test/wait-for-config.test.ts` |
 | Per-project worktree folder | Verified | `host-agent/test/git.test.ts`; `integration/worktrees.test.ts` |
 | Plugin adapters loaded from pi-plugins through the plugin tier | Verified | `host-agent/test/compat/*` (real Pi 1.4.0, real plugins) |
-| Homelab deploy: published image, owned at first start through the declared OIDC owner, host connected, Authelia accepts the `switchyard` client (authorize URL reaches Authelia's sign-in flow), OIDC discovery `ready` | Verified | live checks on the NUC |
+| Live deployment (container behind a reverse proxy, external OIDC provider): published image, owned at first start through the declared OIDC owner, host connected, Authelia accepts the `switchyard` client (authorize URL reaches Authelia's sign-in flow), OIDC discovery `ready` | Verified | live checks on the NUC |
 | Real Authelia sign-in with 2FA on phone and Mac, passkey on a real device, iOS PWA handoff | **Unverified** | needs the owner's own sign-in |

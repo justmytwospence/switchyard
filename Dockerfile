@@ -37,7 +37,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS runtime
 
 # git (and ssh for git remotes) for the host-agent role: the same image runs a host agent as a
-# host container (homelab host-home), where it manages worktrees and runs Pi from the mounted
+# host container that mounts the user's home, where it manages worktrees and runs Pi from the mounted
 # home. The coordinator role does not use them.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates openssh-client \

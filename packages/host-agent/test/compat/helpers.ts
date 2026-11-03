@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -28,9 +27,8 @@ import { FakeCoordinator, startCommand, tempDir, waitFor } from "../helpers.js";
 
 export { waitFor };
 
-/** Root of the pi-plugins checkout (`SWITCHYARD_PI_PLUGINS_DIR`, default `~/Projects/pi-plugins`). */
-export const PLUGINS_DIR =
-  process.env.SWITCHYARD_PI_PLUGINS_DIR ?? join(homedir(), "Projects", "pi-plugins");
+/** Root of a pi-plugins checkout (`SWITCHYARD_PI_PLUGINS_DIR`); the tests skip when it is unset. */
+export const PLUGINS_DIR = process.env.SWITCHYARD_PI_PLUGINS_DIR ?? "";
 
 export type PluginName =
   | "pi-ask-user-question"
@@ -66,6 +64,7 @@ export function pluginPackages(plugins: PluginName[]) {
 export function compatSkipReason(): string | null {
   const real = realPiSkipReason();
   if (real) return real;
+  if (!PLUGINS_DIR) return "SWITCHYARD_PI_PLUGINS_DIR is not set";
   if (!existsSync(PLUGINS_DIR)) return `pi-plugins not found at ${PLUGINS_DIR}`;
   return null;
 }
