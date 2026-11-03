@@ -217,6 +217,7 @@ export async function startCompatHarness(opts: {
     env: pi.env,
     ownerAdapterDir: join(state.path, "owner-adapters"),
     handleSignals: false,
+    terminalSessions: false,
     backoffMs: [50, 100, 200],
     logger: silentLogger(),
   });

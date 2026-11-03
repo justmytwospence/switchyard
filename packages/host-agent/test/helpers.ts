@@ -273,7 +273,7 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarne
       backoffMs: [50, 100, 200],
       logger: silentLogger(),
       testHooks: hooks,
-      terminalSessions: opts.terminalSessions,
+      terminalSessions: opts.terminalSessions ?? false,
     });
     agents.push(agent);
     return agent;

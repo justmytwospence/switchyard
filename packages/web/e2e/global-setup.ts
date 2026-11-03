@@ -188,6 +188,7 @@ export default async function globalSetup(): Promise<void> {
     // Core bundles no adapters: the e2e ask-user-question adapter is an owner adapter.
     ownerAdapterDir: join(here, "fixtures", "adapters"),
     handleSignals: false,
+    terminalSessions: false,
     backoffMs: [100, 200, 500],
     logger: hostLogger as never,
   });

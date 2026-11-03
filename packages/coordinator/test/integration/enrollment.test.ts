@@ -152,6 +152,7 @@ describe("host self-enrollment and waiting", { timeout: 60_000 }, () => {
       env: extraEnv,
       ownerAdapterDir: dir(),
       handleSignals: false,
+      terminalSessions: false,
       backoffMs: [50, 100, 200],
       logger: silentLogger(),
       configWaitTiming: FAST,

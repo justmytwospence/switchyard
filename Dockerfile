@@ -18,6 +18,11 @@ ENV PNPM_HOME=/pnpm \
 ENV PATH=$PNPM_HOME:$PATH
 WORKDIR /app
 
+# node-pty (terminal sessions) has no Linux prebuilds: it compiles during install.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \

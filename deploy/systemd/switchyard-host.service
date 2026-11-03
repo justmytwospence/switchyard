@@ -11,7 +11,8 @@ Environment="PATH={{PATH}}"
 WorkingDirectory={{HOME}}
 Restart=on-failure
 RestartSec=10
-KillMode=mixed
+# process: terminal-session holders outlive agent restarts; the agent stops its own RPC Pi processes.
+KillMode=process
 TimeoutStopSec=30
 
 [Install]

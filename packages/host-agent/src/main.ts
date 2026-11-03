@@ -56,8 +56,8 @@ export interface RunHostAgentOptions {
   /** Test overrides for the waits while the config is missing. */
   configWaitTiming?: Partial<WaitTiming>;
   /**
-   * Run sessions as interactive Pi in terminal holders (default: host.json `terminalSessions`,
-   * else `SWITCHYARD_TERMINAL_SESSIONS=1`).
+   * Run sessions as interactive Pi in terminal holders. Default on: host.json
+   * `terminalSessions`, then `SWITCHYARD_TERMINAL_SESSIONS` (`1`/`0`), then true.
    */
   terminalSessions?: boolean;
 }
@@ -84,6 +84,20 @@ export interface HostAgentHandle {
   stop(opts?: { terminals?: "detach" | "stop" }): Promise<void>;
 }
 
+/**
+ * Whether sessions run in terminal holders: the option, then host.json, then
+ * `SWITCHYARD_TERMINAL_SESSIONS` (`1` on, `0` off), else on.
+ */
+export function terminalSessionsWanted(
+  opt: boolean | undefined,
+  config: Pick<HostConfig, "terminalSessions">,
+  env: Record<string, string | undefined>,
+): boolean {
+  const flag = env.SWITCHYARD_TERMINAL_SESSIONS;
+  const fromEnv = flag === "1" ? true : flag === "0" ? false : undefined;
+  return opt ?? config.terminalSessions ?? fromEnv ?? true;
+}
+
 /** Start the host agent: DB, Pi detection, adapters, supervisor, router and coordinator link. */
 export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<HostAgentHandle> {
   const env = opts.env ?? {};
@@ -108,16 +122,13 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   if (!pi.compatible) log.warn({ reason: pi.reason }, "Pi is not usable; sessions will be refused");
   else log.info({ version: pi.version }, "Pi detected");
 
-  const wantTerminal =
-    opts.terminalSessions ??
-    config.terminalSessions ??
-    mergedEnv.SWITCHYARD_TERMINAL_SESSIONS === "1";
+  const wantTerminal = terminalSessionsWanted(opts.terminalSessions, config, mergedEnv);
   const termSupport = wantTerminal ? terminalSupport() : null;
   const terminalEnabled = termSupport?.ok === true;
   if (termSupport && !termSupport.ok) {
     log.warn(
       { reason: termSupport.reason },
-      "terminal sessions requested but unavailable; sessions use RPC",
+      "terminal sessions unavailable; sessions run headless (RPC)",
     );
   } else if (terminalEnabled) {
     log.info("terminal sessions enabled");

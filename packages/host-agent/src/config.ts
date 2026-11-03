@@ -9,7 +9,7 @@ export const HostConfigSchema = z.object({
   hostId: z.string().min(1),
   credential: z.string().min(1),
   name: z.string().min(1),
-  /** Run sessions as interactive Pi in a terminal holder (experimental; needs node-pty). */
+  /** Run sessions as interactive Pi in a terminal holder (default true; false runs them headless over RPC). */
   terminalSessions: z.boolean().optional(),
 });
 export type HostConfig = z.infer<typeof HostConfigSchema>;
