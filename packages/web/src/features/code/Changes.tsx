@@ -137,7 +137,7 @@ function useFileDiff(ctx: SessionContext, diff: WorkspaceDiff, path: string | nu
 /* Pieces                                                              */
 /* ------------------------------------------------------------------ */
 
-const STATUS_LABEL: Record<ChangedFile["status"], string> = {
+export const STATUS_LABEL: Record<ChangedFile["status"], string> = {
   added: "Added",
   modified: "Modified",
   deleted: "Deleted",

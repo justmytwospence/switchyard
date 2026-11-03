@@ -421,8 +421,11 @@ describe("workspace file responses", () => {
       binary: false,
       truncated: false,
       size: 1,
+      base64: null,
     });
-    expect(normalizeFile({ content: "AA==", encoding: "base64", binary: true }).binary).toBe(true);
+    const bin = normalizeFile({ content: "AA==", encoding: "base64", binary: true });
+    expect(bin.binary).toBe(true);
+    expect(bin.base64).toBe("AA==");
   });
 });
 

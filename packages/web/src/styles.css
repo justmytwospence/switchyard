@@ -251,3 +251,14 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+@layer components {
+  .sy-code span[style] {
+    color: var(--shiki-light);
+  }
+  @media (prefers-color-scheme: dark) {
+    .sy-code span[style] {
+      color: var(--shiki-dark);
+    }
+  }
+}

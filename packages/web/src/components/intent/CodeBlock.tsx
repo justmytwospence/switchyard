@@ -1,6 +1,7 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/cn";
+import { langFor, useHighlight } from "../../lib/highlight";
 
 /** Monospace block; long lines scroll horizontally inside the block, never the page. */
 export function CodeBlock({
@@ -16,10 +17,11 @@ export function CodeBlock({
   maxHeight?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const lines = useHighlight(text, langFor(lang));
   return (
     <div
       className={cn(
-        "group relative min-w-0 rounded-md border border-border bg-surface-2",
+        "sy-code group relative min-w-0 rounded-md border border-border bg-surface-2",
         className,
       )}
     >
@@ -30,7 +32,22 @@ export function CodeBlock({
         className="max-w-full overflow-x-auto overscroll-x-contain px-3 py-2 text-xs leading-5"
         style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}
       >
-        <code>{text}</code>
+        <code>
+          {lines
+            ? lines.map((line, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+                <span key={i}>
+                  {line.map((t, j) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: tokens are positional
+                    <span key={j} style={t.style as React.CSSProperties}>
+                      {t.content}
+                    </span>
+                  ))}
+                  {i < lines.length - 1 ? "\n" : ""}
+                </span>
+              ))
+            : text}
+        </code>
       </pre>
       <button
         type="button"

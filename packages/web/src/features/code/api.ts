@@ -108,11 +108,14 @@ export interface FileContent {
   binary: boolean;
   truncated: boolean;
   size: number | null;
+  /** Base64 content of a binary file. */
+  base64: string | null;
 }
 
 /** `workspace.readFile` result: a string, or `{content|text, binary?, truncated?, size?}`. */
 export function normalizeFile(raw: unknown): FileContent {
-  if (typeof raw === "string") return { text: raw, binary: false, truncated: false, size: null };
+  if (typeof raw === "string")
+    return { text: raw, binary: false, truncated: false, size: null, base64: null };
   const o = (raw ?? {}) as Record<string, unknown>;
   const text =
     typeof o.content === "string" ? o.content : typeof o.text === "string" ? o.text : null;
@@ -121,5 +124,6 @@ export function normalizeFile(raw: unknown): FileContent {
     binary: o.binary === true || (text === null && o.encoding === "base64"),
     truncated: o.truncated === true,
     size: typeof o.size === "number" ? o.size : null,
+    base64: o.encoding === "base64" && typeof o.content === "string" ? o.content : null,
   };
 }

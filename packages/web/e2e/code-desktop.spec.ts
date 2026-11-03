@@ -263,6 +263,38 @@ test.describe("desktop coding view", () => {
     await expect(composer.getByRole("button", { name: "Effort: high" })).toBeVisible();
   });
 
+  test("Files: tree, highlighted preview and markdown", async ({ page, state }, info) => {
+    test.skip(viewportOf(info) !== "desktop", "Desktop only");
+    await page.goto(`/code/${state.sessions.long}`);
+    const inspector = page.getByTestId("inspector");
+    await inspector.getByRole("tab", { name: /Files/ }).click();
+    const tree = inspector.getByRole("tree", { name: "Workspace files" });
+    const src = tree.getByRole("treeitem", { name: /^src/ });
+    await expect(src.getByTitle("Contains changes")).toBeVisible();
+    await src.click();
+    const wide = tree.getByRole("treeitem", { name: /wide\.ts/ });
+    await expect(wide.getByTitle(/Added|Modified|Untracked/)).toBeVisible();
+    await wide.click();
+    await expect(inspector.getByRole("heading", { name: "wide.ts" })).toBeVisible();
+    const code = inspector.getByRole("region", { name: "File contents" });
+    await expect(code).toBeVisible();
+    await expect(code.locator("[data-line-number]").nth(2)).toHaveText("3");
+    await expect
+      .poll(() => code.locator(".sy-code span[style], span[style]").count())
+      .toBeGreaterThan(0);
+    await inspector.getByRole("button", { name: "Wrap lines" }).click();
+    await expect(inspector.getByRole("button", { name: "Don't wrap lines" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await inspector.getByRole("button", { name: "Back to files" }).click();
+    await tree.getByRole("treeitem", { name: /^docs/ }).click();
+    await tree.getByRole("treeitem", { name: /guide\.md/ }).click();
+    await expect(inspector.getByRole("heading", { name: "Guide" })).toBeVisible();
+    await inspector.getByRole("radio", { name: "Source" }).click();
+    await expect(inspector.getByRole("region", { name: "File contents" })).toBeVisible();
+  });
+
   test("review comments are batched into one follow-up", async ({ page, state, api }, info) => {
     const id = await createSession(api, state, `Review ${uid(info)}`, "hello review");
     const prompts = promptRequests(page, id);
