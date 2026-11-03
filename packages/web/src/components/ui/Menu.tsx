@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 
@@ -10,6 +11,15 @@ export interface MenuItem {
   disabled?: boolean;
   /** Short explanation shown under the label (e.g. why it is disabled). */
   hint?: string;
+  /** A radio or checkbox item shows a check mark when `checked`. */
+  kind?: "radio" | "checkbox";
+  checked?: boolean;
+}
+
+/** A non-interactive label above a group of items. */
+export interface MenuHeading {
+  id: string;
+  heading: string;
 }
 
 export interface MenuProps {
@@ -22,7 +32,7 @@ export interface MenuProps {
     "aria-expanded": boolean;
     "aria-controls": string;
   }) => ReactNode;
-  items: (MenuItem | "separator")[];
+  items: (MenuItem | MenuHeading | "separator")[];
   align?: "start" | "end";
   /** Accessible name of the menu. */
   label: string;
@@ -109,11 +119,27 @@ export function Menu({ trigger, items, align = "end", label }: MenuProps) {
             item === "separator" ? (
               // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity
               <hr key={`sep-${i}`} className="my-1 border-t border-border" />
+            ) : "heading" in item ? (
+              <div
+                key={item.id}
+                role="presentation"
+                className="px-3 pt-1.5 pb-1 text-xs font-medium text-muted"
+              >
+                {item.heading}
+              </div>
             ) : (
+              // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-checked is only set with the menuitemradio/menuitemcheckbox roles
               <button
                 key={item.id}
                 type="button"
-                role="menuitem"
+                role={
+                  item.kind === "radio"
+                    ? "menuitemradio"
+                    : item.kind === "checkbox"
+                      ? "menuitemcheckbox"
+                      : "menuitem"
+                }
+                aria-checked={item.kind ? !!item.checked : undefined}
                 disabled={item.disabled}
                 className={cn(
                   "tap flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2 focus:bg-surface-2 focus:outline-none disabled:opacity-55",
@@ -124,7 +150,13 @@ export function Menu({ trigger, items, align = "end", label }: MenuProps) {
                   item.onSelect();
                 }}
               >
-                {item.icon && <span className="mt-0.5 shrink-0">{item.icon}</span>}
+                {item.kind ? (
+                  <span aria-hidden className="mt-0.5 size-4 shrink-0">
+                    {item.checked && <Check className="size-4" />}
+                  </span>
+                ) : (
+                  item.icon && <span className="mt-0.5 shrink-0">{item.icon}</span>
+                )}
                 <span className="min-w-0">
                   <span className="block">{item.label}</span>
                   {item.hint && <span className="block text-xs text-muted">{item.hint}</span>}
@@ -139,7 +171,9 @@ export function Menu({ trigger, items, align = "end", label }: MenuProps) {
 }
 
 function focusMenuItem(menu: HTMLElement | null, dir: 1 | -1 | "first" | "last"): void {
-  const els = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])];
+  const els = [
+    ...(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([disabled])') ?? []),
+  ];
   if (els.length === 0) return;
   const idx = els.indexOf(document.activeElement as HTMLElement);
   let next = 0;
