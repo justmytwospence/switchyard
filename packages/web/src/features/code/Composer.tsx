@@ -537,7 +537,7 @@ export function Composer({
                     !block && !noText && !commandProblem && (busy === null || busy === "steer"),
                   )}
                 >
-                  Steer
+                  <span className="max-[379px]:sr-only">Steer</span>
                 </Button>
               )}
               {modes.followUp && (
@@ -556,7 +556,8 @@ export function Composer({
                     !block && !noText && !commandProblem && (busy === null || busy === "followUp"),
                   )}
                 >
-                  Queue follow-up
+                  <span className="max-[379px]:hidden">Queue follow-up</span>
+                  <span className="min-[380px]:hidden">Queue</span>
                 </Button>
               )}
             </>
