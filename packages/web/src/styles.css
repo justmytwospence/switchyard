@@ -283,6 +283,13 @@
   .sy-prose-compact h2 {
     font-size: 1rem;
   }
+  .sy-prose-compact h2[data-active="true"] {
+    margin-left: -0.5rem;
+    padding: 0.15em 0.5rem;
+    border-radius: 0.375rem;
+    background: var(--sy-accent-soft);
+    box-shadow: inset 3px 0 0 var(--sy-accent);
+  }
   .sy-prose-compact h3,
   .sy-prose-compact h4 {
     font-size: 0.9375rem;

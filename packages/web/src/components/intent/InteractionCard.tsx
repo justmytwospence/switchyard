@@ -27,6 +27,8 @@ export interface InteractionCardProps {
   id?: string;
   /** Stick the document header to the top of its scroller (false when the page scrolls). */
   sticky?: boolean;
+  /** The page itself scrolls (no padded scroller): pin the header and bar flush. */
+  flush?: boolean;
 }
 
 function hasInteractive(node: UINode): boolean {
@@ -64,6 +66,7 @@ export function InteractionCard({
   onAnswered,
   id,
   sticky,
+  flush,
 }: InteractionCardProps) {
   const upsert = useSyncStore((s) => s.upsertInteraction);
   const [busy, setBusy] = useState(false);
@@ -153,6 +156,7 @@ export function InteractionCard({
         disabled={!!readOnlyReason}
         mobile={bp === "mobile"}
         sticky={sticky ?? true}
+        flush={flush ?? false}
         className={className}
       />
     );
@@ -381,8 +385,9 @@ export function documentSections(md: string): { text: string; id: string }[] {
 }
 
 /** Id of the outline entry whose heading is the last one scrolled past the top. */
-function useActiveSection(ids: string[], root: React.RefObject<HTMLElement | null>): string | null {
+function useActiveSection(ids: string[], root: React.RefObject<HTMLElement | null>) {
   const [active, setActive] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<string | null>(null);
   const key = ids.join("|");
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `ids`
   useEffect(() => {
@@ -397,9 +402,32 @@ function useActiveSection(ids: string[], root: React.RefObject<HTMLElement | nul
       { rootMargin: "-56px 0px -70% 0px" },
     );
     for (const e of els) io.observe(e);
-    return () => io.disconnect();
+    // A click on an entry near the end cannot scroll it to the top: it stays selected until the
+    // reader scrolls again.
+    const release = () => setPinned(null);
+    window.addEventListener("wheel", release, { passive: true });
+    window.addEventListener("touchmove", release, { passive: true });
+    window.addEventListener("keydown", release);
+    return () => {
+      io.disconnect();
+      window.removeEventListener("wheel", release);
+      window.removeEventListener("touchmove", release);
+      window.removeEventListener("keydown", release);
+    };
   }, [key, root]);
-  return active;
+  const shown = pinned ?? active;
+  // Mark the heading in the text that the outline highlights.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `ids`
+  useEffect(() => {
+    const r = root.current;
+    if (!r) return;
+    for (const h of r.querySelectorAll<HTMLElement>("h2[data-active]")) delete h.dataset.active;
+    if (shown) {
+      const el = r.querySelector<HTMLElement>(`#${CSS.escape(shown)}`);
+      if (el) el.dataset.active = "true";
+    }
+  }, [shown, key, root]);
+  return [shown, setPinned] as const;
 }
 
 /**
@@ -417,6 +445,7 @@ function DocumentInteraction({
   disabled,
   mobile,
   sticky,
+  flush,
   className,
 }: {
   id?: string;
@@ -427,6 +456,7 @@ function DocumentInteraction({
   disabled: boolean;
   mobile: boolean;
   sticky: boolean;
+  flush: boolean;
   className?: string;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -443,7 +473,7 @@ function DocumentInteraction({
       : undefined;
   const { title: heading, rest } = leadingHeading(md?.text ?? "");
   const sections = documentSections(rest);
-  const active = useActiveSection(
+  const [active, pinSection] = useActiveSection(
     sections.map((s) => s.id),
     bodyRef,
   );
@@ -475,7 +505,7 @@ function DocumentInteraction({
       <header
         className={cn(
           "z-10 flex min-w-0 items-center gap-2 border-b border-border bg-bg px-4 py-2 md:px-6",
-          sticky && "max-md:static md:sticky md:-top-3",
+          sticky && (flush ? "md:sticky md:top-0" : "max-md:static md:sticky md:-top-3"),
         )}
       >
         <h3 className="min-w-0 flex-1 truncate text-[15px] leading-snug font-semibold md:text-sm">
@@ -505,7 +535,7 @@ function DocumentInteraction({
       <div className="px-4 py-4 md:grid md:grid-cols-[13rem_minmax(0,1fr)] 2xl:grid-cols-[15rem_minmax(0,1fr)] md:gap-8 md:px-6">
         {sections.length > 0 && (
           <nav aria-label="Plan sections" className="hidden md:block">
-            <ol className="sticky top-14 flex flex-col gap-0.5 border-l border-border text-sm">
+            <ol className="sticky top-16 flex flex-col gap-0.5 border-l border-border text-sm">
               <li>
                 <button
                   type="button"
@@ -521,11 +551,12 @@ function DocumentInteraction({
                     type="button"
                     aria-current={active === s.id}
                     className="-ml-px block w-full truncate border-l-2 border-transparent py-1 pl-3 text-left text-muted hover:text-text aria-[current=true]:border-accent aria-[current=true]:text-text"
-                    onClick={() =>
+                    onClick={() => {
+                      pinSection(s.id);
                       jump(
                         bodyRef.current?.querySelector<HTMLElement>(`#${CSS.escape(s.id)}`) ?? null,
-                      )
-                    }
+                      );
+                    }}
                   >
                     {s.text}
                   </button>
@@ -556,7 +587,7 @@ function DocumentInteraction({
               <Button
                 key={o.id}
                 variant={variant(i, o.tone)}
-                size={mobile ? "md" : "sm"}
+                size="md"
                 disabled={busy}
                 className={cn(wrapBtn, "md:text-center")}
                 onClick={() => answer(o.id)}
@@ -580,7 +611,7 @@ function DocumentInteraction({
           data-testid="answer-bar"
           className={cn(
             "z-10 flex min-w-0 items-center gap-2 border-t border-border bg-bg px-4 py-2 pb-[calc(0.5rem+var(--safe-bottom))] md:gap-3 md:px-6",
-            sticky ? "sticky -bottom-3" : "sticky bottom-0",
+            sticky && !flush ? "sticky -bottom-3" : "sticky bottom-0",
           )}
         >
           {mobile ? (
@@ -626,7 +657,6 @@ function DocumentInteraction({
                 {options.map((o, i) => (
                   <Button
                     key={o.id}
-                    size="sm"
                     variant={variant(i, o.tone)}
                     disabled={busy}
                     onClick={() => answer(o.id)}

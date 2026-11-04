@@ -66,6 +66,7 @@ export default function AttentionView() {
         <h1 className="flex-1 text-lg font-semibold">Attention</h1>
         <SegmentedControl
           label="Show"
+          className="max-sm:w-full max-sm:basis-full"
           value={show}
           onChange={setShow}
           options={[
@@ -181,6 +182,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       action =
         interaction && interaction.state === "pending" ? (
           <InteractionCard
+            flush
             interaction={interaction}
             readOnlyReason={
               hostOffline
@@ -191,7 +193,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
             }
           />
         ) : interaction ? (
-          <InteractionCard interaction={interaction} />
+          <InteractionCard flush interaction={interaction} />
         ) : sessionHref ? (
           <Link to={sessionHref} className={buttonClasses("primary", "sm")}>
             <ExternalLink aria-hidden className="size-3.5" />
