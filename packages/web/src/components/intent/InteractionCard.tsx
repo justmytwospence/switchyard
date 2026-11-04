@@ -1,6 +1,6 @@
 import type { Interaction, InteractionResponse, UINode } from "@switchyard/protocol";
-import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { apiPost, errorMessage, isApiError } from "../../sync/api";
@@ -288,7 +288,7 @@ function UnsupportedBody({
 }
 
 /** A content section that ends in a row of actions (a plan with its options), if `node` is one. */
-function splitPresentation(node: UINode): { body: UINode; actions: UINode } | null {
+export function splitPresentation(node: UINode): { body: UINode; actions: UINode } | null {
   if (node.t !== "section" || node.children.length < 2) return null;
   const last = node.children[node.children.length - 1];
   if (last?.t !== "actions") return null;
@@ -297,10 +297,29 @@ function splitPresentation(node: UINode): { body: UINode; actions: UINode } | nu
   return { body: { ...node, children: rest }, actions: last };
 }
 
+function scrollTo(el: HTMLElement | null, block: "start" | "center") {
+  const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  el?.scrollIntoView({ behavior: calm ? "auto" : "smooth", block });
+}
+
+/** True while `el` is (at least partly) on screen; assumed visible without IntersectionObserver. */
+function useOnScreen(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setVisible(!!e?.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref]);
+  return visible;
+}
+
 /**
- * Long content with options: on a phone the content is capped and expandable with the options
- * right below it; on a wide screen the content takes the left and the options stay in view on the
- * right.
+ * Long content followed by options (a plan and its answers). The content flows in the page, with
+ * no scroll box of its own. The options follow it as a row (a stack on a phone). While the options
+ * are off screen a pill sticks to the bottom of the view and jumps to them; at the options, a
+ * button jumps back to the start of the content.
  */
 function Presentation({
   node,
@@ -313,42 +332,52 @@ function Presentation({
   busy: boolean;
   disabled: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const actionsVisible = useOnScreen(actionsRef);
   const split = splitPresentation(node);
   if (!split) {
     return <UINodeRenderer node={node} onRespond={onRespond} busy={busy} disabled={disabled} />;
   }
   return (
-    <div className="flex min-w-0 flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start lg:gap-8">
-      <div className="min-w-0">
-        <div
-          className={cn(
-            "min-w-0 overflow-y-auto overscroll-contain",
-            open ? "" : "max-h-[40dvh] lg:max-h-none",
-          )}
-        >
-          <UINodeRenderer node={split.body} />
-        </div>
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-          className="tap mt-1 inline-flex items-center gap-1 text-sm font-medium text-accent lg:hidden"
-        >
-          <ChevronDown
-            aria-hidden
-            className={cn("size-4 transition-transform", open && "rotate-180")}
-          />
-          {open ? "Show less" : "Show the full text"}
-        </button>
+    <div className="flex min-w-0 flex-col gap-4">
+      <div ref={bodyRef} className="scroll-mt-16 min-w-0">
+        <UINodeRenderer node={split.body} />
       </div>
-      <div className="min-w-0 lg:sticky lg:top-3">
+      {!actionsVisible && (
+        <div className="pointer-events-none sticky bottom-3 z-10 -mb-4 flex h-0 justify-end">
+          <Button
+            data-testid="jump-to-options"
+            size="sm"
+            variant="primary"
+            className="pointer-events-auto absolute bottom-0 shadow-pop"
+            icon={<ArrowDown className="size-4" />}
+            onClick={() => scrollTo(actionsRef.current, "center")}
+          >
+            Jump to options
+          </Button>
+        </div>
+      )}
+      <div
+        ref={actionsRef}
+        data-testid="plan-options"
+        className="flex min-w-0 scroll-mb-4 flex-col gap-2 border-t border-border pt-3"
+      >
         <UINodeRenderer
           node={split.actions}
           onRespond={onRespond}
           busy={busy}
           disabled={disabled}
         />
+        <Button
+          size="sm"
+          variant="ghost"
+          className="self-start"
+          icon={<ArrowUp className="size-4" />}
+          onClick={() => scrollTo(bodyRef.current, "start")}
+        >
+          Back to the start
+        </Button>
       </div>
     </div>
   );
