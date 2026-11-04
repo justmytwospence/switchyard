@@ -129,6 +129,21 @@ export function Transcript({
     }
   }, [entries.length, lastKey, firstKey, streamSize, t.loaded]);
 
+  // Opening a session with a plan awaiting approval lands on the plan, once.
+  const landed = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!t.loaded || landed.current === sessionId) return;
+    const doc = [...pending].reverse().find((i) => isDocumentPresentation(i.presentation));
+    landed.current = sessionId;
+    if (!doc || focusInteractionId) return;
+    const el = document.getElementById(interactionDomId(doc.id));
+    if (!el || !scrollRef.current) return;
+    atBottomRef.current = false;
+    setAtBottom(false);
+    setBaselineKey(lastKey);
+    scrollRef.current.scrollTop = Math.max(0, el.offsetTop - 8);
+  });
+
   // Deep link: scroll to and highlight the interaction once it is rendered.
   const handled = useRef<string | null>(null);
   const olderAttempts = useRef(0);

@@ -260,7 +260,9 @@ export function Composer({
           open={modelPickerOpen}
           onOpenChange={setModelPickerOpen}
         />
-        <EffortControl session={session} enabled={controls} mobile={mobile} />
+        <span className={cn("contents", running && "max-md:hidden")}>
+          <EffortControl session={session} enabled={controls} mobile={mobile} />
+        </span>
       </>
     ) : null;
   const queued = session.queue.steering.length + session.queue.followUp.length;
@@ -496,7 +498,10 @@ export function Composer({
             }}
           />
           {pills ? (
-            <div data-testid="session-controls" className="flex min-w-0 flex-1 items-center gap-1">
+            <div
+              data-testid="session-controls"
+              className="flex min-w-0 flex-1 items-center gap-1 max-md:overflow-hidden"
+            >
               {pills}
             </div>
           ) : (
@@ -520,6 +525,7 @@ export function Composer({
               {modes.steer && (
                 <Button
                   size="sm"
+                  className="shrink-0"
                   icon={<Navigation className="size-3.5" />}
                   busy={busy === "steer"}
                   disabled={
@@ -538,6 +544,7 @@ export function Composer({
                 <Button
                   size="sm"
                   variant="primary"
+                  className="shrink-0"
                   icon={<ListPlus className="size-3.5" />}
                   busy={busy === "followUp"}
                   disabled={
