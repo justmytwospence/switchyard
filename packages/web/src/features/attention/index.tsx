@@ -270,15 +270,15 @@ function AttentionRow({ item }: { item: AttentionItem }) {
         aria-label={`Plan awaiting approval: ${metaText}`}
         className="flex min-w-0 flex-col gap-2"
       >
-        <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-          <span className="min-w-0 truncate">{metaText}</span>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
+          <span className="min-w-0 basis-full truncate sm:basis-auto sm:flex-1">{metaText}</span>
           {sessionHref && (
             <Link to={sessionHref} className={buttonClasses("ghost", "sm")}>
               <ExternalLink aria-hidden className="size-3.5" />
               Open session
             </Link>
           )}
-          <time dateTime={item.createdAt} className="ml-auto shrink-0 text-xs text-subtle">
+          <time dateTime={item.createdAt} className="shrink-0 text-xs text-subtle sm:ml-auto">
             {formatRelative(item.createdAt)}
           </time>
           {!item.acknowledgedAt && (
