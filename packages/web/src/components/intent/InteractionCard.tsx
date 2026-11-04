@@ -653,7 +653,7 @@ function DocumentInteraction({
           ) : (
             <>
               <span className="shrink-0 text-sm font-medium">{question}</span>
-              <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 min-[1700px]:grid-cols-6">
+              <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 min-[2200px]:grid-cols-6">
                 {options.map((o, i) => (
                   <Button
                     key={o.id}
