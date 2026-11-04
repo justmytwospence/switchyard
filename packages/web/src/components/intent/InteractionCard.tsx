@@ -474,11 +474,11 @@ function DocumentInteraction({
     >
       <header
         className={cn(
-          "z-10 flex min-w-0 items-start gap-2 border-b border-border bg-bg/95 px-4 py-2 backdrop-blur md:items-center md:px-6",
-          sticky && "sticky -top-3",
+          "z-10 flex min-w-0 items-center gap-2 border-b border-border bg-bg px-4 py-2 md:px-6",
+          sticky && "max-md:static md:sticky md:-top-3",
         )}
       >
-        <h3 className="line-clamp-2 min-w-0 flex-1 text-[15px] leading-snug font-semibold break-words md:line-clamp-none md:truncate md:text-sm">
+        <h3 className="min-w-0 flex-1 truncate text-[15px] leading-snug font-semibold md:text-sm">
           {title}
         </h3>
         <StatusChip
@@ -502,7 +502,7 @@ function DocumentInteraction({
           <UINodeRenderer node={changes} />
         </aside>
       )}
-      <div className="px-4 py-4 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8 md:px-6">
+      <div className="px-4 py-4 md:grid md:grid-cols-[13rem_minmax(0,1fr)] 2xl:grid-cols-[15rem_minmax(0,1fr)] md:gap-8 md:px-6">
         {sections.length > 0 && (
           <nav aria-label="Plan sections" className="hidden md:block">
             <ol className="sticky top-14 flex flex-col gap-0.5 border-l border-border text-sm">
@@ -535,7 +535,10 @@ function DocumentInteraction({
           </nav>
         )}
         <div ref={startRef} className="min-w-0 scroll-mt-14">
-          <div ref={bodyRef} className="sy-prose-compact max-w-[80ch] min-w-0 [&_h2]:scroll-mt-14">
+          <div
+            ref={bodyRef}
+            className="sy-prose-compact max-w-[80ch] min-w-0 2xl:max-w-[100ch] min-[1800px]:text-base [&_h2]:scroll-mt-14"
+          >
             <Markdown text={rest} headingIds className="text-inherit" />
           </div>
         </div>
@@ -576,7 +579,7 @@ function DocumentInteraction({
         <div
           data-testid="answer-bar"
           className={cn(
-            "z-10 flex min-w-0 items-center gap-2 border-t border-border bg-bg/95 px-4 py-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur md:gap-3 md:px-6",
+            "z-10 flex min-w-0 items-center gap-2 border-t border-border bg-bg px-4 py-2 pb-[calc(0.5rem+var(--safe-bottom))] md:gap-3 md:px-6",
             sticky ? "sticky -bottom-3" : "sticky bottom-0",
           )}
         >
