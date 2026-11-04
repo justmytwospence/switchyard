@@ -770,7 +770,7 @@ export const TERMINAL_COMMANDS: CommandEntry[] = [
     name: "bug",
     description: "Report a bug to the Pi developers",
     source: "terminal",
-    argumentHint: null,
+    argumentHint: "<description>",
   },
   {
     name: "copy",
@@ -818,7 +818,7 @@ export const TERMINAL_COMMANDS: CommandEntry[] = [
     name: "login",
     description: "Configure provider authentication",
     source: "terminal",
-    argumentHint: null,
+    argumentHint: "<provider>",
   },
   {
     name: "logout",
@@ -858,7 +858,7 @@ export function mergeCommands(client: CommandEntry[], remote: SlashCommand[]): C
       name: c.name,
       description: c.description,
       source: c.source,
-      argumentHint: null,
+      argumentHint: c.argumentHint ?? null,
     }))
     .sort(
       (a, b) =>
@@ -866,6 +866,18 @@ export function mergeCommands(client: CommandEntry[], remote: SlashCommand[]): C
         a.name.localeCompare(b.name),
     );
   return [...client, ...rest, ...terminal];
+}
+
+/** The hint of the command being typed (`/name ` followed by arguments), if it has one. */
+export function activeArgumentHint(
+  draft: string,
+  entries: CommandEntry[],
+): { name: string; hint: string } | null {
+  if (draft.includes("\n")) return null;
+  const m = /^\/(\S+)[ \t]/.exec(draft);
+  if (!m) return null;
+  const entry = entries.find((e) => e.name === m[1]);
+  return entry?.argumentHint ? { name: entry.name, hint: entry.argumentHint } : null;
 }
 
 export function filterCommands(entries: CommandEntry[], query: string, limit = 50): CommandEntry[] {

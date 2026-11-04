@@ -2,6 +2,7 @@ import type { Host, Project, Session, Workspace } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import { normalizeEntries, normalizeFile } from "../src/features/code/api";
 import {
+  activeArgumentHint,
   branchProblem,
   buildNavTree,
   buildTimeline,
@@ -473,13 +474,17 @@ describe("slash commands", () => {
       { name: "model", description: null, source: "extension" },
       { name: "zeta", description: "does mod things", source: "skill" },
       { name: "alpha", description: null, source: "extension" },
+      { name: "rev", description: null, source: "prompt", argumentHint: "<file>" },
     ]);
+    expect(merged.find((e) => e.name === "rev")?.argumentHint).toBe("<file>");
+    expect(merged.find((e) => e.name === "alpha")?.argumentHint).toBeNull();
     expect(merged.map((e) => e.name)).toEqual([
       "model",
       "thinking",
       "compact",
       "name",
       "alpha",
+      "rev",
       "zeta",
       ...TERMINAL_COMMANDS.map((c) => c.name).sort(),
     ]);
@@ -491,6 +496,22 @@ describe("slash commands", () => {
     ]);
     expect(filterCommands(merged, "", 2)).toHaveLength(2);
     expect(filterCommands(merged, "nothing")).toEqual([]);
+  });
+});
+
+describe("activeArgumentHint", () => {
+  const entries = mergeCommands(CLIENT_COMMANDS, [
+    { name: "plain", description: null, source: "extension" },
+  ]);
+  it("shows the hint once arguments start", () => {
+    expect(activeArgumentHint("/model ", entries)).toEqual({
+      name: "model",
+      hint: "<provider>/<model>",
+    });
+    expect(activeArgumentHint("/model", entries)).toBeNull();
+    expect(activeArgumentHint("/unknown x", entries)).toBeNull();
+    expect(activeArgumentHint("/model a\nb", entries)).toBeNull();
+    expect(activeArgumentHint("/plain x", entries)).toBeNull();
   });
 });
 

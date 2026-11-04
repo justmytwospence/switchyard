@@ -26,6 +26,7 @@ import { errorMessage } from "../../sync/api";
 import { codeApi, type PromptMode } from "./api";
 import type { SessionContext } from "./hooks";
 import {
+  activeArgumentHint,
   CLIENT_COMMANDS,
   type CommandEntry,
   clientCommandProblem,
@@ -119,6 +120,7 @@ export function Composer({
     refresh,
   } = useSessionCommands(session.id, controls);
   const entries = controls ? mergeCommands(CLIENT_COMMANDS, commands) : [];
+  const argHint = controls && !slashOpen ? activeArgumentHint(draft, entries) : null;
   const shown = slashOpen ? filterCommands(entries, draft.slice(1)) : [];
   const clientCmd = controls ? parseClientCommand(text) : null;
   const commandProblem = clientCmd ? clientCommandProblem(clientCmd, running) : null;
@@ -372,6 +374,14 @@ export function Composer({
                       : null
               }
             />
+          )}
+          {argHint && (
+            <p
+              data-testid="command-args-hint"
+              className="absolute bottom-full left-0 z-10 mb-1 rounded-md bg-surface px-2 py-0.5 font-mono text-xs text-muted"
+            >
+              /{argHint.name} {argHint.hint}
+            </p>
           )}
           {slashOpen && !controls && (
             <SlashHint
