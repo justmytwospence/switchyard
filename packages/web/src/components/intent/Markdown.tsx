@@ -17,7 +17,7 @@ const components: Components = {
   },
   table: ({ children }) => (
     <div className="max-w-full overflow-x-auto overscroll-x-contain">
-      <table className="border-collapse text-sm [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:bg-surface-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left">
+      <table className="w-max min-w-full border-collapse text-sm [&_td]:min-w-28 [&_td]:align-top [&_th]:min-w-28 [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:bg-surface-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left">
         {children}
       </table>
     </div>
