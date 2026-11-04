@@ -296,6 +296,12 @@ describe("switchyard terminal extension", () => {
     expect(await reply({ type: "get_session_stats", id: "5" })).toMatchObject({
       data: { tokens: { total: 15 }, cost: 0.75 },
     });
+    pi.commands = [
+      { name: "p", description: "d", source: "prompt", sourceInfo: { path: "/x/p.md" } },
+    ];
+    expect(await reply({ type: "get_commands", id: "6c" })).toMatchObject({
+      data: { commands: [{ name: "p", sourceInfo: { path: "/x/p.md" } }] },
+    });
     expect(await reply({ type: "get_state", id: "6" })).toMatchObject({
       data: { sessionId: "nat-1", sessionFile: "/tmp/nat-1.jsonl", isStreaming: true },
     });

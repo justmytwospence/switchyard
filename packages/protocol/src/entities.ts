@@ -167,6 +167,7 @@ export const SlashCommand = z.object({
   name: z.string().min(1),
   description: z.string().nullable(),
   source: z.enum(["extension", "prompt", "skill"]),
+  argumentHint: z.string().nullable().optional(),
 });
 export type SlashCommand = z.infer<typeof SlashCommand>;
 

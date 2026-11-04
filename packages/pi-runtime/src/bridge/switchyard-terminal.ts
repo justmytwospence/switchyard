@@ -486,6 +486,7 @@ export default function switchyardTerminal(pi: any): void {
               name: c.name,
               description: c.description ?? null,
               source: c.source,
+              sourceInfo: c.sourceInfo ?? null,
             })),
           });
           return;

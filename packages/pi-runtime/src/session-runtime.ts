@@ -16,6 +16,7 @@ import {
   type TranscriptItem,
 } from "@switchyard/protocol";
 import { modelInfo } from "./bridge/pi-model.js";
+import { readArgumentHint } from "./command-hints.js";
 import { readSessionNameSync } from "./importable.js";
 import { type PiExit, PiRpcError, PiRpcProcess } from "./rpc-process.js";
 import { PiTerminalProcess } from "./terminal-process.js";
@@ -511,15 +512,26 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       type: "get_commands",
     });
     const out: SlashCommand[] = [];
+    const hints: Promise<void>[] = [];
     for (const c of data?.commands ?? []) {
       if (typeof c?.name !== "string" || !c.name) continue;
       if (c.source !== "extension" && c.source !== "prompt" && c.source !== "skill") continue;
-      out.push({
+      const entry: SlashCommand = {
         name: c.name,
         description: typeof c.description === "string" ? c.description : null,
         source: c.source,
-      });
+        argumentHint: null,
+      };
+      if (c.source === "prompt" && typeof c.sourceInfo?.path === "string") {
+        hints.push(
+          readArgumentHint(c.sourceInfo.path).then((h) => {
+            entry.argumentHint = h;
+          }),
+        );
+      }
+      out.push(entry);
     }
+    await Promise.all(hints);
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }
 
