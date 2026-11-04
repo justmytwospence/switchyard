@@ -25,6 +25,7 @@ export {
   resolvePiPackageRoot,
 } from "./importable.js";
 export { JsonlReader, serializeJsonl, writeJsonl } from "./jsonl.js";
+export { branchSession, loadPiSessionManager, treeRows } from "./pi-session-manager.js";
 export {
   bridgeExtensionPath,
   type PiExit,
@@ -81,5 +82,6 @@ export {
   type PiUiRequest,
   type PiUiResponseBody,
   type PromptDisposition,
+  type PromptOutcome,
   type UiPromptKind,
 } from "./types.js";

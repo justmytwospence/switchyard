@@ -26,7 +26,7 @@ describe.skipIf(skipRealPi)("gate: prompt", () => {
     expect(native.sessionFile).toMatch(/\.jsonl$/);
 
     const settled = waitFor(s, "settled");
-    const disposition = await s.prompt("hello there");
+    const { disposition } = await s.prompt("hello there");
     expect(disposition).toBe("started");
     const info = await settled;
     expect(info).toEqual({ aborted: false, lastAssistantText: "Hello from mock" });
@@ -82,7 +82,7 @@ describe.skipIf(skipRealPi)("gate: prompt", () => {
       code: "invalid_request",
       message: "Session is running: choose Steer or Queue follow-up",
     });
-    const queued = await s.prompt("after this", [], "followUp");
+    const { disposition: queued } = await s.prompt("after this", [], "followUp");
     expect(queued).toBe("queued");
     await waitFor(s, "settled", undefined, 20000);
     expect(rec.of("queue").some((q) => q.followUp.includes("after this"))).toBe(true);

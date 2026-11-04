@@ -8,6 +8,7 @@ import {
   Passkey,
   Priority,
   ProjectScan,
+  Session,
   SessionModel,
   SlashCommand,
   TaskPolicy,
@@ -17,7 +18,7 @@ import {
   Trigger,
   WorktreeDir,
 } from "./entities.js";
-import { InteractionResponseSchema } from "./ui.js";
+import { InteractionResponseSchema, UINodeSchema } from "./ui.js";
 
 /** REST request bodies. Responses return entities from `entities.ts` unless noted. */
 
@@ -163,6 +164,43 @@ export const SessionCompleteResult = z.object({
   prefix: z.string(),
 });
 export type SessionCompleteResult = z.infer<typeof SessionCompleteResult>;
+export const TreeRow = z.object({
+  entryId: z.string(),
+  parentId: z.string().nullable(),
+  depth: z.number().int(),
+  role: z.enum(["user", "assistant"]),
+  text: z.string(),
+  activeBranch: z.boolean(),
+  leaf: z.boolean(),
+  label: z.string().nullable(),
+  at: z.string().nullable(),
+});
+export type TreeRow = z.infer<typeof TreeRow>;
+export const SessionTreeResult = z.object({ rows: z.array(TreeRow) });
+export const BranchRequest = z.object({
+  entryId: z.string().nullable(),
+  fork: z.boolean().default(false),
+});
+export const HostBranchResult = z.object({
+  sessionFile: z.string().nullable(),
+  prefill: z.string().nullable(),
+});
+export const BranchResult = z.object({
+  session: Session.nullable(),
+  prefill: z.string().nullable(),
+});
+export const SessionExportResult = z.object({ fileName: z.string(), content: z.string() });
+export const CommandViewAction = z.object({
+  label: z.string().min(1).max(80),
+  command: z.string().startsWith("/").max(500),
+  tone: z.enum(["default", "primary", "danger"]).optional(),
+});
+export const CommandView = z.object({
+  title: z.string().min(1).max(200),
+  body: UINodeSchema,
+  actions: z.array(CommandViewAction).max(30).default([]),
+});
+export type CommandView = z.infer<typeof CommandView>;
 export const ModelStateResult = z.object({
   model: SessionModel.nullable(),
   thinking: ThinkingLevel.nullable(),

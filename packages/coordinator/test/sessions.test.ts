@@ -378,6 +378,30 @@ describe("session controls", () => {
               },
             ],
           };
+        case "session.tree":
+          return {
+            rows: [
+              {
+                entryId: "e1",
+                parentId: null,
+                depth: 0,
+                role: "user",
+                text: "hi",
+                activeBranch: true,
+                leaf: true,
+                label: null,
+                at: null,
+              },
+            ],
+          };
+        case "session.branch":
+          return { sessionFile: "/tmp/b.jsonl", prefill: "hi" };
+        case "session.readNative":
+          return { sessionId: "n2", cwd: "/repo", name: null, items: [] };
+        case "session.reload":
+          return { ok: true };
+        case "session.export":
+          return { fileName: "s.jsonl", content: "{}" };
         case "session.complete":
           return { items: [{ value: "x", label: "x", description: null }], prefix: "" };
         case "session.setModel":
@@ -425,6 +449,18 @@ describe("session controls", () => {
     expect(r.status).toBe(200);
     expect(r.body.items[0].value).toBe("x");
     expect((await t!.admin("POST", "/api/sessions/ses_c/complete", {})).status).toBe(400);
+  });
+
+  it("forwards tree, branch, reload and export", async () => {
+    await controlSetup();
+    expect((await t!.admin("GET", "/api/sessions/ses_c/tree")).body.rows[0].entryId).toBe("e1");
+    const b = await t!.admin("POST", "/api/sessions/ses_c/branch", { entryId: "e1", fork: true });
+    expect(b.status).toBe(201);
+    expect(b.body.prefill).toBe("hi");
+    expect(b.body.session.provenance).toBe("imported");
+    expect(b.body.session.nativeHandle.sessionFile).toBe("/tmp/b.jsonl");
+    expect((await t!.admin("POST", "/api/sessions/ses_c/reload", {})).status).toBe(200);
+    expect((await t!.admin("GET", "/api/sessions/ses_c/export")).body.fileName).toBe("s.jsonl");
   });
 
   it("refuses hosts without the capability", async () => {

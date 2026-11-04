@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import {
+  CommandView,
   type ContextUsage,
   type NativeHandle,
   newId,
@@ -42,6 +43,7 @@ import {
   type PiUiRequest,
   type PiUiResponseBody,
   type PromptDisposition,
+  type PromptOutcome,
 } from "./types.js";
 
 export type PromptMode = "prompt" | "steer" | "followUp";
@@ -434,12 +436,12 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     text: string,
     images: { mimeType: string; data: string }[] = [],
     mode: PromptMode = "prompt",
-  ): Promise<PromptDisposition> {
+  ): Promise<PromptOutcome> {
     const proc = this.requireAlive();
     const piImages = images.map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType }));
     const body: Record<string, unknown> = { message: text };
     if (piImages.length > 0) body.images = piImages;
-    let data: { disposition?: PromptDisposition } | undefined;
+    let data: { disposition?: PromptDisposition; view?: unknown } | undefined;
     if (mode === "prompt") {
       // Extension commands (`/name`) run immediately even during a run.
       if (this.busy && !text.startsWith("/")) {
@@ -456,7 +458,23 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     } else {
       data = await this.call(proc, { type: "follow_up", ...body });
     }
-    return data?.disposition ?? "started";
+    if (data?.disposition === "view") {
+      const view = CommandView.safeParse(data.view);
+      if (!view.success) {
+        throw new SwitchyardError("invalid_request", "The command returned an invalid view");
+      }
+      return { disposition: "view", view: view.data };
+    }
+    return { disposition: data?.disposition ?? "started", view: null };
+  }
+
+  /** Reload Pi's extensions, skills, prompts and context files (terminal sessions only). */
+  async reload(): Promise<void> {
+    const proc = this.requireAlive();
+    if (!(proc instanceof PiTerminalProcess)) {
+      throw new SwitchyardError("invalid_request", "Reload needs a terminal session");
+    }
+    await this.call(proc, { type: "reload" }, 10000);
   }
 
   /** Abort the current run; with `clearQueue`, first clear and return queued messages. */

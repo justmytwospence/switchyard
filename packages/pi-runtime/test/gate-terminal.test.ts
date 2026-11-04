@@ -102,7 +102,7 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("gate: terminal transport",
     const toolStarted = waitFor(s, "pi_event", (e: any) => e.type === "tool_execution_start");
     await s.prompt("run something slow");
     await toolStarted;
-    expect(await s.prompt("also this", [], "steer")).toBe("queued");
+    expect((await s.prompt("also this", [], "steer")).disposition).toBe("queued");
     expect((rec.of("queue") as any[]).some((q) => q.steering.includes("also this"))).toBe(true);
     settled = waitFor(s, "settled");
     await s.abort();

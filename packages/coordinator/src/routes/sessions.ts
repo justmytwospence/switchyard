@@ -1,8 +1,11 @@
 import {
   AdapterActionRequest,
+  BranchRequest,
+  CommandView,
   CompactRequest,
   CompleteRequest,
   CreateSessionRequest,
+  HostBranchResult,
   ImportableSession,
   ImportSessionRequest,
   ModelStateResult,
@@ -12,7 +15,9 @@ import {
   type Session,
   SessionCommandsResult,
   SessionCompleteResult,
+  SessionExportResult,
   SessionModelsResult,
+  SessionTreeResult,
   SetModelRequest,
   SetThinkingRequest,
   SwitchyardError,
@@ -97,6 +102,66 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     );
   });
 
+  /** Store a native Pi session file as a stopped, imported Switchyard session. */
+  function importNative(
+    native: {
+      sessionId: string;
+      sessionFile: string;
+      cwd: string;
+      name: string | null;
+      mtime: string;
+    },
+    hostId: string,
+    projectIdIn: string | null,
+    items: Record<string, unknown>[],
+  ): Session {
+    const ws = ctx.store.workspaceByPath(hostId, native.cwd);
+    const projectId = projectIdIn ?? ws?.projectId ?? null;
+    if (projectId) ctx.store.projects.require(projectId);
+    const project = projectId ? ctx.store.projects.get(projectId) : null;
+    const host = ctx.store.hosts.require(hostId);
+    const now = ctx.store.nowIso();
+    const id = newId("ses");
+    const session: Session = {
+      id,
+      title: native.name ?? native.cwd.split("/").pop() ?? "Imported session",
+      subtitle: null,
+      hostId,
+      workspaceId: ws && ws.projectId === projectId ? ws.id : null,
+      projectId,
+      cwd: native.cwd,
+      nativeHandle: { sessionId: native.sessionId, sessionFile: native.sessionFile },
+      profileSnapshot: resolveProfile(ctx, null, project),
+      runtime: "stopped",
+      runtimeDetail: null,
+      connectivity: host.connectivity,
+      runId: null,
+      taskId: null,
+      provenance: "imported",
+      readOnly: false,
+      lastActivityAt: native.mtime,
+      archivedAt: null,
+      queue: { steering: [], followUp: [] },
+      stats: null,
+      lastAssistantText: null,
+      createdAt: now,
+    };
+    ctx.store.tx(() => {
+      ctx.store.putSession(session);
+      items.forEach((raw, i) => {
+        const item = TranscriptItem.safeParse({
+          ...raw,
+          id: raw.id ?? newId("itm"),
+          order: typeof raw.order === "number" ? raw.order : i,
+          at: raw.at ?? native.mtime,
+          sessionId: id,
+        });
+        if (item.success) ctx.store.upsertItem(item.data);
+      });
+    });
+    return session;
+  }
+
   /** Inactive native Pi sessions on a host, marked when already imported. */
   app.get("/api/sessions/importable", async (req) => {
     const q = parse(ImportableQuery, req.query, "query");
@@ -135,53 +200,10 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
       type: "session.readNative",
       sessionFile: body.sessionFile,
     });
-    const ws = ctx.store.workspaceByPath(body.hostId, native.cwd);
-    const projectId = body.projectId ?? ws?.projectId ?? null;
-    if (projectId) ctx.store.projects.require(projectId);
-    const project = projectId ? ctx.store.projects.get(projectId) : null;
-    const host = ctx.store.hosts.require(body.hostId);
-    const now = ctx.store.nowIso();
-    const id = newId("ses");
     const items = (
       Array.isArray(rawItems) ? rawItems : ((rawItems as { items?: unknown })?.items ?? [])
     ) as Record<string, unknown>[];
-    const session: Session = {
-      id,
-      title: native.name ?? native.cwd.split("/").pop() ?? "Imported session",
-      subtitle: null,
-      hostId: body.hostId,
-      workspaceId: ws && ws.projectId === projectId ? ws.id : null,
-      projectId,
-      cwd: native.cwd,
-      nativeHandle: { sessionId: native.sessionId, sessionFile: native.sessionFile },
-      profileSnapshot: resolveProfile(ctx, null, project),
-      runtime: "stopped",
-      runtimeDetail: null,
-      connectivity: host.connectivity,
-      runId: null,
-      taskId: null,
-      provenance: "imported",
-      readOnly: false,
-      lastActivityAt: native.mtime,
-      archivedAt: null,
-      queue: { steering: [], followUp: [] },
-      stats: null,
-      lastAssistantText: null,
-      createdAt: now,
-    };
-    ctx.store.tx(() => {
-      ctx.store.putSession(session);
-      items.forEach((raw, i) => {
-        const item = TranscriptItem.safeParse({
-          ...raw,
-          id: raw.id ?? newId("itm"),
-          order: typeof raw.order === "number" ? raw.order : i,
-          at: raw.at ?? native.mtime,
-          sessionId: id,
-        });
-        if (item.success) ctx.store.upsertItem(item.data);
-      });
-    });
+    const session = importNative(native, body.hostId, body.projectId ?? null, items);
     return reply.code(201).send(session);
   });
 
@@ -222,6 +244,8 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
       origin: "human",
       controlRevision: run?.controlRevision ?? 1,
     });
+    const view = (result as { view?: unknown } | null)?.view;
+    if (view) CommandView.parse(view);
     return {
       ok: true,
       clientMessageId: body.clientMessageId ?? null,
@@ -256,6 +280,63 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
         sessionId: s.id,
         text: body.text,
       }),
+    );
+  });
+
+  app.get("/api/sessions/:id/tree", async (req) => {
+    const s = get(idOf(req));
+    requireSessionControls(ctx, s);
+    return SessionTreeResult.parse(
+      await ctx.hostHub.request(s.hostId, { type: "session.tree", sessionId: s.id }),
+    );
+  });
+
+  app.post("/api/sessions/:id/branch", async (req, reply) => {
+    const s = get(idOf(req));
+    const body = parse(BranchRequest, req.body);
+    requireSessionControls(ctx, s);
+    const r = HostBranchResult.parse(
+      await ctx.hostHub.request(s.hostId, {
+        type: "session.branch",
+        sessionId: s.id,
+        entryId: body.entryId,
+        fork: body.fork,
+      }),
+    );
+    if (!r.sessionFile) return { session: null, prefill: r.prefill };
+    const native = await ctx.hostHub.request<{
+      sessionId: string;
+      cwd: string;
+      name: string | null;
+      items: Record<string, unknown>[];
+    }>(s.hostId, { type: "session.readNative", sessionFile: r.sessionFile });
+    const session = importNative(
+      {
+        sessionId: native.sessionId,
+        sessionFile: r.sessionFile,
+        cwd: native.cwd,
+        name: `${native.name ?? s.title} (branch)`,
+        mtime: ctx.store.nowIso(),
+      },
+      s.hostId,
+      s.projectId,
+      native.items ?? [],
+    );
+    return reply.code(201).send({ session, prefill: r.prefill });
+  });
+
+  app.post("/api/sessions/:id/reload", async (req) => {
+    const s = get(idOf(req));
+    requireSessionControls(ctx, s);
+    await ctx.hostHub.request(s.hostId, { type: "session.reload", sessionId: s.id });
+    return { ok: true };
+  });
+
+  app.get("/api/sessions/:id/export", async (req) => {
+    const s = get(idOf(req));
+    requireSessionControls(ctx, s);
+    return SessionExportResult.parse(
+      await ctx.hostHub.request(s.hostId, { type: "session.export", sessionId: s.id }),
     );
   });
 

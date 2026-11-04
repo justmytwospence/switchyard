@@ -85,6 +85,26 @@ export default function switchyardTerminal(pi: any): void {
 
   let ctx: any = null;
   let completer: any = null;
+  // Work that needs a command context (reload, plugin web views) runs inside a hidden command.
+  const internal = new Map<string, (c: any) => Promise<void> | void>();
+  const runInternal = (fn: (c: any) => Promise<void> | void): void => {
+    const token = randomUUID();
+    internal.set(token, fn);
+    pi.sendUserMessage(`/switchyard-internal ${token}`);
+  };
+  try {
+    pi.registerCommand?.("switchyard-internal", {
+      description: "Used by Switchyard's web app",
+      handler: async (args: string, c: any) => {
+        const key = String(args ?? "").trim();
+        const run = internal.get(key);
+        internal.delete(key);
+        await run?.(c);
+      },
+    });
+  } catch {
+    // an older Pi: no web views or reload
+  }
   let remoteDialogs = false;
   let entryCount = 0;
   const pending = new Map<string, Pending>();
@@ -414,6 +434,30 @@ export default function switchyardTerminal(pi: any): void {
             const name = message.slice(1).split(/\s/)[0];
             const known = (pi.getCommands?.() ?? []).find((c: any) => c.name === name);
             if (known?.source === "extension") {
+              const args = message.slice(1 + name.length).trim();
+              const probe: any = { version: 1, name, args, probe: true };
+              try {
+                pi.events?.emit?.("switchyard.web-command.v1", probe);
+              } catch {
+                // no web view
+              }
+              if (probe.accept === true) {
+                runInternal(async (c) => {
+                  const req: any = { version: 1, name, args, probe: false, ctx: c };
+                  try {
+                    pi.events.emit("switchyard.web-command.v1", req);
+                    const view = await Promise.race([
+                      Promise.resolve(req.view),
+                      new Promise((_, rej) => setTimeout(() => rej(new Error("timed out")), 15000)),
+                    ]);
+                    if (!view) throw new Error(`/${name} returned no view`);
+                    respond(id, type, { disposition: "view", view });
+                  } catch (e: any) {
+                    respond(id, type, undefined, `/${name} failed: ${e?.message ?? e}`);
+                  }
+                });
+                return;
+              }
               pi.sendUserMessage(message, { expandPromptTemplates: true });
               respond(id, type, { disposition: "handled" });
               return;
@@ -483,12 +527,14 @@ export default function switchyardTerminal(pi: any): void {
           return;
         case "get_commands":
           respond(id, type, {
-            commands: (pi.getCommands?.() ?? []).map((c: any) => ({
-              name: c.name,
-              description: c.description ?? null,
-              source: c.source,
-              sourceInfo: c.sourceInfo ?? null,
-            })),
+            commands: (pi.getCommands?.() ?? [])
+              .filter((c: any) => c.name !== "switchyard-internal")
+              .map((c: any) => ({
+                name: c.name,
+                description: c.description ?? null,
+                source: c.source,
+                sourceInfo: c.sourceInfo ?? null,
+              })),
           });
           return;
         case "set_model": {
@@ -542,6 +588,14 @@ export default function switchyardTerminal(pi: any): void {
               // ignore
             }
           });
+          return;
+        case "reload":
+          if (!ctx) {
+            respond(id, type, undefined, "Session is not ready");
+            return;
+          }
+          respond(id, type);
+          runInternal((c) => c.reload());
           return;
         case "complete": {
           const text = String(cmd.text ?? "");

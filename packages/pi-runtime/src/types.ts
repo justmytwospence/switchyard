@@ -1,3 +1,5 @@
+import type { CommandView } from "@switchyard/protocol";
+
 /**
  * Wire shapes of Pi's RPC mode (Pi 1.4.x), from docs/rpc*.md, docs/json.md and rpc-types.d.ts.
  * Only the fields Switchyard reads are typed; everything else stays available on the raw records.
@@ -131,4 +133,9 @@ export interface PiSessionStats {
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
 }
 
-export type PromptDisposition = "started" | "queued" | "handled";
+export type PromptDisposition = "started" | "queued" | "handled" | "view";
+
+export interface PromptOutcome {
+  disposition: PromptDisposition;
+  view: CommandView | null;
+}

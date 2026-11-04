@@ -56,7 +56,7 @@ describe.skipIf(skipRealPi)("gate: session controls", () => {
           expect.objectContaining({ name: "fixture-hello", source: "extension" }),
         ]),
       );
-      expect(await s.prompt("/fixture-hello world")).toBe("handled");
+      expect((await s.prompt("/fixture-hello world")).disposition).toBe("handled");
       const seen = () =>
         (rec.of("ui_request") as any[]).some(
           (r) => r.method === "notify" && r.message === "fixture hello world",

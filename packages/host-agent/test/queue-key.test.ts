@@ -32,6 +32,12 @@ describe("queueKey", () => {
     expect(queueKey({ type: "session.complete", sessionId: "ses_1", text: "/m " })).toBe(
       "control:ses_1",
     );
+    for (const type of ["session.tree", "session.export", "session.reload"] as const) {
+      expect(queueKey({ type, sessionId: "ses_1" })).toBe("control:ses_1");
+    }
+    expect(
+      queueKey({ type: "session.branch", sessionId: "ses_1", entryId: null, fork: false }),
+    ).toBe("session:ses_1");
     expect(
       queueKey({ type: "session.setModel", sessionId: "ses_1", provider: "a", modelId: "b" }),
     ).toBe("session:ses_1");

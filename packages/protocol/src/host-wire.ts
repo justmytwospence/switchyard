@@ -76,6 +76,15 @@ export const HostCommand = z.discriminatedUnion("type", [
     sessionId: z.string(),
     text: z.string().max(500),
   }),
+  z.object({ type: z.literal("session.tree"), sessionId: z.string() }),
+  z.object({
+    type: z.literal("session.branch"),
+    sessionId: z.string(),
+    entryId: z.string().nullable(),
+    fork: z.boolean(),
+  }),
+  z.object({ type: z.literal("session.reload"), sessionId: z.string() }),
+  z.object({ type: z.literal("session.export"), sessionId: z.string() }),
   z.object({
     type: z.literal("session.setModel"),
     sessionId: z.string(),

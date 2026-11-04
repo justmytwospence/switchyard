@@ -73,6 +73,10 @@ function fakePi() {
     setSessionName: vi.fn(),
     getSessionName: () => "named",
     commands: [] as any[],
+    registered: new Map<string, any>(),
+    registerCommand(name: string, def: any) {
+      this.registered.set(name, def);
+    },
     getCommands() {
       return this.commands;
     },
@@ -192,6 +196,50 @@ describe("switchyard terminal extension", () => {
       data: { items: [{ value: "on", label: "on", description: null }], prefix: "o" },
     });
     expect((await reply({ type: "complete", id: "c2", text: "/status" })).data.items).toEqual([]);
+  });
+
+  it("runs web views and reload through the hidden command", async () => {
+    const { ui } = fakeUi();
+    const { pi } = await load(ui);
+    pi.commands = [
+      { name: "tasks", source: "extension" },
+      { name: "plain", source: "extension" },
+      { name: "switchyard-internal", source: "extension" },
+    ];
+    const reply = async (cmd: object & { id: string }) => {
+      holder.send(cmd);
+      await until(() => holder.lines.some((l) => l.type === "response" && l.id === cmd.id));
+      return holder.lines.find((l) => l.type === "response" && l.id === cmd.id);
+    };
+    expect(
+      (await reply({ type: "get_commands", id: "g1" })).data.commands.map((c: any) => c.name),
+    ).toEqual(["tasks", "plain"]);
+    const view = { title: "T", body: { t: "text", text: "x" } };
+    pi.events.on("switchyard.web-command.v1", (req: any) => {
+      if (req.name !== "tasks") return;
+      if (req.probe) req.accept = true;
+      else req.view = Promise.resolve(view);
+    });
+    holder.send({ type: "prompt", id: "p1", message: "/tasks" });
+    await until(() => pi.sendUserMessage.mock.calls.length === 1);
+    const text = pi.sendUserMessage.mock.calls[0]![0] as string;
+    expect(text).toMatch(/^\/switchyard-internal /);
+    await pi.registered.get("switchyard-internal").handler(text.split(" ")[1], {});
+    await until(() => holder.lines.some((l) => l.type === "response" && l.id === "p1"));
+    expect(holder.lines.find((l) => l.id === "p1").data).toEqual({ disposition: "view", view });
+
+    pi.sendUserMessage.mockClear();
+    holder.send({ type: "prompt", id: "p2", message: "/plain x" });
+    await until(() => holder.lines.some((l) => l.id === "p2"));
+    expect(pi.sendUserMessage).toHaveBeenCalledWith("/plain x", { expandPromptTemplates: true });
+    expect(holder.lines.find((l) => l.id === "p2").data.disposition).toBe("handled");
+
+    pi.sendUserMessage.mockClear();
+    const reload = vi.fn();
+    expect((await reply({ type: "reload", id: "r1" })).success).toBe(true);
+    const t2 = pi.sendUserMessage.mock.calls[0]![0] as string;
+    await pi.registered.get("switchyard-internal").handler(t2.split(" ")[1], { reload });
+    expect(reload).toHaveBeenCalled();
   });
 
   it("answers empty completions without an autocomplete API", async () => {

@@ -1,5 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { join, sep } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { basename, dirname, join, sep } from "node:path";
 import {
   type AdapterEffect,
   type AdapterRegistry,
@@ -13,13 +14,16 @@ import {
 } from "@switchyard/adapter-sdk";
 import {
   type BridgeEvent,
+  branchSession,
   listImportable,
+  loadPiSessionManager,
   ManagedSession,
   type PiDialogRequest,
   type PiEvent,
   type PiUiRequest,
   readNativeTranscript,
   type SettledInfo,
+  treeRows,
   type UiResolved,
 } from "@switchyard/pi-runtime";
 import {
@@ -699,8 +703,8 @@ export class SessionSupervisor {
     mode: "prompt" | "steer" | "followUp",
   ) {
     const ms = this.requireLive(sessionId);
-    const disposition = await ms.prompt(text, images, mode);
-    return { disposition };
+    const { disposition, view } = await ms.prompt(text, images, mode);
+    return { disposition, view };
   }
 
   async abort(sessionId: string, clearQueue: boolean) {
@@ -743,6 +747,48 @@ export class SessionSupervisor {
 
   async complete(sessionId: string, text: string) {
     return this.requireLive(sessionId).complete(text);
+  }
+
+  async reload(sessionId: string) {
+    await this.requireLive(sessionId).reload();
+    return { ok: true };
+  }
+
+  private piFile(sessionId: string): string {
+    const file = this.requireRecord(sessionId).nativeHandle?.sessionFile;
+    if (!file) throw new SwitchyardError("invalid_request", "This session has no Pi session file");
+    return file;
+  }
+
+  async tree(sessionId: string) {
+    const file = this.piFile(sessionId);
+    const SM = await loadPiSessionManager(this.opts.piBin);
+    if (!SM) {
+      throw new SwitchyardError(
+        "invalid_request",
+        "Pi's SessionManager could not be loaded on this host",
+      );
+    }
+    return { rows: treeRows(SM.open(file, dirname(file))) };
+  }
+
+  async branch(sessionId: string, entryId: string | null, fork: boolean) {
+    return branchSession(this.piFile(sessionId), entryId, fork, this.opts.piBin);
+  }
+
+  async exportSession(sessionId: string) {
+    const file = this.piFile(sessionId);
+    const info = await stat(file).catch(() => null);
+    if (!info) {
+      throw new SwitchyardError("native_session_missing", `Native session file not found: ${file}`);
+    }
+    if (info.size > 50 * 1024 * 1024) {
+      throw new SwitchyardError(
+        "invalid_request",
+        "Session file is too large to export (over 50 MB)",
+      );
+    }
+    return { fileName: basename(file), content: await readFile(file, "utf8") };
   }
 
   async setModel(sessionId: string, provider: string, modelId: string) {
