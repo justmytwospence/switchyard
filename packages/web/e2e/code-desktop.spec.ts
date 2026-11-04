@@ -224,10 +224,12 @@ test.describe("desktop coding view", () => {
     await expect(list.getByRole("option", { name: /fixture-hello/ })).toBeVisible();
     await page.keyboard.press("Tab");
     await expect(box).toHaveValue("/fixture-hello ");
+    await box.fill("/sett");
+    const settings = list.getByRole("option", { name: /^\/settings/ });
+    await expect(settings).toBeVisible();
+    await expect(settings).toContainText("Terminal only");
     await box.fill("/tr");
-    const tree = list.getByRole("option", { name: /^\/tree/ });
-    await expect(tree).toBeVisible();
-    await expect(tree).toContainText("Terminal only");
+    await expect(list.getByRole("option", { name: /^\/tree/ })).toContainText("Switchyard");
     await box.fill("");
     await expect(composer.getByRole("button", { name: /^Context/ })).toBeVisible();
   });
