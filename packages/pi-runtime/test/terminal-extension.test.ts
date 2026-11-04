@@ -175,6 +175,33 @@ describe("switchyard terminal extension", () => {
     expect(holder.lines.some((l) => l.type === "extension_ui_closed")).toBe(false);
   });
 
+  it("answers argument completions from Pi's autocomplete provider", async () => {
+    const { ui } = fakeUi();
+    const provider = {
+      getSuggestions: vi.fn(async () => ({ items: [{ value: "on", label: "on" }], prefix: "o" })),
+    };
+    ui.addAutocompleteProvider = vi.fn((f: (c: unknown) => unknown) => f(provider));
+    await load(ui);
+    const reply = async (cmd: object & { id: string }) => {
+      holder.send(cmd);
+      await until(() => holder.lines.some((l) => l.type === "response" && l.id === cmd.id));
+      return holder.lines.find((l) => l.type === "response" && l.id === cmd.id);
+    };
+    expect(await reply({ type: "complete", id: "c1", text: "/status o" })).toMatchObject({
+      success: true,
+      data: { items: [{ value: "on", label: "on", description: null }], prefix: "o" },
+    });
+    expect((await reply({ type: "complete", id: "c2", text: "/status" })).data.items).toEqual([]);
+  });
+
+  it("answers empty completions without an autocomplete API", async () => {
+    const { ui } = fakeUi();
+    await load(ui);
+    holder.send({ type: "complete", id: "c3", text: "/status o" });
+    await until(() => holder.lines.some((l) => l.type === "response" && l.id === "c3"));
+    expect(holder.lines.find((l) => l.id === "c3").data.items).toEqual([]);
+  });
+
   it("offers web-only dialogs over pi.events", async () => {
     const { ui, calls } = fakeUi();
     const { pi } = await load(ui);

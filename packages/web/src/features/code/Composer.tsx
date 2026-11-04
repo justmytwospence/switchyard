@@ -27,6 +27,7 @@ import { codeApi, type PromptMode } from "./api";
 import type { SessionContext } from "./hooks";
 import {
   activeArgumentHint,
+  applyCompletion,
   CLIENT_COMMANDS,
   type CommandEntry,
   clientCommandProblem,
@@ -43,7 +44,8 @@ import {
   sendModes,
 } from "./model";
 import { ContextMeter, EffortControl, ModelControl } from "./PiControls";
-import { SlashPicker } from "./SlashPicker";
+import { SlashCompletions, SlashPicker } from "./SlashPicker";
+import { useArgumentCompletions } from "./useArgumentCompletions";
 import { useSessionCommands } from "./useSessionCommands";
 
 export interface ComposerProps {
@@ -120,7 +122,14 @@ export function Composer({
     refresh,
   } = useSessionCommands(session.id, controls);
   const entries = controls ? mergeCommands(CLIENT_COMMANDS, commands) : [];
-  const argHint = controls && !slashOpen ? activeArgumentHint(draft, entries) : null;
+  const [argsDismissed, setArgsDismissed] = useState(false);
+  const completions = useArgumentCompletions(session.id, draft, controls && focused && !slashOpen);
+  const completing = completions.items.length > 0 && !argsDismissed;
+  const argHint = controls && !slashOpen && !completing ? activeArgumentHint(draft, entries) : null;
+  const applyItem = (v: string) => {
+    setDraft(applyCompletion(draft, completions.prefix, v));
+    textRef.current?.focus();
+  };
   const shown = slashOpen ? filterCommands(entries, draft.slice(1)) : [];
   const clientCmd = controls ? parseClientCommand(text) : null;
   const commandProblem = clientCmd ? clientCommandProblem(clientCmd, running) : null;
@@ -130,7 +139,10 @@ export function Composer({
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight as the draft changes
-  useEffect(() => setActive(0), [draft]);
+  useEffect(() => {
+    setActive(0);
+    setArgsDismissed(false);
+  }, [draft]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: refresh when the picker opens
   useEffect(() => {
     if (slashOpen || commandSheet) refresh();
@@ -356,6 +368,16 @@ export function Composer({
         )}
 
         <div className="relative min-w-0">
+          {completing && (
+            <SlashCompletions
+              className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-1 shadow-pop"
+              id={`${hintId}-args`}
+              items={completions.items}
+              active={Math.min(active, completions.items.length - 1)}
+              onPick={applyItem}
+              onHover={setActive}
+            />
+          )}
           {slashOpen && controls && (
             <SlashPicker
               className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-1 shadow-pop"
@@ -432,6 +454,27 @@ export function Composer({
             }}
             enterKeyHint={mobile ? "enter" : "send"}
             onKeyDown={(e) => {
+              if (completing) {
+                const n = completions.items.length;
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActive((a) => (e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n));
+                  return;
+                }
+                if (
+                  e.key === "Tab" ||
+                  (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing)
+                ) {
+                  e.preventDefault();
+                  applyItem(completions.items[Math.min(active, n - 1)]!.value);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setArgsDismissed(true);
+                  return;
+                }
+              }
               if (slashOpen && controls && shown.length > 0) {
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                   e.preventDefault();

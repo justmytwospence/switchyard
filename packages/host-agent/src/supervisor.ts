@@ -741,6 +741,10 @@ export class SessionSupervisor {
     return { commands: await this.requireLive(sessionId).commands() };
   }
 
+  async complete(sessionId: string, text: string) {
+    return this.requireLive(sessionId).complete(text);
+  }
+
   async setModel(sessionId: string, provider: string, modelId: string) {
     return this.requireLive(sessionId).setModel(provider, modelId);
   }

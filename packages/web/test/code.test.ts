@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import { normalizeEntries, normalizeFile } from "../src/features/code/api";
 import {
   activeArgumentHint,
+  applyCompletion,
   branchProblem,
   buildNavTree,
   buildTimeline,
   CLIENT_COMMANDS,
   clientCommandProblem,
+  completionEligible,
   composerBlockReason,
   contextMeter,
   countAfter,
@@ -496,6 +498,19 @@ describe("slash commands", () => {
     ]);
     expect(filterCommands(merged, "", 2)).toHaveLength(2);
     expect(filterCommands(merged, "nothing")).toEqual([]);
+  });
+});
+
+describe("argument completions", () => {
+  it("is eligible only for a single-line command with a space", () => {
+    expect(completionEligible("/model ")).toBe(true);
+    expect(completionEligible("/model")).toBe(false);
+    expect(completionEligible("hi there")).toBe(false);
+    expect(completionEligible("/m a\nb")).toBe(false);
+  });
+  it("applies a completion over the prefix", () => {
+    expect(applyCompletion("/model cl", "cl", "anthropic/claude")).toBe("/model anthropic/claude ");
+    expect(applyCompletion("/x ab", "zz", "v")).toBe("/x ab");
   });
 });
 

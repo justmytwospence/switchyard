@@ -156,6 +156,7 @@ describe("session controls", () => {
     for (const c of [
       { type: "session.models", sessionId: "s" },
       { type: "session.commands", sessionId: "s" },
+      { type: "session.complete", sessionId: "s", text: "/model " },
       { type: "session.setModel", sessionId: "s", provider: "a", modelId: "b" },
       { type: "session.setThinking", sessionId: "s", level: "high" },
       { type: "session.compact", sessionId: "s", instructions: null },

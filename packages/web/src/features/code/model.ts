@@ -868,6 +868,15 @@ export function mergeCommands(client: CommandEntry[], remote: SlashCommand[]): C
   return [...client, ...rest, ...terminal];
 }
 
+export function completionEligible(draft: string): boolean {
+  return !draft.includes("\n") && draft.length <= 500 && /^\/\S+ /.test(draft);
+}
+
+export function applyCompletion(draft: string, prefix: string, value: string): string {
+  if (!draft.endsWith(prefix)) return draft;
+  return draft.slice(0, draft.length - prefix.length) + value + (value.endsWith(" ") ? "" : " ");
+}
+
 /** The hint of the command being typed (`/name ` followed by arguments), if it has one. */
 export function activeArgumentHint(
   draft: string,

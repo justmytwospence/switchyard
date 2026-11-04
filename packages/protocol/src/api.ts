@@ -151,6 +151,18 @@ export const SetThinkingRequest = z.object({ level: ThinkingLevel });
 export const CompactRequest = z.object({ instructions: z.string().max(4000).optional() });
 export const SessionModelsResult = z.object({ models: z.array(SessionModel) });
 export const SessionCommandsResult = z.object({ commands: z.array(SlashCommand) });
+export const CompleteRequest = z.object({ text: z.string().min(1).max(500) });
+export const CompletionItem = z.object({
+  value: z.string(),
+  label: z.string(),
+  description: z.string().nullable(),
+});
+export type CompletionItem = z.infer<typeof CompletionItem>;
+export const SessionCompleteResult = z.object({
+  items: z.array(CompletionItem).max(50),
+  prefix: z.string(),
+});
+export type SessionCompleteResult = z.infer<typeof SessionCompleteResult>;
 export const ModelStateResult = z.object({
   model: SessionModel.nullable(),
   thinking: ThinkingLevel.nullable(),

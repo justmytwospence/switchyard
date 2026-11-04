@@ -1,6 +1,7 @@
 import {
   AdapterActionRequest,
   CompactRequest,
+  CompleteRequest,
   CreateSessionRequest,
   ImportableSession,
   ImportSessionRequest,
@@ -10,6 +11,7 @@ import {
   RenameRequest,
   type Session,
   SessionCommandsResult,
+  SessionCompleteResult,
   SessionModelsResult,
   SetModelRequest,
   SetThinkingRequest,
@@ -241,6 +243,19 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     requireSessionControls(ctx, s);
     return SessionCommandsResult.parse(
       await ctx.hostHub.request(s.hostId, { type: "session.commands", sessionId: s.id }),
+    );
+  });
+
+  app.post("/api/sessions/:id/complete", async (req) => {
+    const s = get(idOf(req));
+    const body = parse(CompleteRequest, req.body);
+    requireSessionControls(ctx, s);
+    return SessionCompleteResult.parse(
+      await ctx.hostHub.request(s.hostId, {
+        type: "session.complete",
+        sessionId: s.id,
+        text: body.text,
+      }),
     );
   });
 

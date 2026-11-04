@@ -29,6 +29,9 @@ describe("queueKey", () => {
   it("routes model and command lookups to the control lane", () => {
     expect(queueKey({ type: "session.models", sessionId: "ses_1" })).toBe("control:ses_1");
     expect(queueKey({ type: "session.commands", sessionId: "ses_1" })).toBe("control:ses_1");
+    expect(queueKey({ type: "session.complete", sessionId: "ses_1", text: "/m " })).toBe(
+      "control:ses_1",
+    );
     expect(
       queueKey({ type: "session.setModel", sessionId: "ses_1", provider: "a", modelId: "b" }),
     ).toBe("session:ses_1");

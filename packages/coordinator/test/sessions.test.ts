@@ -378,6 +378,8 @@ describe("session controls", () => {
               },
             ],
           };
+        case "session.complete":
+          return { items: [{ value: "x", label: "x", description: null }], prefix: "" };
         case "session.setModel":
         case "session.setThinking":
           return { model: null, thinking: "high" };
@@ -415,6 +417,14 @@ describe("session controls", () => {
     expect((await t!.admin("POST", "/api/sessions/ses_c/compact", {})).status).toBe(409);
     await host!.event("session.updated", hostSession("ses_c", { runtime: "stopped" }));
     expect((await t!.admin("GET", "/api/sessions/ses_c/models")).status).toBe(409);
+  });
+
+  it("forwards argument completions", async () => {
+    await controlSetup();
+    const r = await t!.admin("POST", "/api/sessions/ses_c/complete", { text: "/model " });
+    expect(r.status).toBe(200);
+    expect(r.body.items[0].value).toBe("x");
+    expect((await t!.admin("POST", "/api/sessions/ses_c/complete", {})).status).toBe(400);
   });
 
   it("refuses hosts without the capability", async () => {

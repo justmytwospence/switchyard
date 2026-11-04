@@ -84,6 +84,7 @@ export default function switchyardTerminal(pi: any): void {
   if (!socketPath) return;
 
   let ctx: any = null;
+  let completer: any = null;
   let remoteDialogs = false;
   let entryCount = 0;
   const pending = new Map<string, Pending>();
@@ -542,6 +543,32 @@ export default function switchyardTerminal(pi: any): void {
             }
           });
           return;
+        case "complete": {
+          const text = String(cmd.text ?? "");
+          if (!completer?.getSuggestions || !/^\/\S+ /.test(text) || text.includes("\n")) {
+            respond(id, type, { items: [], prefix: "" });
+            return;
+          }
+          const ac = new AbortController();
+          const timer = setTimeout(() => ac.abort(), 2000);
+          Promise.resolve(completer.getSuggestions([text], 0, text.length, { signal: ac.signal }))
+            .then((s: any) =>
+              respond(id, type, {
+                items: (Array.isArray(s?.items) ? s.items : [])
+                  .filter((i: any) => typeof i?.value === "string")
+                  .slice(0, 50)
+                  .map((i: any) => ({
+                    value: i.value,
+                    label: typeof i.label === "string" ? i.label : i.value,
+                    description: typeof i.description === "string" ? i.description : null,
+                  })),
+                prefix: typeof s?.prefix === "string" ? s.prefix : "",
+              }),
+            )
+            .catch(() => respond(id, type, { items: [], prefix: "" }))
+            .finally(() => clearTimeout(timer));
+          return;
+        }
         default:
           respond(id, type, undefined, `Unknown command: ${type}`);
       }
@@ -628,6 +655,15 @@ export default function switchyardTerminal(pi: any): void {
   on("session_start", (event, c) => {
     ctx = c;
     patchUi(c);
+    completer = null;
+    try {
+      c.ui?.addAutocompleteProvider?.((current: any) => {
+        completer = current;
+        return current;
+      });
+    } catch {
+      // RPC or an older Pi: no completions
+    }
     entryCount = c.sessionManager.getEntries().length;
     const sessionId = c.sessionManager.getSessionId();
     const sessionFile = c.sessionManager.getSessionFile() ?? null;

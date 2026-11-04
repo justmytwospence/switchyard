@@ -21,6 +21,62 @@ export interface SlashPickerProps {
   className?: string;
 }
 
+export interface SlashCompletionsProps {
+  id: string;
+  items: { value: string; label: string; description: string | null }[];
+  active: number;
+  onPick: (value: string) => void;
+  onHover?: (index: number) => void;
+  className?: string;
+}
+
+/** Listbox of argument completions for the command being typed. */
+export function SlashCompletions({
+  id,
+  items,
+  active,
+  onPick,
+  onHover,
+  className,
+}: SlashCompletionsProps) {
+  return (
+    <div className={className}>
+      <div
+        role="listbox"
+        id={id}
+        aria-label="Arguments"
+        data-testid="arg-completions"
+        className="max-h-72 overflow-y-auto"
+      >
+        {items.map((e, i) => (
+          <div
+            key={e.value}
+            role="option"
+            id={`${id}-${i}`}
+            aria-selected={i === active}
+            tabIndex={-1}
+            className={cn(
+              "cursor-pointer rounded-md px-2 py-1.5 text-sm",
+              i === active && "bg-surface-2",
+            )}
+            onMouseDown={(ev) => ev.preventDefault()}
+            onClick={() => onPick(e.value)}
+            onKeyDown={() => undefined}
+            onMouseEnter={() => onHover?.(i)}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="font-mono">{e.label}</span>
+              {e.description && (
+                <span className="truncate text-xs text-muted">{e.description}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Listbox of slash commands; the textarea keeps focus and drives `active`. */
 export function SlashPicker({
   id,

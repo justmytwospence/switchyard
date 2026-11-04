@@ -72,6 +72,11 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.models"), sessionId: z.string() }),
   z.object({ type: z.literal("session.commands"), sessionId: z.string() }),
   z.object({
+    type: z.literal("session.complete"),
+    sessionId: z.string(),
+    text: z.string().max(500),
+  }),
+  z.object({
     type: z.literal("session.setModel"),
     sessionId: z.string(),
     provider: z.string().min(1),

@@ -7,6 +7,8 @@ import {
   newId,
   type Profile,
   type RuntimeState,
+  SessionCompleteResult,
+  type SessionCompleteResult as SessionCompleteResultT,
   type SessionModel,
   type SlashCommand,
   type StreamDelta,
@@ -533,6 +535,14 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     }
     await Promise.all(hints);
     return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Pi's argument completions for a draft such as `/model cl` (terminal sessions only). */
+  async complete(text: string): Promise<SessionCompleteResultT> {
+    const proc = this.requireAlive();
+    if (!(proc instanceof PiTerminalProcess)) return { items: [], prefix: "" };
+    const data = await this.call<any>(proc, { type: "complete", text }, 5000);
+    return SessionCompleteResult.parse({ items: data?.items ?? [], prefix: data?.prefix ?? "" });
   }
 
   async setModel(provider: string, modelId: string): Promise<ModelState> {

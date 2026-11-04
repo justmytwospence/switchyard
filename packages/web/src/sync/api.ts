@@ -132,8 +132,8 @@ function parseErrorBody(
 
 export const apiGet = <T>(path: string, query?: Query, signal?: AbortSignal) =>
   api<T>(path, { method: "GET", query, signal });
-export const apiPost = <T>(path: string, body?: unknown) =>
-  api<T>(path, { method: "POST", body: body ?? {} });
+export const apiPost = <T>(path: string, body?: unknown, signal?: AbortSignal) =>
+  api<T>(path, { method: "POST", body: body ?? {}, signal });
 export const apiPatch = <T>(path: string, body: unknown) => api<T>(path, { method: "PATCH", body });
 export const apiPut = <T>(path: string, body: unknown) => api<T>(path, { method: "PUT", body });
 export const apiDelete = <T>(path: string, body?: unknown) =>

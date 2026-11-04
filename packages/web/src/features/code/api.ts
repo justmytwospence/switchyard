@@ -4,6 +4,7 @@ import type {
   ModelStateResult,
   Run,
   Session,
+  SessionCompleteResult,
   SessionModel,
   SlashCommand,
   Task,
@@ -50,6 +51,8 @@ export const codeApi = {
     apiGet<{ models: SessionModel[] }>(`${s(id)}/models`, undefined, signal),
   commands: (id: string, signal?: AbortSignal) =>
     apiGet<{ commands: SlashCommand[] }>(`${s(id)}/commands`, undefined, signal),
+  complete: (id: string, text: string, signal?: AbortSignal) =>
+    apiPost<SessionCompleteResult>(`${s(id)}/complete`, { text }, signal),
   setModel: (id: string, provider: string, modelId: string) =>
     apiPost<ModelStateResult>(`${s(id)}/model`, { provider, modelId }),
   setThinking: (id: string, level: ThinkingLevel) =>
