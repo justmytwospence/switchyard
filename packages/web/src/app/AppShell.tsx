@@ -131,7 +131,7 @@ function Rail() {
 
   return (
     <div
-      className="relative z-30 shrink-0 transition-[width] duration-200 ease-out motion-reduce:transition-none"
+      className="sy-motion relative z-30 shrink-0 transition-[width] duration-200 ease-out"
       style={{ width: expanded ? "var(--rail-expanded-width)" : "var(--rail-width)" }}
     >
       <nav
@@ -140,7 +140,14 @@ function Rail() {
       >
         <div className="flex h-14 items-center gap-2 px-3.5" aria-hidden={!expanded}>
           <img src="/icon.svg" alt="" className="size-9 shrink-0 rounded-lg" />
-          {expanded && <span className="truncate font-semibold">Switchyard</span>}
+          <span
+            className={cn(
+              "sy-motion min-w-0 truncate font-semibold transition-opacity duration-200",
+              expanded ? "opacity-100" : "opacity-0",
+            )}
+          >
+            Switchyard
+          </span>
         </div>
         <ul className="flex flex-1 flex-col gap-1 px-2 py-2">
           {RAIL_DESTINATIONS.map((d) => {
@@ -160,7 +167,12 @@ function Rail() {
                   )}
                 >
                   <Icon aria-hidden className="size-5 shrink-0" />
-                  <span className={expanded ? "min-w-0 flex-1 truncate" : "sr-only"}>
+                  <span
+                    className={cn(
+                      "sy-motion min-w-0 flex-1 truncate transition-opacity duration-200",
+                      expanded ? "opacity-100" : "opacity-0",
+                    )}
+                  >
                     {d.label}
                   </span>
                   {d.badge === "attention" && (
@@ -199,7 +211,14 @@ function Rail() {
                 )}
               />
             )}
-            <span className={expanded ? "truncate" : "sr-only"}>{conn.label}</span>
+            <span
+              className={cn(
+                "sy-motion min-w-0 truncate transition-opacity duration-200",
+                expanded ? "opacity-100" : "opacity-0",
+              )}
+            >
+              {conn.label}
+            </span>
           </div>
           <button
             type="button"
@@ -214,7 +233,14 @@ function Rail() {
             ) : (
               <PanelLeftOpen aria-hidden className="size-5 shrink-0" />
             )}
-            {expanded && <span>Collapse</span>}
+            <span
+              className={cn(
+                "sy-motion min-w-0 truncate transition-opacity duration-200",
+                expanded ? "opacity-100" : "opacity-0",
+              )}
+            >
+              Collapse
+            </span>
           </button>
         </div>
       </nav>

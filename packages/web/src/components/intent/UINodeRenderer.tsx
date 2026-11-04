@@ -159,15 +159,15 @@ function ListView({ node }: { node: Extract<UINode, { t: "list" }> }) {
 function SectionView({ node }: { node: Extract<UINode, { t: "section" }> }) {
   if (node.collapsible) {
     return (
-      <details className="group min-w-0 rounded-md border border-border" open>
-        <summary className="tap flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+      <details className="group min-w-0" open>
+        <summary className="tap flex cursor-pointer list-none items-center gap-1.5 py-1 text-sm font-medium [&::-webkit-details-marker]:hidden">
           <ChevronRight
             aria-hidden
             className="size-4 shrink-0 transition-transform group-open:rotate-90"
           />
           {node.title ?? "Details"}
         </summary>
-        <div className="flex min-w-0 flex-col gap-3 border-t border-border px-3 py-2">
+        <div className="flex min-w-0 flex-col gap-3 border-l border-border pl-3 ml-2 mt-1">
           <Children nodes={node.children} />
         </div>
       </details>
@@ -307,10 +307,11 @@ function ActionsView({ node }: { node: Extract<UINode, { t: "actions" }> }) {
   const { onRespond, onAction, busy, disabled } = useIntent();
   if (disabled) return null;
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap">
       {node.actions.map((a) => (
         <Button
           key={a.id}
+          className="h-auto min-h-9 min-w-0 justify-start py-1.5 text-left whitespace-normal sm:justify-center sm:text-center"
           variant={a.tone === "primary" ? "primary" : a.tone === "danger" ? "danger" : "secondary"}
           disabled={busy || (!onRespond && !onAction)}
           onClick={() => {

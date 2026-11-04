@@ -66,7 +66,10 @@ export function Inspector({
       <TabPanel
         idPrefix={prefix}
         id={tab}
-        className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-3"
+        className={cn(
+          "relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain",
+          tab === "files" ? "p-0" : "p-3",
+        )}
       >
         {tab === "changes" && <ChangesTab ctx={ctx} />}
         {tab === "files" && <FilesTab ctx={ctx} openPath={openPath} />}

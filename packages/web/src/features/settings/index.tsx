@@ -66,47 +66,46 @@ function useActiveSection(): string | null {
 function SectionNav({ compact }: { compact: boolean }) {
   const active = useActiveSection();
   return (
-    <nav
-      aria-label="Settings sections"
-      data-testid="settings-nav"
-      className={cn(
-        "sticky top-0 flex max-h-dvh shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border px-2 py-4",
-        compact ? "w-52" : "w-60",
-      )}
-    >
-      <Link
-        to={settingsPath()}
-        aria-current={active === null ? "page" : undefined}
-        className={cn(
-          "tap mb-2 rounded-md px-3 py-1 text-base font-semibold",
-          active === null ? "bg-accent-soft" : "hover:bg-surface-2",
-        )}
+    <div className={cn("shrink-0 border-r border-border", compact ? "w-52" : "w-60")}>
+      <nav
+        aria-label="Settings sections"
+        data-testid="settings-nav"
+        className="sticky top-0 flex max-h-dvh flex-col gap-1 overflow-y-auto px-2 py-4"
       >
-        Settings
-      </Link>
-      <ul className="flex flex-col gap-0.5">
-        {SECTIONS.map(({ path, label, icon: Icon }) => {
-          const current = active === path;
-          return (
-            <li key={path}>
-              <Link
-                to={settingsPath(path)}
-                aria-current={current ? "page" : undefined}
-                className={cn(
-                  "tap flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium",
-                  current
-                    ? "bg-accent-soft text-text"
-                    : "text-muted hover:bg-surface-2 hover:text-text",
-                )}
-              >
-                <Icon aria-hidden className="size-4 shrink-0" />
-                <span className="min-w-0 truncate">{label}</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+        <Link
+          to={settingsPath()}
+          aria-current={active === null ? "page" : undefined}
+          className={cn(
+            "tap mb-2 rounded-md px-3 py-1 text-base font-semibold",
+            active === null ? "bg-accent-soft" : "hover:bg-surface-2",
+          )}
+        >
+          Settings
+        </Link>
+        <ul className="flex flex-col gap-0.5">
+          {SECTIONS.map(({ path, label, icon: Icon }) => {
+            const current = active === path;
+            return (
+              <li key={path}>
+                <Link
+                  to={settingsPath(path)}
+                  aria-current={current ? "page" : undefined}
+                  className={cn(
+                    "tap flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium",
+                    current
+                      ? "bg-accent-soft text-text"
+                      : "text-muted hover:bg-surface-2 hover:text-text",
+                  )}
+                >
+                  <Icon aria-hidden className="size-4 shrink-0" />
+                  <span className="min-w-0 truncate">{label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    </div>
   );
 }
 

@@ -260,7 +260,7 @@ export function FilesTab({
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-2 px-2 py-2">
       <TextInput
         type="search"
         aria-label="Filter files"
@@ -441,7 +441,7 @@ function FilePreview({
     void navigator.clipboard?.writeText(value).then(() => toast.success("Copied"));
   };
   const checkerboard =
-    "flex justify-center rounded-md border border-border bg-[conic-gradient(var(--sy-surface-2)_25%,var(--sy-surface)_0_50%,var(--sy-surface-2)_0_75%,var(--sy-surface)_0)] bg-[length:16px_16px] p-4";
+    "flex justify-center bg-[conic-gradient(var(--sy-surface-2)_25%,var(--sy-surface)_0_50%,var(--sy-surface-2)_0_75%,var(--sy-surface)_0)] bg-[length:16px_16px] p-4";
 
   let body: React.ReactNode;
   if (loading) body = <LoadingState label="Loading file…" />;
@@ -484,7 +484,7 @@ function FilePreview({
     );
   } else if (text !== null && isMarkdown && view === "preview") {
     body = (
-      <div className="rounded-md border border-border bg-surface p-4">
+      <div className="px-4 py-2">
         <Markdown text={text} />
       </div>
     );
@@ -501,7 +501,7 @@ function FilePreview({
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex flex-col gap-1 border-b border-border pb-2">
+      <div className="flex flex-col gap-1 border-b border-border px-3 pt-2 pb-2">
         <div className="flex min-w-0 items-center gap-2">
           <IconButton
             size="sm"
@@ -560,7 +560,7 @@ function FilePreview({
           />
         </div>
       </div>
-      {body}
+      <div className="min-w-0 pb-3">{body}</div>
     </div>
   );
 }

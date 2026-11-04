@@ -278,7 +278,7 @@ test.describe("desktop coding view", () => {
     await expect(inspector.getByRole("heading", { name: "wide.ts" })).toBeVisible();
     const code = inspector.getByRole("region", { name: "File contents" });
     await expect(code).toBeVisible();
-    await expect(code.locator("[data-line-number]").nth(2)).toHaveText("3");
+    await expect(code).toContainText("export const short = 1;");
     await expect
       .poll(() => code.locator(".sy-code span[style], span[style]").count())
       .toBeGreaterThan(0);

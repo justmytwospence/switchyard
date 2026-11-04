@@ -133,7 +133,7 @@ export function InteractionCard({
       id={id}
       aria-label={`Question: ${interaction.title}`}
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-lg border bg-surface p-3",
+        "flex min-w-0 flex-col gap-3 border-l-2 py-1 pl-3",
         pending ? "border-warning" : "border-border",
         className,
       )}

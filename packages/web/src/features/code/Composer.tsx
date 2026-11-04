@@ -225,21 +225,23 @@ export function Composer({
   // Mobile: send on touchend and suppress the synthetic click. Losing focus first would bring the
   // bottom nav back and move the button from under the finger. Then blur, so the keyboard closes
   // after sending.
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
   const tapToSend = (mode: PromptMode, enabled: boolean) =>
     mobile
       ? {
           onPointerDown: (e: React.PointerEvent) => e.preventDefault(),
+          onTouchStart: (e: React.TouchEvent<HTMLButtonElement>) => {
+            const t = e.touches[0];
+            touchStart.current = t ? { x: t.screenX, y: t.screenY } : null;
+          },
           onTouchEnd: (e: React.TouchEvent<HTMLButtonElement>) => {
+            // Compare touch to touch: iOS reports client coordinates relative to the visual
+            // viewport while the keyboard is up, so they cannot be compared with the button's rect.
+            const start = touchStart.current;
+            touchStart.current = null;
             const t = e.changedTouches[0];
-            const r = e.currentTarget.getBoundingClientRect();
-            if (
-              !t ||
-              t.clientX < r.left ||
-              t.clientX > r.right ||
-              t.clientY < r.top ||
-              t.clientY > r.bottom
-            )
-              return;
+            if (!start || !t) return;
+            if (Math.hypot(t.screenX - start.x, t.screenY - start.y) > 12) return; // a scroll
             e.preventDefault();
             if (!enabled) return;
             void send(mode);

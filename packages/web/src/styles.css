@@ -247,8 +247,20 @@
   *::after {
     /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component styles */
     animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: a clamped animation must not loop (it flickers) */
+    animation-iteration-count: 1 !important;
     /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component styles */
     transition-duration: 0.01ms !important;
+  }
+  /* A loading spinner is essential feedback: it keeps turning, slowly. */
+  .animate-spin {
+    /* biome-ignore lint/complexity/noImportantStyles: beats the clamp above */
+    animation: spin 2.4s linear infinite !important;
+  }
+  /* Short layout slides (the navigation rail) stay animated. */
+  .sy-motion {
+    /* biome-ignore lint/complexity/noImportantStyles: beats the clamp above */
+    transition-duration: 200ms !important;
   }
 }
 

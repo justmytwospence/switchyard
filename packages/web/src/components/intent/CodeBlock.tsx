@@ -19,15 +19,8 @@ export function CodeBlock({
   const [copied, setCopied] = useState(false);
   const lines = useHighlight(text, langFor(lang));
   return (
-    <div
-      className={cn(
-        "sy-code group relative min-w-0 rounded-md border border-border bg-surface-2",
-        className,
-      )}
-    >
-      {lang && (
-        <div className="border-b border-border px-3 py-1 font-mono text-xs text-muted">{lang}</div>
-      )}
+    <div className={cn("sy-code group relative min-w-0 rounded-md bg-surface-2", className)}>
+      {lang && <div className="px-3 pt-1.5 font-mono text-xs text-subtle">{lang}</div>}
       <pre
         className="max-w-full overflow-x-auto overscroll-x-contain px-3 py-2 text-xs leading-5"
         style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}
