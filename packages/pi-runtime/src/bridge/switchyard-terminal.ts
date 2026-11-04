@@ -90,7 +90,8 @@ export default function switchyardTerminal(pi: any): void {
   const runInternal = (fn: (c: any) => Promise<void> | void): void => {
     const token = randomUUID();
     internal.set(token, fn);
-    pi.sendUserMessage(`/switchyard-internal ${token}`);
+    // Without expandPromptTemplates Pi sends the text to the model instead of running the command.
+    pi.sendUserMessage(`/switchyard-internal ${token}`, { expandPromptTemplates: true });
   };
   try {
     pi.registerCommand?.("switchyard-internal", {

@@ -224,6 +224,7 @@ describe("switchyard terminal extension", () => {
     await until(() => pi.sendUserMessage.mock.calls.length === 1);
     const text = pi.sendUserMessage.mock.calls[0]![0] as string;
     expect(text).toMatch(/^\/switchyard-internal /);
+    expect(pi.sendUserMessage.mock.calls[0]![1]).toEqual({ expandPromptTemplates: true });
     await pi.registered.get("switchyard-internal").handler(text.split(" ")[1], {});
     await until(() => holder.lines.some((l) => l.type === "response" && l.id === "p1"));
     expect(holder.lines.find((l) => l.id === "p1").data).toEqual({ disposition: "view", view });
