@@ -139,7 +139,7 @@ export default function NowView() {
           action={{ label: "Go to Board", to: ROUTES.board }}
         />
       ) : (
-        <div className="grid min-w-0 gap-4 xl:grid-cols-2 xl:items-start">
+        <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
           <section aria-labelledby="now-running" className="flex min-w-0 flex-col gap-2">
             <h2 id="now-running" className="text-base font-semibold">
               Running <span className="text-sm font-normal text-muted">({running.length})</span>

@@ -118,9 +118,9 @@ export default function AttentionView() {
                 </h2>
                 <p className="text-sm text-muted">{GROUP_HINT[reason]}</p>
               </div>
-              <ul className="grid min-w-0 gap-2 2xl:grid-cols-2">
+              <ul className="flex min-w-0 flex-col gap-2">
                 {groups[reason].map((a) => (
-                  <li key={a.id}>
+                  <li key={a.id} className="min-w-0">
                     <AttentionRow item={a} />
                   </li>
                 ))}

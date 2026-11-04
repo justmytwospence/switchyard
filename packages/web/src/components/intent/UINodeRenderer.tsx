@@ -307,7 +307,7 @@ function ActionsView({ node }: { node: Extract<UINode, { t: "actions" }> }) {
   const { onRespond, onAction, busy, disabled } = useIntent();
   if (disabled) return null;
   return (
-    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap">
+    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap lg:flex-col">
       {node.actions.map((a) => (
         <Button
           key={a.id}

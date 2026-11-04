@@ -1,4 +1,5 @@
 import type { Interaction, InteractionResponse, UINode } from "@switchyard/protocol";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
@@ -168,7 +169,7 @@ export function InteractionCard({
       ) : pending && !alreadyAnswered ? (
         <>
           {readOnlyReason && <p className="text-sm text-muted">{readOnlyReason}</p>}
-          <UINodeRenderer
+          <Presentation
             node={interaction.presentation}
             onRespond={(r) => void respond(r)}
             busy={busy}
@@ -282,6 +283,73 @@ function UnsupportedBody({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A content section that ends in a row of actions (a plan with its options), if `node` is one. */
+function splitPresentation(node: UINode): { body: UINode; actions: UINode } | null {
+  if (node.t !== "section" || node.children.length < 2) return null;
+  const last = node.children[node.children.length - 1];
+  if (last?.t !== "actions") return null;
+  const rest = node.children.slice(0, -1);
+  if (rest.some(hasInteractive)) return null;
+  return { body: { ...node, children: rest }, actions: last };
+}
+
+/**
+ * Long content with options: on a phone the content is capped and expandable with the options
+ * right below it; on a wide screen the content takes the left and the options stay in view on the
+ * right.
+ */
+function Presentation({
+  node,
+  onRespond,
+  busy,
+  disabled,
+}: {
+  node: UINode;
+  onRespond: (r: InteractionResponse) => void;
+  busy: boolean;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const split = splitPresentation(node);
+  if (!split) {
+    return <UINodeRenderer node={node} onRespond={onRespond} busy={busy} disabled={disabled} />;
+  }
+  return (
+    <div className="flex min-w-0 flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start lg:gap-8">
+      <div className="min-w-0">
+        <div
+          className={cn(
+            "min-w-0 overflow-y-auto overscroll-contain",
+            open ? "" : "max-h-[40dvh] lg:max-h-none",
+          )}
+        >
+          <UINodeRenderer node={split.body} />
+        </div>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="tap mt-1 inline-flex items-center gap-1 text-sm font-medium text-accent lg:hidden"
+        >
+          <ChevronDown
+            aria-hidden
+            className={cn("size-4 transition-transform", open && "rotate-180")}
+          />
+          {open ? "Show less" : "Show the full text"}
+        </button>
+      </div>
+      <div className="min-w-0 lg:sticky lg:top-3">
+        <UINodeRenderer
+          node={split.actions}
+          onRespond={onRespond}
+          busy={busy}
+          disabled={disabled}
+        />
+      </div>
     </div>
   );
 }
