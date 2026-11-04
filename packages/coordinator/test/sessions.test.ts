@@ -178,9 +178,22 @@ describe("sessions", () => {
       .command as HostCommandOf<"session.prompt">;
     expect(prompt).toMatchObject({ text: "hi", mode: "steer", origin: "human" });
 
+    // Sending to a stopped session resumes it first, then sends.
     await host!.event("session.updated", hostSession("ses_p", { runtime: "interrupted" }));
-    const stopped = await t!.admin("POST", "/api/sessions/ses_p/prompt", { text: "x" });
-    expect(stopped.status).toBe(409);
+    const auto = await t!.admin("POST", "/api/sessions/ses_p/prompt", { text: "x" });
+    expect(auto.status).toBe(200);
+    const kinds = host!.commands.map((c) => c.command.type);
+    expect(kinds.lastIndexOf("session.start")).toBeLessThan(kinds.lastIndexOf("session.prompt"));
+    const sent = host!.commands.filter((c) => c.command.type === "session.prompt").at(-1)!
+      .command as HostCommandOf<"session.prompt">;
+    expect(sent.text).toBe("x");
+    // Steering never resumes.
+    await host!.event("session.updated", hostSession("ses_p", { runtime: "stopped" }));
+    const steer = await t!.admin("POST", "/api/sessions/ses_p/prompt", {
+      text: "y",
+      mode: "steer",
+    });
+    expect(steer.status).toBe(409);
 
     const resume = await t!.admin("POST", "/api/sessions/ses_p/resume");
     expect(resume.status).toBe(200);

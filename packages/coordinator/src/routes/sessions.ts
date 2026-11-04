@@ -231,9 +231,22 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   });
 
   app.post("/api/sessions/:id/prompt", async (req) => {
-    const s = get(idOf(req));
+    let s = get(idOf(req));
     const body = parse(PromptRequest, req.body);
-    requireLiveSession(ctx, s);
+    // A stopped session resumes on its own when you send to it.
+    if (
+      !s.readOnly &&
+      !s.archivedAt &&
+      s.nativeHandle &&
+      !LIVE_RUNTIMES.includes(s.runtime) &&
+      body.mode === "prompt"
+    ) {
+      await resumeSession(s);
+      s = get(s.id);
+      requireConnected(ctx, s.hostId);
+    } else {
+      requireLiveSession(ctx, s);
+    }
     const run = ctx.store.runForSession(s);
     const result = await ctx.hostHub.request(s.hostId, {
       type: "session.prompt",
@@ -407,8 +420,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   );
 
   /** Resume with `--session <file>`; refuses without a native handle. */
-  app.post("/api/sessions/:id/resume", async (req) => {
-    const s = get(idOf(req));
+  async function resumeSession(s: Session): Promise<void> {
     if (!s.nativeHandle) {
       throw new SwitchyardError(
         "native_session_missing",
@@ -443,6 +455,11 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
       });
       throw err;
     }
+  }
+
+  app.post("/api/sessions/:id/resume", async (req) => {
+    const s = get(idOf(req));
+    await resumeSession(s);
     return get(s.id);
   });
 

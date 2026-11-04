@@ -19,7 +19,7 @@ describe("Pi process interruption and resume", { timeout: 180_000 }, () => {
     await waitFor(() => !env.agent!.supervisor.isLive(sessionId), "Pi gone");
   }
 
-  it("killing Pi interrupts the session; resume continues the same native session", async () => {
+  it("killing Pi interrupts the session; sending resumes the same native session", async () => {
     const { terminal } = env.devices!;
     const s = await env.createSession(terminal, "", "Interrupt me");
     const handle = s.nativeHandle!;
@@ -47,26 +47,18 @@ describe("Pi process interruption and resume", { timeout: 180_000 }, () => {
       "interrupted",
     );
     expect(interrupted.nativeHandle).toEqual(handle);
-    // Prompting an interrupted session is refused; resume is the way back.
-    const refused = await env.api("POST", `/api/sessions/${s.id}/prompt`, {
-      as: terminal,
-      body: { text: "are you there?" },
-    });
-    expect(refused.status).toBe(409);
-
+    // Sending to an interrupted session resumes the same native session, then sends.
     const filesBefore = sessionFiles(env.pi!.sessionsDir);
-    const resumed = await env.ok("POST", `/api/sessions/${s.id}/resume`, { as: terminal });
-    expect(resumed.id).toBe(s.id);
-    const live = await env.waitSession(s.id, (x) => x.runtime === "idle", "resumed idle");
+    await env.ok("POST", `/api/sessions/${s.id}/prompt`, {
+      as: terminal,
+      body: { text: `Carry on ${steps("done")}` },
+    });
+    const live = env.session(s.id);
     expect(live.nativeHandle!.sessionId).toBe(handle.sessionId);
     expect(live.nativeHandle!.sessionFile).toBe(handle.sessionFile);
     expect(env.agent!.spawnedPiProcesses).toBe(2);
 
     // The resumed Pi has the earlier conversation and continues it in the same file.
-    await env.ok("POST", `/api/sessions/${s.id}/prompt`, {
-      as: terminal,
-      body: { text: `Carry on ${steps("done")}` },
-    });
     await env.waitSession(
       s.id,
       (x) => x.runtime === "idle" && /SWITCHYARD: DONE/.test(x.lastAssistantText ?? ""),

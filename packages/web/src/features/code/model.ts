@@ -495,13 +495,9 @@ export function composerBlockReason(input: {
   }
   if (session.runtime === "starting")
     return { reason: "Starting… you can send once Pi is ready", pending: true };
-  if (!isLive(session)) {
-    return {
-      reason: session.nativeHandle
-        ? "Session stopped: Resume to send"
-        : "Session stopped: no native Pi session to resume",
-      action: session.nativeHandle ? "resume" : undefined,
-    };
+  // A stopped session with a Pi file resumes when you send to it.
+  if (!isLive(session) && !session.nativeHandle) {
+    return { reason: "Session stopped: no native Pi session to resume" };
   }
   if (session.compacting) return { reason: "Compacting context: you can send when it finishes" };
   return null;

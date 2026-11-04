@@ -332,7 +332,13 @@ describe("composer", () => {
         nativeHandle: { sessionId: "n", sessionFile: "/f.jsonl" },
       }),
     });
-    expect(stopped).toEqual({ reason: "Session stopped: Resume to send", action: "resume" });
+    expect(stopped).toBeNull();
+    expect(
+      composerBlockReason({
+        ...base,
+        session: session("s", { runtime: "stopped", nativeHandle: null }),
+      })?.reason,
+    ).toContain("no native Pi session");
   });
 
   it("offers Steer only with the capability", () => {
