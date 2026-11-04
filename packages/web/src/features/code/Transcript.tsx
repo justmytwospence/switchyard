@@ -1,5 +1,6 @@
 import { ArrowDown } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { isDocumentPresentation } from "../../components/intent/InteractionCard";
 import { Button } from "../../components/ui/Button";
 import { ErrorState, InteractionPending, LoadingState } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
@@ -116,7 +117,16 @@ export function Transcript({
         return;
       }
     }
-    if (atBottomRef.current) el.scrollTop = el.scrollHeight;
+    if (atBottomRef.current) {
+      // A new plan awaiting approval: show its start (the answer bar is pinned), not its end.
+      const last = entries[entries.length - 1];
+      const doc =
+        last?.type === "interaction" && isDocumentPresentation(last.interaction.presentation)
+          ? el.querySelector<HTMLElement>('[data-testid="document-interaction"]:last-of-type')
+          : null;
+      if (doc) el.scrollTop = Math.max(0, doc.offsetTop - 8);
+      else el.scrollTop = el.scrollHeight;
+    }
   }, [entries.length, lastKey, firstKey, streamSize, t.loaded]);
 
   // Deep link: scroll to and highlight the interaction once it is rendered.

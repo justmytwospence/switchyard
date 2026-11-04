@@ -1,11 +1,14 @@
 import type { Interaction, InteractionResponse, UINode } from "@switchyard/protocol";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useBreakpoint } from "../../app/useBreakpoint";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 import { Button } from "../ui/Button";
+import { IconButton } from "../ui/IconButton";
+import { Sheet } from "../ui/Overlay";
 import { StatusChip } from "../ui/StatusChip";
 import { ErrorState } from "../ui/states";
 import { TextArea } from "../ui/TextArea";
@@ -21,6 +24,8 @@ export interface InteractionCardProps {
   onAnswered?: (interaction: Interaction) => void;
   /** DOM id (the "Needs your answer" strip scrolls to it). */
   id?: string;
+  /** Stick the document header to the top of its scroller (false when the page scrolls). */
+  sticky?: boolean;
 }
 
 function hasInteractive(node: UINode): boolean {
@@ -57,6 +62,7 @@ export function InteractionCard({
   className,
   onAnswered,
   id,
+  sticky,
 }: InteractionCardProps) {
   const upsert = useSyncStore((s) => s.upsertInteraction);
   const [busy, setBusy] = useState(false);
@@ -129,6 +135,27 @@ export function InteractionCard({
     }
   };
 
+  const bp = useBreakpoint();
+  if (
+    pending &&
+    !alreadyAnswered &&
+    !unsupported &&
+    isDocumentPresentation(interaction.presentation)
+  ) {
+    return (
+      <DocumentInteraction
+        id={id}
+        interaction={interaction}
+        node={interaction.presentation}
+        onRespond={(r) => void respond(r)}
+        busy={busy}
+        disabled={!!readOnlyReason}
+        mobile={bp === "mobile"}
+        sticky={sticky ?? true}
+      />
+    );
+  }
+
   return (
     <article
       id={id}
@@ -169,7 +196,7 @@ export function InteractionCard({
       ) : pending && !alreadyAnswered ? (
         <>
           {readOnlyReason && <p className="text-sm text-muted">{readOnlyReason}</p>}
-          <Presentation
+          <UINodeRenderer
             node={interaction.presentation}
             onRespond={(r) => void respond(r)}
             busy={busy}
@@ -315,70 +342,200 @@ function useOnScreen(ref: React.RefObject<HTMLElement | null>): boolean {
   return visible;
 }
 
+function firstMarkdown(node: UINode): string | null {
+  if (node.t === "markdown") return node.text;
+  if (node.t === "section") {
+    for (const c of node.children) {
+      const m = firstMarkdown(c);
+      if (m !== null) return m;
+    }
+  }
+  return null;
+}
+
+/** A long document with trailing options (a plan awaiting approval). */
+export function isDocumentPresentation(node: UINode): boolean {
+  if (!splitPresentation(node)) return false;
+  const md = firstMarkdown(node);
+  return md !== null && (md.length >= 400 || md.split("\n").length >= 12);
+}
+
+/** Drop a leading heading that repeats the card title. */
+export function stripLeadingTitle(md: string, title: string): string {
+  const norm = (t: string) =>
+    t
+      .replace(/[?\s]+$/, "")
+      .trim()
+      .toLowerCase();
+  const m = /^\s*#{1,6}\s+(.+?)\s*\n+/.exec(md);
+  return m?.[1] && norm(m[1]) === norm(title) ? md.slice(m[0].length) : md;
+}
+
 /**
- * Long content followed by options (a plan and its answers). The content flows in the page, with
- * no scroll box of its own. The options follow it as a row (a stack on a phone). While the options
- * are off screen a pill sticks to the bottom of the view and jumps to them; at the options, a
- * button jumps back to the start of the content.
+ * Document question: borderless, one title and chip, compact prose, revisions first. A bar with the
+ * answers stays pinned to the bottom of the scroller while the inline options are off screen.
  */
-function Presentation({
+function DocumentInteraction({
+  id,
+  interaction,
   node,
   onRespond,
   busy,
   disabled,
+  mobile,
+  sticky,
 }: {
+  id?: string;
+  interaction: Interaction;
   node: UINode;
   onRespond: (r: InteractionResponse) => void;
   busy: boolean;
   disabled: boolean;
+  mobile: boolean;
+  sticky: boolean;
 }) {
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const actionsRef = useRef<HTMLDivElement>(null);
-  const actionsVisible = useOnScreen(actionsRef);
+  const startRef = useRef<HTMLDivElement>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const optionsVisible = useOnScreen(optionsRef);
+  const [sheet, setSheet] = useState(false);
   const split = splitPresentation(node);
-  if (!split) {
-    return <UINodeRenderer node={node} onRespond={onRespond} busy={busy} disabled={disabled} />;
-  }
+  if (split?.body.t !== "section") return null;
+  const options = (split.actions as Extract<UINode, { t: "actions" }>).actions;
+  const children = split.body.children;
+  const changes = children.find((c) => c.t === "section");
+  const md = children.find((c) => c.t === "markdown") as
+    | Extract<UINode, { t: "markdown" }>
+    | undefined;
+  const answer = (actionId: string) => {
+    setSheet(false);
+    onRespond({ kind: "action", actionId });
+  };
+  const variant = (i: number, tone?: string) =>
+    i === 0 || tone === "primary" ? "primary" : tone === "danger" ? "danger" : "secondary";
+  const showBar = !disabled && !optionsVisible;
+  const wrapBtn = "h-auto min-h-9 min-w-0 py-1.5 text-left leading-tight whitespace-normal";
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <div ref={bodyRef} className="scroll-mt-16 min-w-0">
-        <UINodeRenderer node={split.body} />
-      </div>
-      {!actionsVisible && (
-        <div className="pointer-events-none sticky bottom-3 z-10 -mb-4 flex h-0 justify-end">
-          <Button
-            data-testid="jump-to-options"
-            size="sm"
-            variant="primary"
-            className="pointer-events-auto absolute bottom-0 shadow-pop"
-            icon={<ArrowDown className="size-4" />}
-            onClick={() => scrollTo(actionsRef.current, "center")}
-          >
-            Jump to options
-          </Button>
-        </div>
-      )}
-      <div
-        ref={actionsRef}
-        data-testid="plan-options"
-        className="flex min-w-0 scroll-mb-4 flex-col gap-2 border-t border-border pt-3"
+    <article
+      id={id}
+      data-testid="document-interaction"
+      aria-label={`Question: ${interaction.title}`}
+      className="min-w-0 border-y border-border bg-surface"
+    >
+      <header
+        className={cn(
+          "z-10 flex items-center gap-2 border-b border-border bg-surface/95 px-4 py-2 backdrop-blur",
+          sticky && "sticky top-0",
+        )}
       >
-        <UINodeRenderer
-          node={split.actions}
-          onRespond={onRespond}
-          busy={busy}
-          disabled={disabled}
-        />
+        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{interaction.title}</h3>
+        <StatusChip kind="interaction" value={interaction.state} size="sm" />
+        {!disabled && !optionsVisible && (
+          <button
+            type="button"
+            className="shrink-0 text-xs font-medium text-accent"
+            onClick={() => scrollTo(optionsRef.current, "center")}
+          >
+            Jump to options ↓
+          </button>
+        )}
+      </header>
+      {changes && (
+        <aside className="mx-4 mt-3 rounded-md bg-warning-soft px-3 py-2 text-sm">
+          <UINodeRenderer node={changes} />
+        </aside>
+      )}
+      <div ref={startRef} className="sy-prose sy-prose-compact scroll-mt-12 px-4 py-3">
+        {md && (
+          <UINodeRenderer
+            node={{ t: "markdown", text: stripLeadingTitle(md.text, interaction.title) }}
+          />
+        )}
+      </div>
+      <div
+        ref={optionsRef}
+        data-testid="plan-options"
+        className="flex min-w-0 flex-col gap-2 border-t border-border px-4 py-3 md:flex-row md:flex-wrap"
+      >
+        {!disabled &&
+          options.map((o, i) => (
+            <Button
+              key={o.id}
+              variant={variant(i, o.tone)}
+              disabled={busy}
+              className={cn(wrapBtn, "md:text-center")}
+              onClick={() => answer(o.id)}
+            >
+              {o.label}
+            </Button>
+          ))}
         <Button
-          size="sm"
           variant="ghost"
-          className="self-start"
+          size="sm"
+          className="self-start md:ml-auto"
           icon={<ArrowUp className="size-4" />}
-          onClick={() => scrollTo(bodyRef.current, "start")}
+          onClick={() => scrollTo(startRef.current, "start")}
         >
-          Back to the start
+          Back to the plan start
         </Button>
       </div>
-    </div>
+      {showBar && (
+        <div
+          data-testid="answer-bar"
+          className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border bg-surface/95 px-4 py-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur"
+        >
+          <IconButton
+            label="Plan start"
+            icon={<ArrowUp className="size-4" />}
+            variant="secondary"
+            onClick={() => scrollTo(startRef.current, "start")}
+          />
+          {mobile && options.length > 2 ? (
+            <>
+              <Button
+                variant="primary"
+                disabled={busy}
+                className={cn(wrapBtn, "flex-1")}
+                onClick={() => answer(options[0]!.id)}
+              >
+                {options[0]!.label}
+              </Button>
+              <Button variant="secondary" onClick={() => setSheet(true)}>
+                More ({options.length - 1})
+              </Button>
+            </>
+          ) : (
+            <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+              {options.map((o, i) => (
+                <Button
+                  key={o.id}
+                  variant={variant(i, o.tone)}
+                  disabled={busy}
+                  className={cn(wrapBtn, mobile && "flex-1")}
+                  onClick={() => answer(o.id)}
+                >
+                  {o.label}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <Sheet open={sheet} onClose={() => setSheet(false)} title={interaction.title}>
+        <div className="flex flex-col gap-2">
+          {options.map((o, i) => (
+            <Button
+              key={o.id}
+              block
+              variant={variant(i, o.tone)}
+              disabled={busy}
+              className={wrapBtn}
+              onClick={() => answer(o.id)}
+            >
+              {o.label}
+            </Button>
+          ))}
+        </div>
+      </Sheet>
+    </article>
   );
 }

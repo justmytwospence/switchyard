@@ -448,7 +448,7 @@ function InteractionEntry({
       data-interaction-id={interaction.id}
       data-state={interaction.state}
       className={cn(
-        "min-w-0 scroll-mt-16 rounded-lg transition-shadow",
+        "min-w-0 scroll-mt-16 transition-shadow",
         highlight && "ring-2 ring-accent ring-offset-2 ring-offset-bg",
       )}
     >

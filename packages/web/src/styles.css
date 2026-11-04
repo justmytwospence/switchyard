@@ -265,6 +265,39 @@
 }
 
 @layer components {
+  .sy-prose-compact {
+    font-size: 0.875rem;
+    line-height: 1.5rem;
+  }
+  @media (min-width: 768px) {
+    .sy-prose-compact {
+      font-size: 15px;
+    }
+  }
+  .sy-prose-compact > * + * {
+    margin-top: 0.5em;
+  }
+  .sy-prose-compact h1 {
+    font-size: 1.0625rem;
+  }
+  .sy-prose-compact h2 {
+    font-size: 1rem;
+  }
+  .sy-prose-compact h3,
+  .sy-prose-compact h4 {
+    font-size: 0.9375rem;
+  }
+  .sy-prose-compact h1,
+  .sy-prose-compact h2,
+  .sy-prose-compact h3,
+  .sy-prose-compact h4 {
+    margin-top: 1.1em;
+    font-weight: 600;
+  }
+  .sy-prose-compact ul,
+  .sy-prose-compact ol {
+    padding-left: 1.2em;
+  }
   .sy-code span[style] {
     color: var(--shiki-light);
   }
