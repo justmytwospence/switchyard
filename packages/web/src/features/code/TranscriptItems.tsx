@@ -27,6 +27,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatTime } from "../../lib/time";
+import { useSmoothText } from "../../lib/useSmoothText";
 import { errorMessage } from "../../sync/api";
 import type { StreamBuffer } from "../../sync/store";
 import { useSyncStore } from "../../sync/store";
@@ -133,6 +134,8 @@ function AssistantMessage({
   thinking: string;
   streaming: boolean;
 }) {
+  const shownText = useSmoothText(text, streaming);
+  const shownThinking = useSmoothText(thinking, streaming);
   return (
     <div className="min-w-0 px-1">
       <RowLabel icon={Bot}>
@@ -144,8 +147,8 @@ function AssistantMessage({
           </span>
         )}
       </RowLabel>
-      {thinking && <ThinkingItem text={thinking} live />}
-      {text ? <Markdown text={text} /> : !thinking && <p className="text-sm text-muted">…</p>}
+      {thinking && <ThinkingItem text={shownThinking} live />}
+      {text ? <Markdown text={shownText} /> : !thinking && <p className="text-sm text-muted">…</p>}
     </div>
   );
 }
