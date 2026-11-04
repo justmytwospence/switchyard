@@ -230,6 +230,16 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     );
   }
   router.pruneReceipts();
+  try {
+    await catalog.init();
+  } catch (err) {
+    log.warn(
+      { err: (err as Error).message },
+      "adapter discovery failed; Pi package adapters are not loaded",
+    );
+  }
+  // After discovery: a reattached session opens its adapters, and a dialog Pi asks again must be
+  // claimed by them (a plan, a question form), not shown as the generic fallback.
   const reattach = await supervisor.reattachTerminals();
   interruptedOnStart.push(...reattach.lost);
   if (reattach.reattached.length > 0 || reattach.lost.length > 0) {
@@ -239,14 +249,6 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     );
   }
 
-  try {
-    await catalog.init();
-  } catch (err) {
-    log.warn(
-      { err: (err as Error).message },
-      "adapter discovery failed; Pi package adapters are not loaded",
-    );
-  }
   supervisor.emitAdapters();
   link.start();
 
