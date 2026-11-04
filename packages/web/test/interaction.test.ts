@@ -1,8 +1,9 @@
 import type { UINode } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  documentSections,
   isDocumentPresentation,
-  stripLeadingTitle,
+  leadingHeading,
 } from "../src/components/intent/InteractionCard";
 
 const actions: UINode = { t: "actions", actions: [{ id: "a", label: "Yes" }] };
@@ -28,8 +29,15 @@ describe("document presentation", () => {
       false,
     );
   });
-  it("drops a leading heading that repeats the title", () => {
-    expect(stripLeadingTitle("# Implement this plan\n\nBody", "Implement this plan?")).toBe("Body");
-    expect(stripLeadingTitle("# Other\n\nBody", "Implement this plan?")).toBe("# Other\n\nBody");
+  it("takes the leading heading as the title", () => {
+    expect(leadingHeading("# Add tests\n\nBody")).toEqual({ title: "Add tests", rest: "Body" });
+    expect(leadingHeading("No heading")).toEqual({ title: null, rest: "No heading" });
+  });
+  it("lists h2 sections and ignores fenced code", () => {
+    const md = "## One\ntext\n```\n## not a heading\n```\n## Two words\n";
+    expect(documentSections(md)).toEqual([
+      { text: "One", id: "plan-one" },
+      { text: "Two words", id: "plan-two-words" },
+    ]);
   });
 });

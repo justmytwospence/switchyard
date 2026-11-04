@@ -12,6 +12,7 @@ import { Sheet } from "../ui/Overlay";
 import { StatusChip } from "../ui/StatusChip";
 import { ErrorState } from "../ui/states";
 import { TextArea } from "../ui/TextArea";
+import { headingSlug, Markdown } from "./Markdown";
 import { UINodeRenderer } from "./UINodeRenderer";
 import { isUnsupported, messageMode, unsupportedView } from "./unsupported";
 
@@ -152,6 +153,7 @@ export function InteractionCard({
         disabled={!!readOnlyReason}
         mobile={bp === "mobile"}
         sticky={sticky ?? true}
+        className={className}
       />
     );
   }
@@ -360,20 +362,51 @@ export function isDocumentPresentation(node: UINode): boolean {
   return md !== null && (md.length >= 400 || md.split("\n").length >= 12);
 }
 
-/** Drop a leading heading that repeats the card title. */
-export function stripLeadingTitle(md: string, title: string): string {
-  const norm = (t: string) =>
-    t
-      .replace(/[?\s]+$/, "")
-      .trim()
-      .toLowerCase();
-  const m = /^\s*#{1,6}\s+(.+?)\s*\n+/.exec(md);
-  return m?.[1] && norm(m[1]) === norm(title) ? md.slice(m[0].length) : md;
+/** The first heading of a document, its text and the markdown without it. */
+export function leadingHeading(md: string): { title: string | null; rest: string } {
+  const m = /^\s*#{1,6}\s+(.+?)\s*(?:\n+|$)/.exec(md);
+  return m?.[1] ? { title: m[1], rest: md.slice(m[0].length) } : { title: null, rest: md };
+}
+
+/** `##` headings of a document, for the outline. */
+export function documentSections(md: string): { text: string; id: string }[] {
+  const out: { text: string; id: string }[] = [];
+  let fence = false;
+  for (const line of md.split("\n")) {
+    if (/^\s*```/.test(line)) fence = !fence;
+    const m = !fence ? /^##\s+(.+?)\s*$/.exec(line) : null;
+    if (m?.[1]) out.push({ text: m[1], id: headingSlug(m[1]) });
+  }
+  return out;
+}
+
+/** Id of the outline entry whose heading is the last one scrolled past the top. */
+function useActiveSection(ids: string[], root: React.RefObject<HTMLElement | null>): string | null {
+  const [active, setActive] = useState<string | null>(null);
+  const key = ids.join("|");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `ids`
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined" || !ids.length) return;
+    const els = ids
+      .map((i) => root.current?.querySelector<HTMLElement>(`#${CSS.escape(i)}`))
+      .filter((e): e is HTMLElement => !!e);
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) setActive(e.target.id);
+      },
+      { rootMargin: "-56px 0px -70% 0px" },
+    );
+    for (const e of els) io.observe(e);
+    return () => io.disconnect();
+  }, [key, root]);
+  return active;
 }
 
 /**
- * Document question: borderless, one title and chip, compact prose, revisions first. A bar with the
- * answers stays pinned to the bottom of the scroller while the inline options are off screen.
+ * Document question (a plan awaiting approval): no card of its own. The plan's own heading titles
+ * it, the question labels the answers, revisions come first. Phone: compact header, prose, a bar
+ * with the answers pinned to the bottom. Desktop: a section outline beside prose at a readable
+ * measure, and a wrapping bar of answers. The bar hides while the inline options are on screen.
  */
 function DocumentInteraction({
   id,
@@ -384,6 +417,7 @@ function DocumentInteraction({
   disabled,
   mobile,
   sticky,
+  className,
 }: {
   id?: string;
   interaction: Interaction;
@@ -393,19 +427,31 @@ function DocumentInteraction({
   disabled: boolean;
   mobile: boolean;
   sticky: boolean;
+  className?: string;
 }) {
+  const bodyRef = useRef<HTMLDivElement>(null);
   const startRef = useRef<HTMLDivElement>(null);
-  const optionsRef = useRef<HTMLDivElement>(null);
+  const optionsRef = useRef<HTMLElement>(null);
   const optionsVisible = useOnScreen(optionsRef);
   const [sheet, setSheet] = useState(false);
   const split = splitPresentation(node);
+  const md =
+    split?.body.t === "section"
+      ? (split.body.children.find((c) => c.t === "markdown") as
+          | Extract<UINode, { t: "markdown" }>
+          | undefined)
+      : undefined;
+  const { title: heading, rest } = leadingHeading(md?.text ?? "");
+  const sections = documentSections(rest);
+  const active = useActiveSection(
+    sections.map((s) => s.id),
+    bodyRef,
+  );
   if (split?.body.t !== "section") return null;
   const options = (split.actions as Extract<UINode, { t: "actions" }>).actions;
-  const children = split.body.children;
-  const changes = children.find((c) => c.t === "section");
-  const md = children.find((c) => c.t === "markdown") as
-    | Extract<UINode, { t: "markdown" }>
-    | undefined;
+  const changes = split.body.children.find((c) => c.t === "section");
+  const question = interaction.title;
+  const title = heading ?? question;
   const answer = (actionId: string) => {
     setSheet(false);
     onRespond({ kind: "action", actionId });
@@ -414,21 +460,33 @@ function DocumentInteraction({
     i === 0 || tone === "primary" ? "primary" : tone === "danger" ? "danger" : "secondary";
   const showBar = !disabled && !optionsVisible;
   const wrapBtn = "h-auto min-h-9 min-w-0 py-1.5 text-left leading-tight whitespace-normal";
+  const jump = (el: HTMLElement | null) => scrollTo(el, "start");
   return (
     <article
       id={id}
       data-testid="document-interaction"
-      aria-label={`Question: ${interaction.title}`}
-      className="min-w-0 border-y border-border bg-surface"
+      aria-label={`Question: ${question}`}
+      className={cn(
+        "w-full min-w-0 self-stretch border-t border-border",
+
+        className,
+      )}
     >
       <header
         className={cn(
-          "z-10 flex items-center gap-2 border-b border-border bg-surface/95 px-4 py-2 backdrop-blur",
-          sticky && "sticky top-0",
+          "z-10 flex min-w-0 items-start gap-2 border-b border-border bg-bg/95 px-4 py-2 backdrop-blur md:items-center md:px-6",
+          sticky && "sticky -top-3",
         )}
       >
-        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{interaction.title}</h3>
-        <StatusChip kind="interaction" value={interaction.state} size="sm" />
+        <h3 className="line-clamp-2 min-w-0 flex-1 text-[15px] leading-snug font-semibold break-words md:line-clamp-none md:truncate md:text-sm">
+          {title}
+        </h3>
+        <StatusChip
+          kind="interaction"
+          value={interaction.state}
+          size="sm"
+          className={mobile ? "[&>span]:sr-only" : undefined}
+        />
         {!disabled && !optionsVisible && (
           <button
             type="button"
@@ -440,87 +498,152 @@ function DocumentInteraction({
         )}
       </header>
       {changes && (
-        <aside className="mx-4 mt-3 rounded-md bg-warning-soft px-3 py-2 text-sm">
+        <aside className="mx-4 mt-3 rounded-md bg-warning-soft px-3 py-2 text-sm md:mx-6">
           <UINodeRenderer node={changes} />
         </aside>
       )}
-      <div ref={startRef} className="sy-prose sy-prose-compact scroll-mt-12 px-4 py-3">
-        {md && (
-          <UINodeRenderer
-            node={{ t: "markdown", text: stripLeadingTitle(md.text, interaction.title) }}
-          />
+      <div className="px-4 py-4 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8 md:px-6">
+        {sections.length > 0 && (
+          <nav aria-label="Plan sections" className="hidden md:block">
+            <ol className="sticky top-14 flex flex-col gap-0.5 border-l border-border text-sm">
+              <li>
+                <button
+                  type="button"
+                  className="-ml-px block w-full truncate border-l-2 border-transparent py-1 pl-3 text-left text-muted hover:text-text"
+                  onClick={() => jump(startRef.current)}
+                >
+                  Start
+                </button>
+              </li>
+              {sections.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    aria-current={active === s.id}
+                    className="-ml-px block w-full truncate border-l-2 border-transparent py-1 pl-3 text-left text-muted hover:text-text aria-[current=true]:border-accent aria-[current=true]:text-text"
+                    onClick={() =>
+                      jump(
+                        bodyRef.current?.querySelector<HTMLElement>(`#${CSS.escape(s.id)}`) ?? null,
+                      )
+                    }
+                  >
+                    {s.text}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </nav>
         )}
+        <div ref={startRef} className="min-w-0 scroll-mt-14">
+          <div ref={bodyRef} className="sy-prose-compact max-w-[80ch] min-w-0 [&_h2]:scroll-mt-14">
+            <Markdown text={rest} headingIds className="text-inherit" />
+          </div>
+        </div>
       </div>
-      <div
+      <section
         ref={optionsRef}
         data-testid="plan-options"
-        className="flex min-w-0 flex-col gap-2 border-t border-border px-4 py-3 md:flex-row md:flex-wrap"
+        aria-label={question}
+        className="border-t border-border px-4 py-3 md:px-6"
       >
-        {!disabled &&
-          options.map((o, i) => (
-            <Button
-              key={o.id}
-              variant={variant(i, o.tone)}
-              disabled={busy}
-              className={cn(wrapBtn, "md:text-center")}
-              onClick={() => answer(o.id)}
-            >
-              {o.label}
-            </Button>
-          ))}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="self-start md:ml-auto"
-          icon={<ArrowUp className="size-4" />}
-          onClick={() => scrollTo(startRef.current, "start")}
+        <p className="mb-2 text-sm font-medium">{question}</p>
+        {!disabled && (
+          <div className="flex min-w-0 flex-col gap-2 md:flex-row md:flex-wrap">
+            {options.map((o, i) => (
+              <Button
+                key={o.id}
+                variant={variant(i, o.tone)}
+                size={mobile ? "md" : "sm"}
+                disabled={busy}
+                className={cn(wrapBtn, "md:text-center")}
+                onClick={() => answer(o.id)}
+              >
+                {o.label}
+              </Button>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent"
+          onClick={() => jump(startRef.current)}
         >
+          <ArrowUp aria-hidden className="size-3.5" />
           Back to the plan start
-        </Button>
-      </div>
+        </button>
+      </section>
       {showBar && (
         <div
           data-testid="answer-bar"
-          className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border bg-surface/95 px-4 py-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur"
+          className={cn(
+            "z-10 flex min-w-0 items-center gap-2 border-t border-border bg-bg/95 px-4 py-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur md:gap-3 md:px-6",
+            sticky ? "sticky -bottom-3" : "sticky bottom-0",
+          )}
         >
-          <IconButton
-            label="Plan start"
-            icon={<ArrowUp className="size-4" />}
-            variant="secondary"
-            onClick={() => scrollTo(startRef.current, "start")}
-          />
-          {mobile && options.length > 2 ? (
+          {mobile ? (
             <>
-              <Button
-                variant="primary"
-                disabled={busy}
-                className={cn(wrapBtn, "flex-1")}
-                onClick={() => answer(options[0]!.id)}
-              >
-                {options[0]!.label}
-              </Button>
-              <Button variant="secondary" onClick={() => setSheet(true)}>
-                More ({options.length - 1})
-              </Button>
+              <IconButton
+                label="Plan start"
+                icon={<ArrowUp className="size-4" />}
+                variant="secondary"
+                onClick={() => jump(startRef.current)}
+              />
+              {options.length > 2 ? (
+                <>
+                  <Button
+                    variant="primary"
+                    disabled={busy}
+                    className={cn(wrapBtn, "flex-1")}
+                    onClick={() => answer(options[0]!.id)}
+                  >
+                    {options[0]!.label}
+                  </Button>
+                  <Button variant="secondary" onClick={() => setSheet(true)}>
+                    More ({options.length - 1})
+                  </Button>
+                </>
+              ) : (
+                options.map((o, i) => (
+                  <Button
+                    key={o.id}
+                    variant={variant(i, o.tone)}
+                    disabled={busy}
+                    className={cn(wrapBtn, "flex-1")}
+                    onClick={() => answer(o.id)}
+                  >
+                    {o.label}
+                  </Button>
+                ))
+              )}
             </>
           ) : (
-            <div className="flex min-w-0 flex-1 flex-wrap gap-2">
-              {options.map((o, i) => (
-                <Button
-                  key={o.id}
-                  variant={variant(i, o.tone)}
-                  disabled={busy}
-                  className={cn(wrapBtn, mobile && "flex-1")}
-                  onClick={() => answer(o.id)}
-                >
-                  {o.label}
-                </Button>
-              ))}
-            </div>
+            <>
+              <span className="shrink-0 text-sm font-medium">{question}</span>
+              <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+                {options.map((o, i) => (
+                  <Button
+                    key={o.id}
+                    size="sm"
+                    variant={variant(i, o.tone)}
+                    disabled={busy}
+                    onClick={() => answer(o.id)}
+                  >
+                    {o.label}
+                  </Button>
+                ))}
+              </div>
+              <IconButton
+                label="Plan start"
+                icon={<ArrowUp className="size-4" />}
+                variant="secondary"
+                size="sm"
+                onClick={() => jump(startRef.current)}
+              />
+            </>
           )}
         </div>
       )}
-      <Sheet open={sheet} onClose={() => setSheet(false)} title={interaction.title}>
+      <Sheet open={sheet} onClose={() => setSheet(false)} title={question}>
         <div className="flex flex-col gap-2">
           {options.map((o, i) => (
             <Button

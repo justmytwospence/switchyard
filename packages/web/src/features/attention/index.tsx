@@ -3,7 +3,7 @@ import { Bell, CircleCheck, ExternalLink, Eye, ListTodo, Server } from "lucide-r
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ROUTES } from "../../app/routes";
-import { InteractionCard } from "../../components/intent/InteractionCard";
+import { InteractionCard, isDocumentPresentation } from "../../components/intent/InteractionCard";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { ATTENTION_STATUS, StatusChip } from "../../components/ui/StatusChip";
@@ -252,6 +252,52 @@ function AttentionRow({ item }: { item: AttentionItem }) {
         />
       ) : null;
       break;
+  }
+
+  const metaText =
+    [project?.name, task?.title, session && session.title !== task?.title ? session.title : null]
+      .filter(Boolean)
+      .join(" · ") || "Switchyard";
+
+  // A plan awaiting approval gets the whole width: one meta line, no card around it.
+  if (
+    item.reason === "needs_input" &&
+    interaction?.state === "pending" &&
+    isDocumentPresentation(interaction.presentation)
+  ) {
+    return (
+      <article
+        aria-label={`Plan awaiting approval: ${metaText}`}
+        className="flex min-w-0 flex-col gap-2"
+      >
+        <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
+          <span className="min-w-0 truncate">{metaText}</span>
+          {sessionHref && (
+            <Link to={sessionHref} className={buttonClasses("ghost", "sm")}>
+              <ExternalLink aria-hidden className="size-3.5" />
+              Open session
+            </Link>
+          )}
+          <time dateTime={item.createdAt} className="ml-auto shrink-0 text-xs text-subtle">
+            {formatRelative(item.createdAt)}
+          </time>
+          {!item.acknowledgedAt && (
+            <Button size="sm" variant="ghost" busy={busy} onClick={() => void acknowledge()}>
+              Acknowledge
+            </Button>
+          )}
+        </div>
+        {action}
+        {ackError !== null && (
+          <ErrorState
+            compact
+            title="Could not acknowledge"
+            error={errorMessage(ackError)}
+            onRetry={() => void acknowledge()}
+          />
+        )}
+      </article>
+    );
   }
 
   return (
