@@ -459,7 +459,12 @@ describe("slash commands", () => {
     });
     expect(parseClientCommand("/name")?.kind).toBe("invalid");
     expect(parseClientCommand("/name New title")).toEqual({ kind: "name", title: "New title" });
-    expect(parseClientCommand("/tree")).toEqual({ kind: "terminal-only", name: "tree" });
+    expect(parseClientCommand("/tree")).toEqual({ kind: "tree" });
+    expect(parseClientCommand("/settings")).toEqual({ kind: "terminal-only", name: "settings" });
+    expect(parseClientCommand("/new fix it")).toEqual({ kind: "new", prompt: "fix it" });
+    for (const k of ["fork", "clone", "resume", "reload", "export", "session", "copy"]) {
+      expect(parseClientCommand(`/${k}`)).toEqual({ kind: k });
+    }
     expect(parseClientCommand("/fixture-hello")).toBeNull();
     expect(parseClientCommand("plain text")).toBeNull();
   });
@@ -468,7 +473,14 @@ describe("slash commands", () => {
     const compact = parseClientCommand("/compact")!;
     expect(clientCommandProblem(compact, true)).toContain("Wait for the run");
     expect(clientCommandProblem(compact, false)).toBeNull();
-    expect(clientCommandProblem(parseClientCommand("/tree")!, false)).toContain("terminal");
+    expect(clientCommandProblem(parseClientCommand("/settings")!, false)).toContain("terminal");
+    expect(clientCommandProblem(parseClientCommand("/fork")!, false, false)).toContain(
+      "no Pi session file",
+    );
+    expect(clientCommandProblem(parseClientCommand("/fork")!, false, true)).toBeNull();
+    expect(clientCommandProblem(parseClientCommand("/reload")!, true)).toContain(
+      "Wait for the run",
+    );
   });
 
   it("filters, ranks and merges", () => {
@@ -485,6 +497,7 @@ describe("slash commands", () => {
       "thinking",
       "compact",
       "name",
+      ...CLIENT_COMMANDS.slice(4).map((c) => c.name),
       "alpha",
       "rev",
       "zeta",
@@ -533,11 +546,27 @@ describe("activeArgumentHint", () => {
 describe("terminal built-ins", () => {
   it("are listed but blocked", () => {
     const merged = mergeCommands(CLIENT_COMMANDS, []);
-    expect(merged).toContainEqual(expect.objectContaining({ name: "tree", source: "terminal" }));
-    for (const n of ["model", "thinking", "compact", "name"]) {
+    expect(merged).toContainEqual(
+      expect.objectContaining({ name: "settings", source: "terminal" }),
+    );
+    for (const n of [
+      "model",
+      "thinking",
+      "compact",
+      "name",
+      "new",
+      "fork",
+      "clone",
+      "tree",
+      "resume",
+      "reload",
+      "export",
+      "session",
+      "copy",
+    ]) {
       expect(TERMINAL_COMMANDS.some((c) => c.name === n)).toBe(false);
     }
-    expect(parseClientCommand("/tree")?.kind).toBe("terminal-only");
+    expect(parseClientCommand("/settings")?.kind).toBe("terminal-only");
   });
   it("pill labels drop the provider prefix", () => {
     expect(pillModelLabel(mockModel("m", { name: "Mock One" }))).toBe("Mock One");

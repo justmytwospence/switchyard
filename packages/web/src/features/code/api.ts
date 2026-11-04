@@ -1,6 +1,8 @@
 import type {
+  CommandView,
   DiffResult,
   FileEntry,
+  ImportableSession,
   ModelStateResult,
   Run,
   Session,
@@ -9,6 +11,7 @@ import type {
   SlashCommand,
   Task,
   ThinkingLevel,
+  TreeRow,
 } from "@switchyard/protocol";
 import { apiGet, apiPost } from "../../sync/api";
 
@@ -34,6 +37,7 @@ export interface PromptResult {
   ok: boolean;
   clientMessageId: string | null;
   automationActive: boolean;
+  result: { disposition: string; view?: CommandView | null } | null;
 }
 
 export const codeApi = {
@@ -51,6 +55,21 @@ export const codeApi = {
     apiGet<{ models: SessionModel[] }>(`${s(id)}/models`, undefined, signal),
   commands: (id: string, signal?: AbortSignal) =>
     apiGet<{ commands: SlashCommand[] }>(`${s(id)}/commands`, undefined, signal),
+  tree: (id: string) => apiGet<{ rows: TreeRow[] }>(`${s(id)}/tree`),
+  branch: (id: string, entryId: string | null, fork: boolean) =>
+    apiPost<{ session: Session | null; prefill: string | null }>(`${s(id)}/branch`, {
+      entryId,
+      fork,
+    }),
+  reload: (id: string) => apiPost<{ ok: true }>(`${s(id)}/reload`),
+  exportFile: (id: string) => apiGet<{ fileName: string; content: string }>(`${s(id)}/export`),
+  importable: (hostId: string) =>
+    apiGet<(ImportableSession & { importedSessionId: string | null })[]>(
+      "/api/sessions/importable",
+      { hostId },
+    ),
+  importSession: (hostId: string, sessionFile: string, projectId: string | null) =>
+    apiPost<Session>("/api/sessions/import", { hostId, sessionFile, projectId }),
   complete: (id: string, text: string, signal?: AbortSignal) =>
     apiPost<SessionCompleteResult>(`${s(id)}/complete`, { text }, signal),
   setModel: (id: string, provider: string, modelId: string) =>

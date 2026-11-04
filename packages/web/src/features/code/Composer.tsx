@@ -1,3 +1,4 @@
+import type { CommandView, Session } from "@switchyard/protocol";
 import {
   Camera,
   Hand,
@@ -12,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { useHideBottomNav } from "../../app/chrome";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
@@ -20,10 +22,13 @@ import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
+import { setDraftNow } from "../../drafts";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
+import { useSyncStore } from "../../sync/store";
 import { codeApi, type PromptMode } from "./api";
+import { CommandViewDrawer } from "./CommandViewDrawer";
 import type { SessionContext } from "./hooks";
 import {
   activeArgumentHint,
@@ -44,7 +49,10 @@ import {
   sendModes,
 } from "./model";
 import { ContextMeter, EffortControl, ModelControl } from "./PiControls";
+import { ResumeDialog, TreeDialog } from "./SessionCommandDialogs";
+import { SessionInfoDialog } from "./SessionInfoDialog";
 import { SlashCompletions, SlashPicker } from "./SlashPicker";
+import { rememberInitialPrompt } from "./startingPrompts";
 import { useArgumentCompletions } from "./useArgumentCompletions";
 import { useSessionCommands } from "./useSessionCommands";
 
@@ -92,6 +100,10 @@ export function Composer({
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [view, setView] = useState<CommandView | null>(null);
+  const [viewBusy, setViewBusy] = useState(false);
+  const [dialogKind, setDialogKind] = useState<null | "tree" | "fork" | "resume" | "info">(null);
+  const navigate = useNavigate();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -132,7 +144,59 @@ export function Composer({
   };
   const shown = slashOpen ? filterCommands(entries, draft.slice(1)) : [];
   const clientCmd = controls ? parseClientCommand(text) : null;
-  const commandProblem = clientCmd ? clientCommandProblem(clientCmd, running) : null;
+  const commandProblem = clientCmd
+    ? clientCommandProblem(clientCmd, running, !!session.nativeHandle)
+    : null;
+  const openSession = (id: string) => navigate(`/code/${encodeURIComponent(id)}`);
+  const startNew = async (prompt: string): Promise<Session> => {
+    if (!session.projectId || !session.workspaceId) {
+      throw new Error("This session has no project workspace");
+    }
+    const s = await codeApi.createSession({
+      projectId: session.projectId,
+      workspace: { existingId: session.workspaceId },
+      prompt,
+    });
+    useSyncStore.getState().upsertSessionIfMissing(s);
+    if (prompt) rememberInitialPrompt(s.id, prompt);
+    return s;
+  };
+  const afterBranch = async (r: { session: Session | null; prefill: string | null }) => {
+    if (r.session) {
+      useSyncStore.getState().upsertSessionIfMissing(r.session);
+      if (r.prefill) setDraftNow(r.session.id, r.prefill);
+      void codeApi.resume(r.session.id).catch(() => {});
+      openSession(r.session.id);
+      return;
+    }
+    const s = await startNew("");
+    setDraftNow(s.id, r.prefill ?? "");
+    openSession(s.id);
+  };
+  const runViewCommand = async (command: string) => {
+    setViewBusy(true);
+    try {
+      const r = await codeApi.prompt(session.id, { text: command, mode: "prompt" });
+      if (r?.result?.view) setView(r.result.view);
+      else {
+        setView(null);
+        toast.success(`Ran ${command}`);
+      }
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setViewBusy(false);
+    }
+  };
+  const pickBranch = async (entryId: string) => {
+    const fork = dialogKind === "fork";
+    setDialogKind(null);
+    try {
+      await afterBranch(await codeApi.branch(session.id, entryId, fork));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
   const pick = (e: CommandEntry) => {
     setDraft(`/${e.name} `);
     textRef.current?.focus();
@@ -170,6 +234,7 @@ export function Composer({
       if (textRef.current?.value === sent) clearDraft();
       setAttachments([]);
       setSlashDismissed(false);
+      if (res?.result?.view) setView(res.result.view);
       if (res?.automationActive) toast.info(AUTOMATION_WARNING);
       else if (mode === "followUp") toast.success("Follow-up queued");
       else if (mode === "steer") toast.success("Steering message sent");
@@ -200,6 +265,44 @@ export function Composer({
       case "name":
         await codeApi.rename(session.id, cmd.title);
         toast.success("Session renamed");
+        return;
+      case "new":
+        openSession((await startNew(cmd.prompt)).id);
+        return;
+      case "fork":
+        setDialogKind("fork");
+        return;
+      case "tree":
+        setDialogKind("tree");
+        return;
+      case "resume":
+        setDialogKind("resume");
+        return;
+      case "clone":
+        await afterBranch(await codeApi.branch(session.id, null, false));
+        return;
+      case "reload":
+        await codeApi.reload(session.id);
+        toast.success("Reloading Pi…");
+        return;
+      case "export": {
+        const f = await codeApi.exportFile(session.id);
+        const url = URL.createObjectURL(new Blob([f.content], { type: "application/x-ndjson" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = f.fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      case "session":
+        setDialogKind("info");
+        return;
+      case "copy":
+        if (session.lastAssistantText) {
+          await navigator.clipboard.writeText(session.lastAssistantText);
+          toast.success("Copied the last reply");
+        } else toast.info("No reply to copy yet");
         return;
       default:
         return;
@@ -708,6 +811,38 @@ export function Composer({
           </Button>
         </div>
       </Sheet>
+      <TreeDialog
+        session={session}
+        mode={dialogKind === "fork" ? "fork" : "tree"}
+        open={dialogKind === "tree" || dialogKind === "fork"}
+        mobile={mobile}
+        onClose={() => setDialogKind(null)}
+        onPick={(id) => void pickBranch(id)}
+      />
+      <ResumeDialog
+        session={session}
+        open={dialogKind === "resume"}
+        mobile={mobile}
+        onClose={() => setDialogKind(null)}
+        onOpen={(id) => {
+          setDialogKind(null);
+          openSession(id);
+        }}
+      />
+      <SessionInfoDialog
+        session={session}
+        hostLabel={`${ctx.hostName} (${ctx.link})`}
+        open={dialogKind === "info"}
+        onClose={() => setDialogKind(null)}
+      />
+      <CommandViewDrawer
+        view={view}
+        open={!!view}
+        busy={viewBusy}
+        mobile={mobile}
+        onClose={() => setView(null)}
+        onRun={(c) => void runViewCommand(c)}
+      />
     </section>
   );
 }

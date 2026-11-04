@@ -5,12 +5,12 @@ import { Dialog } from "../../components/ui/Overlay";
 import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
-import { formatTime } from "../../lib/time";
 import { errorMessage } from "../../sync/api";
 import { codeApi } from "./api";
 import type { SessionContext } from "./hooks";
 import { useMutation } from "./hooks";
 import { isBusy, isLive } from "./model";
+import { SessionInfoDialog } from "./SessionInfoDialog";
 
 export interface SessionActions {
   canTakeover: boolean;
@@ -175,18 +175,12 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
         )}
       </Dialog>
 
-      <Dialog open={dialog === "info"} onClose={close} title="Native session information">
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
-          <InfoRow label="Switchyard session" value={session.id} />
-          <InfoRow label="Pi session id" value={session.nativeHandle?.sessionId ?? "Not started"} />
-          <InfoRow label="Session file" value={session.nativeHandle?.sessionFile ?? "None yet"} />
-          <InfoRow label="Host" value={`${ctx.hostName} (${ctx.link})`} />
-          <InfoRow label="Working directory" value={session.cwd} />
-          <InfoRow label="Origin" value={session.provenance} />
-          <InfoRow label="Profile" value={session.profileSnapshot.name} />
-          <InfoRow label="Created" value={formatTime(session.createdAt)} />
-        </dl>
-      </Dialog>
+      <SessionInfoDialog
+        session={session}
+        hostLabel={`${ctx.hostName} (${ctx.link})`}
+        open={dialog === "info"}
+        onClose={close}
+      />
     </>
   );
 
@@ -212,13 +206,4 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
     busy: { takeover: takeover.busy, ret: ret.busy, stop: stop.busy, resume: resume.busy },
     dialogs,
   };
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt className="text-muted">{label}</dt>
-      <dd className="min-w-0 font-mono text-xs break-all">{value}</dd>
-    </>
-  );
 }

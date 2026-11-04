@@ -732,25 +732,72 @@ export const CLIENT_COMMANDS: CommandEntry[] = [
     source: "switchyard",
     argumentHint: "<name>",
   },
+  {
+    name: "new",
+    description: "Start a new session in this workspace",
+    source: "switchyard",
+    argumentHint: "[prompt]",
+  },
+  {
+    name: "fork",
+    description: "Start a new session from one of your messages",
+    source: "switchyard",
+    argumentHint: null,
+  },
+  {
+    name: "clone",
+    description: "Copy this conversation into a new session",
+    source: "switchyard",
+    argumentHint: null,
+  },
+  {
+    name: "tree",
+    description: "Start a new session from any point in the conversation tree",
+    source: "switchyard",
+    argumentHint: null,
+  },
+  {
+    name: "resume",
+    description: "Open another Pi session from this folder",
+    source: "switchyard",
+    argumentHint: null,
+  },
+  {
+    name: "reload",
+    description: "Reload extensions, skills, prompts and context files",
+    source: "switchyard",
+    argumentHint: null,
+  },
+  {
+    name: "export",
+    description: "Download this session's .jsonl file",
+    source: "switchyard",
+    argumentHint: null,
+  },
+  {
+    name: "session",
+    description: "Show session info and stats",
+    source: "switchyard",
+    argumentHint: null,
+  },
+  {
+    name: "copy",
+    description: "Copy the last reply to the clipboard",
+    source: "switchyard",
+    argumentHint: null,
+  },
 ];
 
 export const TERMINAL_COMMANDS: CommandEntry[] = [
-  { name: "settings", description: "Open settings menu", source: "terminal", argumentHint: null },
   {
-    name: "tree",
-    description: "Navigate session tree (switch branches)",
+    name: "settings",
+    description: "Open settings menu",
     source: "terminal",
     argumentHint: null,
   },
   {
     name: "scoped-models",
     description: "Enable/disable models for Ctrl+P cycling",
-    source: "terminal",
-    argumentHint: null,
-  },
-  {
-    name: "export",
-    description: "Export session (HTML default, or specify path: .html/.jsonl)",
     source: "terminal",
     argumentHint: null,
   },
@@ -773,18 +820,6 @@ export const TERMINAL_COMMANDS: CommandEntry[] = [
     argumentHint: "<description>",
   },
   {
-    name: "copy",
-    description: "Copy last agent message to clipboard",
-    source: "terminal",
-    argumentHint: null,
-  },
-  {
-    name: "session",
-    description: "Show session info and stats",
-    source: "terminal",
-    argumentHint: null,
-  },
-  {
     name: "changelog",
     description: "Show changelog entries",
     source: "terminal",
@@ -793,18 +828,6 @@ export const TERMINAL_COMMANDS: CommandEntry[] = [
   {
     name: "hotkeys",
     description: "Show all keyboard shortcuts",
-    source: "terminal",
-    argumentHint: null,
-  },
-  {
-    name: "fork",
-    description: "Create a new fork from a previous user message",
-    source: "terminal",
-    argumentHint: null,
-  },
-  {
-    name: "clone",
-    description: "Duplicate the current session at the current position",
     source: "terminal",
     argumentHint: null,
   },
@@ -826,20 +849,12 @@ export const TERMINAL_COMMANDS: CommandEntry[] = [
     source: "terminal",
     argumentHint: null,
   },
-  { name: "new", description: "Start a new session", source: "terminal", argumentHint: null },
   {
-    name: "resume",
-    description: "Resume a different session",
+    name: "quit",
+    description: "Quit Pi",
     source: "terminal",
     argumentHint: null,
   },
-  {
-    name: "reload",
-    description: "Reload keybindings, extensions, skills, prompts, themes, and context files",
-    source: "terminal",
-    argumentHint: null,
-  },
-  { name: "quit", description: "Quit Pi", source: "terminal", argumentHint: null },
 ];
 
 export const TERMINAL_ONLY_COMMANDS = TERMINAL_COMMANDS.map((c) => c.name);
@@ -914,6 +929,8 @@ export type ClientCommand =
   | { kind: "thinking"; level: ThinkingLevel }
   | { kind: "compact"; instructions: string | null }
   | { kind: "name"; title: string }
+  | { kind: "new"; prompt: string }
+  | { kind: "fork" | "clone" | "tree" | "resume" | "reload" | "export" | "session" | "copy" }
   | { kind: "invalid"; reason: string }
   | { kind: "terminal-only"; name: string };
 
@@ -952,17 +969,43 @@ export function parseClientCommand(text: string): ClientCommand | null {
         return { kind: "invalid", reason: "Session names are at most 200 characters" };
       }
       return { kind: "name", title: arg };
+    case "new":
+      return { kind: "new", prompt: arg };
+    case "fork":
+    case "clone":
+    case "tree":
+    case "resume":
+    case "reload":
+    case "export":
+    case "session":
+    case "copy":
+      return { kind: name };
     default:
       return TERMINAL_ONLY_COMMANDS.includes(name) ? { kind: "terminal-only", name } : null;
   }
 }
 
-export function clientCommandProblem(cmd: ClientCommand, running: boolean): string | null {
+export function clientCommandProblem(
+  cmd: ClientCommand,
+  running: boolean,
+  hasNative = true,
+): string | null {
   if (cmd.kind === "invalid") return cmd.reason;
   if (cmd.kind === "terminal-only") {
     return `/${cmd.name} is a Pi terminal command: open the session's terminal to use it`;
   }
   if (cmd.kind === "compact" && running) return "Wait for the run to finish before compacting";
+  if (
+    !hasNative &&
+    (cmd.kind === "fork" ||
+      cmd.kind === "clone" ||
+      cmd.kind === "tree" ||
+      cmd.kind === "export" ||
+      cmd.kind === "reload")
+  ) {
+    return "This session has no Pi session file yet";
+  }
+  if (cmd.kind === "reload" && running) return "Wait for the run to finish before reloading";
   return null;
 }
 

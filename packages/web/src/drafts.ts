@@ -52,6 +52,14 @@ export function flushDraft(sessionId: string): void {
   write(DRAFT_PREFIX + sessionId, p.text);
 }
 
+/** Save a draft immediately (before navigating to the session). */
+export function setDraftNow(sessionId: string, text: string): void {
+  const p = pending.get(sessionId);
+  if (p) clearTimeout(p.timer);
+  pending.delete(sessionId);
+  write(DRAFT_PREFIX + sessionId, text);
+}
+
 export function clearDraft(sessionId: string): void {
   const p = pending.get(sessionId);
   if (p) clearTimeout(p.timer);
