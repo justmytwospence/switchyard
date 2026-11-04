@@ -659,6 +659,7 @@ function DocumentInteraction({
                     key={o.id}
                     variant={variant(i, o.tone)}
                     disabled={busy}
+                    className="flex-auto"
                     onClick={() => answer(o.id)}
                   >
                     {o.label}
