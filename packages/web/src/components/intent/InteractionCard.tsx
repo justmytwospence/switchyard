@@ -653,13 +653,13 @@ function DocumentInteraction({
           ) : (
             <>
               <span className="shrink-0 text-sm font-medium">{question}</span>
-              <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+              <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 min-[1700px]:grid-cols-6">
                 {options.map((o, i) => (
                   <Button
                     key={o.id}
                     variant={variant(i, o.tone)}
                     disabled={busy}
-                    className="flex-auto"
+                    className="w-full"
                     onClick={() => answer(o.id)}
                   >
                     {o.label}
