@@ -17,10 +17,19 @@ function fakeSm() {
   const ub = msg("u2", "c1", "user", "x".repeat(300));
   const uc = msg("u3", "a1", "user", "other");
   const tree = [node(root, [node(a, [node(hidden, [node(ub)]), node(uc, [], "tag")])])];
-  const entries: Record<string, any> = { u1: root, a1: a, c1: hidden, u2: ub, u3: uc };
+  const setup = { id: "s0", parentId: null, type: "model_change", timestamp: "t" };
+  (root as any).parentId = "s0";
+  const entries: Record<string, any> = { s0: setup, u1: root, a1: a, c1: hidden, u2: ub, u3: uc };
   return {
     getTree: () => tree,
-    getBranch: () => [root, a, hidden, ub],
+    getBranch: (from?: string) => {
+      const path = [root, a, hidden, ub];
+      if (!from) return path;
+      const chain: any[] = [];
+      for (let e = entries[from]; e; e = e.parentId ? entries[e.parentId] : undefined)
+        chain.unshift(e);
+      return chain;
+    },
     getLeafId: () => "u2",
     getEntry: (id: string) => entries[id],
     createBranchedSession: vi.fn((id: string) => `/tmp/branch-${id}.jsonl`),
@@ -47,11 +56,11 @@ describe("branchSession", () => {
   const load = (sm: any) => async () => ({ open: () => sm });
   it("forks from the parent of a user message and returns its text", async () => {
     const sm = fakeSm();
-    const r = await branchSession("/s/x.jsonl", "u3", true, undefined, load(sm));
+    const r = await branchSession("/s/x.jsonl", "u3", true, undefined, load(sm), false);
     expect(sm.createBranchedSession).toHaveBeenCalledWith("a1");
     expect(r).toEqual({ sessionFile: "/tmp/branch-a1.jsonl", prefill: "other" });
   });
-  it("forking the first message writes no file", async () => {
+  it("forking the first message after setup entries writes no file", async () => {
     const sm = fakeSm();
     expect(await branchSession("/s/x.jsonl", "u1", true, undefined, load(sm))).toEqual({
       sessionFile: null,
@@ -66,7 +75,7 @@ describe("branchSession", () => {
   });
   it("clones the leaf when no entry is given", async () => {
     const sm = fakeSm();
-    await branchSession("/s/x.jsonl", null, false, undefined, load(sm));
+    await branchSession("/s/x.jsonl", null, false, undefined, load(sm), false);
     expect(sm.createBranchedSession).toHaveBeenCalledWith("u2");
   });
 });

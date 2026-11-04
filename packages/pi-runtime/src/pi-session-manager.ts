@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SwitchyardError, type TreeRow } from "@switchyard/protocol";
@@ -78,6 +79,7 @@ export async function branchSession(
   fork: boolean,
   piBin?: string,
   load: (piBin?: string) => Promise<any | null> = loadPiSessionManager,
+  checkFile = true,
 ): Promise<{ sessionFile: string | null; prefill: string | null }> {
   const SM = await load(piBin);
   if (!SM) {
@@ -103,8 +105,17 @@ export async function branchSession(
       throw new SwitchyardError("invalid_request", "This session has nothing to branch yet");
     }
   }
+  // Pi writes a branch file only once it holds a message; a branch of setup entries alone is empty.
+  const hasMessages = (sm.getBranch(target) ?? []).some(
+    (e: any) =>
+      e?.type === "message" && (e.message?.role === "user" || e.message?.role === "assistant"),
+  );
+  if (!hasMessages) {
+    if (fork) return { sessionFile: null, prefill };
+    throw new SwitchyardError("invalid_request", "There is no conversation before that point");
+  }
   const file = sm.createBranchedSession(target);
-  if (!file) {
+  if (!file || (checkFile && !existsSync(file))) {
     throw new SwitchyardError("invalid_request", "Pi did not write a branched session");
   }
   return { sessionFile: file, prefill };
