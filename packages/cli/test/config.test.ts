@@ -150,6 +150,56 @@ describe("credentials", () => {
     );
   });
 
+  it("never sends the local admin token to another coordinator", () => {
+    const paths = testCtx(fetch).paths!;
+    mkdirSync(paths.dataDir!, { recursive: true });
+    writeFileSync(join(paths.dataDir!, "admin.token"), "admintok\n");
+    writeEndpoint(paths.dataDir!, { localUrl: "http://127.0.0.1:7499", publicUrl: "x" });
+    const refused =
+      "Not signed in to https://remote.example; run `switchyard login --coordinator https://remote.example`";
+    expect(() => resolveConnection({ coordinator: "https://remote.example" }, {}, paths)).toThrow(
+      refused,
+    );
+    expect(() =>
+      resolveConnection({}, { SWITCHYARD_URL: "https://remote.example" }, paths),
+    ).toThrow(refused);
+    expect(resolveConnection({ coordinator: "http://localhost:9999" }, {}, paths)).toEqual({
+      url: "http://localhost:9999",
+      credential: "admintok",
+      source: "admin.token",
+    });
+    expect(resolveConnection({ coordinator: "http://127.0.0.1:7499/" }, {}, paths)).toEqual({
+      url: "http://127.0.0.1:7499",
+      credential: "admintok",
+      source: "admin.token",
+    });
+    writeEndpoint(paths.dataDir!, { localUrl: "http://10.0.0.5:7400", publicUrl: "x" });
+    expect(resolveConnection({ coordinator: "http://10.0.0.5:7400" }, {}, paths)).toEqual({
+      url: "http://10.0.0.5:7400",
+      credential: "admintok",
+      source: "admin.token",
+    });
+  });
+
+  it("SWITCHYARD_URL selects the coordinator for client.json", () => {
+    const paths = testCtx(fetch).paths!;
+    writeClientConfig(paths.clientConfig!, { coordinatorUrl: "https://sy", credential: "devcred" });
+    expect(resolveConnection({}, { SWITCHYARD_URL: "https://sy" }, paths)).toMatchObject({
+      url: "https://sy",
+      source: "client.json",
+    });
+    expect(() => resolveConnection({}, { SWITCHYARD_URL: "https://other" }, paths)).toThrow(
+      "Not signed in to https://other",
+    );
+  });
+
+  it("--credential without a URL names the right flags", () => {
+    const paths = testCtx(fetch).paths!;
+    expect(() => resolveConnection({ token: "x" }, {}, paths)).toThrow(
+      /--credential needs --coordinator/,
+    );
+  });
+
   it("login enrolls as a terminal and writes client.json with mode 0600", async () => {
     const { fetch, calls } = stubFetch({
       "POST /api/enroll": () => ({

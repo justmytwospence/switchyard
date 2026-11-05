@@ -30,7 +30,9 @@ Work commands (`sessions`, `tasks`, `automations`, `tui`, `doctor`) look for cre
 1. `--coordinator` and `--credential`
 2. `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`
 3. `~/.config/switchyard/client.json`, written by `switchyard login`
-4. the local `admin.token`, against the coordinator running on this machine (default `http://127.0.0.1:7400`)
+4. the local `admin.token`, against the coordinator running on this machine (default `http://127.0.0.1:7400`), and only against a loopback URL or the one in `cli-endpoint.json`; for any other coordinator, run `switchyard login`
+
+`SWITCHYARD_URL` selects the coordinator like `--coordinator`, for every source: `client.json` is used only when it is for that coordinator.
 
 ## Environment
 

@@ -223,7 +223,7 @@ switchyard tui <session id>
 
 `login` shows a link and a code; approve it in the browser. `--token <link from switchyard pair>` signs in without a browser. `login` writes `~/.config/switchyard/client.json` (mode 0600) and registers the terminal as a device of kind `terminal`.
 
-Work commands (`sessions`, `tasks`, `automations`, `tui`, `doctor`) resolve credentials in this order: `--coordinator`/`--credential` flags, `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`, `~/.config/switchyard/client.json`, then the local `admin.token` in the data dir against the coordinator recorded in `cli-endpoint.json`, else `http://127.0.0.1:7400`.
+Work commands (`sessions`, `tasks`, `automations`, `tui`, `doctor`) resolve credentials in this order: `--coordinator`/`--credential` flags, `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`, `~/.config/switchyard/client.json`, then the local `admin.token` in the data dir against the coordinator recorded in `cli-endpoint.json`, else `http://127.0.0.1:7400`. The admin token is sent only to a loopback URL or the one in `cli-endpoint.json`; `SWITCHYARD_URL` selects the coordinator like `--coordinator`.
 
 ## iOS Home Screen push
 

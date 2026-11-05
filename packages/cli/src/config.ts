@@ -102,10 +102,24 @@ export interface ConnectionFlags {
   dataDir?: string;
 }
 
+/** Whether `url` points at this machine (localhost, 127.x.x.x or ::1). */
+export function isLoopbackUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  host = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return host === "localhost" || host === "::1" || /^127(\.\d{1,3}){3}$/.test(host);
+}
+
 /**
- * Resolve where and as whom work commands talk to the coordinator: `--coordinator/--token`,
- * then `SWITCHYARD_URL`/`SWITCHYARD_TOKEN`, then `~/.config/switchyard/client.json`, then the
- * local `admin.token` in the data dir (against the local coordinator).
+ * Resolve where and as whom work commands talk to the coordinator. The coordinator is
+ * `--coordinator`, else `SWITCHYARD_URL`. The credential is `--credential`, then
+ * `SWITCHYARD_TOKEN`, then `~/.config/switchyard/client.json` (when it is for that coordinator),
+ * then the local `admin.token` in the data dir, but only against a loopback URL or the
+ * `localUrl` in `cli-endpoint.json`: the admin token never goes to another coordinator.
  */
 export function resolveConnection(
   flags: ConnectionFlags,
@@ -114,23 +128,34 @@ export function resolveConnection(
 ): Connection {
   const cfg = readClientConfig(paths.clientConfig ?? clientConfigPath(env));
   const dataDir = flags.dataDir ?? paths.dataDir ?? defaultDataDir(env);
+  const raw = flags.coordinator?.trim() || env.SWITCHYARD_URL?.trim() || undefined;
+  const target = raw ? trimUrl(raw) : undefined;
   if (flags.token) {
-    const url = flags.coordinator ?? env.SWITCHYARD_URL ?? cfg?.coordinatorUrl;
-    if (!url) throw new CliError("--token needs --coordinator <url>");
+    const url = target ?? cfg?.coordinatorUrl;
+    if (!url) throw new CliError("--credential needs --coordinator <url> (or SWITCHYARD_URL)");
     return { url: trimUrl(url), credential: flags.token, source: "flags" };
   }
   if (env.SWITCHYARD_TOKEN?.trim()) {
-    const url = flags.coordinator ?? env.SWITCHYARD_URL ?? cfg?.coordinatorUrl;
+    const url = target ?? cfg?.coordinatorUrl;
     if (!url) throw new CliError("SWITCHYARD_TOKEN needs SWITCHYARD_URL or --coordinator");
     return { url: trimUrl(url), credential: env.SWITCHYARD_TOKEN.trim(), source: "env" };
   }
-  if (cfg && (!flags.coordinator || trimUrl(flags.coordinator) === trimUrl(cfg.coordinatorUrl))) {
+  if (cfg && (!target || target === trimUrl(cfg.coordinatorUrl))) {
     return { url: trimUrl(cfg.coordinatorUrl), credential: cfg.credential, source: "client.json" };
   }
   const admin = readAdminToken(dataDir, env);
-  if (admin) {
-    const url = flags.coordinator ?? readEndpoint(dataDir)?.localUrl ?? DEFAULT_LOCAL_URL;
-    return { url: trimUrl(url), credential: admin, source: "admin.token" };
+  const localUrl = readEndpoint(dataDir)?.localUrl;
+  if (admin && (!target || isLoopbackUrl(target) || (localUrl && target === trimUrl(localUrl)))) {
+    return {
+      url: target ?? trimUrl(localUrl ?? DEFAULT_LOCAL_URL),
+      credential: admin,
+      source: "admin.token",
+    };
+  }
+  if (target) {
+    throw new CliError(
+      `Not signed in to ${target}; run \`switchyard login --coordinator ${target}\``,
+    );
   }
   throw new CliError(
     "Not signed in. Run `switchyard login --coordinator <url> --token <enrollment token>` " +
