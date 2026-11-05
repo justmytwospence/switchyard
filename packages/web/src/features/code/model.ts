@@ -12,9 +12,10 @@ import type {
   SessionModel,
   SlashCommand,
   TranscriptItem,
+  View,
   Workspace,
 } from "@switchyard/protocol";
-import { DEFAULT_WORKTREE_DIR, ThinkingLevel } from "@switchyard/protocol";
+import { DEFAULT_WORKTREE_DIR, sessionInView, ThinkingLevel } from "@switchyard/protocol";
 import { PANE_LIMITS } from "../../prefs";
 import { isBusyRuntime, isLiveRuntime, sessionsNeedingAttention } from "../../sync/selectors";
 import type { StreamBuffer } from "../../sync/store";
@@ -226,6 +227,8 @@ export interface NavOptions {
   sort?: NavSort;
   /** Sessions needing input before the rest. Default true. */
   needsInputFirst?: boolean;
+  /** Only sessions in this view. */
+  view?: View | null;
 }
 
 export interface NavInput {
@@ -342,6 +345,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   for (const s of Object.values(input.sessions)) {
     if (s.archivedAt !== null) continue;
     if (s.provenance === "subagent" && !opts.showSubagents) continue;
+    if (opts.view && !sessionInView(opts.view, s, input.workspaces)) continue;
     const needs = attn.has(s.id);
     if (opts.filter === "active" && !isLive(s) && !needs) continue;
     if (opts.filter === "attention" && !needs) continue;

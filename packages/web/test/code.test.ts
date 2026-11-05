@@ -184,6 +184,22 @@ describe("navigator tree", () => {
     expect(tree.groups[1]!.rows[0]).toMatchObject({ branch: "x" });
   });
 
+  it("with a view keeps only the view's sessions", () => {
+    const view = {
+      id: "viw_1",
+      name: "v",
+      mode: "pinned",
+      projectIds: null,
+      hostIds: null,
+      sessionIds: ["a"],
+      clients: [],
+      createdAt: "",
+      updatedAt: "",
+    } as const;
+    const tree = buildNavTree(input, { filter: "all", query: "", view: view as never });
+    expect(ids(tree)).toEqual(["a"]);
+  });
+
   it("Projects shows the host on each row when a project spans hosts", () => {
     const tree = buildNavTree(
       {

@@ -22,6 +22,7 @@ import {
 } from "./model";
 import { CHIP_SELECT, ProjectPicker } from "./ProjectPicker";
 import { rememberInitialPrompt } from "./startingPrompts";
+import { useSelectedView } from "./views";
 
 const NEW = "__new";
 
@@ -219,6 +220,9 @@ export function NewSessionFlow({
 }) {
   const id = useId();
   const f = useNewSessionForm(open, projectId);
+  const [selectedView] = useSelectedView();
+  const knownViews = useSyncStore((st) => st.views);
+  const viewId = selectedView && knownViews[selectedView] ? selectedView : null;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -247,6 +251,7 @@ export function NewSessionFlow({
         profileId: f.profileId || null,
         prompt: f.prompt,
         ...(f.title.trim() ? { title: f.title.trim() } : {}),
+        ...(viewId ? { viewId } : {}),
       });
       useSyncStore.getState().upsertSessionIfMissing(s);
       rememberInitialPrompt(s.id, f.prompt);

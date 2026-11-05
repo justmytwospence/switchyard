@@ -29,6 +29,7 @@ export type CreateSessionBody = {
   profileId?: string | null;
   prompt: string;
   title?: string;
+  viewId?: string;
 };
 
 export type PromptMode = "prompt" | "steer" | "followUp";

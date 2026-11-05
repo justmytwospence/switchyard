@@ -1,4 +1,4 @@
-import type { Session } from "@switchyard/protocol";
+import { openClients, type Session } from "@switchyard/protocol";
 import {
   ChevronDown,
   ChevronRight,
@@ -19,6 +19,7 @@ import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { Select } from "../../components/ui/Select";
 import { RUNTIME_STATUS, StatusChip, type StatusInfo } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
@@ -40,6 +41,7 @@ import {
   navTreeIsEmpty,
   projectIdOfGroup,
 } from "./model";
+import { useSelectedView } from "./views";
 
 interface NavPrefs {
   filter: NavFilter;
@@ -85,6 +87,9 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const sessions = useSyncStore((s) => s.sessions);
   const sort = prefs.sorts?.[prefs.layout] ?? DEFAULT_SORT[prefs.layout];
   const hostsMap = useSyncStore((s) => s.hosts);
+  const views = useSyncStore((s) => s.views);
+  const [selectedViewId, setSelectedViewId] = useSelectedView();
+  const view = (selectedViewId ? views[selectedViewId] : null) ?? null;
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
   const hosts = useHosts();
@@ -100,6 +105,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           showSubagents: prefs.showSubagents,
           sort,
           needsInputFirst: prefs.needsInputFirst,
+          view,
         },
       ),
     [
@@ -115,6 +121,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       prefs.showSubagents,
       sort,
       prefs.needsInputFirst,
+      view,
     ],
   );
   const collapsed = new Set(prefs.collapsed);
@@ -310,6 +317,30 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             className="pl-8"
           />
         </div>
+        {Object.keys(views).length > 0 && (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <Select
+              aria-label="View"
+              value={view?.id ?? ""}
+              onChange={(e) => setSelectedViewId(e.target.value || null)}
+            >
+              <option value="">All sessions</option>
+              {Object.values(views).map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </Select>
+            {view && openClients(view).length > 0 && (
+              <p className="truncate text-subtle text-xs">
+                Open in:{" "}
+                {openClients(view)
+                  .map((c) => `${c.kind} ${c.name} (${c.machine})`)
+                  .join(", ")}
+              </p>
+            )}
+          </div>
+        )}
         <div className="flex min-w-0 items-center gap-1">
           <SegmentedControl
             label="Session filter"
