@@ -1,4 +1,14 @@
-import { accessSync, constants, readFileSync, realpathSync } from "node:fs";
+import {
+  accessSync,
+  closeSync,
+  constants,
+  openSync,
+  readFileSync,
+  readSync,
+  realpathSync,
+  type Stats,
+  statSync,
+} from "node:fs";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
@@ -49,30 +59,110 @@ async function readFirstLine(file: string): Promise<string | null> {
   }
 }
 
-/** The last `session_info` name in a session file's text, or null. */
-export function lastSessionName(content: string): string | null {
+/** Bytes read from the end of a session file before falling back to the whole file. */
+const NAME_TAIL_BYTES = 64 * 1024;
+const NAME_CACHE_MAX = 5000;
+const nameCache = new Map<string, { mtimeMs: number; size: number; name: string | null }>();
+
+/** The last `session_info` entry in a session file's text: whether there is one, and its name. */
+function findSessionInfo(content: string): { found: boolean; name: string | null } {
+  let found = false;
   let name: string | null = null;
   for (const line of content.split("\n")) {
     if (!line.includes('"session_info"')) continue;
     try {
       const entry = JSON.parse(line.replace(/\r$/, ""));
       if (entry?.type === "session_info") {
+        found = true;
         name = typeof entry.name === "string" && entry.name.length > 0 ? entry.name : null;
       }
     } catch {
       // ignore malformed lines
     }
   }
-  return name;
+  return { found, name };
 }
 
-/** Read the current display name of a session file (sync; used before resuming). */
+/** The last `session_info` name in a session file's text, or null. */
+export function lastSessionName(content: string): string | null {
+  return findSessionInfo(content).name;
+}
+
+/**
+ * Decode a file's tail. When `partial` (the file is longer than the tail), the first, cut line
+ * is dropped, including any split multibyte character.
+ */
+function tailText(buf: Buffer, partial: boolean): string {
+  const text = buf.toString("utf8");
+  if (!partial) return text;
+  const nl = text.indexOf("\n");
+  return nl >= 0 ? text.slice(nl + 1) : "";
+}
+
+function cached(file: string, st: Stats): string | null | undefined {
+  const hit = nameCache.get(file);
+  return hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size ? hit.name : undefined;
+}
+
+function remember(file: string, st: Stats, name: string | null): void {
+  if (nameCache.size >= NAME_CACHE_MAX) nameCache.clear();
+  nameCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, name });
+}
+
+/**
+ * Read the current display name of a session file (sync; used before resuming): from its last
+ * 64 KB when a `session_info` entry is there, else from the whole file; cached by mtime and size.
+ */
 export function readSessionNameSync(file: string): string | null {
   try {
-    return lastSessionName(readFileSync(file, "utf8"));
+    const st = statSync(file);
+    const hit = cached(file, st);
+    if (hit !== undefined) return hit;
+    const len = Math.min(st.size, NAME_TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    const fd = openSync(file, "r");
+    let bytesRead: number;
+    try {
+      bytesRead = readSync(fd, buf, 0, len, st.size - len);
+    } finally {
+      closeSync(fd);
+    }
+    const partial = st.size > len;
+    const tail = findSessionInfo(tailText(buf.subarray(0, bytesRead), partial));
+    const name = tail.found
+      ? tail.name
+      : partial
+        ? lastSessionName(readFileSync(file, "utf8"))
+        : null;
+    remember(file, st, name);
+    return name;
   } catch {
     return null;
   }
+}
+
+/** Async `readSessionNameSync` for a file already stat'ed. */
+async function readSessionName(file: string, st: Stats): Promise<string | null> {
+  const hit = cached(file, st);
+  if (hit !== undefined) return hit;
+  const len = Math.min(st.size, NAME_TAIL_BYTES);
+  const buf = Buffer.alloc(len);
+  const fh = await open(file, "r");
+  let bytesRead: number;
+  try {
+    ({ bytesRead } = await fh.read(buf, 0, len, st.size - len));
+  } finally {
+    await fh.close();
+  }
+  const partial = st.size > len;
+  const tail = findSessionInfo(tailText(buf.subarray(0, bytesRead), partial));
+  const name = tail.found
+    ? tail.name
+    : partial
+      ? lastSessionName(await readFile(file, "utf8"))
+      : null;
+  remember(file, st, name);
+  return name;
 }
 
 async function findJsonl(dir: string, depth: number, out: string[]): Promise<void> {
@@ -99,17 +189,16 @@ export async function listImportable(
   const result: ImportableSession[] = [];
   for (const file of files) {
     try {
+      const st = await stat(file);
       const first = await readFirstLine(file);
       if (!first) continue;
       const header = JSON.parse(first);
       if (header?.type !== "session" || typeof header.id !== "string") continue;
-      const st = await stat(file);
-      const content = await readFile(file, "utf8");
       result.push({
         sessionFile: file,
         sessionId: header.id,
         cwd: typeof header.cwd === "string" ? header.cwd : "",
-        name: lastSessionName(content),
+        name: await readSessionName(file, st),
         mtime: st.mtime.toISOString(),
         inactive: now - st.mtimeMs > INACTIVE_AFTER_MS,
         createdAt: typeof header.timestamp === "string" ? header.timestamp : null,

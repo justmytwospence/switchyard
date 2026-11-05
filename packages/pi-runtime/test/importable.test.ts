@@ -1,4 +1,13 @@
-import { utimesSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { TranscriptItem } from "@switchyard/protocol";
 import { piBin, when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -6,6 +15,7 @@ import {
   listImportable,
   parseEntriesFallback,
   readNativeTranscript,
+  readSessionNameSync,
   resolvePiPackageRoot,
 } from "../src/index.js";
 import { type PiHarness, setupPi, skipRealPi, waitFor } from "./helpers.js";
@@ -78,5 +88,53 @@ describe.skipIf(skipRealPi)("importable sessions and native transcripts", () => 
 describe("native session parsing", () => {
   it("fallback parser skips malformed lines", () => {
     expect(parseEntriesFallback('{"a":1}\nbroken\r\n{"b":2}\r\n')).toEqual([{ a: 1 }, { b: 2 }]);
+  });
+});
+
+describe("session names", () => {
+  const header = (id: string) =>
+    `${JSON.stringify({ type: "session", id, cwd: "/x", timestamp: "2026-01-01T00:00:00.000Z" })}\n`;
+  const info = (name: string) => `${JSON.stringify({ type: "session_info", name })}\n`;
+  const filler = () => {
+    let out = "";
+    for (let i = 0; out.length < 100 * 1024; i++) {
+      out += `${JSON.stringify({ type: "message", id: `m${i}`, message: { role: "user", content: "x".repeat(200) } })}\n`;
+    }
+    return out;
+  };
+
+  it("reads the latest name from the tail, falls back to the whole file, and caches", async () => {
+    const root = mkdtempSync(join(tmpdir(), "switchyard-names-"));
+    try {
+      const file = join(root, "n1.jsonl");
+      writeFileSync(file, header("n1") + info("A") + filler());
+      expect(readSessionNameSync(file)).toBe("A");
+      appendFileSync(file, info("B"));
+      expect(readSessionNameSync(file)).toBe("B");
+      appendFileSync(file, info(""));
+      expect(readSessionNameSync(file)).toBeNull();
+
+      const tailNamed = join(root, "n2.jsonl");
+      writeFileSync(tailNamed, header("n2") + filler() + info("Tail"));
+      const list = await listImportable(root);
+      expect(list.find((x) => x.sessionId === "n1")?.name).toBeNull();
+      expect(list.find((x) => x.sessionId === "n2")?.name).toBe("Tail");
+
+      // The cache key is mtime and size: an in-place edit that keeps both is not seen.
+      const fixed = new Date("2026-01-02T00:00:00.000Z");
+      utimesSync(file, fixed, fixed);
+      expect(readSessionNameSync(file)).toBeNull();
+      const content = readFileSync(file, "utf8");
+      const edited = `${content.slice(0, -info("").length)}${info("Z").slice(0, -1)}`;
+      expect(edited.length).toBe(content.length);
+      writeFileSync(file, edited);
+      utimesSync(file, fixed, fixed);
+      expect(readSessionNameSync(file)).toBeNull();
+      const later = new Date("2026-01-03T00:00:00.000Z");
+      utimesSync(file, later, later);
+      expect(readSessionNameSync(file)).toBe("Z");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
