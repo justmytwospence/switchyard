@@ -410,9 +410,13 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     try {
       state = await this.proc.request<PiState>({ type: "get_state" }, 10000);
     } catch (err) {
-      const message = `Terminal session did not answer: ${(err as Error).message}`;
+      const exited = this.proc.exited;
+      const message = exited
+        ? `Pi exited while the host agent was away (code ${exited.code}, signal ${exited.signal})${screenTail(exited.screen)}`
+        : `Terminal session did not answer: ${(err as Error).message}`;
       this.fail(message);
-      (this.proc as PiTerminalProcess).detach();
+      // Never leave a holder running that nothing controls.
+      await this.proc.close({ graceMs: 1000, termMs: 3000 });
       throw new SwitchyardError("internal", message);
     }
     if (state.sessionFile) {
@@ -833,6 +837,13 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     proc.on("exit", (info: PiExit) => this.onExit(info));
     proc.on("ui_closed", (c: { id: string; by: "pi" | "terminal" }) => this.onUiClosed(c));
     proc.on("gap", () => this.notice("warning", GAP_NOTICE));
+    proc.on("reconnected", () =>
+      this.emit("diagnostic", {
+        level: "warning",
+        message: "Reconnected to the terminal holder after its control socket closed",
+        source: "pi-runtime",
+      }),
+    );
   }
 
   /** Terminal transport: the extension reports how each dialog closed. */

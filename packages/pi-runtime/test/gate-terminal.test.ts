@@ -155,4 +155,19 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("gate: terminal transport",
     expect(existsSync(socketPath)).toBe(false);
     await expect(PiTerminalProcess.attach(socketPath, 500)).rejects.toThrow();
   });
+
+  it("a dropped control socket reconnects instead of reporting an exit", async () => {
+    const s = h.newSession({ transport: "terminal" });
+    await s.start();
+    try {
+      expect(s.runtime).toBe("idle");
+      (s.process as unknown as { socket: { destroy(): void } }).socket.destroy();
+      await new Promise((r) => setTimeout(r, 1000));
+      expect(s.isAlive).toBe(true);
+      expect(s.runtime).toBe("idle");
+      await expect(s.state()).resolves.toBeDefined();
+    } finally {
+      await s.stop({ graceMs: 2000, termMs: 3000 });
+    }
+  });
 });

@@ -13,7 +13,7 @@ const sockets: Socket[] = [];
 function startHolder(
   script: string,
   extraEnv: Record<string, string> = {},
-): { socketPath: string; done: Promise<number | null> } {
+): { socketPath: string; pid: number; done: Promise<number | null> } {
   const dir = mkdtempSync(join(tmpdir(), "sy-holder-"));
   dirs.push(dir);
   const socketPath = join(dir, "h.sock");
@@ -36,7 +36,7 @@ function startHolder(
     env: { ...process.env, SWITCHYARD_HOLDER_CONFIG: JSON.stringify(cfg) },
   });
   const done = new Promise<number | null>((resolve) => child.once("exit", (c) => resolve(c)));
-  return { socketPath, done };
+  return { socketPath, pid: child.pid!, done };
 }
 
 async function connect(path: string, hello: object) {
@@ -182,5 +182,15 @@ describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
     c.send({ type: "holder_kill", signal: "SIGKILL" });
     await until(() => c.lines.some((l) => l.type === "holder_exit"));
     await h.done;
+  });
+
+  it("a holder killed before a control attaches exits promptly", async () => {
+    const h = startHolder("exec cat");
+    await until(() => existsSync(h.socketPath));
+    await new Promise((r) => setTimeout(r, 300));
+    const started = Date.now();
+    process.kill(h.pid, "SIGTERM");
+    await h.done;
+    expect(Date.now() - started).toBeLessThan(3000);
   });
 });

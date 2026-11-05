@@ -111,6 +111,8 @@ function logTail(path: string): string {
   }
 }
 
+const MAX_RECONNECTS = 3;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms).unref());
 
 /**
@@ -133,6 +135,9 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
   private seq = 0;
   private closeRequested = false;
   private detached = false;
+  private reconnects = 0;
+  /** Set when close() gave up on the holder: a closed socket then ends the session. */
+  private abandoned = false;
   private exitInfo: PiExit | null = null;
   private resolveExit!: (info: PiExit) => void;
   private readonly exitPromise: Promise<PiExit>;
@@ -144,6 +149,11 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     this.exitPromise = new Promise((resolve) => {
       this.resolveExit = resolve;
     });
+    this.bind(socket);
+  }
+
+  /** Wire a control socket: records in, close handling (reconnect, then give up), role hello. */
+  private bind(socket: Socket): void {
     socket.on("error", () => {
       // surfaced through close
     });
@@ -153,10 +163,49 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       (err, line) => this.emit("protocol_error", err, line),
     );
     socket.on("close", () => {
-      if (this.detached) return;
-      this.finish({ code: null, signal: null, requested: this.closeRequested });
+      if (this.detached || this.exitInfo || socket !== this.socket) return;
+      if (this.abandoned || this.reconnects >= MAX_RECONNECTS) {
+        this.finishLost();
+        return;
+      }
+      void this.reconnect();
     });
     socket.write(`${JSON.stringify({ role: "control" })}\n`);
+  }
+
+  /**
+   * The control socket closed while Pi was still running (a hiccup, or a second controller): the
+   * holder buffers the extension's output until a control attaches, so reconnect and carry on.
+   */
+  private async reconnect(): Promise<void> {
+    this.reconnects++;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const s = await connectOnce(this.socketPath, 1000);
+        if (this.detached || this.exitInfo) {
+          s.destroy();
+          return;
+        }
+        this.socket = s;
+        this.bind(s);
+        this.emit("reconnected");
+        return;
+      } catch {
+        await sleep(200);
+      }
+    }
+    this.finishLost();
+  }
+
+  /** The holder is gone: report what it saved of Pi's exit, if anything. */
+  private finishLost(): void {
+    const saved = readHolderExit(this.socketPath);
+    this.finish({
+      code: saved?.code ?? null,
+      signal: saved?.signal ?? null,
+      requested: this.closeRequested,
+      screen: saved?.screen,
+    });
   }
 
   /** Start a holder running interactive Pi and attach to it. */
@@ -185,6 +234,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       opts.logPath ?? join(dirname(socketPath), `${basename(socketPath, ".sock")}.log`);
     mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
     const fd = openSync(logPath, "a", 0o600);
+    let holderPid: number | undefined;
     try {
       const child = spawn(process.execPath, [holderScriptPath()], {
         detached: true,
@@ -194,10 +244,20 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       child.on("error", () => {
         // reported by the connect timeout below
       });
+      holderPid = child.pid;
       child.unref();
     } finally {
       closeSync(fd);
     }
+    // The holder's SIGTERM handler stops Pi, or exits at once when Pi was never spawned.
+    const killHolder = () => {
+      if (holderPid === undefined) return;
+      try {
+        process.kill(holderPid, "SIGTERM");
+      } catch {
+        // already gone
+      }
+    };
     const deadline = Date.now() + 10_000;
     for (;;) {
       try {
@@ -206,6 +266,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       } catch {
         if (Date.now() > deadline) {
           const tail = logTail(logPath);
+          killHolder();
           throw new PiRpcError(
             "spawn",
             `Terminal holder did not start${tail ? `: ${tail}` : ""} (log: ${logPath})`,
@@ -305,6 +366,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     this.kill("SIGKILL");
     info = await wait(5000);
     if (info) return info;
+    this.abandoned = true;
     this.socket.destroy();
     return this.exitPromise;
   }
