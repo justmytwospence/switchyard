@@ -19,7 +19,6 @@ import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { apiPost, errorMessage } from "../../sync/api";
-import { isUnacknowledgedAttention } from "../../sync/selectors";
 import { useOpenAttention, useSyncStore } from "../../sync/store";
 
 export const ATTENTION_GROUPS: AttentionReason[] = [
@@ -31,7 +30,7 @@ export const ATTENTION_GROUPS: AttentionReason[] = [
 ];
 
 const GROUP_HINT: Record<AttentionReason, string> = {
-  needs_input: "Answer here; the answer goes to the same runtime question.",
+  needs_input: "Questions from Pi waiting for your answer.",
   failed: "Runs that failed or were blocked. Open the task to see why.",
   ready_for_review: "Finished runs waiting for your review.",
   unsupported_interaction:
@@ -54,9 +53,9 @@ export function groupAttention(items: AttentionItem[]): Record<AttentionReason, 
 export default function AttentionView() {
   const all = useOpenAttention();
   const hydrated = useSyncStore((s) => s.hydrated);
-  const [show, setShow] = useFilter<"all" | "new">("attention", "all");
+  const [show, setShow] = useFilter<"open" | "all">("attentionShow", "open");
   const items = useMemo(
-    () => (show === "new" ? all.filter(isUnacknowledgedAttention) : all),
+    () => (show === "open" ? all.filter((a) => !a.acknowledgedAt) : all),
     [all, show],
   );
   const groups = useMemo(() => groupAttention(items), [items]);
@@ -71,8 +70,8 @@ export default function AttentionView() {
           value={show}
           onChange={setShow}
           options={[
-            { value: "all", label: "All open" },
-            { value: "new", label: "Not acknowledged" },
+            { value: "open", label: "Open" },
+            { value: "all", label: "All" },
           ]}
         />
       </header>
@@ -86,15 +85,15 @@ export default function AttentionView() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={<Bell className="size-8" />}
-          title={all.length > 0 ? "Nothing new" : "Nothing needs your attention"}
+          title={all.length > 0 ? "All caught up" : "Nothing needs your attention"}
           description={
             all.length > 0
-              ? `${all.length} acknowledged ${all.length === 1 ? "item is" : "items are"} still open.`
+              ? `${all.length} dismissed ${all.length === 1 ? "item is" : "items are"} still open.`
               : "Questions, failures and finished work show up here."
           }
           action={
             all.length > 0
-              ? { label: "Show all open", onClick: () => setShow("all") }
+              ? { label: "Show all", onClick: () => setShow("all") }
               : { label: "Go to Board", to: ROUTES.board }
           }
         />
@@ -160,9 +159,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       useSyncStore.setState((s) =>
         s.attention[item.id] ? { attention: { ...s.attention, [item.id]: next } } : {},
       );
-      toast.success(
-        "Acknowledged. It stays open until the underlying task or question is resolved.",
-      );
+      toast.success("Dismissed. It stays under All until the task or question is resolved.");
     } catch (e) {
       setAckError(e);
     } finally {
@@ -262,6 +259,9 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       .filter(Boolean)
       .join(" · ") || "Switchyard";
 
+  const showsCard =
+    !!interaction && (item.reason === "needs_input" || item.reason === "unsupported_interaction");
+
   // A plan awaiting approval gets the whole width: one meta line, no card around it.
   if (
     item.reason === "needs_input" &&
@@ -286,7 +286,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
           </time>
           {!item.acknowledgedAt && (
             <Button size="sm" variant="ghost" busy={busy} onClick={() => void acknowledge()}>
-              Acknowledge
+              Dismiss
             </Button>
           )}
         </div>
@@ -294,7 +294,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
         {ackError !== null && (
           <ErrorState
             compact
-            title="Could not acknowledge"
+            title="Could not dismiss"
             error={errorMessage(ackError)}
             onRetry={() => void acknowledge()}
           />
@@ -310,20 +310,12 @@ function AttentionRow({ item }: { item: AttentionItem }) {
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <StatusChip kind="attention" value={item.reason} size="sm" />
-        <span className="min-w-0 flex-1 truncate text-sm text-muted">
-          {[
-            project?.name,
-            task?.title,
-            session && session.title !== task?.title ? session.title : null,
-          ]
-            .filter(Boolean)
-            .join(" · ") || "Switchyard"}
-        </span>
+        <span className="min-w-0 flex-1 truncate text-xs text-muted">{metaText}</span>
         <time dateTime={item.createdAt} className="shrink-0 text-xs text-subtle">
           {formatRelative(item.createdAt)}
         </time>
       </div>
-      <p className="min-w-0 text-sm break-words">{item.summary}</p>
+      {!showsCard && <p className="min-w-0 text-sm break-words">{item.summary}</p>}
       {action && <div className="flex min-w-0 flex-col items-start">{action}</div>}
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         {item.reason !== "failed" && item.taskId && (
@@ -351,23 +343,18 @@ function AttentionRow({ item }: { item: AttentionItem }) {
         {item.acknowledgedAt ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted">
             <CircleCheck aria-hidden className="size-3.5" />
-            Acknowledged {formatRelative(item.acknowledgedAt)}
+            Dismissed {formatRelative(item.acknowledgedAt)}
           </span>
         ) : (
-          <Button
-            size="sm"
-            busy={busy}
-            onClick={() => void acknowledge()}
-            title="Hide the alert without resolving the task"
-          >
-            Acknowledge
+          <Button size="sm" busy={busy} onClick={() => void acknowledge()}>
+            Dismiss
           </Button>
         )}
       </div>
       {ackError !== null && (
         <ErrorState
           compact
-          title="Could not acknowledge"
+          title="Could not dismiss"
           error={errorMessage(ackError)}
           onRetry={() => void acknowledge()}
         />

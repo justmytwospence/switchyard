@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, isMobile, test, uid, viewportOf } from "./support";
+import { createSession, expect, isMobile, test, uid, viewportOf } from "./support";
 
 async function noHorizontalOverflow(
   page: Page,
@@ -331,5 +331,36 @@ test.describe("shared behavior", () => {
     await expect(
       preview.getByRole("heading", { name: "Check dependencies (draft)" }),
     ).toBeVisible();
+  });
+
+  test("attention: Dismiss hides an item from Open; All still shows it", async ({
+    page,
+    signIn,
+    api,
+    state,
+  }, info) => {
+    await signIn();
+    const title = `Dismiss me ${uid(info)}`;
+    await createSession(
+      api,
+      state,
+      title,
+      "ASK-FRUIT please",
+      (s) => s.runtime === "waiting_input",
+    );
+    await page.goto("/attention");
+    const show = page.getByRole("radiogroup", { name: "Show" });
+    await expect(show.getByRole("radio", { name: "Open" })).toHaveAttribute("aria-checked", "true");
+    await expect(
+      page.getByText("Answer here; the answer goes to the same runtime question."),
+    ).toHaveCount(0);
+    const row = page.getByRole("article").filter({ hasText: title }).first();
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: "Dismiss" }).click();
+    await expect(page.getByRole("article").filter({ hasText: title })).toHaveCount(0);
+    await show.getByRole("radio", { name: "All" }).click();
+    await expect(page.getByRole("article").filter({ hasText: title }).first()).toContainText(
+      "Dismissed",
+    );
   });
 });
