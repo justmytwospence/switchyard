@@ -105,17 +105,20 @@ export function TabPanel({
   id,
   children,
   className,
+  hidden,
 }: {
   idPrefix: string;
   id: string;
   children: ReactNode;
   className?: string;
+  hidden?: boolean;
 }) {
   return (
     <div
       role="tabpanel"
       id={panelId(idPrefix, id)}
       aria-labelledby={tabId(idPrefix, id)}
+      hidden={hidden}
       className={className}
     >
       {children}

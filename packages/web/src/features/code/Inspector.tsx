@@ -1,9 +1,9 @@
-import { useId } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { CountBadge } from "../../components/ui/Badge";
 import { TabPanel, Tabs } from "../../components/ui/Tabs";
 import { cn } from "../../lib/cn";
 import { usePanels } from "../../sync/store";
-import { ChangesTab } from "./Changes";
+import { ChangesTab, useWorkspaceDiff } from "./Changes";
 import type { InspectorTab } from "./context";
 import { ExtensionsSection, TaskSection } from "./Details";
 import { FilesTab } from "./Files";
@@ -34,6 +34,15 @@ export function Inspector({
   const prefix = useId();
   const panels = usePanels(ctx.session.id);
   const changed = ctx.workspace?.git.changedFiles ?? 0;
+  const diff = useWorkspaceDiff(ctx);
+  const [visited, setVisited] = useState<Set<InspectorTab>>(() => new Set([tab]));
+  useEffect(() => setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab))), [tab]);
+  const panes: { id: InspectorTab; body: ReactNode; flush?: boolean }[] = [
+    { id: "changes", body: <ChangesTab ctx={ctx} diff={diff} /> },
+    { id: "files", body: <FilesTab ctx={ctx} diff={diff} openPath={openPath} />, flush: true },
+    { id: "task", body: <TaskSection ctx={ctx} actions={actions} /> },
+    { id: "extensions", body: <ExtensionsSection ctx={ctx} /> },
+  ];
   return (
     <aside
       data-testid="inspector"
@@ -63,19 +72,20 @@ export function Inspector({
           },
         ]}
       />
-      <TabPanel
-        idPrefix={prefix}
-        id={tab}
-        className={cn(
-          "relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain",
-          tab === "files" ? "p-0" : "p-3",
-        )}
-      >
-        {tab === "changes" && <ChangesTab ctx={ctx} />}
-        {tab === "files" && <FilesTab ctx={ctx} openPath={openPath} />}
-        {tab === "task" && <TaskSection ctx={ctx} actions={actions} />}
-        {tab === "extensions" && <ExtensionsSection ctx={ctx} />}
-      </TabPanel>
+      {panes.map((p) => (
+        <TabPanel
+          key={p.id}
+          idPrefix={prefix}
+          id={p.id}
+          hidden={tab !== p.id}
+          className={cn(
+            "relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain",
+            p.flush ? "p-0" : "p-3",
+          )}
+        >
+          {(tab === p.id || visited.has(p.id)) && p.body}
+        </TabPanel>
+      ))}
     </aside>
   );
 }

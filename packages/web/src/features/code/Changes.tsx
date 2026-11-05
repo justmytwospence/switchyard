@@ -31,6 +31,7 @@ import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
 import { errorMessage, isApiError } from "../../sync/api";
 import { codeApi } from "./api";
+import { useCodeContext } from "./context";
 import type { SessionContext } from "./hooks";
 import { useMutation } from "./hooks";
 import { composerBlockReason, isBusy } from "./model";
@@ -321,6 +322,7 @@ function ReviewPanel({
   review: ReturnType<typeof useReviewComments>;
 }) {
   const { session, task } = ctx;
+  const { mobile } = useCodeContext();
   const [overall, setOverall] = useState("");
   const block = composerBlockReason({ session, hostLink: ctx.link, hostName: ctx.hostName });
   const send = useMutation(
@@ -348,8 +350,7 @@ function ReviewPanel({
     isApiError(accept.error, "invalid_transition") &&
     (accept.error.details as { needsConfirm?: boolean } | undefined)?.needsConfirm === true;
   const inReview = task?.state === "review";
-  const sendBlocked =
-    review.comments.length === 0 ? "Add comments by selecting diff lines" : block?.reason;
+  const sendBlocked = block?.reason ?? null;
 
   return (
     <section
@@ -360,7 +361,9 @@ function ReviewPanel({
         Review comments{review.comments.length > 0 && ` (${review.comments.length})`}
       </h3>
       {review.comments.length === 0 ? (
-        <p className="text-sm text-muted">Select a diff line to add a comment.</p>
+        <p className="text-sm text-muted">
+          {`${mobile ? "Tap" : "Click"} a line in the diff to comment. Comments go to Pi together as one message.`}
+        </p>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {review.comments.map((c) => (
@@ -384,23 +387,25 @@ function ReviewPanel({
           ))}
         </ul>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          variant={inReview ? "secondary" : "primary"}
-          icon={<Send className="size-3.5" />}
-          disabled={!!sendBlocked}
-          busy={send.busy}
-          onClick={() => void send.run().then((ok) => ok && review.clear())}
-        >
-          Send as one follow-up
-        </Button>
-        {review.comments.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={review.clear}>
-            Clear all
+      {review.comments.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={inReview ? "secondary" : "primary"}
+            icon={<Send className="size-3.5" />}
+            disabled={!!sendBlocked}
+            busy={send.busy}
+            onClick={() => void send.run().then((ok) => ok && review.clear())}
+          >
+            Send as one follow-up
           </Button>
-        )}
-      </div>
+          {review.comments.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={review.clear}>
+              Clear all
+            </Button>
+          )}
+        </div>
+      )}
       {sendBlocked && review.comments.length > 0 && (
         <p className="text-xs text-muted">{sendBlocked}</p>
       )}
@@ -452,7 +457,9 @@ function ReviewPanel({
             </Button>
           </div>
           {feedback.length === 0 && (
-            <p className="text-xs text-muted">Request changes needs at least one comment.</p>
+            <p className="text-xs text-muted">
+              Add a comment or overall feedback to request changes.
+            </p>
           )}
           <p className="text-xs text-muted">
             Accepting marks the task Done. It does not merge or push.
@@ -549,8 +556,7 @@ function RefreshRow({ diff }: { diff: WorkspaceDiff }) {
 /* Desktop inspector tab                                               */
 /* ------------------------------------------------------------------ */
 
-export function ChangesTab({ ctx }: { ctx: SessionContext }) {
-  const diff = useWorkspaceDiff(ctx);
+export function ChangesTab({ ctx, diff }: { ctx: SessionContext; diff: WorkspaceDiff }) {
   const review = useReviewComments(ctx.session.id);
   const counts = useCommentCounts(review.comments);
   const [selected, setSelected] = useState<string | null>(null);
@@ -561,7 +567,9 @@ export function ChangesTab({ ctx }: { ctx: SessionContext }) {
     return (
       <div className="flex flex-col gap-3">
         <ChangesUnavailable ctx={ctx} />
-        {review.comments.length > 0 && <ReviewPanel ctx={ctx} review={review} />}
+        {(review.comments.length > 0 || ctx.task?.state === "review") && (
+          <ReviewPanel ctx={ctx} review={review} />
+        )}
       </div>
     );
   }
@@ -611,7 +619,9 @@ export function ChangesTab({ ctx }: { ctx: SessionContext }) {
           )}
         </>
       )}
-      <ReviewPanel ctx={ctx} review={review} />
+      {(review.comments.length > 0 || ctx.task?.state === "review") && (
+        <ReviewPanel ctx={ctx} review={review} />
+      )}
       <CommentForm
         draft={commentDraft}
         mobile={false}
@@ -688,7 +698,9 @@ export function MobileChanges({ ctx }: { ctx: SessionContext }) {
           )}
         </>
       )}
-      <ReviewPanel ctx={ctx} review={review} />
+      {(review.comments.length > 0 || ctx.task?.state === "review") && (
+        <ReviewPanel ctx={ctx} review={review} />
+      )}
     </div>
   );
 }

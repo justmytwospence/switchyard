@@ -338,6 +338,28 @@ test.describe("desktop coding view", () => {
     await expect(inspector.getByRole("region", { name: "File contents" })).toBeVisible();
   });
 
+  test("inspector tabs keep their state and share one diff", async ({ page, state }, info) => {
+    test.skip(viewportOf(info) !== "desktop", "Desktop only");
+    const diffs: string[] = [];
+    page.on("request", (r) => {
+      const u = new URL(r.url());
+      if (r.method() === "GET" && u.pathname.endsWith("/diff") && !u.searchParams.has("file")) {
+        diffs.push(r.url());
+      }
+    });
+    await page.goto(`/code/${state.sessions.long}`);
+    const inspector = page.getByTestId("inspector");
+    await inspector.getByRole("tab", { name: /Files/ }).click();
+    const tree = inspector.getByRole("tree", { name: "Workspace files" });
+    await tree.getByRole("treeitem", { name: /^src/ }).click();
+    await tree.getByRole("treeitem", { name: /wide\.ts/ }).click();
+    await expect(inspector.getByRole("heading", { name: "wide.ts" })).toBeVisible();
+    await inspector.getByRole("tab", { name: /Changes/ }).click();
+    await inspector.getByRole("tab", { name: /Files/ }).click();
+    await expect(inspector.getByRole("heading", { name: "wide.ts" })).toBeVisible();
+    expect(diffs).toHaveLength(1);
+  });
+
   test("review comments are batched into one follow-up", async ({ page, state, api }, info) => {
     const id = await createSession(api, state, `Review ${uid(info)}`, "hello review");
     const prompts = promptRequests(page, id);
@@ -345,6 +367,7 @@ test.describe("desktop coding view", () => {
     await openInspector(page, viewportOf(info) === "compact");
     const inspector = page.getByTestId("inspector");
     await inspector.getByRole("button", { name: /docs\/guide\.md/ }).click();
+    await expect(inspector.getByRole("button", { name: "Send as one follow-up" })).toHaveCount(0);
 
     const addComment = async (line: number, text: string) => {
       await inspector.getByRole("button", { name: `Comment on line ${line}` }).click();
@@ -360,9 +383,7 @@ test.describe("desktop coding view", () => {
 
     await inspector.getByRole("button", { name: "Send as one follow-up" }).click();
     await expect(page.getByText("Review comments sent as one follow-up.")).toBeVisible();
-    await expect(
-      inspector.getByRole("heading", { name: "Review comments", exact: true }),
-    ).toBeVisible();
+    await expect(inspector.getByRole("region", { name: "Review" })).toHaveCount(0);
     expect(prompts).toHaveLength(1);
     const text: string = prompts[0]!.postDataJSON().text;
     expect(text).toContain("docs/guide.md:3");

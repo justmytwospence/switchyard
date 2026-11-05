@@ -31,7 +31,7 @@ import { cn } from "../../lib/cn";
 import { langFor } from "../../lib/highlight";
 import { isApiError } from "../../sync/api";
 import { codeApi, type FileContent } from "./api";
-import { STATUS_LABEL, useWorkspaceDiff } from "./Changes";
+import { STATUS_LABEL, type WorkspaceDiff } from "./Changes";
 import type { SessionContext } from "./hooks";
 
 type Listing = FileEntry[] | "loading" | { error: unknown };
@@ -114,9 +114,11 @@ function StatusBadge({ status }: { status: ChangeStatus | undefined }) {
  */
 export function FilesTab({
   ctx,
+  diff,
   openPath,
 }: {
   ctx: SessionContext;
+  diff: WorkspaceDiff;
   openPath?: { path: string; nonce: number } | null;
 }) {
   const ws = ctx.workspace;
@@ -126,7 +128,6 @@ export function FilesTab({
   const [file, setFile] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [focused, setFocused] = useState<string | null>(null);
-  const diff = useWorkspaceDiff(ctx);
   const listRef = useRef<HTMLDivElement>(null);
 
   const changed = useMemo(
