@@ -18,6 +18,7 @@ import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { apiPost, errorMessage } from "../../sync/api";
+import { isUnacknowledgedAttention } from "../../sync/selectors";
 import { useConnection, useOpenAttention, useSyncStore } from "../../sync/store";
 
 export const ATTENTION_GROUPS: AttentionReason[] = [
@@ -55,7 +56,7 @@ export default function AttentionView() {
   const connection = useConnection();
   const [show, setShow] = useFilter<"all" | "new">("attention", "all");
   const items = useMemo(
-    () => (show === "new" ? all.filter((a) => !a.acknowledgedAt) : all),
+    () => (show === "new" ? all.filter(isUnacknowledgedAttention) : all),
     [all, show],
   );
   const groups = useMemo(() => groupAttention(items), [items]);

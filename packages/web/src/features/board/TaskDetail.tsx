@@ -30,6 +30,7 @@ import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatRelative, formatTime } from "../../lib/time";
 import { errorMessage, isApiError } from "../../sync/api";
+import { countPendingInteractions } from "../../sync/selectors";
 import { runsForTask, useSyncStore } from "../../sync/store";
 import {
   deleteTask,
@@ -304,11 +305,7 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
   const PrIcon = pr.icon;
   const profileId = task.policy.profileId ?? project?.defaultProfileId ?? null;
   const pendingCount = useSyncStore((s) =>
-    task.sessionId
-      ? Object.values(s.interactions).filter(
-          (i) => i.sessionId === task.sessionId && i.state === "pending",
-        ).length
-      : 0,
+    task.sessionId ? countPendingInteractions(s.interactions, task.sessionId) : 0,
   );
 
   return (

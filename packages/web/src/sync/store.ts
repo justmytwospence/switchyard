@@ -26,9 +26,11 @@ import {
   type SyncData,
   type TranscriptState,
 } from "./reduce";
+import { isOpenAttention, isUnacknowledgedAttention, pendingInteractionsFor } from "./selectors";
 
 export type { StreamBuffer, SyncData, TranscriptState } from "./reduce";
 export { panelKey } from "./reduce";
+export { pendingInteractionsFor } from "./selectors";
 
 export type ConnectionState = "connecting" | "live" | "reconnecting" | "offline";
 
@@ -258,24 +260,15 @@ export function sortSessions(sessions: Record<string, Session>): Session[] {
 /** Open attention, newest first. */
 export function sortAttention(attention: Record<string, AttentionItem>): AttentionItem[] {
   return Object.values(attention)
-    .filter((a) => a.resolvedAt === null)
+    .filter(isOpenAttention)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 /** Count shown on the Attention badge: open and not yet acknowledged. */
 export function countAttention(attention: Record<string, AttentionItem>): number {
   let n = 0;
-  for (const a of Object.values(attention)) if (!a.resolvedAt && !a.acknowledgedAt) n++;
+  for (const a of Object.values(attention)) if (isUnacknowledgedAttention(a)) n++;
   return n;
-}
-
-export function pendingInteractionsFor(
-  interactions: Record<string, Interaction>,
-  sessionId: string,
-): Interaction[] {
-  return Object.values(interactions)
-    .filter((i) => i.sessionId === sessionId && i.state === "pending")
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 export function runsForTask(runs: Record<string, Run>, taskId: string): Run[] {

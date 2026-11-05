@@ -16,6 +16,7 @@ import type {
 } from "@switchyard/protocol";
 import { ThinkingLevel } from "@switchyard/protocol";
 import { PANE_LIMITS } from "../../prefs";
+import { isBusyRuntime, isLiveRuntime, sessionsNeedingAttention } from "../../sync/selectors";
 import type { StreamBuffer } from "../../sync/store";
 
 /**
@@ -23,15 +24,12 @@ import type { StreamBuffer } from "../../sync/store";
  * transcript timeline, new-session preview). Tested without a DOM.
  */
 
-export const LIVE_RUNTIMES: Session["runtime"][] = ["starting", "idle", "running", "waiting_input"];
-export const BUSY_RUNTIMES: Session["runtime"][] = ["running", "waiting_input"];
-
 export function isLive(s: Pick<Session, "runtime">): boolean {
-  return LIVE_RUNTIMES.includes(s.runtime);
+  return isLiveRuntime(s.runtime);
 }
 
 export function isBusy(s: Pick<Session, "runtime">): boolean {
-  return BUSY_RUNTIMES.includes(s.runtime);
+  return isBusyRuntime(s.runtime);
 }
 
 /* ------------------------------------------------------------------ */
@@ -140,17 +138,7 @@ export interface NavInput {
   interactions: Record<string, Interaction>;
 }
 
-export function sessionsNeedingAttention(
-  attention: Record<string, AttentionItem>,
-  interactions: Record<string, Interaction>,
-): Set<string> {
-  const out = new Set<string>();
-  for (const a of Object.values(attention)) {
-    if (a.sessionId && a.resolvedAt === null) out.add(a.sessionId);
-  }
-  for (const i of Object.values(interactions)) if (i.state === "pending") out.add(i.sessionId);
-  return out;
-}
+export { sessionsNeedingAttention } from "../../sync/selectors";
 
 function lastSegment(p: string): string {
   return p.replace(/\/+$/, "").split("/").pop() || p;

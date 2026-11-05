@@ -16,6 +16,7 @@ import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { errorMessage, isApiError } from "../../sync/api";
+import { pendingInteractionsForSessions } from "../../sync/selectors";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { setDispatchPaused } from "./api";
 import { activeFilterChips, type BoardFilters, type BoardSort, DEFAULT_FILTERS } from "./logic";
@@ -372,9 +373,7 @@ export function BoardNotices({ board }: { board: BoardState }) {
         if (h && h.connectivity !== "connected") offlineIds.add(h.id);
       }
     }
-    const pend = Object.values(interactions)
-      .filter((i) => i.state === "pending" && sessionIds.has(i.sessionId))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const pend = pendingInteractionsForSessions(interactions, sessionIds);
     return { offline: [...offlineIds].map((id) => hosts[id]!), pending: pend };
   }, [tasks, runs, hosts, interactions, board.projectId]);
 

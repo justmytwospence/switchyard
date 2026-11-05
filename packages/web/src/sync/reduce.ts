@@ -22,6 +22,7 @@ import type {
   TranscriptItem,
   Workspace,
 } from "@switchyard/protocol";
+import { isOpenAttention, isStreamingRuntime } from "./selectors";
 
 /**
  * Pure reducers for the normalized client state. The zustand store in
@@ -88,7 +89,6 @@ export interface SyncData extends EntityState {
 }
 
 export const MAX_DIAGNOSTICS = 100;
-const LIVE_RUNTIMES = new Set<string>(["starting", "running", "waiting_input"]);
 export const MAX_OCCURRENCES_PER_AUTOMATION = 50;
 
 export function panelKey(sessionId: string, adapterId: string, slot: string): string {
@@ -167,7 +167,7 @@ export function applySnapshot<S extends SyncData>(state: S, seq: number, snap: S
     tasks: byId(snap.tasks),
     runs: byId(snap.runs),
     automations: byId(snap.automations),
-    attention: byId(snap.attention.filter((a) => a.resolvedAt === null)),
+    attention: byId(snap.attention.filter(isOpenAttention)),
     interactions: byId(snap.interactions),
     panels,
     devices: byId(snap.devices),
@@ -300,7 +300,7 @@ function reduceEvent<S extends SyncData, T extends EventType>(
     case "session.updated": {
       const d = data as EventData<"session.updated">;
       const next = { ...state, sessions: put(state.sessions, d.id, d) };
-      return LIVE_RUNTIMES.has(d.runtime) ? next : clearSessionStreams(next, d.id);
+      return isStreamingRuntime(d.runtime) ? next : clearSessionStreams(next, d.id);
     }
     case "transcript.item":
       return upsertTranscriptItem(state, data as EventData<"transcript.item">);

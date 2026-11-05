@@ -19,6 +19,7 @@ import {
 import { useMemo } from "react";
 import type { StatusInfo } from "../../components/ui/StatusChip";
 import { RUN_STATUS } from "../../components/ui/StatusChip";
+import { isOpenAttention, pendingInteractionsFor } from "../../sync/selectors";
 import { useSyncStore } from "../../sync/store";
 import { WAIT_LABELS } from "./logic";
 
@@ -72,13 +73,11 @@ export function useTaskInfo(task: Task | undefined): TaskInfo {
         : null);
     const items = Object.values(attention).filter(
       (a) =>
-        !a.resolvedAt &&
+        isOpenAttention(a) &&
         (a.taskId === task.id || (!!task.sessionId && a.sessionId === task.sessionId)),
     );
     const pendingInteraction = task.sessionId
-      ? Object.values(interactions)
-          .filter((i) => i.sessionId === task.sessionId && i.state === "pending")
-          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
+      ? pendingInteractionsFor(interactions, task.sessionId)[0]
       : undefined;
     return {
       run,
