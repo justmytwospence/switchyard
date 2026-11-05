@@ -2,11 +2,13 @@ import {
   CreateTaskRequest,
   DEFAULT_TASK_POLICY,
   MoveTaskRequest,
+  mergePatch,
   newId,
   RequestChangesRequest,
   SwitchyardError,
   type Task,
   TaskPolicy,
+  type TaskPolicyPatch,
   type TaskState,
   UpdateTaskRequest,
 } from "@switchyard/protocol";
@@ -31,8 +33,8 @@ const CancelRequest = z.object({ onRunning: z.enum(["pause", "stop"]).optional()
 const NewAttemptQuery = z.object({ fresh: z.enum(["true", "false"]).optional() });
 const PauseRequest = z.object({ paused: z.boolean() });
 
-function mergePolicy(base: TaskPolicy, patch: Partial<TaskPolicy> | undefined): TaskPolicy {
-  return parse(TaskPolicy, { ...base, ...(patch ?? {}) }, "policy");
+function mergePolicy(base: TaskPolicy, patch: TaskPolicyPatch | undefined): TaskPolicy {
+  return parse(TaskPolicy, mergePatch(base, patch), "policy");
 }
 
 function nextPosition(ctx: CoordinatorContext, projectId: string): number {

@@ -14,7 +14,6 @@ import {
   SessionModel,
   SlashCommand,
   Task,
-  TaskPolicy,
   TaskState,
   TaskTemplate,
   ThinkingLevel,
@@ -227,6 +226,46 @@ export const AdapterActionRequest = z.object({
   payload: z.unknown().optional(),
 });
 
+/** A task policy update: every nested field is optional, so a patch can change one field. */
+export const TaskPolicyPatch = z.object({
+  hostId: z.string().nullable().optional(),
+  profileId: z.string().nullable().optional(),
+  workspace: z
+    .object({
+      mode: z.enum(["new_worktree", "existing"]).optional(),
+      branch: z.string().nullable().optional(),
+      base: z.string().nullable().optional(),
+      workspaceId: z.string().optional(),
+    })
+    .optional(),
+  continuation: z
+    .object({
+      enabled: z.boolean().optional(),
+      objective: z.string().min(1).optional(),
+      maxContinuations: z.number().int().min(1).max(50).optional(),
+      maxElapsedMinutes: z.number().int().min(1).max(1440).optional(),
+      maxTokens: z.number().int().positive().nullable().optional(),
+      maxCostUsd: z.number().positive().nullable().optional(),
+    })
+    .optional(),
+  completion: CompletionPolicy.partial().optional(),
+});
+export type TaskPolicyPatch = z.infer<typeof TaskPolicyPatch>;
+
+/**
+ * JSON merge patch (RFC 7396) except that null is a value: plain objects merge key by key,
+ * any other value (null, arrays, scalars) replaces, absent/undefined keeps the base.
+ */
+export function mergePatch(base: unknown, patch: unknown): unknown {
+  const obj = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+  if (patch === undefined) return base;
+  if (!obj(base) || !obj(patch)) return patch;
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(patch)) if (v !== undefined) out[k] = mergePatch(base[k], v);
+  return out;
+}
+
 export const CreateTaskRequest = z.object({
   projectId: z.string(),
   title: z.string().min(1).max(300),
@@ -236,7 +275,7 @@ export const CreateTaskRequest = z.object({
   priority: Priority.default(2),
   state: z.enum(["backlog", "ready"]).default("backlog"),
   notBefore: z.string().nullable().optional(),
-  policy: TaskPolicy.partial().optional(),
+  policy: TaskPolicyPatch.optional(),
 });
 export const UpdateTaskRequest = z.object({
   title: z.string().min(1).max(300).optional(),
@@ -246,7 +285,7 @@ export const UpdateTaskRequest = z.object({
   priority: Priority.optional(),
   position: z.number().optional(),
   notBefore: z.string().nullable().optional(),
-  policy: TaskPolicy.partial().optional(),
+  policy: TaskPolicyPatch.optional(),
 });
 export const MoveTaskRequest = z.object({
   to: TaskState,

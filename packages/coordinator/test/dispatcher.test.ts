@@ -410,4 +410,22 @@ describe("dispatcher", () => {
     expect((await h.t.admin("DELETE", `/api/tasks/${tk.id}`)).status).toBe(200);
     expect(h.t.c.store.tasks.get(tk.id)).toBeUndefined();
   });
+
+  it("patches task policy field by field", async () => {
+    h = await setupHarness();
+    await h.t.admin("POST", "/api/dispatch/pause", { paused: true });
+    const tk = await createTask(h, {
+      policy: { completion: { checks: ["pnpm test"], requireHumanReview: true } },
+    });
+    const ok = await h.t.admin("PATCH", `/api/tasks/${tk.id}`, {
+      policy: { completion: { requireHumanReview: false } },
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body.policy.completion).toEqual({ checks: ["pnpm test"], requireHumanReview: false });
+    const bad = await h.t.admin("PATCH", `/api/tasks/${tk.id}`, {
+      policy: { continuation: { enabled: true } },
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe("invalid_request");
+  });
 });

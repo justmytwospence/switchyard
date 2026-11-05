@@ -1,4 +1,4 @@
-import type { Eligibility, Run, Task, TaskState } from "@switchyard/protocol";
+import type { Eligibility, Run, Task, TaskPolicyPatch, TaskState } from "@switchyard/protocol";
 import { apiDelete, apiGet, apiPatch, apiPost, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 
@@ -35,7 +35,7 @@ export interface CreateTaskBody {
   priority: 0 | 1 | 2 | 3;
   state: "backlog" | "ready";
   notBefore?: string | null;
-  policy?: Partial<Task["policy"]>;
+  policy?: TaskPolicyPatch;
 }
 
 export async function createTask(body: CreateTaskBody): Promise<Task> {

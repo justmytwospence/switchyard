@@ -8,12 +8,15 @@ import {
   HostCommand,
   isFieldVisible,
   isPlaceholderTitle,
+  mergePatch,
   newId,
   Profile,
   parseFrameMessage,
   RuntimeCapabilities,
   Session,
   SwitchyardError,
+  TaskPolicy,
+  TaskPolicyPatch,
   titleFrom,
   type UINode,
   validateUINode,
@@ -249,5 +252,43 @@ describe("frame bridge", () => {
     ]) {
       expect(parseFrameMessage(bad)).toBeUndefined();
     }
+  });
+});
+
+describe("task policy patches", () => {
+  const base = TaskPolicy.parse({
+    hostId: null,
+    profileId: null,
+    workspace: { mode: "new_worktree", branch: "feat", base: null },
+    continuation: { enabled: false },
+    completion: { checks: ["t"], requireHumanReview: true },
+  });
+  const apply = (patch: unknown) => TaskPolicy.parse(mergePatch(base, patch));
+
+  it("keeps sibling fields of a nested patch", () => {
+    expect(apply({ completion: { requireHumanReview: false } }).completion).toEqual({
+      checks: ["t"],
+      requireHumanReview: false,
+    });
+  });
+
+  it("replaces null and arrays, and keeps the base for undefined", () => {
+    expect(apply({ completion: { checks: null } }).completion.checks).toBeNull();
+    expect(apply({ completion: { checks: ["a", "b"] } }).completion.checks).toEqual(["a", "b"]);
+    expect(apply({ hostId: undefined })).toEqual(base);
+  });
+
+  it("switches a workspace variant and drops the other variant's keys", () => {
+    expect(apply({ workspace: { mode: "existing", workspaceId: "wsp_1" } }).workspace).toEqual({
+      mode: "existing",
+      workspaceId: "wsp_1",
+    });
+  });
+
+  it("needs every field of a variant it switches to", () => {
+    expect(
+      TaskPolicy.safeParse(mergePatch(base, { continuation: { enabled: true } })).success,
+    ).toBe(false);
+    expect(TaskPolicyPatch.safeParse({ continuation: { maxContinuations: 3 } }).success).toBe(true);
   });
 });
