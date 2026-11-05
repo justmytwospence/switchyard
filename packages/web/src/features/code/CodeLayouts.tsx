@@ -10,7 +10,7 @@ import { PANE_LIMITS, usePrefs } from "../../prefs";
 import { CodeContext, type CodeViewContext, type InspectorTab } from "./context";
 import { type SessionContext, useElementWidth, useSessionContext } from "./hooks";
 import { Inspector } from "./Inspector";
-import { CONVERSATION_MIN, fitPanes } from "./model";
+import { COMPACT_NAVIGATOR_MAX, CONVERSATION_MIN, fitPanes } from "./model";
 import { Navigator } from "./Navigator";
 import { NewSessionFlow } from "./NewSession";
 import { useSessionActions } from "./SessionActions";
@@ -60,7 +60,12 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
   const ctx = useSessionContext(props.session);
 
   const showInspector = !compact && !collapsed && !!ctx;
-  const fit = fitPanes(width, paneSizes.navigator, showInspector ? paneSizes.inspector : null);
+  const navMax = compact ? COMPACT_NAVIGATOR_MAX : PANE_LIMITS.navigator.max;
+  const fit = fitPanes(
+    width,
+    Math.min(paneSizes.navigator, navMax),
+    showInspector ? paneSizes.inspector : null,
+  );
 
   const onCreated = useCallback(
     (id: string) => {
@@ -83,7 +88,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
         label="Resize navigator"
         value={fit.nav}
         min={PANE_LIMITS.navigator.min}
-        max={PANE_LIMITS.navigator.max}
+        max={navMax}
         onChange={(px) => setPaneSize("navigator", px)}
         onReset={() => setPaneSize("navigator", PANE_LIMITS.navigator.default)}
         className="-ml-1.5"

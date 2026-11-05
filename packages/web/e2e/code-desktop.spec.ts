@@ -45,6 +45,7 @@ test.describe("desktop coding view", () => {
   });
 
   test("navigator is 264 px by default and clamps to 220-360", async ({ page, state }, info) => {
+    const max = viewportOf(info) === "compact" ? 300 : 360;
     await page.goto(`/code/${state.sessions.long}`);
     await expect(page.getByTestId("conversation")).toBeVisible();
     const sep = page.getByRole("separator", { name: "Resize navigator" });
@@ -52,8 +53,8 @@ test.describe("desktop coding view", () => {
     await expect(sep).toHaveAttribute("aria-valuenow", "264");
 
     await dragBy(page, "Resize navigator", 500);
-    expect(await width(page, "navigator")).toBe(360);
-    await expect(sep).toHaveAttribute("aria-valuenow", "360");
+    expect(await width(page, "navigator")).toBe(max);
+    await expect(sep).toHaveAttribute("aria-valuenow", String(max));
 
     await dragBy(page, "Resize navigator", -500);
     expect(await width(page, "navigator")).toBe(220);
@@ -61,7 +62,7 @@ test.describe("desktop coding view", () => {
     // Keyboard equivalents: End/Home clamp, Enter resets.
     await sep.focus();
     await page.keyboard.press("End");
-    await expect(sep).toHaveAttribute("aria-valuenow", "360");
+    await expect(sep).toHaveAttribute("aria-valuenow", String(max));
     await page.keyboard.press("Home");
     await expect(sep).toHaveAttribute("aria-valuenow", "220");
     await page.keyboard.press("Enter");
