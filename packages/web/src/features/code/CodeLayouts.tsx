@@ -249,7 +249,7 @@ function SessionPanes({
           onClose={() => setDrawerOpen(false)}
           title="Inspector"
           width={440}
-          className="[&>div:last-child]:p-0"
+          flush
         >
           <Inspector
             ctx={ctx}

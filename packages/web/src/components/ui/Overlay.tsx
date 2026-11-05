@@ -25,6 +25,10 @@ export interface OverlayProps {
   /** Extra header controls before the close button. */
   headerActions?: ReactNode;
   className?: string;
+  /** No padding around the body (for content that draws its own edges). */
+  flush?: boolean;
+  /** Extra body classes. Additive only: it cannot override the padding, use `flush`. */
+  bodyClassName?: string;
 }
 
 type Placement = "right" | "bottom" | "center";
@@ -41,6 +45,8 @@ function Surface({
   dismissOnBackdrop = true,
   headerActions,
   className,
+  flush,
+  bodyClassName,
   style,
 }: OverlayProps & { placement: Placement; style?: React.CSSProperties }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -100,7 +106,13 @@ function Surface({
           {headerActions}
           <IconButton label="Close" icon={<X className="size-4" />} onClick={onClose} />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+        <div
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto overscroll-contain",
+            !flush && "px-4 py-3",
+            bodyClassName,
+          )}
+        >
           {children}
         </div>
         {footer && (
