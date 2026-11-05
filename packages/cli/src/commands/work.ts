@@ -11,6 +11,7 @@ import { PRIORITY_LABELS, TaskState as TaskStateSchema } from "@switchyard/proto
 import type { ApiClient } from "@switchyard/terminal";
 import { CliError, type ConnectionFlags } from "../config.js";
 import { ago, type Ctx, connect, printList } from "../context.js";
+import { resolveHost } from "./hosts.js";
 
 export interface ListFlags extends ConnectionFlags {
   json?: boolean;
@@ -72,8 +73,10 @@ export async function sessionsImport(
   flags: ConnectionFlags & { host?: string; project?: string; json?: boolean },
 ): Promise<Session> {
   const { api } = connect(ctx, flags);
-  let hostId = flags.host;
-  if (!hostId) {
+  let hostId: string;
+  if (flags.host) {
+    hostId = (await resolveHost(api, flags.host)).id;
+  } else {
     const hosts = (await api.get<Host[]>("/api/hosts")).filter((x) => !x.revokedAt);
     if (hosts.length !== 1) {
       throw new CliError(

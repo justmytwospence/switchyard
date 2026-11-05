@@ -74,7 +74,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .command("up")
     .description("Run a standalone coordinator and a local host agent in this process")
     .option("--port <port>", "port", "7400")
-    .option("--host <addr>", "bind address", "0.0.0.0")
+    .option("--bind <addr>", "address to listen on (default 0.0.0.0)")
+    .addOption(new Option("--host <addr>", "deprecated: use --bind").hideHelp())
     .option("--data-dir <dir>", "data dir (default: SWITCHYARD_DATA_DIR or the platform default)")
     .option("--public-url <url>", "URL clients use (default: http://localhost:<port>)")
     .option("--trusted-origins <list>", "comma-separated browser origins to trust")
@@ -119,7 +120,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .command("enroll")
     .description("Enroll this machine as a host (writes ~/.config/switchyard/host.json)")
     .requiredOption("--coordinator <url>", "coordinator URL")
-    .option("--token <token>", "host enrollment token (switchyard pair --host)")
+    .option("--token <token>", "host enrollment token (switchyard pair host)")
     .option("--secret <secret>", "shared host enrollment secret (SWITCHYARD_HOST_ENROLL_SECRET)")
     .option("--name <name>", "host name (default: hostname)")
     .option("--config <path>", "host.json path")
@@ -157,17 +158,28 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--json", "JSON output")
     .action((o) => hostStatus(ctx, o));
 
-  program
+  const pairCmd = program
     .command("pair")
     .description(
-      "Print a single-use sign-in link and QR for a browser (or --host for a host token), using the admin token: for local servers and recovery",
+      "Print a single-use sign-in link and QR for a browser, using the admin token: for local servers and recovery",
     )
-    .option("--host", "enroll a host instead of a device")
+    .addOption(new Option("--host").hideHelp())
     .option("--coordinator <url>", "local coordinator URL (default: the running one)")
     .option("--data-dir <dir>", "data dir holding admin.token")
     .option("--json", "JSON output")
     .action(async (o) => {
-      await pair(ctx, o);
+      if (o.host) ctx.err("switchyard: `pair --host` is deprecated; use `switchyard pair host`");
+      await pair(ctx, { ...o, host: o.host === true });
+    });
+  pairCmd
+    .command("host")
+    .description("Print a single-use host enrollment token and the command to run on the new host")
+    .option("--coordinator <url>", "local coordinator URL (default: the running one)")
+    .option("--data-dir <dir>", "data dir holding admin.token")
+    .option("--json", "JSON output")
+    .action(async (_o, cmd: Command) => {
+      // `pair` parses its own options even after `host`: read both levels.
+      await pair(ctx, { ...cmd.optsWithGlobals(), host: true });
     });
 
   program
@@ -246,7 +258,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
       .command("import <sessionFile>")
       .description("Import an inactive Pi session file from a host"),
   )
-    .option("--host <hostId>", "host holding the file (default: the only host)")
+    .option("--host <host>", "host id or name holding the file (default: the only host)")
     .option("--project <project>", "project id or name")
     .option("--json", "JSON output")
     .action(async (file, o) => {

@@ -3,6 +3,7 @@ import {
   automationsRun,
   parsePriority,
   parseStates,
+  sessionsImport,
   sessionsList,
   taskCreateBody,
   tasksCreate,
@@ -182,5 +183,17 @@ describe("sessions and automations", () => {
     await automationsRun(ctx, "aut_1", conn);
     expect(calls[0]?.method).toBe("POST");
     expect(ctx.lines).toEqual(['Occurrence occ_1: fired; task tsk_9 "Nightly" is ready']);
+  });
+});
+
+describe("sessions import", () => {
+  it("resolves --host by name", async () => {
+    const { fetch, calls } = stubFetch({
+      "GET /api/hosts": () => [{ id: "hst_1", name: "mac", revokedAt: null }],
+      "POST /api/sessions/import": () => ({ id: "ses_1", title: "Old" }),
+    });
+    const ctx = testCtx(fetch);
+    await sessionsImport(ctx, "/x.jsonl", { ...conn, host: "MAC" });
+    expect(calls.at(-1)?.body).toMatchObject({ hostId: "hst_1", sessionFile: "/x.jsonl" });
   });
 });

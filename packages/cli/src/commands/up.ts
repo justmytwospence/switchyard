@@ -19,6 +19,8 @@ import { authOptionsFromEnv, localUrlFor, parseOrigins, waitForSignal } from "./
 
 export interface UpFlags {
   port?: string;
+  bind?: string;
+  /** @deprecated use bind */
   host?: string;
   dataDir?: string;
   publicUrl?: string;
@@ -38,7 +40,7 @@ export function upOptions(flags: UpFlags, env: Env) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new CliError(`Invalid port "${flags.port}"`);
   }
-  const listenHost = flags.host ?? "0.0.0.0";
+  const listenHost = flags.bind ?? flags.host ?? "0.0.0.0";
   const dataDir = flags.dataDir ?? defaultDataDir(env);
   const explicitPublic = (flags.publicUrl ?? env.SWITCHYARD_PUBLIC_URL)?.trim();
   // Port 0 (tests): the coordinator derives the URL and origins once it is listening.
@@ -203,6 +205,7 @@ export async function startStandalone(
 }
 
 export async function up(ctx: Ctx, flags: UpFlags): Promise<void> {
+  if (flags.host !== undefined) ctx.err("switchyard: `up --host` is deprecated; use --bind");
   const s = await startStandalone(ctx, flags);
   const c = s.coordinator;
   ctx.err(

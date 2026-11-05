@@ -11,6 +11,7 @@ import {
 import { hostEnroll } from "../src/commands/host.js";
 import { DEV_ORIGINS, upOptions } from "../src/commands/up.js";
 import { resolveConnection, writeClientConfig, writeEndpoint } from "../src/config.js";
+import { buildProgram } from "../src/main.js";
 import { clientConfigPath, defaultDataDir } from "../src/paths.js";
 import { stubFetch, testCtx } from "./helpers.js";
 
@@ -111,6 +112,12 @@ describe("paths and options", () => {
     expect(o.publicUrl).toBe("http://localhost:7499");
     expect(o.listen).toEqual({ host: "0.0.0.0", port: 7499 });
     expect(o.trustedOrigins).toEqual(["http://localhost:7499", "http://127.0.0.1:7499"]);
+    expect(upOptions({ bind: "127.0.0.1", dataDir: "/d", webDist: "/w" }, {}).listen.host).toBe(
+      "127.0.0.1",
+    );
+    expect(upOptions({ host: "127.0.0.2", dataDir: "/d", webDist: "/w" }, {}).listen.host).toBe(
+      "127.0.0.2",
+    );
     const dev = upOptions({ dataDir: "/d", publicUrl: "http://192.168.1.5:7400", dev: true }, {});
     expect(dev.trustedOrigins).toEqual(["http://192.168.1.5:7400", ...DEV_ORIGINS]);
   });
@@ -332,6 +339,34 @@ describe("credentials", () => {
     expect(calls[1]?.body).toEqual({ kind: "host" });
     expect(host.lines).toContain("  switchyard host enroll ...");
     expect(clockTime("2026-11-02T10:10:00.000Z")).toMatch(/^\d\d:\d\d$/);
+  });
+
+  it("pair host and the deprecated pair --host create a host enrollment", async () => {
+    const { fetch, calls } = stubFetch({
+      "POST /api/enrollments": (c) => ({
+        status: 201,
+        body: {
+          token: "t1",
+          url: "http://127.0.0.1:7400/sign-in#token=t1",
+          expiresAt: "2026-11-02T10:10:00.000Z",
+          qrSvg: "<svg/>",
+          command:
+            (c.body as { kind: string }).kind === "host" ? "switchyard host enroll ..." : null,
+        },
+      }),
+    });
+    const env = { SWITCHYARD_ADMIN_TOKEN: "admintok" };
+    const bare = testCtx(fetch, env);
+    await buildProgram(bare).parseAsync(["pair"], { from: "user" });
+    expect(calls[0]?.body).toEqual({ kind: "device" });
+    const sub = testCtx(fetch, env);
+    await buildProgram(sub).parseAsync(["pair", "host", "--json"], { from: "user" });
+    expect(calls[1]?.body).toEqual({ kind: "host" });
+    expect(JSON.parse(sub.lines.join("\n"))).toMatchObject({ token: "t1" });
+    const legacy = testCtx(fetch, env);
+    await buildProgram(legacy).parseAsync(["pair", "--host"], { from: "user" });
+    expect(calls[2]?.body).toEqual({ kind: "host" });
+    expect(legacy.errors.join("\n")).toMatch(/`pair --host` is deprecated/);
   });
 
   it("host enroll takes exactly one of --token or --secret", async () => {

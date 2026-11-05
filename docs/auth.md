@@ -35,7 +35,7 @@ switchyard pair
 docker exec switchyard switchyard pair
 ```
 
-The link expires after 10 minutes. It carries a URL and a one-time token, not network access. This is also the recovery path if single sign-on and every passkey are unavailable, which is why the admin token must be protected. `switchyard pair --host` prints a host token instead.
+The link expires after 10 minutes. It carries a URL and a one-time token, not network access. This is also the recovery path if single sign-on and every passkey are unavailable, which is why the admin token must be protected. `switchyard pair host` prints a host token instead.
 
 ## Passkeys
 
@@ -108,7 +108,7 @@ A host is a machine running the host agent, which owns the Pi processes, reposit
 
 ### Enrolling with a single-use token
 
-1. In **Settings › Hosts › Add host** (or `switchyard pair --host` on the server) create a host enrollment. It is single use and expires after 30 minutes.
+1. In **Settings › Hosts › Add host** (or `switchyard pair host` on the server) create a host enrollment. It is single use and expires after 30 minutes.
 2. On the host, as the user that should run Pi, run the command it shows:
 
    ```

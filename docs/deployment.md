@@ -35,7 +35,7 @@ switchyard up
 | Setting | Default | Override |
 |---|---|---|
 | Port | 7400 | `--port` |
-| Bind address | `0.0.0.0` | `--host` (use `127.0.0.1` to keep it on this machine) |
+| Bind address | `0.0.0.0` | `--bind` (use `127.0.0.1` to keep it on this machine) |
 | Public URL | `http://localhost:<port>` | `--public-url`, `SWITCHYARD_PUBLIC_URL` |
 | Trusted origins | the public URL's origin (plus `http://127.0.0.1:<port>` with the default URL) | `--trusted-origins`, `SWITCHYARD_TRUSTED_ORIGINS` |
 | Web app | `packages/web/dist` next to the CLI, when built | `--web-dist`, `SWITCHYARD_WEB_DIST` |

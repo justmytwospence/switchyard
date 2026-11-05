@@ -7,7 +7,7 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | Command | Purpose |
 |---|---|
 | `up` | Run a coordinator and a local host in one process; prints a sign-in link on first start when there is no single sign-on or device, and opens it (`--no-open` to only print it) |
-| `pair [--host]` | Print a single-use sign-in link and QR for a browser (or a host token), using the admin token: for local servers and recovery |
+| `pair` / `pair host` | Print a single-use sign-in link and QR for a browser, or (`pair host`) a host enrollment token, using the admin token: for local servers and recovery |
 | `coordinator start` / `backup` / `restore` / `migrate` | Run the coordinator; back up, restore and migrate its database |
 | `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it |
 | `login` | Sign this terminal in by approving a code in a browser (`--coordinator`, `--name`, `--open`/`--no-open`; `--token <link>` from `pair` instead) |
@@ -41,7 +41,7 @@ The full table, with defaults, is in [deployment.md](deployment.md#environment-r
 | Variable | Used by |
 |---|---|
 | `SWITCHYARD_DATA_DIR`, `SWITCHYARD_PUBLIC_URL`, `SWITCHYARD_TRUSTED_ORIGINS`, `SWITCHYARD_WEB_DIST`, `SWITCHYARD_LOG_LEVEL` | The coordinator (`up`, `coordinator start`) |
-| `SWITCHYARD_LISTEN`, `SWITCHYARD_TRUSTED_PROXIES`, `SWITCHYARD_OIDC_*` | The coordinator (`up` uses `--port` and `--host` instead of `SWITCHYARD_LISTEN`) |
+| `SWITCHYARD_LISTEN`, `SWITCHYARD_TRUSTED_PROXIES`, `SWITCHYARD_OIDC_*` | The coordinator (`up` uses `--port` and `--bind` instead of `SWITCHYARD_LISTEN`) |
 | `SWITCHYARD_HOST_ENROLL_SECRET` | The coordinator (enables secret enrollment) and hosts |
 | `SWITCHYARD_COORDINATOR_URL`, `SWITCHYARD_HOST_NAME` | Hosts that enroll themselves |
 | `SWITCHYARD_HOST_CONFIG`, `SWITCHYARD_STATE_DIR`, `SWITCHYARD_PI_BIN` | The host agent |

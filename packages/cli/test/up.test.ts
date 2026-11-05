@@ -20,7 +20,7 @@ describe("switchyard up (standalone)", () => {
     const ctx = testCtx((i, init) => fetch(i, init));
     const flags = {
       port: "0",
-      host: "127.0.0.1",
+      bind: "127.0.0.1",
       dataDir,
       name: "test-host",
       webDist: "/nonexistent",
@@ -90,7 +90,7 @@ describe("switchyard up (standalone)", () => {
     const opened: string[] = [];
     const s = await startStandalone(
       ctx,
-      { port: "0", host: "127.0.0.1", dataDir, name: "h", webDist: "/nonexistent", open: true },
+      { port: "0", bind: "127.0.0.1", dataDir, name: "h", webDist: "/nonexistent", open: true },
       { open: (u) => opened.push(u) },
     );
     try {
@@ -139,7 +139,7 @@ describe("switchyard up (standalone)", () => {
     const opened: string[] = [];
     const s = await startStandalone(
       ctx,
-      { port: "0", host: "127.0.0.1", dataDir, name: "h", webDist: "/nonexistent", open: true },
+      { port: "0", bind: "127.0.0.1", dataDir, name: "h", webDist: "/nonexistent", open: true },
       { open: (u) => opened.push(u) },
     );
     try {
