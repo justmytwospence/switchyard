@@ -78,7 +78,9 @@ export function TimelineRow(props: TimelineRowProps) {
     case "tool":
       return <ToolCard data={item.data} stream={stream} sessionId={props.sessionId} />;
     case "notice":
-      return <NoticeItem level={item.data.level} text={item.data.text} />;
+      return (
+        <NoticeItem level={item.data.level} text={item.data.text} repeat={entry.repeat ?? 1} />
+      );
     case "system":
       return (
         <SystemItem
@@ -305,29 +307,53 @@ export function ToolCard({
 const NOTICE_ICON = { info: Info, warning: TriangleAlert, error: CircleAlert } as const;
 const NOTICE_LABEL = { info: "Notice", warning: "Warning", error: "Error" } as const;
 
-function NoticeItem({ level, text }: { level: "info" | "warning" | "error"; text: string }) {
+function NoticeItem({
+  level,
+  text,
+  repeat,
+}: {
+  level: "info" | "warning" | "error";
+  text: string;
+  repeat: number;
+}) {
   const Icon = NOTICE_ICON[level];
   return (
     <div
       role={level === "error" ? "alert" : "note"}
+      data-testid="notice"
+      data-level={level}
       className={cn(
-        "flex min-w-0 items-start gap-2 rounded-md border px-3 py-2 text-sm",
-        level === "info" && "border-border bg-surface-2",
-        level === "warning" && "border-transparent bg-warning-soft",
-        level === "error" && "border-transparent bg-danger-soft",
+        "flex min-w-0 items-start gap-2 border-l-2 py-0.5 pl-2 text-xs",
+        level === "info" && "border-transparent text-subtle",
+        level === "warning" && "border-warning text-muted",
+        level === "error" && "border-danger text-text",
       )}
     >
       <Icon
         aria-hidden
         className={cn(
-          "mt-0.5 size-4 shrink-0",
+          "mt-px size-3.5 shrink-0",
           level === "warning" && "text-warning",
           level === "error" && "text-danger",
-          level === "info" && "text-muted",
+          level === "info" && "text-subtle",
         )}
       />
       <span className="sr-only">{NOTICE_LABEL[level]}: </span>
-      <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>
+      <span
+        className={cn(
+          "min-w-0 flex-1",
+          level === "error" ? "break-words whitespace-pre-wrap" : "truncate",
+        )}
+        title={text}
+      >
+        {text}
+      </span>
+      {repeat > 1 && (
+        <span className="shrink-0 text-subtle tabular-nums">
+          <span aria-hidden>×{repeat}</span>
+          <span className="sr-only">(repeated {repeat} times)</span>
+        </span>
+      )}
     </div>
   );
 }

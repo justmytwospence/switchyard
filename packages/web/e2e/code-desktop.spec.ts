@@ -204,6 +204,20 @@ test.describe("desktop coding view", () => {
     await expect(page.getByRole("menuitem", { name: /^Archive/ })).toBeVisible();
   });
 
+  test("notices are compact rows", async ({ page, state, api }, info) => {
+    const id = await createSession(api, state, `Notice ${uid(info)}`, "hello");
+    await api("POST", `/api/sessions/${id}/prompt`, { text: "/fixture-hello" });
+    await page.goto(`/code/${id}`);
+    const notice = page
+      .getByTestId("transcript")
+      .getByTestId("notice")
+      .filter({ hasText: "fixture hello" });
+    await expect(notice).toBeVisible();
+    await expect(notice).toHaveAttribute("data-level", "info");
+    const box = (await notice.boundingBox())!;
+    expect(box.height).toBeLessThan(28);
+  });
+
   test("Enter sends, Shift+Enter adds a newline", async ({ page, state, api }, info) => {
     const id = await createSession(api, state, `Enter ${uid(info)}`, "hello there");
     const prompts = promptRequests(page, id);
