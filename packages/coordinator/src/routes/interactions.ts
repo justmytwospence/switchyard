@@ -61,22 +61,26 @@ export function registerInteractionRoutes(app: FastifyInstance, ctx: Coordinator
     });
     const result = AnswerResult.parse(raw);
     // Apply the host's view now so this response and the store agree, even if the host's
-    // interaction.updated event arrives later (identical events are not re-appended).
-    ctx.store.tx(() => {
+    // interaction.updated event arrives later (identical events are not re-appended). A newer
+    // revision projected first wins: a late receipt never regresses it.
+    const latest = ctx.store.tx(() => {
       const cur = ctx.store.interactions.get(id);
-      if (cur && JSON.stringify(cur) !== JSON.stringify(result.interaction)) {
+      if (!cur) return result.interaction;
+      if (cur.revision > result.interaction.revision) return cur;
+      if (JSON.stringify(cur) !== JSON.stringify(result.interaction)) {
         ctx.store.putInteraction(result.interaction, {
           hostId: session.hostId,
           projectId: session.projectId ?? undefined,
         });
         ctx.hostHub.reconcileInputAttention(result.interaction);
       }
+      return result.interaction;
     });
     if (result.status === "already_answered") {
       throw new SwitchyardError("already_answered", "This question was already answered", {
-        interaction: result.interaction,
+        interaction: latest,
       });
     }
-    return result;
+    return { ...result, interaction: latest };
   });
 }

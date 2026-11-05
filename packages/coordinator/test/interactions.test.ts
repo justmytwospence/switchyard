@@ -114,6 +114,39 @@ describe("interaction answers", () => {
     expect(answers.length).toBe(before);
   });
 
+  it("a late answer receipt never regresses a newer interaction", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    host = await FakeHost.connect(t, creds);
+    await host.event("session.updated", hostSession("ses_l", { runtime: "waiting_input" }));
+    const interaction = pending("int_l", "ses_l");
+    await host.event("interaction.updated", interaction);
+    const h = host;
+    h.handler = async (cmd) => {
+      if (cmd.type !== "session.answer") return null;
+      const resolved: Interaction = {
+        ...interaction,
+        state: "resolved",
+        resolution: { by: cmd.deviceId, summary: "Banana", at: new Date().toISOString() },
+      };
+      await h.event("interaction.updated", {
+        ...resolved,
+        revision: 3,
+        resolution: { ...resolved.resolution!, summary: "Banana (confirmed)" },
+      });
+      return { status: "answered", interaction: { ...resolved, revision: 2 } };
+    };
+    const r = await t.admin("POST", "/api/interactions/int_l/answer", {
+      revision: 1,
+      response: { kind: "form", values: { value: "Banana" } },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.interaction.revision).toBe(3);
+    const stored = t.c.store.interactions.require("int_l");
+    expect(stored.revision).toBe(3);
+    expect(stored.resolution?.summary).toBe("Banana (confirmed)");
+  });
+
   it("returns host_unreachable instead of resolving optimistically", async () => {
     t = await startCoordinator();
     const creds = await enrollHost(t);
