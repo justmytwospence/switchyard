@@ -363,4 +363,29 @@ test.describe("shared behavior", () => {
       "Dismissed",
     );
   });
+
+  test("settings index: desktop opens Hosts, mobile lists grouped sections", async ({
+    page,
+    signIn,
+  }, info) => {
+    await signIn();
+    await page.goto("/settings");
+    const nav = page.getByTestId("settings-nav");
+    if (isMobile(info)) {
+      for (const g of ["Workspace", "Infrastructure", "Access", "This device"]) {
+        await expect(nav.getByRole("heading", { name: g, exact: true })).toBeVisible();
+      }
+      await nav.getByRole("link", { name: /^Hosts/ }).click();
+      await expect(page).toHaveURL(/\/settings\/hosts$/);
+      await page.getByRole("link", { name: "Back to Settings" }).click();
+      await expect(page).toHaveURL(/\/settings$/);
+    } else {
+      await expect(page).toHaveURL(/\/settings\/hosts$/);
+      await expect(nav.getByRole("link", { name: "Hosts" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      await expect(nav.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
+    }
+  });
 });

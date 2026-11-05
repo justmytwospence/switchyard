@@ -1,6 +1,7 @@
 import type { Host } from "@switchyard/protocol";
 import { PI_SUPPORTED_RANGE } from "@switchyard/protocol";
 import {
+  ArrowLeft,
   Bell,
   ChevronLeft,
   CircleCheck,
@@ -20,6 +21,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
+import { buttonClasses } from "../../components/ui/Button";
 import { InlineStatus } from "../../components/ui/StatusChip";
 import { useSyncStore } from "../../sync/store";
 
@@ -27,75 +29,92 @@ import { useSyncStore } from "../../sync/store";
 /* Sections                                                            */
 /* ------------------------------------------------------------------ */
 
+export type SectionGroup = "Workspace" | "Infrastructure" | "Access" | "This device";
+
 export interface SectionDef {
   path: string;
   label: string;
   description: string;
   icon: LucideIcon;
+  group: SectionGroup;
 }
 
 export const SECTIONS: SectionDef[] = [
-  {
-    path: "hosts",
-    label: "Hosts",
-    description: "Execution hosts, capabilities and versions",
-    icon: Server,
-  },
-  {
-    path: "devices",
-    label: "Devices",
-    description: "Signed-in browsers, apps and terminals",
-    icon: MonitorSmartphone,
-  },
-  {
-    path: "sign-in",
-    label: "Sign-in",
-    description: "Passkeys, single sign-on and signing out",
-    icon: KeyRound,
-  },
   {
     path: "projects",
     label: "Projects",
     description: "Repositories, checkouts and workspaces",
     icon: FolderGit2,
+    group: "Workspace",
   },
   {
     path: "profiles",
     label: "Pi profiles",
     description: "Provider, model and thinking presets",
     icon: SlidersHorizontal,
+    group: "Workspace",
+  },
+  {
+    path: "hosts",
+    label: "Hosts",
+    description: "Execution hosts, capabilities and versions",
+    icon: Server,
+    group: "Infrastructure",
   },
   {
     path: "adapters",
     label: "Adapters",
     description: "Extension adapters on each host",
     icon: Puzzle,
-  },
-  {
-    path: "notifications",
-    label: "Notifications",
-    description: "Push, quiet hours and previews",
-    icon: Bell,
+    group: "Infrastructure",
   },
   {
     path: "backups",
     label: "Backups",
     description: "Back up and restore the coordinator",
     icon: DatabaseBackup,
+    group: "Infrastructure",
   },
   {
     path: "diagnostics",
     label: "Diagnostics",
     description: "Versions, migrations, events and recent problems",
     icon: Stethoscope,
+    group: "Infrastructure",
+  },
+  {
+    path: "sign-in",
+    label: "Sign-in",
+    description: "Passkeys, single sign-on and signing out",
+    icon: KeyRound,
+    group: "Access",
+  },
+  {
+    path: "devices",
+    label: "Devices",
+    description: "Signed-in browsers, apps and terminals",
+    icon: MonitorSmartphone,
+    group: "Access",
+  },
+  {
+    path: "notifications",
+    label: "Notifications",
+    description: "Push, quiet hours and previews",
+    icon: Bell,
+    group: "This device",
   },
   {
     path: "device",
     label: "This device",
     description: "Preferences stored on this device",
     icon: Keyboard,
+    group: "This device",
   },
 ];
+
+export const SECTION_GROUPS: { label: SectionGroup; sections: SectionDef[] }[] = (
+  ["Workspace", "Infrastructure", "Access", "This device"] as const
+).map((label) => ({ label, sections: SECTIONS.filter((s) => s.group === label) }));
 
 export const settingsPath = (sub?: string) => (sub ? `/settings/${sub}` : "/settings");
 
@@ -123,28 +142,46 @@ export function SectionPage({
   testId?: string;
   children?: ReactNode;
 }) {
-  const bp = useBreakpoint();
-  const backLink = back ?? (bp === "mobile" ? { to: "/settings", label: "Settings" } : null);
+  const mobile = useBreakpoint() === "mobile";
+  const backLink = back ?? (mobile ? { to: settingsPath(), label: "Settings" } : null);
   const goBack = useBackTo(backLink?.to ?? settingsPath());
+  const compactBack = mobile && !!backLink;
   return (
     <section data-testid={testId} className="flex w-full min-w-0 flex-col gap-4 px-4 py-4 md:px-6">
-      {backLink && (
-        <Link
-          to={backLink.to}
-          onClick={backLinkClick(goBack)}
-          className="tap -ml-2 inline-flex w-fit items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-accent hover:bg-surface-2"
-        >
-          <ChevronLeft aria-hidden className="size-4" />
-          Back to {backLink.label}
-        </Link>
+      {compactBack && backLink ? (
+        <header className="sticky top-0 z-20 -mx-4 -mt-4 flex min-w-0 items-center gap-1 border-b border-border bg-surface px-1 pb-1 safe-pt-1">
+          <Link
+            to={backLink.to}
+            onClick={backLinkClick(goBack)}
+            aria-label={`Back to ${backLink.label}`}
+            title={`Back to ${backLink.label}`}
+            className={buttonClasses("ghost", "md", "size-11 px-0")}
+          >
+            <ArrowLeft aria-hidden className="size-5" />
+          </Link>
+          <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{title}</h1>
+        </header>
+      ) : (
+        backLink && (
+          <Link
+            to={backLink.to}
+            onClick={backLinkClick(goBack)}
+            className="tap -ml-2 inline-flex w-fit items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-accent hover:bg-surface-2"
+          >
+            <ChevronLeft aria-hidden className="size-4" />
+            Back to {backLink.label}
+          </Link>
+        )
       )}
-      <header className="flex min-w-0 flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-[1_1_15rem]">
-          <h1 className="break-words text-lg font-semibold">{title}</h1>
-          {description && <p className="text-sm text-muted">{description}</p>}
-        </div>
-        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-      </header>
+      {(!compactBack || description || actions) && (
+        <header className="flex min-w-0 flex-wrap items-start gap-3">
+          <div className="min-w-0 flex-[1_1_15rem]">
+            {!compactBack && <h1 className="break-words text-lg font-semibold">{title}</h1>}
+            {description && <p className="text-sm text-muted">{description}</p>}
+          </div>
+          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        </header>
+      )}
       {children}
     </section>
   );
