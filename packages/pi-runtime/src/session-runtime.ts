@@ -185,6 +185,15 @@ interface Block {
   toolCallId?: string;
 }
 
+/** Pi rejecting a command is the caller's problem; Pi or its transport failing is ours. */
+export function piErrorToSwitchyard(err: PiRpcError): SwitchyardError {
+  return new SwitchyardError(
+    err.kind === "rejected" ? "invalid_request" : "internal",
+    err.message,
+    { command: err.command, kind: err.kind },
+  );
+}
+
 const RUNNING_MESSAGE = "Session is running: choose Steer or Queue follow-up";
 const TRACKED_ITEMS = 500;
 
@@ -751,9 +760,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     try {
       return await proc.request<T>(cmd, timeoutMs);
     } catch (err) {
-      if (err instanceof PiRpcError) {
-        throw new SwitchyardError("invalid_request", err.message, { command: err.command });
-      }
+      if (err instanceof PiRpcError) throw piErrorToSwitchyard(err);
       throw err;
     }
   }

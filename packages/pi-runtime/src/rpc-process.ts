@@ -47,13 +47,21 @@ export function screenTail(screen?: string[]): string {
   return `: ${joined.length > 500 ? joined.slice(-500) : joined}`;
 }
 
+/**
+ * What went wrong: Pi `rejected` the command (`success:false`), did not answer in time
+ * (`timeout`), or the transport failed (Pi gone, write failed, holder unreachable).
+ */
+export type PiRpcErrorKind = "rejected" | "timeout" | "transport";
+
 /** Error from a Pi command answered with `success:false`, or a transport failure. */
 export class PiRpcError extends Error {
   readonly command: string;
-  constructor(command: string, message: string) {
+  readonly kind: PiRpcErrorKind;
+  constructor(command: string, message: string, kind: PiRpcErrorKind) {
     super(message);
     this.name = "PiRpcError";
     this.command = command;
+    this.kind = kind;
   }
 }
 
@@ -184,7 +192,7 @@ export class PiRpcProcess extends EventEmitter {
       }`;
       for (const [, p] of this.pending) {
         clearTimeout(p.timer);
-        p.reject(new PiRpcError(p.command, reason));
+        p.reject(new PiRpcError(p.command, reason, "transport"));
       }
       this.pending.clear();
       this.cleanupBridge();
@@ -243,7 +251,7 @@ export class PiRpcProcess extends EventEmitter {
     } catch (err) {
       server?.close();
       if (socketPath) rmSync(socketPath, { force: true });
-      throw new PiRpcError("spawn", `Could not start Pi: ${(err as Error).message}`);
+      throw new PiRpcError("spawn", `Could not start Pi: ${(err as Error).message}`, "transport");
     }
     child.on("error", () => {
       // post-spawn errors (e.g. kill failures) are reflected by `exit`
@@ -274,13 +282,19 @@ export class PiRpcProcess extends EventEmitter {
   /** Send a command and resolve with its `data`; rejects with Pi's error string on `success:false`. */
   request<T = any>(cmd: { type: string; [key: string]: unknown }, timeoutMs = 60000): Promise<T> {
     if (this.exitInfo) {
-      return Promise.reject(new PiRpcError(cmd.type, "Pi is not running"));
+      return Promise.reject(new PiRpcError(cmd.type, "Pi is not running", "transport"));
     }
     const id = `sy-${++this.nextId}`;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new PiRpcError(cmd.type, `Pi did not answer ${cmd.type} within ${timeoutMs} ms`));
+        reject(
+          new PiRpcError(
+            cmd.type,
+            `Pi did not answer ${cmd.type} within ${timeoutMs} ms`,
+            "timeout",
+          ),
+        );
       }, timeoutMs);
       this.pending.set(id, { command: cmd.type, resolve, reject, timer });
       writeJsonl(this.child.stdin, { ...cmd, id }).catch((err: Error) => {
@@ -288,7 +302,7 @@ export class PiRpcProcess extends EventEmitter {
         if (!p) return;
         clearTimeout(p.timer);
         this.pending.delete(id);
-        reject(new PiRpcError(cmd.type, `Could not write to Pi: ${err.message}`));
+        reject(new PiRpcError(cmd.type, `Could not write to Pi: ${err.message}`, "transport"));
       });
     });
   }
@@ -368,7 +382,7 @@ export class PiRpcProcess extends EventEmitter {
       }
       clearTimeout(p.timer);
       this.pending.delete(id);
-      if (rec.success === false) p.reject(new PiRpcError(p.command, String(rec.error)));
+      if (rec.success === false) p.reject(new PiRpcError(p.command, String(rec.error), "rejected"));
       else p.resolve(rec.data);
       return;
     }

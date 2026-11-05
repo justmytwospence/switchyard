@@ -209,6 +209,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
           throw new PiRpcError(
             "spawn",
             `Terminal holder did not start${tail ? `: ${tail}` : ""} (log: ${logPath})`,
+            "transport",
           );
         }
         await sleep(100);
@@ -230,11 +231,16 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
           throw new PiRpcError(
             "attach",
             `Pi exited while the host agent was away (code ${saved.code}, signal ${saved.signal})${screenTail(saved.screen)}`,
+            "transport",
           );
         }
-        throw new PiRpcError("attach", "Terminal holder not running");
+        throw new PiRpcError("attach", "Terminal holder not running", "transport");
       }
-      throw new PiRpcError("attach", `Cannot reach the terminal holder: ${(err as Error).message}`);
+      throw new PiRpcError(
+        "attach",
+        `Cannot reach the terminal holder: ${(err as Error).message}`,
+        "transport",
+      );
     }
     return new PiTerminalProcess(socketPath, socket);
   }
@@ -249,13 +255,19 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
 
   request<T = any>(cmd: { type: string; [key: string]: unknown }, timeoutMs = 60000): Promise<T> {
     if (this.exitInfo || this.detached) {
-      return Promise.reject(new PiRpcError(cmd.type, "Pi is not running"));
+      return Promise.reject(new PiRpcError(cmd.type, "Pi is not running", "transport"));
     }
     const id = `sy-${++this.nextId}`;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new PiRpcError(cmd.type, `Pi did not answer ${cmd.type} within ${timeoutMs} ms`));
+        reject(
+          new PiRpcError(
+            cmd.type,
+            `Pi did not answer ${cmd.type} within ${timeoutMs} ms`,
+            "timeout",
+          ),
+        );
       }, timeoutMs);
       this.pending.set(id, { command: cmd.type, resolve, reject, timer });
       writeJsonl(this.socket, { ...cmd, id }).catch((err: Error) => {
@@ -263,7 +275,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
         if (!p) return;
         clearTimeout(p.timer);
         this.pending.delete(id);
-        reject(new PiRpcError(cmd.type, `Could not write to Pi: ${err.message}`));
+        reject(new PiRpcError(cmd.type, `Could not write to Pi: ${err.message}`, "transport"));
       });
     });
   }
@@ -303,7 +315,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     this.detached = true;
     for (const [, p] of this.pending) {
       clearTimeout(p.timer);
-      p.reject(new PiRpcError(p.command, "Detached from the terminal holder"));
+      p.reject(new PiRpcError(p.command, "Detached from the terminal holder", "transport"));
     }
     this.pending.clear();
     this.socket.destroy();
@@ -315,7 +327,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     const reason = `Pi exited (code ${info.code}, signal ${info.signal})${screenTail(info.screen)}`;
     for (const [, p] of this.pending) {
       clearTimeout(p.timer);
-      p.reject(new PiRpcError(p.command, reason));
+      p.reject(new PiRpcError(p.command, reason, "transport"));
     }
     this.pending.clear();
     this.socket.destroy();
@@ -333,8 +345,16 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
         if (!p || !id) return;
         clearTimeout(p.timer);
         this.pending.delete(id);
-        if (rec.success === false) p.reject(new PiRpcError(p.command, String(rec.error)));
-        else p.resolve(rec.data);
+        if (rec.success === false) {
+          // `holder: true` marks a failure of the holder itself, not Pi's answer.
+          p.reject(
+            new PiRpcError(
+              p.command,
+              String(rec.error),
+              rec.holder === true ? "transport" : "rejected",
+            ),
+          );
+        } else p.resolve(rec.data);
         return;
       }
       case "extension_ui_request":
