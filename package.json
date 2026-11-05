@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "build:npm": "node scripts/build-npm.mjs"
+    "build:npm": "node scripts/build-npm.mjs",
+    "icons": "node scripts/build-icons.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
