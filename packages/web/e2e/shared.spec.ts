@@ -333,7 +333,7 @@ test.describe("shared behavior", () => {
     ).toBeVisible();
   });
 
-  test("attention: Dismiss hides an item from Open; All still shows it", async ({
+  test("attention: Dismiss moves an item from Open to Dismissed", async ({
     page,
     signIn,
     api,
@@ -358,10 +358,12 @@ test.describe("shared behavior", () => {
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: "Dismiss" }).click();
     await expect(page.getByRole("article").filter({ hasText: title })).toHaveCount(0);
-    await show.getByRole("radio", { name: "All" }).click();
+    await show.getByRole("radio", { name: "Dismissed" }).click();
     await expect(page.getByRole("article").filter({ hasText: title }).first()).toContainText(
       "Dismissed",
     );
+    await show.getByRole("radio", { name: "History" }).click();
+    await expect(page.getByTestId("attention-history")).toBeVisible();
   });
 
   test("settings index: desktop opens Hosts, mobile lists grouped sections", async ({

@@ -62,6 +62,14 @@ describe("runs", () => {
     expect(accepted.status).toBe(200);
     expect(accepted.body.state).toBe("done");
     await until(() => h!.t.c.attention.open({ taskId: tk.id }).length === 0);
+
+    const history = await h.t.admin("GET", `/api/attention?resolvedOnly=true&taskId=${tk.id}`);
+    expect(history.status).toBe(200);
+    expect(history.body).toHaveLength(1);
+    expect(history.body[0]).toMatchObject({ id: att[0]!.id, reason: "ready_for_review" });
+    expect(history.body[0].resolvedAt).not.toBeNull();
+    const open = await h.t.admin("GET", `/api/attention?taskId=${tk.id}`);
+    expect(open.body).toEqual([]);
   });
 
   it("new attempt from Review prompts the same session with the feedback", async () => {

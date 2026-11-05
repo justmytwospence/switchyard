@@ -1,5 +1,5 @@
 import type { AttentionItem, AttentionReason } from "@switchyard/protocol";
-import { Bell, CircleCheck, ExternalLink, Eye, ListTodo, Server } from "lucide-react";
+import { Bell, CircleCheck, ExternalLink, Eye, History, ListTodo, Server } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ROUTES } from "../../app/routes";
@@ -20,14 +20,15 @@ import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { apiPost, errorMessage } from "../../sync/api";
 import { useOpenAttention, useSyncStore } from "../../sync/store";
-
-export const ATTENTION_GROUPS: AttentionReason[] = [
-  "needs_input",
-  "failed",
-  "ready_for_review",
-  "unsupported_interaction",
-  "host_unreachable",
-];
+import {
+  ATTENTION_GROUPS,
+  type AttentionShow,
+  attentionMeta,
+  groupAttention,
+  normalizeShow,
+  visibleAttention,
+} from "./logic";
+import { HISTORY_LIMIT, useAttentionHistory } from "./useAttentionHistory";
 
 const GROUP_HINT: Record<AttentionReason, string> = {
   needs_input: "Questions from Pi waiting for your answer.",
@@ -39,26 +40,17 @@ const GROUP_HINT: Record<AttentionReason, string> = {
     "Running work on hosts that stopped responding. Nothing is restarted elsewhere.",
 };
 
-/** Group open attention by reason, keeping newest first within a group. */
-export function groupAttention(items: AttentionItem[]): Record<AttentionReason, AttentionItem[]> {
-  const out = Object.fromEntries(ATTENTION_GROUPS.map((r) => [r, [] as AttentionItem[]])) as Record<
-    AttentionReason,
-    AttentionItem[]
-  >;
-  for (const a of items) out[a.reason]?.push(a);
-  return out;
-}
-
 /** /attention: Needs input, Failed, Ready for review (plus unsupported and unreachable). */
 export default function AttentionView() {
   const all = useOpenAttention();
   const hydrated = useSyncStore((s) => s.hydrated);
-  const [show, setShow] = useFilter<"open" | "all">("attentionShow", "open");
-  const items = useMemo(
-    () => (show === "open" ? all.filter((a) => !a.acknowledgedAt) : all),
-    [all, show],
-  );
+  const [stored, setStored] = useFilter<AttentionShow | "all">("attentionShow", "open");
+  const show = normalizeShow(stored);
+  const setShow = (v: AttentionShow) => setStored(v);
+  const items = useMemo(() => visibleAttention(all, show), [all, show]);
+  const dismissedCount = useMemo(() => visibleAttention(all, "dismissed").length, [all]);
   const groups = useMemo(() => groupAttention(items), [items]);
+  const history = useAttentionHistory(show === "history");
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 px-4 pb-4 safe-pt-4 md:px-6">
@@ -71,7 +63,8 @@ export default function AttentionView() {
           onChange={setShow}
           options={[
             { value: "open", label: "Open" },
-            { value: "all", label: "All" },
+            { value: "dismissed", label: "Dismissed" },
+            { value: "history", label: "History" },
           ]}
         />
       </header>
@@ -80,28 +73,69 @@ export default function AttentionView() {
         consequence="Answers are sent once the connection is back."
         show={hydrated}
       />
-      {!hydrated ? (
+      {show === "history" ? (
+        <div data-testid="attention-history" className="flex min-w-0 flex-col gap-2">
+          {!history.data && history.loading ? (
+            <LoadingState label="Loading history…" />
+          ) : !history.data && history.error ? (
+            <ErrorState
+              compact
+              title="Could not load history"
+              error={errorMessage(history.error)}
+              onRetry={history.reload}
+            />
+          ) : !history.data || history.data.length === 0 ? (
+            <EmptyState
+              icon={<History className="size-8" />}
+              title="No history yet"
+              description="Resolved questions, failures and reviews show up here."
+            />
+          ) : (
+            <>
+              <ul className="flex min-w-0 flex-col gap-2">
+                {history.data.map((a) => (
+                  <li key={a.id} className="min-w-0">
+                    <HistoryRow item={a} />
+                  </li>
+                ))}
+              </ul>
+              {history.data.length >= HISTORY_LIMIT && (
+                <p className="text-sm text-muted">Showing the {HISTORY_LIMIT} most recent.</p>
+              )}
+            </>
+          )}
+        </div>
+      ) : !hydrated ? (
         <LoadingState label="Loading attention…" />
       ) : items.length === 0 ? (
-        <EmptyState
-          icon={<Bell className="size-8" />}
-          title={all.length > 0 ? "All caught up" : "Nothing needs your attention"}
-          description={
-            all.length > 0
-              ? `${all.length} dismissed ${all.length === 1 ? "item is" : "items are"} still open.`
-              : "Questions, failures and finished work show up here."
-          }
-          action={
-            all.length > 0
-              ? { label: "Show all", onClick: () => setShow("all") }
-              : { label: "Go to Sessions", to: ROUTES.code }
-          }
-          secondaryAction={
-            all.length > 0
-              ? { label: "Go to Sessions", to: ROUTES.code }
-              : { label: "Go to Board", to: ROUTES.board }
-          }
-        />
+        show === "dismissed" ? (
+          <EmptyState
+            icon={<Bell className="size-8" />}
+            title="No dismissed items"
+            description="Items you dismiss stay here until their question or task is resolved."
+            action={{ label: "Show open", onClick: () => setShow("open") }}
+          />
+        ) : (
+          <EmptyState
+            icon={<Bell className="size-8" />}
+            title={dismissedCount > 0 ? "All caught up" : "Nothing needs your attention"}
+            description={
+              dismissedCount > 0
+                ? `${dismissedCount} dismissed ${dismissedCount === 1 ? "item is" : "items are"} still open.`
+                : "Questions, failures and finished work show up here."
+            }
+            action={
+              dismissedCount > 0
+                ? { label: "Show dismissed", onClick: () => setShow("dismissed") }
+                : { label: "Go to Sessions", to: ROUTES.code }
+            }
+            secondaryAction={
+              dismissedCount > 0
+                ? { label: "Go to Sessions", to: ROUTES.code }
+                : { label: "Go to Board", to: ROUTES.board }
+            }
+          />
+        )
       ) : (
         ATTENTION_GROUPS.filter((r) => groups[r].length > 0).map((reason) => {
           const info = ATTENTION_STATUS[reason];
@@ -259,10 +293,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       break;
   }
 
-  const metaText =
-    [project?.name, task?.title, session && session.title !== task?.title ? session.title : null]
-      .filter(Boolean)
-      .join(" · ") || "Switchyard";
+  const metaText = attentionMeta(project, task, session);
 
   const showsCard =
     !!interaction && (item.reason === "needs_input" || item.reason === "unsupported_interaction");
@@ -363,6 +394,47 @@ function AttentionRow({ item }: { item: AttentionItem }) {
           error={errorMessage(ackError)}
           onRetry={() => void acknowledge()}
         />
+      )}
+    </article>
+  );
+}
+
+function HistoryRow({ item }: { item: AttentionItem }) {
+  const project = useSyncStore((s) => (item.projectId ? s.projects[item.projectId] : undefined));
+  const task = useSyncStore((s) => (item.taskId ? s.tasks[item.taskId] : undefined));
+  const session = useSyncStore((s) => (item.sessionId ? s.sessions[item.sessionId] : undefined));
+  return (
+    <article
+      aria-label={`${ATTENTION_STATUS[item.reason].label}: ${task?.title ?? session?.title ?? item.summary}`}
+      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-3"
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <StatusChip kind="attention" value={item.reason} size="sm" />
+        <span className="min-w-0 flex-1 truncate text-xs text-muted">
+          {attentionMeta(project, task, session)}
+        </span>
+        {item.resolvedAt && (
+          <time dateTime={item.resolvedAt} className="shrink-0 text-xs text-subtle">
+            Resolved {formatRelative(item.resolvedAt)}
+          </time>
+        )}
+      </div>
+      <p className="min-w-0 text-sm break-words">{item.summary}</p>
+      {(item.taskId || item.sessionId) && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {item.taskId && (
+            <Link to={ROUTES.task(item.taskId)} className={buttonClasses("ghost", "sm")}>
+              <ListTodo aria-hidden className="size-3.5" />
+              Task
+            </Link>
+          )}
+          {item.sessionId && (
+            <Link to={ROUTES.session(item.sessionId)} className={buttonClasses("ghost", "sm")}>
+              <ExternalLink aria-hidden className="size-3.5" />
+              Open session
+            </Link>
+          )}
+        </div>
       )}
     </article>
   );
