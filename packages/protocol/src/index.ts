@@ -8,6 +8,7 @@ export * from "./ids.js";
 export * from "./terminal-wire.js";
 export * from "./titles.js";
 export * from "./ui.js";
+export * from "./web-bridge.js";
 
 export const PROTOCOL_VERSION = 1;
 export const PI_SUPPORTED_RANGE = ">=1.4.0 <1.6.0";

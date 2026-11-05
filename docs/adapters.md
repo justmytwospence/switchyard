@@ -178,9 +178,9 @@ A `webRenderer` HTML file is served to browsers in `<iframe sandbox="allow-scrip
 |---|---|
 | parent to frame | `{type: "render", node, state}`: the panel's portable node and its `state` |
 | frame to parent | `{type: "action", actionId, payload}`: forwarded to the adapter's `onAction` through the adapter action API |
-| frame to parent | `{type: "resize", height}`: requested frame height (at most 4000) |
+| frame to parent | `{type: "resize", height}`: requested height, a finite number from 0 to 4000 (`FRAME_MAX_HEIGHT`) |
 
-The parent validates every frame message with `parseFrameMessage` and ignores messages from other sources. Renderers should set a restrictive Content-Security-Policy and must render a usable fallback from `node` when `state` is missing. Clients without frames (terminal, constrained mobile) render `node` or `mobileFallback`. See the pi-bg adapter's renderer in pi-plugins, `packages/pi-bg/src/switchyard/bg-renderer.html`.
+The parent validates every frame message with `parseFrameMessage` (`@switchyard/protocol`, re-exported by `@switchyard/adapter-sdk`): an action needs an `actionId` of 1 to 200 characters; anything else is ignored. The web app sizes the frame to the requested height, at least 80 px and at most 4000 px. It also ignores messages from other sources. Renderers should set a restrictive Content-Security-Policy and must render a usable fallback from `node` when `state` is missing. Clients without frames (terminal, constrained mobile) render `node` or `mobileFallback`. See the pi-bg adapter's renderer in pi-plugins, `packages/pi-bg/src/switchyard/bg-renderer.html`.
 
 ## Adapters for the pi-plugins suite
 

@@ -1,4 +1,7 @@
-import { validateUINode } from "@switchyard/protocol";
+import {
+  parseFrameMessage as protocolParseFrameMessage,
+  validateUINode,
+} from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
   genericClaim,
@@ -85,16 +88,8 @@ describe("generic cards and panels", () => {
   });
 });
 
-describe("wire parsing", () => {
-  it("validates frame messages", () => {
-    expect(parseFrameMessage({ type: "resize", height: 120 })).toEqual({
-      type: "resize",
-      height: 120,
-    });
-    expect(parseFrameMessage({ type: "action", actionId: "go", payload: 1 })).toMatchObject({
-      actionId: "go",
-    });
-    expect(parseFrameMessage({ type: "resize", height: 1e9 })).toBeUndefined();
-    expect(parseFrameMessage({ type: "navigate", url: "https://x" })).toBeUndefined();
+describe("frame bridge", () => {
+  it("is re-exported from the protocol package", () => {
+    expect(parseFrameMessage).toBe(protocolParseFrameMessage);
   });
 });

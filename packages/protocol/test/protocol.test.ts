@@ -10,6 +10,7 @@ import {
   isPlaceholderTitle,
   newId,
   Profile,
+  parseFrameMessage,
   RuntimeCapabilities,
   Session,
   SwitchyardError,
@@ -223,5 +224,30 @@ describe("shared schemas", () => {
     expect(DeviceKind.extract(["browser", "pwa"]).safeParse("cli").success).toBe(false);
     const cmd = HostCommand.parse({ type: "workspace.discover", checkoutPath: "/r" });
     expect(cmd).toMatchObject({ worktreeDir: ".worktrees" });
+  });
+});
+
+describe("frame bridge", () => {
+  it("validates frame messages", () => {
+    expect(parseFrameMessage({ type: "resize", height: 120 })).toEqual({
+      type: "resize",
+      height: 120,
+    });
+    expect(parseFrameMessage({ type: "action", actionId: "go", payload: 1 })).toMatchObject({
+      actionId: "go",
+    });
+    for (const bad of [
+      { type: "resize", height: 1e9 },
+      { type: "resize", height: Number.NaN },
+      { type: "resize", height: -1 },
+      { type: "resize", height: Number.POSITIVE_INFINITY },
+      { type: "action", actionId: "" },
+      { type: "action", actionId: "x".repeat(201) },
+      { type: "navigate", url: "https://x" },
+      null,
+      "str",
+    ]) {
+      expect(parseFrameMessage(bad)).toBeUndefined();
+    }
   });
 });
