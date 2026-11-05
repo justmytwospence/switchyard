@@ -3,6 +3,7 @@ import { FolderGit2, Plus, RefreshCw, Save } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { Button } from "../../components/ui/Button";
+import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import { EmptyState, LoadingState } from "../../components/ui/states";
@@ -12,8 +13,6 @@ import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useHosts, useSyncStore } from "../../sync/store";
 import {
   Card,
-  describedBy,
-  Field,
   InlineError,
   LastKnownNote,
   SectionPage,
@@ -181,7 +180,7 @@ function ProjectForm({
             id={`${ids}-name`}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            {...describedBy(`${ids}-name`, { error: nameError })}
+            {...fieldControlProps(`${ids}-name`, { error: nameError })}
           />
         </Field>
         <Field
@@ -196,7 +195,7 @@ function ProjectForm({
             className="font-mono"
             spellCheck={false}
             autoCapitalize="off"
-            {...describedBy(`${ids}-setup`, { hint: true })}
+            {...fieldControlProps(`${ids}-setup`, { hint: true })}
           />
         </Field>
         <Field
@@ -212,7 +211,7 @@ function ProjectForm({
             className="font-mono"
             spellCheck={false}
             autoCapitalize="off"
-            {...describedBy(`${ids}-checks`, { hint: true })}
+            {...fieldControlProps(`${ids}-checks`, { hint: true })}
           />
         </Field>
         <Field
@@ -231,7 +230,7 @@ function ProjectForm({
             value={maxRuns}
             onChange={(e) => setMaxRuns(e.target.value)}
             className="max-w-32"
-            {...describedBy(`${ids}-runs`, { hint: true, error: runsError })}
+            {...fieldControlProps(`${ids}-runs`, { hint: true, error: runsError })}
           />
         </Field>
         <Field
@@ -250,7 +249,7 @@ function ProjectForm({
             autoComplete="off"
             autoCapitalize="off"
             spellCheck={false}
-            {...describedBy(`${ids}-worktree`, { hint: true, error: worktreeDirError })}
+            {...fieldControlProps(`${ids}-worktree`, { hint: true, error: worktreeDirError })}
           />
         </Field>
         <Toggle
@@ -320,7 +319,7 @@ function ProjectForm({
               id={`${ids}-host`}
               value={hostId}
               onChange={(e) => setHostId(e.target.value)}
-              {...describedBy(`${ids}-host`, { hint: true })}
+              {...fieldControlProps(`${ids}-host`, { hint: true })}
             >
               <option value="">None (any host with a checkout)</option>
               {hosts.map((h) => (
@@ -493,7 +492,7 @@ function AddCheckoutDialog({
             value={effectiveHost}
             onChange={(e) => setHostId(e.target.value)}
             disabled={connected.length === 0}
-            {...describedBy(`${ids}-host`, { hint: true })}
+            {...fieldControlProps(`${ids}-host`, { hint: true })}
           >
             {connected.length === 0 && <option value="">No connected hosts</option>}
             {connected.map((h) => (
@@ -518,7 +517,7 @@ function AddCheckoutDialog({
             autoCapitalize="off"
             autoComplete="off"
             spellCheck={false}
-            {...describedBy(`${ids}-path`, { hint: true, error: pathError })}
+            {...fieldControlProps(`${ids}-path`, { hint: true, error: pathError })}
           />
         </Field>
         <InlineError error={error} />

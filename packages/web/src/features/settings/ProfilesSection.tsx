@@ -2,6 +2,7 @@ import { ExtraArg, type Profile, ThinkingLevel } from "@switchyard/protocol";
 import { Pencil, Plus, SlidersHorizontal, Trash } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import { EmptyState, LoadingState } from "../../components/ui/states";
@@ -11,8 +12,6 @@ import { apiDelete, apiPatch, apiPost } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 import {
   ConfirmDialog,
-  describedBy,
-  Field,
   InlineError,
   LastKnownNote,
   SectionPage,
@@ -262,7 +261,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
             id={`${ids}-name`}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            {...describedBy(`${ids}-name`, { error: nameError })}
+            {...fieldControlProps(`${ids}-name`, { error: nameError })}
           />
         </Field>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2">
@@ -274,7 +273,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
               placeholder="anthropic"
               autoCapitalize="off"
               spellCheck={false}
-              {...describedBy(`${ids}-provider`, { hint: true })}
+              {...fieldControlProps(`${ids}-provider`, { hint: true })}
             />
           </Field>
           <Field id={`${ids}-model`} label="Model" hint="Empty uses Pi's default.">
@@ -284,7 +283,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
               onChange={(e) => setModel(e.target.value)}
               autoCapitalize="off"
               spellCheck={false}
-              {...describedBy(`${ids}-model`, { hint: true })}
+              {...fieldControlProps(`${ids}-model`, { hint: true })}
             />
           </Field>
         </div>
@@ -308,7 +307,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
               id={`${ids}-trust`}
               value={trust}
               onChange={(e) => setTrust(e.target.value as Profile["projectTrust"])}
-              {...describedBy(`${ids}-trust`, { hint: true })}
+              {...fieldControlProps(`${ids}-trust`, { hint: true })}
             >
               {(Object.keys(TRUST_LABEL) as Profile["projectTrust"][]).map((t) => (
                 <option key={t} value={t}>
@@ -323,7 +322,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
             id={`${ids}-resources`}
             value={resources}
             onChange={(e) => setResources(e.target.value as NonNullable<Profile["resources"]>)}
-            {...describedBy(`${ids}-resources`, { hint: true })}
+            {...fieldControlProps(`${ids}-resources`, { hint: true })}
           >
             <option value="all">Your Pi setup</option>
             <option value="vanilla">Vanilla Pi</option>
@@ -343,7 +342,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
             className="font-mono"
             autoCapitalize="off"
             spellCheck={false}
-            {...describedBy(`${ids}-extra`, { hint: true, error: argsError })}
+            {...fieldControlProps(`${ids}-extra`, { hint: true, error: argsError })}
           />
         </Field>
         <InlineError error={error} />

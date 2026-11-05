@@ -2,11 +2,12 @@ import type { Host, ProjectScanResult } from "@switchyard/protocol";
 import { FolderSearch, Save } from "lucide-react";
 import { useId, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Field, fieldControlProps } from "../../components/ui/Field";
 import { TextArea } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { apiPatch, apiPost } from "../../sync/api";
 import { parseProjectFolders, scanSummary } from "./projectFolders";
-import { Card, describedBy, Field, InlineError } from "./shared";
+import { Card, InlineError } from "./shared";
 
 /** Settings › Hosts › host: the folders whose repositories become projects. */
 export function ProjectFoldersCard({ host }: { host: Host }) {
@@ -82,7 +83,7 @@ export function ProjectFoldersCard({ host }: { host: Host }) {
             spellCheck={false}
             autoCapitalize="off"
             autoComplete="off"
-            {...describedBy(`${id}-folders`, { hint: true, error: fieldError })}
+            {...fieldControlProps(`${id}-folders`, { hint: true, error: fieldError })}
           />
         </Field>
         <div className="flex flex-wrap gap-2">

@@ -16,6 +16,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button } from "../../components/ui/Button";
+import { Field, FieldError } from "../../components/ui/Field";
 import { IconButton } from "../../components/ui/IconButton";
 import { Dialog } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
@@ -35,8 +36,6 @@ import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import {
   automationPath,
   ConnectionNote,
-  Field,
-  FieldError,
   PriorityIcon,
   Section,
   Switch,

@@ -12,6 +12,7 @@ import {
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
 import type { Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Select } from "../../components/ui/Select";
 import {
   ErrorState,
@@ -33,7 +34,7 @@ import {
 } from "../../push";
 import { ApiClientError, apiPatch, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { Card, describedBy, Field, InlineError, InlineStatus, SectionPage, Toggle } from "./shared";
+import { Card, InlineError, InlineStatus, SectionPage, Toggle } from "./shared";
 import { isObject, useResource } from "./useResource";
 
 const PERMISSION: Record<
@@ -356,7 +357,7 @@ function PreferencesForm({
               type="time"
               value={start}
               onChange={(e) => setStart(e.target.value)}
-              {...describedBy(`${ids}-start`, { error: startError })}
+              {...fieldControlProps(`${ids}-start`, { error: startError })}
             />
           </Field>
           <Field id={`${ids}-end`} label="Until" error={endError}>
@@ -365,7 +366,7 @@ function PreferencesForm({
               type="time"
               value={end}
               onChange={(e) => setEnd(e.target.value)}
-              {...describedBy(`${ids}-end`, { error: endError })}
+              {...fieldControlProps(`${ids}-end`, { error: endError })}
             />
           </Field>
           <Field id={`${ids}-tz`} label="Time zone" error={tzError}>
@@ -375,7 +376,7 @@ function PreferencesForm({
               onChange={(e) => setTimezone(e.target.value)}
               autoCapitalize="off"
               spellCheck={false}
-              {...describedBy(`${ids}-tz`, { error: tzError })}
+              {...fieldControlProps(`${ids}-tz`, { error: tzError })}
             />
           </Field>
         </div>
@@ -395,7 +396,7 @@ function PreferencesForm({
           id={`${ids}-device`}
           value={preferred}
           onChange={(e) => setPreferred(e.target.value)}
-          {...describedBy(`${ids}-device`, { hint: true })}
+          {...fieldControlProps(`${ids}-device`, { hint: true })}
         >
           <option value="">Automatic (the preferred mobile device)</option>
           {devices.map((d) => (

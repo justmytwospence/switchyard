@@ -4,6 +4,7 @@ import { type FormEvent, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Button, buttonClasses } from "../../components/ui/Button";
+import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Select } from "../../components/ui/Select";
 import { EmptyState, LoadingState, UnsupportedCapability } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
@@ -12,8 +13,6 @@ import { apiPost } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import {
   Card,
-  describedBy,
-  Field,
   InlineError,
   InlineStatus,
   LastKnownNote,
@@ -202,7 +201,7 @@ export function ProjectCreate() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoComplete="off"
-              {...describedBy(`${ids}-name`, { error: nameError })}
+              {...fieldControlProps(`${ids}-name`, { error: nameError })}
             />
           </Field>
           <Field
@@ -216,7 +215,7 @@ export function ProjectCreate() {
               value={effectiveHost}
               onChange={(e) => setHostId(e.target.value)}
               disabled={connected.length === 0}
-              {...describedBy(`${ids}-host`, { hint: true, error: hostError })}
+              {...fieldControlProps(`${ids}-host`, { hint: true, error: hostError })}
             >
               {connected.length === 0 && <option value="">No connected hosts</option>}
               {connected.map((h) => (
@@ -241,7 +240,7 @@ export function ProjectCreate() {
               autoCapitalize="off"
               spellCheck={false}
               className="font-mono"
-              {...describedBy(`${ids}-path`, { hint: true, error: pathError })}
+              {...fieldControlProps(`${ids}-path`, { hint: true, error: pathError })}
             />
           </Field>
           <Field
@@ -259,7 +258,7 @@ export function ProjectCreate() {
               autoCapitalize="off"
               spellCheck={false}
               className="font-mono"
-              {...describedBy(`${ids}-worktree`, { hint: true, error: worktreeDirError })}
+              {...fieldControlProps(`${ids}-worktree`, { hint: true, error: worktreeDirError })}
             />
           </Field>
           <Field id={`${ids}-profile`} label="Default Pi profile (optional)">

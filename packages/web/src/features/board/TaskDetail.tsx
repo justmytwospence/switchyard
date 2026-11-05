@@ -17,6 +17,7 @@ import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
 import { Markdown } from "../../components/intent/Markdown";
 import { Button, buttonClasses } from "../../components/ui/Button";
+import { Field } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
@@ -120,7 +121,7 @@ function Section({
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid min-w-0 grid-cols-[minmax(7rem,auto)_1fr] gap-x-3 text-sm">
       <dt className="text-muted">{label}</dt>
@@ -414,22 +415,24 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
       <Section title="Current run">
         {run ? (
           <dl className="flex flex-col gap-1">
-            <Field label="Status">
+            <DetailRow label="Status">
               <StatusChip kind="run" value={run.state} size="sm" />
-            </Field>
-            <Field label="Attempt">{run.attempt}</Field>
-            <Field label="Control">
+            </DetailRow>
+            <DetailRow label="Attempt">{run.attempt}</DetailRow>
+            <DetailRow label="Control">
               {run.controlMode === "human" ? "You (automation paused)" : "Automation"}
-            </Field>
-            {runHost && <Field label="Host">{runHost.name}</Field>}
-            {run.startedAt && <Field label="Started">{formatRelative(run.startedAt)}</Field>}
-            <Field label="Continuations">{run.continuationsUsed}</Field>
-            <Field label="Usage">
+            </DetailRow>
+            {runHost && <DetailRow label="Host">{runHost.name}</DetailRow>}
+            {run.startedAt && (
+              <DetailRow label="Started">{formatRelative(run.startedAt)}</DetailRow>
+            )}
+            <DetailRow label="Continuations">{run.continuationsUsed}</DetailRow>
+            <DetailRow label="Usage">
               {run.usage.accounting === "available"
                 ? `${run.usage.tokens ?? 0} tokens${run.usage.costUsd !== null ? ` · $${run.usage.costUsd.toFixed(2)}` : ""}`
                 : (run.usage.note ?? "Token/cost accounting not reported")}
-            </Field>
-            {run.outcome && <Field label="Outcome">{run.outcome.summary}</Field>}
+            </DetailRow>
+            {run.outcome && <DetailRow label="Outcome">{run.outcome.summary}</DetailRow>}
           </dl>
         ) : (
           <p className="text-sm text-muted">No run yet.</p>
@@ -477,26 +480,26 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
 
       <Section title="Host, profile and workspace">
         <dl className="flex flex-col gap-1">
-          <Field label="Project">{project?.name ?? "Unknown project"}</Field>
-          <Field label="Host">
+          <DetailRow label="Project">{project?.name ?? "Unknown project"}</DetailRow>
+          <DetailRow label="Host">
             {task.policy.hostId
               ? (host?.name ?? "Unknown host")
               : `Project default${host ? ` (${host.name})` : ""}`}
-          </Field>
-          <Field label="Profile">
+          </DetailRow>
+          <DetailRow label="Profile">
             {task.policy.profileId
               ? (profiles[task.policy.profileId]?.name ?? "Unknown profile")
               : `Project default${profileId && profiles[profileId] ? ` (${profiles[profileId].name})` : ""}`}
-          </Field>
-          <Field label="Workspace">
+          </DetailRow>
+          <DetailRow label="Workspace">
             {task.policy.workspace.mode === "existing"
               ? `Existing: ${workspaces[task.policy.workspace.workspaceId]?.branch ?? workspaces[task.policy.workspace.workspaceId]?.path ?? "unknown workspace"}`
               : `New worktree${task.policy.workspace.branch ? ` on ${task.policy.workspace.branch}` : ""}${task.policy.workspace.base ? ` from ${task.policy.workspace.base}` : ""}`}
-          </Field>
+          </DetailRow>
           {project && (
-            <Field label="Sharing">
+            <DetailRow label="Sharing">
               {project.workspaceSharing === "single_writer" ? "Single writer" : "Shared"}
-            </Field>
+            </DetailRow>
           )}
         </dl>
         {host && !host.piCompatible && (
@@ -509,7 +512,7 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
 
       <Section title="Limits and completion">
         <dl className="flex flex-col gap-1">
-          <Field label="Continuation">
+          <DetailRow label="Continuation">
             {task.policy.continuation.enabled
               ? `Up to ${task.policy.continuation.maxContinuations} continuations within ${task.policy.continuation.maxElapsedMinutes} min${
                   task.policy.continuation.maxTokens
@@ -517,17 +520,17 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
                     : ""
                 }${task.policy.continuation.maxCostUsd ? `, $${task.policy.continuation.maxCostUsd}` : ""}`
               : "Off"}
-          </Field>
-          <Field label="Checks">
+          </DetailRow>
+          <DetailRow label="Checks">
             {task.policy.completion.checks === null
               ? `Project default${project?.checks.length ? ` (${project.checks.join(", ")})` : " (none)"}`
               : task.policy.completion.checks.length > 0
                 ? task.policy.completion.checks.join(", ")
                 : "None"}
-          </Field>
-          <Field label="Human review">
+          </DetailRow>
+          <DetailRow label="Human review">
             {task.policy.completion.requireHumanReview ? "Required" : "Not required"}
-          </Field>
+          </DetailRow>
         </dl>
         {run && run.checks.length > 0 && (
           <ul className="flex flex-col gap-1 text-sm">
@@ -812,21 +815,15 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
         }
       }}
     >
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${id}-title`} className="text-sm font-medium">
-          Title
-        </label>
+      <Field id={`${id}-title`} label="Title">
         <TextInput
           id={`${id}-title`}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           required
         />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${id}-obj`} className="text-sm font-medium">
-          Objective
-        </label>
+      </Field>
+      <Field id={`${id}-obj`} label="Objective">
         <TextArea
           id={`${id}-obj`}
           minRows={4}
@@ -834,11 +831,8 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
           value={objective}
           onChange={(e) => setObjective(e.target.value)}
         />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${id}-crit`} className="text-sm font-medium">
-          Acceptance criteria (one per line)
-        </label>
+      </Field>
+      <Field id={`${id}-crit`} label="Acceptance criteria (one per line)">
         <TextArea
           id={`${id}-crit`}
           minRows={2}
@@ -846,7 +840,7 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
           value={criteria}
           onChange={(e) => setCriteria(e.target.value)}
         />
-      </div>
+      </Field>
       <PrioritySelect id={`${id}-prio`} value={priority} onChange={setPriority} />
       <DependencyPicker candidates={candidates} value={deps} onChange={setDeps} />
       {error && (

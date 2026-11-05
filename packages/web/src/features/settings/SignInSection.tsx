@@ -5,6 +5,7 @@ import { type FormEvent, useId, useState } from "react";
 import { signOut } from "../../app/auth";
 import { usePasskeyCeremony } from "../../app/passkeyCeremony";
 import { Button } from "../../components/ui/Button";
+import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState, LoadingState } from "../../components/ui/states";
@@ -16,8 +17,6 @@ import { defaultDeviceName } from "../enroll/logic";
 import {
   Card,
   ConfirmDialog,
-  describedBy,
-  Field,
   InlineError,
   InlineStatus,
   isAuthMethods,
@@ -345,7 +344,7 @@ function AddPasskeyDialog({
             maxLength={80}
             autoComplete="off"
             onChange={(e) => setName(e.target.value)}
-            {...describedBy(`${ids}-name`, { error: nameError })}
+            {...fieldControlProps(`${ids}-name`, { error: nameError })}
           />
         </Field>
         {ceremony.waiting && (

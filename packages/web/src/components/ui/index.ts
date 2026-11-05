@@ -1,6 +1,13 @@
 export { Badge, CountBadge, TONE_CLASSES, type Tone } from "./Badge";
 export { Button, type ButtonProps, buttonClasses } from "./Button";
 export { ErrorBoundary } from "./ErrorBoundary";
+export {
+  Field,
+  type FieldControlProps,
+  FieldError,
+  type FieldProps,
+  fieldControlProps,
+} from "./Field";
 export { IconButton, type IconButtonProps } from "./IconButton";
 export { Menu, type MenuItem, type MenuProps } from "./Menu";
 export { Dialog, Drawer, type DrawerProps, type OverlayProps, Sheet } from "./Overlay";

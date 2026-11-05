@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
+import { Field } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
@@ -128,15 +129,14 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
           }}
           className="flex flex-col gap-2"
         >
-          <label htmlFor="sy-rename-input" className="text-sm font-medium">
-            Title
-          </label>
-          <TextInput
-            id="sy-rename-input"
-            value={title}
-            maxLength={200}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+          <Field id="sy-rename-input" label="Title">
+            <TextInput
+              id="sy-rename-input"
+              value={title}
+              maxLength={200}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </Field>
           {rename.error !== null && (
             <ErrorState compact title="Could not rename" error={errorMessage(rename.error)} />
           )}

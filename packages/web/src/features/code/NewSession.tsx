@@ -1,7 +1,8 @@
 import type { Checkout, Host, Workspace } from "@switchyard/protocol";
 import { GitBranch } from "lucide-react";
-import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Field } from "../../components/ui/Field";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import { ErrorState } from "../../components/ui/states";
@@ -15,28 +16,6 @@ import { branchProblem, workspaceLabel, worktreePath } from "./model";
 import { rememberInitialPrompt } from "./startingPrompts";
 
 type WsMode = "existing" | "new";
-
-function Field({
-  label,
-  htmlFor,
-  hint,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  hint?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={htmlFor} className="text-sm font-medium">
-        {label}
-      </label>
-      {children}
-      {hint && <div className="text-xs text-muted">{hint}</div>}
-    </div>
-  );
-}
 
 function hostOnline(h: Host | undefined): boolean {
   return !!h && !h.revokedAt && h.connectivity === "connected";
@@ -169,7 +148,7 @@ type Form = ReturnType<typeof useNewSessionForm>;
 
 function ProjectField({ form, id }: { form: Form; id: string }) {
   return (
-    <Field label="Project" htmlFor={`${id}-project`}>
+    <Field label="Project" id={`${id}-project`}>
       <Select
         id={`${id}-project`}
         value={form.values.projectId}
@@ -219,7 +198,7 @@ function WorkspaceFields({ form, id }: { form: Form; id: string }) {
       {values.mode === "existing" ? (
         <Field
           label="Existing workspace"
-          htmlFor={`${id}-ws`}
+          id={`${id}-ws`}
           hint={form.host ? `Runs on ${form.host.name}` : undefined}
         >
           <Select
@@ -240,7 +219,7 @@ function WorkspaceFields({ form, id }: { form: Form; id: string }) {
         </Field>
       ) : (
         <>
-          <Field label="Host and checkout" htmlFor={`${id}-checkout`}>
+          <Field label="Host and checkout" id={`${id}-checkout`}>
             <Select
               id={`${id}-checkout`}
               value={values.checkoutId}
@@ -260,7 +239,7 @@ function WorkspaceFields({ form, id }: { form: Form; id: string }) {
           </Field>
           <Field
             label="New branch"
-            htmlFor={`${id}-branch`}
+            id={`${id}-branch`}
             hint={values.branch ? branchProblem(values.branch) : undefined}
           >
             <TextInput
@@ -275,7 +254,7 @@ function WorkspaceFields({ form, id }: { form: Form; id: string }) {
           </Field>
           <Field
             label="Base branch (optional)"
-            htmlFor={`${id}-base`}
+            id={`${id}-base`}
             hint={`Defaults to ${form.checkout?.defaultBranch ?? "the default branch"}.`}
           >
             <TextInput
@@ -299,7 +278,7 @@ function ProfileField({ form, id }: { form: Form; id: string }) {
   return (
     <Field
       label="Pi profile"
-      htmlFor={`${id}-profile`}
+      id={`${id}-profile`}
       hint={
         p
           ? [p.provider, p.model, p.thinking ? `effort ${p.thinking}` : null]
@@ -326,7 +305,7 @@ function ProfileField({ form, id }: { form: Form; id: string }) {
 
 function PromptField({ form, id }: { form: Form; id: string }) {
   return (
-    <Field label="Initial prompt (optional)" htmlFor={`${id}-prompt`}>
+    <Field label="Initial prompt (optional)" id={`${id}-prompt`}>
       <TextArea
         id={`${id}-prompt`}
         minRows={3}

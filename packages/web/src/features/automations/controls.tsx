@@ -8,7 +8,7 @@ import {
   SignalMedium,
   TriangleAlert,
 } from "lucide-react";
-import { type ReactElement, type ReactNode, useCallback, useId, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useId, useMemo, useState } from "react";
 import { create } from "zustand";
 import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
@@ -18,62 +18,6 @@ import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
 
 /* Small building blocks shared by the Automations list and editor. */
-
-export interface FieldControlProps {
-  id: string;
-  "aria-invalid"?: boolean;
-  "aria-describedby"?: string;
-}
-
-/** Labelled form field with an optional hint and inline error. */
-export function Field({
-  label,
-  hint,
-  error,
-  children,
-  className,
-  optional,
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-  error?: string;
-  children: (props: FieldControlProps) => ReactElement;
-  className?: string;
-  optional?: boolean;
-}) {
-  const id = useId();
-  const hintId = `${id}-hint`;
-  const errId = `${id}-err`;
-  const describedBy = [hint ? hintId : null, error ? errId : null].filter(Boolean).join(" ");
-  return (
-    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
-      <label htmlFor={id} className="text-sm font-medium">
-        {label}
-        {optional && <span className="font-normal text-muted"> (optional)</span>}
-      </label>
-      {children({
-        id,
-        "aria-invalid": error ? true : undefined,
-        "aria-describedby": describedBy || undefined,
-      })}
-      {hint && (
-        <p id={hintId} className="text-xs text-muted">
-          {hint}
-        </p>
-      )}
-      {error && <FieldError id={errId}>{error}</FieldError>}
-    </div>
-  );
-}
-
-export function FieldError({ id, children }: { id?: string; children: ReactNode }) {
-  return (
-    <p id={id} className="flex items-start gap-1 text-xs text-danger" data-field-error>
-      <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-      <span>{children}</span>
-    </p>
-  );
-}
 
 /** Accessible on/off switch with a text label that states the current value. */
 export function Switch({

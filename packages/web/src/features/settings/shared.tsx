@@ -282,52 +282,6 @@ export function PiCompat({ host }: { host: Pick<Host, "piVersion" | "piCompatibl
 /* Form controls                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Label, control, hint and error. The control must use `id` and `describedBy`. */
-export function Field({
-  id,
-  label,
-  hint,
-  error,
-  children,
-  className,
-}: {
-  id: string;
-  label: ReactNode;
-  hint?: ReactNode;
-  error?: string | null;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex w-full min-w-0 max-w-2xl flex-col gap-1", className)}>
-      <label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </label>
-      {children}
-      {hint && (
-        <p id={`${id}-hint`} className="text-xs text-muted">
-          {hint}
-        </p>
-      )}
-      {error && (
-        <p id={`${id}-error`} className="flex items-start gap-1 text-xs text-danger">
-          <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-          <span className="min-w-0 whitespace-pre-line break-words">{error}</span>
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** aria-describedby / aria-invalid props for a Field control. */
-export function describedBy(id: string, opts: { hint?: boolean; error?: string | null }) {
-  const ids = [opts.hint && `${id}-hint`, opts.error && `${id}-error`].filter(Boolean);
-  return {
-    "aria-describedby": ids.length ? ids.join(" ") : undefined,
-    "aria-invalid": opts.error ? true : undefined,
-  } as const;
-}
-
 /** On/off switch built on a checkbox, with the state written out. */
 export function Toggle({
   label,

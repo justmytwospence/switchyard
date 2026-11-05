@@ -2,6 +2,7 @@ import type { Priority, Task, TaskPolicy } from "@switchyard/protocol";
 import { ChevronDown, ChevronRight, Inbox, Play } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Field } from "../../components/ui/Field";
 import { Select } from "../../components/ui/Select";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -211,13 +212,6 @@ export function NewTaskForm({
     }
   };
 
-  const err = (k: string) =>
-    errors[k] ? (
-      <p id={`${id}-${k}-err`} className="text-xs text-danger">
-        {errors[k]}
-      </p>
-    ) : null;
-
   return (
     <form
       data-testid="new-task-form"
@@ -227,25 +221,18 @@ export function NewTaskForm({
         void submit("backlog");
       }}
     >
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${id}-title`} className="text-sm font-medium">
-          Title
-        </label>
-        <TextInput
-          id={`${id}-title`}
-          value={d.title}
-          autoFocus
-          aria-invalid={!!errors.title}
-          aria-describedby={errors.title ? `${id}-title-err` : undefined}
-          onChange={(e) => set("title", e.target.value)}
-          placeholder="What should be done?"
-        />
-        {err("title")}
-      </div>
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${id}-objective`} className="text-sm font-medium">
-          Objective
-        </label>
+      <Field id={`${id}-title`} label="Title" error={errors.title}>
+        {(p) => (
+          <TextInput
+            {...p}
+            value={d.title}
+            autoFocus
+            onChange={(e) => set("title", e.target.value)}
+            placeholder="What should be done?"
+          />
+        )}
+      </Field>
+      <Field id={`${id}-objective`} label="Objective">
         <TextArea
           id={`${id}-objective`}
           minRows={3}
@@ -254,26 +241,23 @@ export function NewTaskForm({
           onChange={(e) => set("objective", e.target.value)}
           placeholder="Context, constraints and what done looks like"
         />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${id}-project`} className="text-sm font-medium">
-          Project
-        </label>
-        <Select
-          id={`${id}-project`}
-          value={d.projectId}
-          aria-invalid={!!errors.projectId}
-          onChange={(e) => setD((x) => ({ ...x, projectId: e.target.value, dependencies: [] }))}
-        >
-          {projects.length === 0 && <option value="">No projects yet</option>}
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
-        {err("projectId")}
-      </div>
+      </Field>
+      <Field id={`${id}-project`} label="Project" error={errors.projectId}>
+        {(p) => (
+          <Select
+            {...p}
+            value={d.projectId}
+            onChange={(e) => setD((x) => ({ ...x, projectId: e.target.value, dependencies: [] }))}
+          >
+            {projects.length === 0 && <option value="">No projects yet</option>}
+            {projects.map((pr) => (
+              <option key={pr.id} value={pr.id}>
+                {pr.name}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
 
       <div>
         <button
@@ -300,10 +284,7 @@ export function NewTaskForm({
             value={d.priority}
             onChange={(p) => set("priority", p)}
           />
-          <div className="flex flex-col gap-1">
-            <label htmlFor={`${id}-criteria`} className="text-sm font-medium">
-              Acceptance criteria (one per line)
-            </label>
+          <Field id={`${id}-criteria`} label="Acceptance criteria (one per line)">
             <TextArea
               id={`${id}-criteria`}
               minRows={2}
@@ -311,17 +292,14 @@ export function NewTaskForm({
               value={d.criteria}
               onChange={(e) => set("criteria", e.target.value)}
             />
-          </div>
+          </Field>
           <DependencyPicker
             candidates={candidates}
             value={d.dependencies}
             onChange={(v) => set("dependencies", v)}
           />
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1">
-              <label htmlFor={`${id}-host`} className="text-sm font-medium">
-                Host
-              </label>
+            <Field id={`${id}-host`} label="Host">
               <Select
                 id={`${id}-host`}
                 value={d.hostId}
@@ -337,11 +315,8 @@ export function NewTaskForm({
                   </option>
                 ))}
               </Select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor={`${id}-profile`} className="text-sm font-medium">
-                Pi profile
-              </label>
+            </Field>
+            <Field id={`${id}-profile`} label="Pi profile">
               <Select
                 id={`${id}-profile`}
                 value={d.profileId}
@@ -356,20 +331,22 @@ export function NewTaskForm({
                   </option>
                 ))}
               </Select>
-            </div>
+            </Field>
           </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor={`${id}-branch`} className="text-sm font-medium">
-              Branch
-            </label>
-            <TextInput
-              id={`${id}-branch`}
-              value={d.branch}
-              placeholder="Generated from the title"
-              onChange={(e) => set("branch", e.target.value)}
-            />
-            <p className="text-xs text-muted">Work happens in a new worktree on this branch.</p>
-          </div>
+          <Field
+            id={`${id}-branch`}
+            label="Branch"
+            hint="Work happens in a new worktree on this branch."
+          >
+            {(p) => (
+              <TextInput
+                {...p}
+                value={d.branch}
+                placeholder="Generated from the title"
+                onChange={(e) => set("branch", e.target.value)}
+              />
+            )}
+          </Field>
 
           <fieldset className="flex flex-col gap-2">
             <legend className="text-sm font-medium">Continuation limits</legend>
@@ -383,46 +360,60 @@ export function NewTaskForm({
             </label>
             {d.continuation && (
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-1 sm:col-span-2">
-                  <label htmlFor={`${id}-cobj`} className="text-sm">
-                    Continuation objective
-                  </label>
-                  <TextInput
-                    id={`${id}-cobj`}
-                    value={d.contObjective}
-                    aria-invalid={!!errors.contObjective}
-                    onChange={(e) => set("contObjective", e.target.value)}
-                  />
-                  {err("contObjective")}
-                </div>
-                <NumberField
-                  id={`${id}-cmax`}
-                  label="Max continuations"
-                  value={d.maxContinuations}
-                  onChange={(v) => set("maxContinuations", v)}
-                  error={err("maxContinuations")}
-                />
-                <NumberField
-                  id={`${id}-cmin`}
-                  label="Max minutes"
-                  value={d.maxMinutes}
-                  onChange={(v) => set("maxMinutes", v)}
-                  error={err("maxMinutes")}
-                />
-                <NumberField
-                  id={`${id}-ctok`}
-                  label="Max tokens (optional)"
-                  value={d.maxTokens}
-                  onChange={(v) => set("maxTokens", v)}
-                  error={err("maxTokens")}
-                />
-                <NumberField
-                  id={`${id}-ccost`}
-                  label="Max cost USD (optional)"
-                  value={d.maxCost}
-                  onChange={(v) => set("maxCost", v)}
-                  error={err("maxCost")}
-                />
+                <Field
+                  id={`${id}-cobj`}
+                  label="Continuation objective"
+                  error={errors.contObjective}
+                  className="sm:col-span-2"
+                >
+                  {(p) => (
+                    <TextInput
+                      {...p}
+                      value={d.contObjective}
+                      onChange={(e) => set("contObjective", e.target.value)}
+                    />
+                  )}
+                </Field>
+                <Field id={`${id}-cmax`} label="Max continuations" error={errors.maxContinuations}>
+                  {(p) => (
+                    <TextInput
+                      {...p}
+                      inputMode="decimal"
+                      value={d.maxContinuations}
+                      onChange={(e) => set("maxContinuations", e.target.value)}
+                    />
+                  )}
+                </Field>
+                <Field id={`${id}-cmin`} label="Max minutes" error={errors.maxMinutes}>
+                  {(p) => (
+                    <TextInput
+                      {...p}
+                      inputMode="decimal"
+                      value={d.maxMinutes}
+                      onChange={(e) => set("maxMinutes", e.target.value)}
+                    />
+                  )}
+                </Field>
+                <Field id={`${id}-ctok`} label="Max tokens (optional)" error={errors.maxTokens}>
+                  {(p) => (
+                    <TextInput
+                      {...p}
+                      inputMode="decimal"
+                      value={d.maxTokens}
+                      onChange={(e) => set("maxTokens", e.target.value)}
+                    />
+                  )}
+                </Field>
+                <Field id={`${id}-ccost`} label="Max cost USD (optional)" error={errors.maxCost}>
+                  {(p) => (
+                    <TextInput
+                      {...p}
+                      inputMode="decimal"
+                      value={d.maxCost}
+                      onChange={(e) => set("maxCost", e.target.value)}
+                    />
+                  )}
+                </Field>
                 <p className="text-xs text-muted sm:col-span-2">
                   Token and cost limits apply only when the Pi provider reports usage.
                 </p>
@@ -442,10 +433,10 @@ export function NewTaskForm({
               {project?.checks.length ? ` (${project.checks.join(", ")})` : " (none)"}
             </label>
             {d.checksMode === "custom" && (
-              <>
-                <label htmlFor={`${id}-checks`} className="text-sm">
-                  Check commands (one per line; empty means no checks)
-                </label>
+              <Field
+                id={`${id}-checks`}
+                label="Check commands (one per line; empty means no checks)"
+              >
                 <TextArea
                   id={`${id}-checks`}
                   minRows={2}
@@ -453,7 +444,7 @@ export function NewTaskForm({
                   value={d.checks}
                   onChange={(e) => set("checks", e.target.value)}
                 />
-              </>
+              </Field>
             )}
             <label className="tap flex items-center gap-2 text-sm">
               <input
@@ -502,34 +493,5 @@ export function NewTaskForm({
         </p>
       </div>
     </form>
-  );
-}
-
-function NumberField({
-  id,
-  label,
-  value,
-  onChange,
-  error,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  error: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm">
-        {label}
-      </label>
-      <TextInput
-        id={id}
-        inputMode="decimal"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {error}
-    </div>
   );
 }
