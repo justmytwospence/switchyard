@@ -13,6 +13,7 @@ export interface PiTransport extends EventEmitter {
   readonly exited: PiExit | null;
   readonly stderr: string;
   bridgeConnected: boolean;
+  /** `timeoutMs <= 0`: no timeout. */
   request<T = any>(cmd: { type: string; [k: string]: unknown }, timeoutMs?: number): Promise<T>;
   respondUi(id: string, body: PiUiResponseBody): Promise<void>;
   close(opts?: { graceMs?: number; termMs?: number }): Promise<PiExit>;

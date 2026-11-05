@@ -69,7 +69,7 @@ interface PendingRequest {
   command: string;
   resolve: (data: any) => void;
   reject: (err: Error) => void;
-  timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout | undefined;
 }
 
 const MAX_SOCKET_PATH = 100;
@@ -279,23 +279,30 @@ export class PiRpcProcess extends EventEmitter {
     return this.exitPromise;
   }
 
-  /** Send a command and resolve with its `data`; rejects with Pi's error string on `success:false`. */
+  /**
+   * Send a command and resolve with its `data`; rejects with Pi's error string on `success:false`.
+   * `timeoutMs <= 0`: no timeout.
+   */
   request<T = any>(cmd: { type: string; [key: string]: unknown }, timeoutMs = 60000): Promise<T> {
     if (this.exitInfo) {
       return Promise.reject(new PiRpcError(cmd.type, "Pi is not running", "transport"));
     }
     const id = `sy-${++this.nextId}`;
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(
-          new PiRpcError(
-            cmd.type,
-            `Pi did not answer ${cmd.type} within ${timeoutMs} ms`,
-            "timeout",
-          ),
-        );
-      }, timeoutMs);
+      // No timer for `timeoutMs <= 0` (or not finite): setTimeout would fire at once.
+      const timer =
+        timeoutMs > 0 && Number.isFinite(timeoutMs)
+          ? setTimeout(() => {
+              this.pending.delete(id);
+              reject(
+                new PiRpcError(
+                  cmd.type,
+                  `Pi did not answer ${cmd.type} within ${timeoutMs} ms`,
+                  "timeout",
+                ),
+              );
+            }, timeoutMs)
+          : undefined;
       this.pending.set(id, { command: cmd.type, resolve, reject, timer });
       writeJsonl(this.child.stdin, { ...cmd, id }).catch((err: Error) => {
         const p = this.pending.get(id);

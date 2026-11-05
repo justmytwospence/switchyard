@@ -57,7 +57,7 @@ interface PendingRequest {
   command: string;
   resolve: (data: any) => void;
   reject: (err: Error) => void;
-  timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout | undefined;
 }
 
 function connectOnce(path: string, timeoutMs: number): Promise<Socket> {
@@ -259,16 +259,20 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     }
     const id = `sy-${++this.nextId}`;
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(
-          new PiRpcError(
-            cmd.type,
-            `Pi did not answer ${cmd.type} within ${timeoutMs} ms`,
-            "timeout",
-          ),
-        );
-      }, timeoutMs);
+      // No timer for `timeoutMs <= 0` (or not finite): setTimeout would fire at once.
+      const timer =
+        timeoutMs > 0 && Number.isFinite(timeoutMs)
+          ? setTimeout(() => {
+              this.pending.delete(id);
+              reject(
+                new PiRpcError(
+                  cmd.type,
+                  `Pi did not answer ${cmd.type} within ${timeoutMs} ms`,
+                  "timeout",
+                ),
+              );
+            }, timeoutMs)
+          : undefined;
       this.pending.set(id, { command: cmd.type, resolve, reject, timer });
       writeJsonl(this.socket, { ...cmd, id }).catch((err: Error) => {
         const p = this.pending.get(id);

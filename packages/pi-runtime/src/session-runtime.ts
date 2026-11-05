@@ -457,7 +457,10 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
         throw new SwitchyardError("invalid_request", RUNNING_MESSAGE);
       }
       if (!this.busy) this.runAssistantText = null;
-      data = await this.call(proc, { type: "prompt", ...body });
+      // An RPC slash command can wait on a dialog (an answer that takes as long as a person
+      // does), so it has no timeout; the terminal bridge answers at once.
+      const timeoutMs = this.transport === "rpc" && text.startsWith("/") ? 0 : 60000;
+      data = await this.call(proc, { type: "prompt", ...body }, timeoutMs);
       if (data?.disposition === "started" && !this.busy) {
         this.busy = true;
         this.setRuntime();

@@ -2,9 +2,9 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PiRpcError, PiRpcProcess } from "../src/rpc-process.js";
-import { piErrorToSwitchyard } from "../src/session-runtime.js";
+import { ManagedSession, piErrorToSwitchyard } from "../src/session-runtime.js";
 
 const fakePi = fileURLToPath(new URL("./fixtures/fake-rpc-pi.mjs", import.meta.url));
 chmodSync(fakePi, 0o755);
@@ -50,5 +50,56 @@ describe("Pi request errors", () => {
     p.kill("SIGKILL");
     await assertion;
     await expect(p.request({ type: "get_state" })).rejects.toMatchObject({ kind: "transport" });
+  });
+});
+
+describe("requests without a timeout", () => {
+  it("timeoutMs 0 never times out", async () => {
+    const p = await startFake();
+    let settled = false;
+    const pending = p.request({ type: "get_commands" }, 0);
+    const assertion = expect(pending).rejects.toMatchObject({ kind: "transport" });
+    pending.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    expect(settled).toBe(false);
+    p.kill("SIGKILL");
+    await assertion;
+  });
+
+  it("RPC slash-command prompts wait for their dialogs, other prompts time out at 60 s", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "sy-fakepi-"));
+    dirs.push(cwd);
+    const ms = new ManagedSession({
+      sessionId: "ses_fake",
+      cwd,
+      title: "Fake",
+      profile: {
+        provider: "mock",
+        model: "mock-1",
+        thinking: null,
+        projectTrust: "ask",
+        extraArgs: [],
+      },
+      nativeHandle: null,
+      piBin: fakePi,
+      transport: "rpc",
+    });
+    await ms.start();
+    try {
+      const request = vi.spyOn(ms.process as PiRpcProcess, "request");
+      void ms.prompt("/slow x").catch(() => {});
+      await ms.prompt("hi");
+      expect(request).toHaveBeenCalledWith(expect.objectContaining({ type: "prompt" }), 0);
+      expect(request).toHaveBeenCalledWith(expect.objectContaining({ type: "prompt" }), 60000);
+    } finally {
+      await ms.stop({ graceMs: 100, termMs: 500 });
+    }
   });
 });
