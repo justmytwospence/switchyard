@@ -20,7 +20,8 @@ step() { printf '\n==> %s\n' "$*"; }
 
 step "Checking dev is clean and pushed"
 [ "$(git rev-parse --abbrev-ref HEAD)" = dev ] || { echo "Not on dev (run it from the dev worktree, .worktrees/dev)" >&2; exit 1; }
-[ -z "$(git status --porcelain)" ] || { echo "Working tree is not clean" >&2; exit 1; }
+DIRTY=$(git status --porcelain)
+[ -z "$DIRTY" ] || { echo "Working tree is not clean:" >&2; echo "$DIRTY" >&2; exit 1; }
 git fetch -q origin dev
 SHA=$(git rev-parse HEAD)
 [ "$SHA" = "$(git rev-parse origin/dev)" ] || {
