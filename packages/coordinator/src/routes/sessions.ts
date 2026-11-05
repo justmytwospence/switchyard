@@ -323,12 +323,14 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
       name: string | null;
       items: Record<string, unknown>[];
     }>(s.hostId, { type: "session.readNative", sessionFile: r.sessionFile });
+    const base = native.name ?? s.title;
     const session = importNative(
       {
         sessionId: native.sessionId,
         sessionFile: r.sessionFile,
         cwd: native.cwd,
-        name: `${native.name ?? s.title} (branch)`,
+        // /fork and /tree branch from an entry; /clone copies the session where it is.
+        name: body.fork || body.entryId ? `Fork of ${base}` : `Copy of ${base}`,
         mtime: ctx.store.nowIso(),
       },
       s.hostId,

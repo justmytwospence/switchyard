@@ -472,6 +472,13 @@ describe("session controls", () => {
     expect(b.body.prefill).toBe("hi");
     expect(b.body.session.provenance).toBe("imported");
     expect(b.body.session.nativeHandle.sessionFile).toBe("/tmp/b.jsonl");
+    expect(b.body.session.title).toBe("Fork of Host session");
+    const copy = await t!.admin("POST", "/api/sessions/ses_c/branch", {
+      entryId: null,
+      fork: false,
+    });
+    expect(copy.status).toBe(201);
+    expect(copy.body.session.title).toBe("Copy of Host session");
     expect((await t!.admin("POST", "/api/sessions/ses_c/reload", {})).status).toBe(200);
     expect((await t!.admin("GET", "/api/sessions/ses_c/export")).body.fileName).toBe("s.jsonl");
   });

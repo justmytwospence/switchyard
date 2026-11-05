@@ -4,10 +4,12 @@ import {
   CoordinatorToHost,
   HostCommand,
   isFieldVisible,
+  isPlaceholderTitle,
   newId,
   Profile,
   Session,
   SwitchyardError,
+  titleFrom,
   type UINode,
   validateUINode,
 } from "../src/index.js";
@@ -171,5 +173,22 @@ describe("session controls", () => {
       HostCommand.safeParse({ type: "session.setThinking", sessionId: "s", level: "bogus" })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("titles", () => {
+  it("titleFrom takes the first line, truncates at 80 and falls back", () => {
+    expect(titleFrom("")).toBe("New session");
+    expect(titleFrom(" \n ")).toBe("New session");
+    expect(titleFrom("Fix bug\nmore")).toBe("Fix bug");
+    const eighty = "x".repeat(80);
+    expect(titleFrom(eighty)).toBe(eighty);
+    const long = titleFrom("y".repeat(81));
+    expect(long).toBe(`${"y".repeat(77)}...`);
+    expect(long).toHaveLength(80);
+    expect(titleFrom("", "Untitled")).toBe("Untitled");
+    expect(isPlaceholderTitle("New session")).toBe(true);
+    expect(isPlaceholderTitle("Untitled session")).toBe(true);
+    expect(isPlaceholderTitle("New session 2")).toBe(false);
   });
 });

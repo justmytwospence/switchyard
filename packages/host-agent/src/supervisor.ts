@@ -31,6 +31,7 @@ import {
   type ImportableSession,
   type Interaction,
   type InteractionResponse,
+  isPlaceholderTitle,
   type NativeHandle,
   newId,
   type Panel,
@@ -43,6 +44,7 @@ import {
   SwitchyardError,
   type ThinkingLevel,
   type TranscriptItem,
+  titleFrom,
   type UINode,
   ui,
 } from "@switchyard/protocol";
@@ -741,7 +743,22 @@ export class SessionSupervisor {
   ) {
     const ms = this.requireLive(sessionId);
     const { disposition, view } = await ms.prompt(text, images, mode);
+    if (mode === "prompt" && disposition === "started") await this.autoTitle(sessionId, text);
     return { disposition, view };
+  }
+
+  /** A session still named by its placeholder takes its name from the first prompt that starts a turn. */
+  private async autoTitle(sessionId: string, text: string): Promise<void> {
+    const rec = this.records.get(sessionId);
+    if (!rec || !isPlaceholderTitle(rec.title)) return;
+    const first = text.trim().split("\n")[0]?.trim() ?? "";
+    // Commands and bash lines do not describe the session: wait for a real prompt.
+    if (!first || first.startsWith("/") || first.startsWith("!")) return;
+    try {
+      await this.rename(sessionId, titleFrom(text));
+    } catch (err) {
+      this.opts.log.warn({ sessionId, err: errorMessage(err) }, "auto-title failed");
+    }
   }
 
   async abort(sessionId: string, clearQueue: boolean) {

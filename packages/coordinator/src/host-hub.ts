@@ -19,6 +19,7 @@ import {
   type TermCoordinatorMsg,
   type TermServerToViewer,
   TranscriptItem,
+  UNTITLED_SESSION_TITLE,
   Workspace,
 } from "@switchyard/protocol";
 import type { Logger } from "pino";
@@ -671,7 +672,7 @@ export class HostHub {
       const now = this.store.nowIso();
       const ws = partial.cwd ? this.store.workspaceByPath(hostId, partial.cwd) : undefined;
       next = Session.parse({
-        title: "Untitled session",
+        title: UNTITLED_SESSION_TITLE,
         subtitle: null,
         workspaceId: ws?.id ?? null,
         projectId: ws?.projectId ?? null,

@@ -128,6 +128,40 @@ describe("host agent with real Pi", () => {
     expect(again).toMatchObject({ sessionId: id, reused: true });
   });
 
+  it("names a placeholder-titled session from its first prompt, once", async () => {
+    const id = sid();
+    await startSession(h, id, h.pi!.cwd, { title: "New session" });
+    const prompt = (text: string) =>
+      h.coord.ok({
+        type: "session.prompt",
+        sessionId: id,
+        text,
+        images: [],
+        mode: "prompt",
+        origin: "human",
+        controlRevision: 1,
+      });
+    const mark = h.coord.events.length;
+    await prompt("Refactor the login flow\nplease");
+    await waitFor(
+      () => h.agent.supervisor.record(id)?.title === "Refactor the login flow",
+      30000,
+      "auto-title",
+    );
+    expect(
+      h.coord
+        .eventsOf("session.updated", id)
+        .some((e) => (e.data as any).title === "Refactor the login flow"),
+    ).toBe(true);
+    await h.coord.waitUntil(
+      () => h.coord.events.slice(mark).some((e) => isSettled(id)(e.event)),
+      30000,
+      "settled",
+    );
+    await prompt("hello");
+    expect(h.agent.supervisor.record(id)?.title).toBe("Refactor the login flow");
+  });
+
   it("answers model, effort, command and compaction commands", async () => {
     const id = sid();
     await startSession(h, id, h.pi!.cwd);

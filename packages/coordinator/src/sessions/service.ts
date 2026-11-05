@@ -8,6 +8,7 @@ import {
   type Session,
   SwitchyardError,
   type TranscriptItem,
+  titleFrom,
   type Workspace,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
@@ -50,12 +51,6 @@ export function resolveProfile(
   const first = ctx.store.profiles.list(undefined, [], "created_at, rowid")[0];
   if (!first) throw new SwitchyardError("invalid_request", "No Pi profile configured");
   return first;
-}
-
-export function titleFrom(prompt: string, fallback = "New session"): string {
-  const line = prompt.trim().split("\n")[0]?.trim() ?? "";
-  if (!line) return fallback;
-  return line.length > 80 ? `${line.slice(0, 77)}...` : line;
 }
 
 /** Append a coordinator-authored notice to a session transcript. */
