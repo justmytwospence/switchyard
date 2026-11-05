@@ -468,28 +468,18 @@ describe("worktrees", () => {
 });
 
 describe("runSetup", () => {
-  it("streams output and succeeds", async () => {
+  it("captures output and succeeds", async () => {
     const dir = tempDir();
-    const updates: { state: string; log: string }[] = [];
-    const result = await runSetup(dir, "echo hello; echo oops 1>&2; pwd", (u) => updates.push(u));
+    const result = await runSetup(dir, "echo hello; echo oops 1>&2; pwd");
     expect(result.state).toBe("succeeded");
     expect(result.log).toContain("hello");
     expect(result.log).toContain("oops");
     expect(result.log).toContain(dir);
-    expect(updates[0]).toEqual({ state: "running", log: "" });
-    expect(updates.at(-1)).toEqual(result);
-  });
-
-  it("throttles running updates", async () => {
-    const dir = tempDir();
-    const updates: { state: string; log: string }[] = [];
-    await runSetup(dir, "for i in 1 2 3 4 5 6 7 8 9 10; do echo $i; done", (u) => updates.push(u));
-    expect(updates.length).toBeLessThanOrEqual(4);
   });
 
   it("fails with the exit code", async () => {
     const dir = tempDir();
-    const result = await runSetup(dir, "echo boom; exit 3", () => {});
+    const result = await runSetup(dir, "echo boom; exit 3");
     expect(result.state).toBe("failed");
     expect(result.log).toBe("boom\nexit code 3");
   });
@@ -497,7 +487,7 @@ describe("runSetup", () => {
   it("fails on timeout", async () => {
     const dir = tempDir();
     const started = Date.now();
-    const result = await runSetup(dir, "sleep 30", () => {}, { timeoutMs: 200 });
+    const result = await runSetup(dir, "sleep 30", { timeoutMs: 200 });
     expect(result.state).toBe("failed");
     expect(result.log).toContain("timed out after 200 ms");
     expect(Date.now() - started).toBeLessThan(10_000);

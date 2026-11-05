@@ -22,7 +22,6 @@ const MAX_PATCH_BYTES = 2 * 1024 * 1024;
 const MAX_UNTRACKED_CONTENT_BYTES = 1024 * 1024;
 const SETUP_LOG_BYTES = 64 * 1024;
 const SETUP_TIMEOUT_MS = 30 * 60 * 1000;
-const SETUP_UPDATE_INTERVAL_MS = 250;
 
 export interface GitResult {
   stdout: string;
@@ -657,36 +656,21 @@ export async function removeWorktree(opts: {
   await runGit(info.root, args);
 }
 
-/** Run the owner-configured setup command in a new workspace, streaming its log (last 64 KB). */
+/** Run the owner-configured setup command in a new workspace; resolves with its outcome and the last 64 KB of output. */
 export async function runSetup(
   path: string,
   cmd: string,
-  onUpdate: (setup: { state: "running" | "succeeded" | "failed"; log: string }) => void,
   opts: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<{ state: "succeeded" | "failed"; log: string }> {
   const timeoutMs = opts.timeoutMs ?? SETUP_TIMEOUT_MS;
   let log = "";
-  let lastUpdate = 0;
-  let pending: NodeJS.Timeout | undefined;
-  const emitRunning = () => {
-    pending = undefined;
-    lastUpdate = Date.now();
-    onUpdate({ state: "running", log });
-  };
-  emitRunning();
-
   const outcome = await spawnShell(path, cmd, {
     timeoutMs,
     env: opts.env,
     onChunk: (chunk) => {
       log = tailBytes(log + chunk, SETUP_LOG_BYTES);
-      if (pending) return;
-      const wait = SETUP_UPDATE_INTERVAL_MS - (Date.now() - lastUpdate);
-      if (wait <= 0) emitRunning();
-      else pending = setTimeout(emitRunning, wait);
     },
   });
-  clearTimeout(pending);
 
   let state: "succeeded" | "failed";
   if (outcome.error) {
@@ -703,7 +687,5 @@ export async function runSetup(
       : `exit code ${outcome.code ?? outcome.signal}`;
     log = tailBytes(`${log}${nl}${reason}`, SETUP_LOG_BYTES);
   }
-  const final = { state, log };
-  onUpdate(final);
-  return final;
+  return { state, log };
 }

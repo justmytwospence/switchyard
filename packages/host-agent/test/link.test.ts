@@ -227,7 +227,7 @@ describe("command router", () => {
       checkoutPath: repo.path,
       branch: "feat/x",
       base: "main",
-      setupCommand: "echo setting up",
+      setupCommand: "for i in 1 2 3 4 5; do echo setting up $i; sleep 0.1; done",
     });
     expect(created).toMatchObject({
       path: `${repo.path}/.worktrees/feat-x`,
@@ -243,6 +243,12 @@ describe("command router", () => {
       10000,
       "setup succeeded",
     );
+    expect(
+      h.coord
+        .eventsOf("workspace.updated")
+        .filter((e) => (e.data as any).path === created.path && (e.data as any).setup)
+        .map((e) => (e.data as any).setup.state),
+    ).toEqual(["running", "succeeded"]);
     const setupEvent = h.coord
       .eventsOf("workspace.updated")
       .find((e) => (e.data as any).setup?.state === "succeeded")!;

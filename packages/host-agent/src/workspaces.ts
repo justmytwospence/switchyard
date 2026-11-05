@@ -27,8 +27,9 @@ export interface WorkspaceServiceOptions {
 }
 
 /**
- * Workspace mutations that produce host events: managed worktree creation with streamed setup
- * output (`workspace.updated`), and removal (`workspace.deleted`).
+ * Workspace mutations that produce host events: managed worktree creation with durable setup
+ * state changes (`workspace.updated`: running, then the outcome with the last 64 KB of output),
+ * and removal (`workspace.deleted`).
  */
 export class WorkspaceService {
   constructor(private readonly opts: WorkspaceServiceOptions) {}
@@ -52,7 +53,7 @@ export class WorkspaceService {
     );
     let setupDone: Promise<SetupState> = Promise.resolve(initial);
     if (setupCommand) {
-      setupDone = runSetup(wt.path, setupCommand, (setup) => this.emitUpdate(wt.path, { setup }), {
+      setupDone = runSetup(wt.path, setupCommand, {
         env: { ...process.env, ...(this.opts.env ?? {}) } as NodeJS.ProcessEnv,
       }).then(
         (final) => {
