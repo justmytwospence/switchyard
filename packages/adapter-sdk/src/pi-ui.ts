@@ -8,7 +8,6 @@ import { z } from "zod";
  */
 
 export type PiUiMethod = "select" | "confirm" | "input" | "editor";
-export const PI_UI_METHODS: readonly PiUiMethod[] = ["select", "confirm", "input", "editor"];
 
 export type PiUiRequest =
   | { id: string; method: "select"; title: string; options: string[]; timeout?: number }
@@ -16,49 +15,14 @@ export type PiUiRequest =
   | { id: string; method: "input"; title: string; placeholder?: string; timeout?: number }
   | { id: string; method: "editor"; title: string; prefill?: string };
 
+/** `cancelled` is Pi's RPC spelling. */
 export type PiUiResponse = { value: string } | { confirmed: boolean } | { cancelled: true };
-
-export const PiUiRequestSchema: z.ZodType<PiUiRequest> = z.discriminatedUnion("method", [
-  z.object({
-    id: z.string(),
-    method: z.literal("select"),
-    title: z.string(),
-    options: z.array(z.string()),
-    timeout: z.number().optional(),
-  }),
-  z.object({
-    id: z.string(),
-    method: z.literal("confirm"),
-    title: z.string(),
-    message: z.string(),
-    timeout: z.number().optional(),
-  }),
-  z.object({
-    id: z.string(),
-    method: z.literal("input"),
-    title: z.string(),
-    placeholder: z.string().optional(),
-    timeout: z.number().optional(),
-  }),
-  z.object({
-    id: z.string(),
-    method: z.literal("editor"),
-    title: z.string(),
-    prefill: z.string().optional(),
-  }),
-]);
 
 export const PiUiResponseSchema: z.ZodType<PiUiResponse> = z.union([
   z.object({ value: z.string() }).strict(),
   z.object({ confirmed: z.boolean() }).strict(),
   z.object({ cancelled: z.literal(true) }).strict(),
 ]);
-
-/** Parse a raw `extension_ui_request` frame; returns undefined for non-dialog methods. */
-export function parsePiUiRequest(raw: unknown): PiUiRequest | undefined {
-  const r = PiUiRequestSchema.safeParse(raw);
-  return r.success ? r.data : undefined;
-}
 
 /**
  * Whether a response is acceptable for a request: `{value}` for select/input/editor (and for a

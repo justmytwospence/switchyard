@@ -3,11 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   genericClaim,
   genericStatusPanel,
-  genericToolCard,
   InteractionResponseError,
   type PiUiRequest,
   parseFrameMessage,
-  parsePiUiRequest,
 } from "../src/index.js";
 
 const select: PiUiRequest = {
@@ -67,20 +65,6 @@ describe("genericClaim", () => {
 });
 
 describe("generic cards and panels", () => {
-  it("tool card shows status, args and output", () => {
-    const running = genericToolCard({ toolCallId: "t", name: "bash", args: { command: "ls" } });
-    expect(validateUINode(running)).toMatchObject({ t: "section", title: "bash" });
-    expect(JSON.stringify(running)).toContain('"status":"running"');
-    const done = genericToolCard({
-      toolCallId: "t",
-      name: "bash",
-      args: { command: "ls" },
-      result: { content: [{ type: "text", text: "a.txt" }] },
-      isError: false,
-    });
-    expect(JSON.stringify(done)).toContain("a.txt");
-  });
-
   it("status panel is a sorted key/text table, null when empty", () => {
     expect(genericStatusPanel(new Map())).toBeNull();
     expect(
@@ -102,11 +86,6 @@ describe("generic cards and panels", () => {
 });
 
 describe("wire parsing", () => {
-  it("parses dialog requests and ignores fire-and-forget methods", () => {
-    expect(parsePiUiRequest({ type: "extension_ui_request", ...select })).toEqual(select);
-    expect(parsePiUiRequest({ id: "x", method: "notify", message: "hi" })).toBeUndefined();
-  });
-
   it("validates frame messages", () => {
     expect(parseFrameMessage({ type: "resize", height: 120 })).toEqual({
       type: "resize",

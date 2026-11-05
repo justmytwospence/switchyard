@@ -1,7 +1,7 @@
 import type { FormValue, InteractionResponse, UINode } from "@switchyard/protocol";
 import { ui } from "@switchyard/protocol";
 import type { PiUiRequest, PiUiResponse } from "./pi-ui.js";
-import { type Claim, InteractionResponseError, type ToolInfo } from "./types.js";
+import { type Claim, InteractionResponseError } from "./types.js";
 
 export const GENERIC_FORM_ID = "generic";
 export const GENERIC_FIELD = "value";
@@ -114,74 +114,6 @@ export function genericClaim(req: PiUiRequest): Claim {
       };
     }
   }
-}
-
-const ARGS_MAX = 4000;
-const OUTPUT_MAX = 8000;
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max)}\n... (${s.length - max} more characters)` : s;
-}
-
-/** Text of a Pi tool result (`{content: [{type: "text", text}]}`), or JSON for anything else. */
-export function toolResultText(result: unknown): string {
-  if (result === undefined || result === null) return "";
-  if (typeof result === "string") return result;
-  const content = (result as { content?: unknown }).content;
-  if (Array.isArray(content)) {
-    return content
-      .map((c) => {
-        if (c && typeof c === "object" && (c as { type?: unknown }).type === "text") {
-          return String((c as { text?: unknown }).text ?? "");
-        }
-        if (c && typeof c === "object" && (c as { type?: unknown }).type === "image") {
-          return "[image]";
-        }
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n");
-  }
-  try {
-    return JSON.stringify(result, null, 2);
-  } catch {
-    return String(result);
-  }
-}
-
-/** Generic tool card: name, status, arguments and output. */
-export function genericToolCard(tool: ToolInfo): UINode {
-  const finished = tool.result !== undefined || tool.isError !== undefined;
-  const status = !finished ? "running" : tool.isError ? "error" : "ok";
-  let args: string;
-  try {
-    args = JSON.stringify(tool.args ?? {}, null, 2);
-  } catch {
-    args = String(tool.args);
-  }
-  const children: UINode[] = [
-    ui.progress(
-      status === "running" ? "Running" : status === "ok" ? "Done" : "Failed",
-      undefined,
-      status,
-    ),
-    {
-      t: "section",
-      title: "Arguments",
-      collapsible: true,
-      children: [ui.code(truncate(args, ARGS_MAX), "json")],
-    },
-  ];
-  if (finished) {
-    const out = toolResultText(tool.result);
-    children.push({
-      t: "section",
-      title: "Output",
-      collapsible: true,
-      children: [out ? ui.code(truncate(out, OUTPUT_MAX)) : ui.text("(no output)", "muted")],
-    });
-  }
-  return { t: "section", title: tool.name, children };
 }
 
 /** Generic status panel: a key/text table of `setStatus` entries, or null when empty. */

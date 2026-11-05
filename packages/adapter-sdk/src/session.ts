@@ -188,7 +188,7 @@ export class AdapterSession {
     }
   }
 
-  /** First adapter card for the tool, or undefined (caller falls back to genericToolCard). */
+  /** First adapter card for the tool, or undefined (clients keep their built-in tool view). */
   async toolCard(tool: ToolInfo): Promise<{ adapterId: string; node: UINode } | undefined> {
     for (const entry of this.enabled("toolCard")) {
       const r = await this.call(entry, "toolCard", [tool]);
@@ -331,6 +331,7 @@ export class AdapterSession {
     return r.ok ? { ok: true } : { ok: false, reason: entry.disabled ?? "action failed" };
   }
 
+  /** Per-adapter active/disabled state for this session (tests and diagnostics). */
   statuses(): AdapterRuntimeStatus[] {
     return this.entries.map((e) => ({
       adapterId: e.id,

@@ -75,11 +75,6 @@ export type TypedEvent<T extends EventType = EventType> = Omit<EventEnvelope, "t
   data: EventData<T>;
 };
 
-/** Parse `data` against its type schema. */
-export function parseEventData<T extends EventType>(type: T, data: unknown): EventData<T> {
-  return (EventDataSchemas[type] as unknown as z.ZodType<EventData<T>>).parse(data);
-}
-
 /** Events a host may emit (subset of all types). */
 export const HOST_EVENT_TYPES = [
   "session.updated",

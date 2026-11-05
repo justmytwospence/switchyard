@@ -30,10 +30,6 @@ export function newId(prefix: IdPrefix): string {
   return `${prefix}_${ulid()}`;
 }
 
-export function idHasPrefix(id: string, prefix: IdPrefix): boolean {
-  return id.startsWith(`${prefix}_`);
-}
-
 /** Branch name to the directory slug used under `<repo>/.worktrees/`. */
 export function branchSlug(branch: string): string {
   return branch.replaceAll("/", "-");

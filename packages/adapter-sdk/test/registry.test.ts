@@ -5,12 +5,12 @@ import {
   AdapterRegistry,
   type AdapterSession,
   type Claim,
-  defineAdapter,
   discoverPiPackages,
   InteractionResponseError,
   type PiUiRequest,
   parseGitSource,
   piPackageDirCandidates,
+  type ServerAdapter,
 } from "../src/index.js";
 import { claimingServer, inline, sink, tmp, writeAdapterDir } from "./helpers.js";
 
@@ -166,14 +166,14 @@ describe("precedence", () => {
 });
 
 describe("failure isolation", () => {
-  const throwing = defineAdapter({
+  const throwing: ServerAdapter = {
     claimInteraction() {
       throw new Error("boom");
     },
     onStatus() {
       return true;
     },
-  });
+  };
 
   it("an adapter that throws is disabled for the session, emits a diagnostic, and never auto-answers", async () => {
     const registry = new AdapterRegistry();
@@ -299,7 +299,7 @@ describe("failure isolation", () => {
 
 describe("queued answers", () => {
   const follow: PiUiRequest = { id: "ui-2", method: "input", title: "Why?" };
-  const sequenced = defineAdapter({
+  const sequenced: ServerAdapter = {
     claimInteraction: (req) =>
       req.method === "select"
         ? {
@@ -314,7 +314,7 @@ describe("queued answers", () => {
             }),
           }
         : undefined,
-  });
+  };
 
   async function setup() {
     const registry = new AdapterRegistry();

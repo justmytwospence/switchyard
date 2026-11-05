@@ -4,7 +4,6 @@ import {
   ContinuationPolicy,
   Device,
   ExtraArg,
-  Interaction,
   Passkey,
   Priority,
   ProjectScan,
@@ -216,10 +215,6 @@ export const ImportSessionRequest = z.object({
 export const AnswerRequest = z.object({
   revision: z.number().int(),
   response: InteractionResponseSchema,
-});
-export const AnswerResponse = z.object({
-  status: z.enum(["answered", "already_answered"]),
-  interaction: Interaction,
 });
 
 export const AdapterActionRequest = z.object({

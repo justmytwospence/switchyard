@@ -192,13 +192,6 @@ export interface AdapterFactoryInit {
 }
 export type ServerAdapterFactory = (init: AdapterFactoryInit) => MaybePromise<ServerAdapter>;
 
-/** Typed identity helper for adapter modules: `export default defineAdapter({...})`. */
-export function defineAdapter<A extends ServerAdapter>(adapter: A): A;
-export function defineAdapter<F extends ServerAdapterFactory>(factory: F): F;
-export function defineAdapter(x: ServerAdapter | ServerAdapterFactory) {
-  return x;
-}
-
 /** An adapter ready to run: manifest, resolved paths and the server object. */
 export interface LoadedAdapter {
   manifest: AdapterManifest;

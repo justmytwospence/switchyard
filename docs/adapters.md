@@ -168,7 +168,7 @@ await session.onToolEnd({ toolCallId, name, args, result, isError, details });
 | input | text field | `{value}` |
 | editor | multiline text field with `prefill` | `{value}` |
 
-Cancel maps to `{cancelled: true}`. Multi-line titles are shown in full above the field. `genericToolCard(tool)` shows the tool name, status, arguments and output; `genericStatusPanel(statuses)` is a key/status table.
+Cancel maps to `{cancelled: true}` (Pi's spelling). Multi-line titles are shown in full above the field. `genericStatusPanel(statuses)` is a key/status table; tools without an adapter card use each client's built-in tool view.
 
 ## Web renderer bridge
 
