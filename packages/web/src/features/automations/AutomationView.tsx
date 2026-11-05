@@ -535,7 +535,7 @@ function Editor({ automation }: { automation: Automation | null }) {
       {desktop ? (
         <div className="h-4" />
       ) : (
-        <div className="sticky bottom-0 z-10 -mx-4 flex items-center gap-3 border-t border-border bg-surface px-4 py-2 safe-pb md:-mx-6 md:px-6">
+        <div className="sticky bottom-0 z-10 -mx-4 flex items-center gap-3 border-t border-border bg-surface px-4 py-2 md:-mx-6 md:px-6">
           <span className="min-w-0 flex-1 truncate text-sm text-muted">
             {dirty ? "Unsaved changes" : isNew ? "Not saved yet" : "All changes saved"}
           </span>

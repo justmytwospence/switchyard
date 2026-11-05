@@ -301,4 +301,16 @@ test.describe("mobile coding view", () => {
     await page.goForward();
     await expect(page).toHaveURL(/\/code\//);
   });
+
+  test("the session header adds the top safe-area inset to its padding", async ({
+    page,
+    state,
+  }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    const header = page.locator("header").first();
+    await expect(header).toBeVisible();
+    await page.evaluate(() => document.documentElement.style.setProperty("--safe-top", "20px"));
+    // 20px inset + 4px (pb-1 step): the inset used to be lost to the header's py-1.
+    await expect(header).toHaveCSS("padding-top", "24px");
+  });
 });

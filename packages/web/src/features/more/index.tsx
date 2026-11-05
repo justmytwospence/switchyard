@@ -20,7 +20,7 @@ const ITEMS: { to: string; label: string; description: string; icon: LucideIcon 
 /** Mobile "More": Now, Automations and Settings (spec 10). */
 export default function MoreView() {
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 py-4 safe-pt">
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 pb-4 safe-pt-4">
       <h1 className="text-lg font-semibold">More</h1>
       <ul className="overflow-hidden rounded-lg border border-border bg-surface">
         {ITEMS.map(({ to, label, description, icon: Icon }) => (

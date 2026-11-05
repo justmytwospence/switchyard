@@ -105,7 +105,6 @@ export function AppShell() {
           state={connState}
           lastSyncedAt={staleSince}
           onRetry={() => syncClient.reconnectNow()}
-          className={mobile ? "safe-pt" : undefined}
         />
         <main
           id="main"

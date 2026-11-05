@@ -171,17 +171,6 @@
     }
   }
 
-  .safe-pt {
-    padding-top: var(--safe-top);
-  }
-  .safe-pb {
-    padding-bottom: var(--safe-bottom);
-  }
-  .safe-px {
-    padding-left: var(--safe-left);
-    padding-right: var(--safe-right);
-  }
-
   /* Markdown body produced by react-markdown. */
   .sy-prose {
     overflow-wrap: anywhere;
@@ -313,4 +302,27 @@
       color: var(--shiki-dark);
     }
   }
+}
+
+/* Safe-area padding: the inset plus an optional spacing step (safe-pt-3 = 0.75rem + inset).
+   Utilities, so never combine with p-*, py-*, pt-*, pb-* (or px-* for safe-px) on one element. */
+@utility safe-pt {
+  padding-top: var(--safe-top);
+}
+@utility safe-pt-* {
+  padding-top: calc(var(--spacing) * --value(number) + var(--safe-top));
+}
+@utility safe-pb {
+  padding-bottom: var(--safe-bottom);
+}
+@utility safe-pb-* {
+  padding-bottom: calc(var(--spacing) * --value(number) + var(--safe-bottom));
+}
+@utility safe-px {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+@utility safe-px-* {
+  padding-left: calc(var(--spacing) * --value(number) + var(--safe-left));
+  padding-right: calc(var(--spacing) * --value(number) + var(--safe-right));
 }

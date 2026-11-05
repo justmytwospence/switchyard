@@ -88,7 +88,7 @@ export default function EnrollView() {
   if (!token && status === "checking") return <LoadingState label="Checking this device…" />;
 
   return (
-    <div className="flex min-h-dvh items-start justify-center px-4 py-10 safe-pt safe-pb sm:items-center">
+    <div className="flex min-h-dvh items-start justify-center px-4 safe-pt-10 safe-pb-10 sm:items-center">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <img src="/icon.svg" alt="" className="size-10 rounded-lg" />

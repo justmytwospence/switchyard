@@ -62,7 +62,7 @@ export default function AttentionView() {
   const groups = useMemo(() => groupAttention(items), [items]);
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-4 px-4 py-4 safe-pt md:px-6">
+    <div className="flex w-full min-w-0 flex-col gap-4 px-4 pb-4 safe-pt-4 md:px-6">
       <header className="flex min-w-0 flex-wrap items-center gap-3">
         <h1 className="flex-1 text-lg font-semibold">Attention</h1>
         <SegmentedControl

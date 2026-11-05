@@ -765,7 +765,7 @@ function FullScreenDiff({
           onClick={onNext}
         />
       </header>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 safe-pb">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-2 pt-2 safe-pb-2">
         <p className="mb-2 text-xs text-muted">Tap a line to add a review comment.</p>
         <FileDiffView
           ctx={ctx}

@@ -610,7 +610,7 @@ function DocumentInteraction({
         <div
           data-testid="answer-bar"
           className={cn(
-            "z-10 flex min-w-0 items-center gap-2 border-t border-border bg-bg px-4 py-2 pb-[calc(0.5rem+var(--safe-bottom))] md:gap-3 md:px-6",
+            "z-10 flex min-w-0 items-center gap-2 border-t border-border bg-bg px-4 py-2 md:gap-3 md:px-6",
             sticky && !flush ? "sticky -bottom-3" : "sticky bottom-0",
           )}
         >

@@ -220,7 +220,7 @@ export function MobileSession({
   return (
     <CodeContext.Provider value={codeCtx}>
       <div className="absolute inset-0 flex min-w-0 flex-col bg-bg">
-        <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-border bg-surface px-1.5 py-1 safe-pt">
+        <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-border bg-surface px-1.5 pb-1 safe-pt-1">
           <Link
             to="/code"
             onClick={backLinkClick(back)}

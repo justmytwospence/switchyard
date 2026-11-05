@@ -153,7 +153,7 @@ export function ReconnectingBanner({
       role="status"
       aria-live="polite"
       className={cn(
-        "flex items-center gap-2 border-b border-border bg-warning-soft px-3 py-1.5 text-sm text-text",
+        "flex items-center gap-2 border-b border-border bg-warning-soft px-3 pb-1.5 safe-pt-1.5 text-sm text-text",
         className,
       )}
     >

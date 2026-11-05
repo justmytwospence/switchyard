@@ -102,7 +102,7 @@ export function BoardMobile() {
 
   return (
     <div data-testid="board" className="flex min-w-0 flex-col">
-      <header className="flex min-w-0 flex-col gap-2 border-b border-border bg-bg px-3 pt-3 pb-0 safe-pt">
+      <header className="flex min-w-0 flex-col gap-2 border-b border-border bg-bg px-3 pb-0 safe-pt-3">
         <div className="flex items-center gap-2">
           <h1 className="flex-1 text-lg font-semibold">Board</h1>
           <Button
@@ -263,7 +263,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
 
   return (
     <div className="flex min-w-0 flex-col" data-testid="task-page">
-      <header className="sticky top-0 z-20 flex min-w-0 items-center gap-1 border-b border-border bg-surface px-1 py-1 safe-pt">
+      <header className="sticky top-0 z-20 flex min-w-0 items-center gap-1 border-b border-border bg-surface px-1 pb-1 safe-pt-1">
         <IconButton label="Back to board" icon={<ArrowLeft className="size-5" />} onClick={back} />
         <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{task?.title ?? "Task"}</h1>
         {task && (
