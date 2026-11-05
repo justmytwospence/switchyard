@@ -3,11 +3,10 @@ import { Terminal, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/Button";
-import { LoadingState } from "../../components/ui/states";
+import { InlineError, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { formatRelative } from "../../lib/time";
 import { apiGet, apiPost, errorMessage, isApiError } from "../../sync/api";
-import { InlineError } from "../settings/shared";
 
 /** /terminal-login?code=XXXX-XXXX: approve or deny a terminal's `switchyard login`. */
 export default function TerminalLoginView() {

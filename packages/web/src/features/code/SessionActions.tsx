@@ -2,7 +2,7 @@ import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
-import { Dialog } from "../../components/ui/Overlay";
+import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
 import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -73,33 +73,23 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
 
   const dialogs = (
     <>
-      <Dialog
+      <ConfirmDialog
         open={dialog === "stop"}
         onClose={close}
         title="Stop this session?"
         description="Stops the current execution and clears queued messages."
-        footer={
-          <>
-            <Button onClick={close}>Cancel</Button>
-            <Button
-              variant="danger"
-              busy={stop.busy}
-              onClick={() => void stop.run().then((ok) => ok && setDialog(null))}
-            >
-              Stop session
-            </Button>
-          </>
-        }
+        confirmLabel="Stop session"
+        busy={stop.busy}
+        error={stop.error}
+        errorTitle="Could not stop"
+        onConfirm={() => void stop.run().then((ok) => ok && setDialog(null))}
       >
         <p className="text-sm text-muted">
           {run
             ? "The task keeps its run, marked interrupted and blocked (Stopped by user). Automation settings are unchanged."
             : "Pi stays available; you can send a new message afterwards."}
         </p>
-        {stop.error !== null && (
-          <ErrorState compact title="Could not stop" error={errorMessage(stop.error)} />
-        )}
-      </Dialog>
+      </ConfirmDialog>
 
       <Dialog
         open={dialog === "rename"}
@@ -143,37 +133,28 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
         </form>
       </Dialog>
 
-      <Dialog
+      <ConfirmDialog
         open={dialog === "archive"}
         onClose={close}
         title="Archive this session?"
         description="It leaves the navigator. The Pi session file stays on the host."
-        footer={
-          <>
-            <Button onClick={close}>Cancel</Button>
-            <Button
-              variant="primary"
-              busy={archive.busy}
-              onClick={() =>
-                void archive.run().then((ok) => {
-                  if (!ok) return;
-                  setDialog(null);
-                  navigate("/code");
-                })
-              }
-            >
-              Archive
-            </Button>
-          </>
+        danger={false}
+        confirmLabel="Archive"
+        busy={archive.busy}
+        error={archive.error}
+        errorTitle="Could not archive"
+        onConfirm={() =>
+          void archive.run().then((ok) => {
+            if (!ok) return;
+            setDialog(null);
+            navigate("/code");
+          })
         }
       >
         {session.runtime === "idle" && (
           <p className="text-sm text-muted">The idle Pi process is stopped first.</p>
         )}
-        {archive.error !== null && (
-          <ErrorState compact title="Could not archive" error={errorMessage(archive.error)} />
-        )}
-      </Dialog>
+      </ConfirmDialog>
 
       <SessionInfoDialog
         session={session}

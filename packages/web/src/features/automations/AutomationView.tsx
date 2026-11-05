@@ -19,7 +19,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Field, FieldError } from "../../components/ui/Field";
 import { IconButton } from "../../components/ui/IconButton";
-import { Dialog } from "../../components/ui/Overlay";
+import { ConfirmDialog } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { Select } from "../../components/ui/Select";
 import { Switch } from "../../components/ui/Switch";
@@ -542,24 +542,15 @@ function Editor({ automation }: { automation: Automation | null }) {
         </div>
       )}
 
-      <Dialog
+      <ConfirmDialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         title={`Delete ${automation?.name ?? "automation"}?`}
         description="Future occurrences stop. Tasks it already created stay on the board; its history is removed."
-        footer={
-          <>
-            <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
-            <Button
-              variant="danger"
-              busy={deleting}
-              icon={<Trash className="size-4" />}
-              onClick={() => void remove()}
-            >
-              Delete automation
-            </Button>
-          </>
-        }
+        confirmLabel="Delete automation"
+        confirmIcon={<Trash className="size-4" />}
+        busy={deleting}
+        onConfirm={() => void remove()}
       />
     </div>
   );

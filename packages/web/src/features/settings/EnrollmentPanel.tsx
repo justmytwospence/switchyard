@@ -1,8 +1,8 @@
 import { Clock, RefreshCw, TriangleAlert } from "lucide-react";
 import { Button } from "../../components/ui/Button";
-import { LoadingState } from "../../components/ui/states";
+import { InlineError, LoadingState } from "../../components/ui/states";
 import { apiPost } from "../../sync/api";
-import { formatCountdown, InlineError, useCountdown } from "./shared";
+import { formatCountdown, useCountdown } from "./shared";
 
 /** Response of POST /api/enrollments (protocol CreateEnrollmentResponse). */
 export interface Enrollment {

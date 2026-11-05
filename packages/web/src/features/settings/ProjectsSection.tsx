@@ -7,13 +7,17 @@ import { Button, buttonClasses } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Select } from "../../components/ui/Select";
-import { EmptyState, LoadingState, UnsupportedCapability } from "../../components/ui/states";
+import {
+  EmptyState,
+  InlineError,
+  LoadingState,
+  UnsupportedCapability,
+} from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { apiPost } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import {
-  InlineError,
   InlineStatus,
   LastKnownNote,
   SectionPage,

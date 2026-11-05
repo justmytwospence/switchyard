@@ -21,7 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
-import { Dialog } from "../../components/ui/Overlay";
+import { ConfirmDialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
   EmptyState,
@@ -350,19 +350,14 @@ export function WebhookSection({ automation }: { automation: Automation }) {
           </div>
         </div>
       )}
-      <Dialog
+      <ConfirmDialog
         open={confirm}
         onClose={() => setConfirm(false)}
         title="Rotate webhook token?"
         description="The current token stops working immediately. Update every sender with the new token."
-        footer={
-          <>
-            <Button onClick={() => setConfirm(false)}>Cancel</Button>
-            <Button variant="danger" onClick={() => void issue()}>
-              Rotate token
-            </Button>
-          </>
-        }
+        confirmLabel="Rotate token"
+        busy={busy}
+        onConfirm={() => void issue()}
       />
     </Card>
   );

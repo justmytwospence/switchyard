@@ -3,21 +3,14 @@ import { Pencil, Plus, SlidersHorizontal, Trash } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Field, fieldControlProps } from "../../components/ui/Field";
-import { Dialog } from "../../components/ui/Overlay";
+import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
-import { EmptyState, LoadingState } from "../../components/ui/states";
+import { EmptyState, InlineError, LoadingState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { apiDelete, apiPatch, apiPost } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import {
-  ConfirmDialog,
-  InlineError,
-  LastKnownNote,
-  SectionPage,
-  splitLines,
-  useHydrated,
-} from "./shared";
+import { LastKnownNote, SectionPage, splitLines, useHydrated } from "./shared";
 
 const TRUST_LABEL: Record<Profile["projectTrust"], string> = {
   ask: "Ask",

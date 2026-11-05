@@ -2,7 +2,10 @@ import { X } from "lucide-react";
 import { type ReactNode, type RefObject, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
+import { errorMessage } from "../../sync/api";
+import { Button } from "./Button";
 import { IconButton } from "./IconButton";
+import { ErrorState, InlineError } from "./states";
 import { useFocusTrap, useScrollLock } from "./useFocusTrap";
 
 export interface OverlayProps {
@@ -129,4 +132,85 @@ export function Sheet(props: OverlayProps) {
 /** Centered modal dialog. */
 export function Dialog(props: OverlayProps) {
   return <Surface {...props} placement="center" />;
+}
+
+export interface ConfirmDialogProps {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  description?: ReactNode;
+  confirmLabel: string;
+  onConfirm: () => void;
+  busy?: boolean;
+  error?: unknown;
+  /** Heading for the error; renders a titled error panel instead of the plain message. */
+  errorTitle?: string;
+  danger?: boolean;
+  /** Icon before the confirm label. */
+  confirmIcon?: ReactNode;
+  confirmDisabled?: boolean;
+  /** Shown next to the actions when the confirm button is disabled. */
+  disabledReason?: ReactNode;
+  children?: ReactNode;
+}
+
+/**
+ * Confirmation dialog. Never closes on its own: the caller closes it after the
+ * server acknowledges (no optimistic success). It cannot be dismissed while busy.
+ */
+export function ConfirmDialog({
+  open,
+  onClose,
+  title,
+  description,
+  confirmLabel,
+  onConfirm,
+  busy,
+  error,
+  errorTitle,
+  danger = true,
+  confirmIcon,
+  confirmDisabled,
+  disabledReason,
+  children,
+}: ConfirmDialogProps) {
+  return (
+    <Dialog
+      open={open}
+      onClose={busy ? () => undefined : onClose}
+      dismissOnBackdrop={!busy}
+      title={title}
+      description={description}
+      footer={
+        <>
+          {confirmDisabled && disabledReason && (
+            <p className="mr-auto min-w-0 flex-1 basis-full text-xs text-muted sm:basis-auto">
+              {disabledReason}
+            </p>
+          )}
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant={danger ? "danger" : "primary"}
+            icon={confirmIcon}
+            busy={busy}
+            disabled={confirmDisabled}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {children}
+        {errorTitle ? (
+          !!error && <ErrorState compact title={errorTitle} error={errorMessage(error)} />
+        ) : (
+          <InlineError error={error} />
+        )}
+      </div>
+    </Dialog>
+  );
 }

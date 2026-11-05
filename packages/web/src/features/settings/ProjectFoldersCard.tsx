@@ -4,11 +4,11 @@ import { useId, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Field, fieldControlProps } from "../../components/ui/Field";
+import { InlineError } from "../../components/ui/states";
 import { TextArea } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { apiPatch, apiPost } from "../../sync/api";
 import { parseProjectFolders, scanSummary } from "./projectFolders";
-import { InlineError } from "./shared";
 
 /** Settings › Hosts › host: the folders whose repositories become projects. */
 export function ProjectFoldersCard({ host }: { host: Host }) {

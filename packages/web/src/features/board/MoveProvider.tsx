@@ -2,7 +2,7 @@ import type { Task, TaskState } from "@switchyard/protocol";
 import { CirclePause, Square } from "lucide-react";
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
-import { Dialog } from "../../components/ui/Overlay";
+import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
 import { toast } from "../../components/ui/Toast";
 import { errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
@@ -328,26 +328,15 @@ export function MoveProvider({ children }: { children: ReactNode }) {
           </li>
         </ul>
       </Dialog>
-      <Dialog
+      <ConfirmDialog
         open={pending?.kind === "confirm_done"}
         onClose={close}
         title="Accept and mark Done?"
         description={ACCEPT_NOTE}
-        footer={
-          <>
-            <Button onClick={close} disabled={!!dialogBusy}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              busy={dialogBusy === "confirm"}
-              disabled={!!dialogBusy}
-              onClick={() => void resolve("confirm")}
-            >
-              Accept and mark Done
-            </Button>
-          </>
-        }
+        danger={false}
+        confirmLabel="Accept and mark Done"
+        busy={dialogBusy === "confirm"}
+        onConfirm={() => void resolve("confirm")}
       >
         <p className="mb-2 text-sm">These items are unresolved:</p>
         <ul className="list-disc space-y-1 pl-5 text-sm">
@@ -365,32 +354,22 @@ export function MoveProvider({ children }: { children: ReactNode }) {
             </ul>
           </>
         )}
-      </Dialog>
-      <Dialog
+      </ConfirmDialog>
+      <ConfirmDialog
         open={pending?.kind === "fresh_attempt"}
         onClose={close}
         title="Start a fresh session?"
         description={pending?.reasons[0]}
-        footer={
-          <>
-            <Button onClick={close} disabled={!!dialogBusy}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              busy={dialogBusy === "confirm"}
-              onClick={() => void resolve("confirm")}
-            >
-              Start fresh session
-            </Button>
-          </>
-        }
+        danger={false}
+        confirmLabel="Start fresh session"
+        busy={dialogBusy === "confirm"}
+        onConfirm={() => void resolve("confirm")}
       >
         <p className="text-sm">
           The previous Pi session is no longer available on the host, so the new attempt cannot
           continue it. A fresh session starts with the task objective and your review feedback.
         </p>
-      </Dialog>
+      </ConfirmDialog>
     </Ctx.Provider>
   );
 }

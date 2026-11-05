@@ -25,12 +25,10 @@ import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { TONE_CLASSES, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
-import { Dialog } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
-import { errorMessage } from "../../sync/api";
 import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
 
 /* ------------------------------------------------------------------ */
@@ -275,20 +273,6 @@ export function splitLines(text: string): string[] {
     .filter(Boolean);
 }
 
-/** Inline error message for a failed mutation. */
-export function InlineError({ error }: { error: unknown }) {
-  if (!error) return null;
-  return (
-    <p
-      role="alert"
-      className="flex items-start gap-2 rounded-md border border-border bg-danger-soft px-3 py-2 text-sm"
-    >
-      <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
-      <span className="min-w-0 break-words">{errorMessage(error)}</span>
-    </p>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Copy                                                                */
 /* ------------------------------------------------------------------ */
@@ -379,76 +363,4 @@ export function useCountdown(iso: string | null | undefined): number | null {
 export function formatCountdown(ms: number): string {
   const s = Math.ceil(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
-
-/* ------------------------------------------------------------------ */
-/* Confirmation                                                        */
-/* ------------------------------------------------------------------ */
-
-/**
- * Confirmation dialog for destructive actions. Never closes on its own:
- * the caller closes it after the server acknowledges (no optimistic success).
- */
-export function ConfirmDialog({
-  open,
-  onClose,
-  title,
-  description,
-  confirmLabel,
-  onConfirm,
-  busy,
-  error,
-  danger = true,
-  confirmDisabled,
-  disabledReason,
-  children,
-}: {
-  open: boolean;
-  onClose: () => void;
-  title: ReactNode;
-  description?: ReactNode;
-  confirmLabel: string;
-  onConfirm: () => void;
-  busy?: boolean;
-  error?: unknown;
-  danger?: boolean;
-  confirmDisabled?: boolean;
-  /** Shown next to the actions when the confirm button is disabled. */
-  disabledReason?: ReactNode;
-  children?: ReactNode;
-}) {
-  return (
-    <Dialog
-      open={open}
-      onClose={busy ? () => undefined : onClose}
-      dismissOnBackdrop={!busy}
-      title={title}
-      description={description}
-      footer={
-        <>
-          {confirmDisabled && disabledReason && (
-            <p className="mr-auto min-w-0 flex-1 basis-full text-xs text-muted sm:basis-auto">
-              {disabledReason}
-            </p>
-          )}
-          <Button onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            variant={danger ? "danger" : "primary"}
-            busy={busy}
-            disabled={confirmDisabled}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3">
-        {children}
-        <InlineError error={error} />
-      </div>
-    </Dialog>
-  );
 }

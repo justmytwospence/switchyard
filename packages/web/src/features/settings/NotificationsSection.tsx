@@ -19,6 +19,7 @@ import { SwitchRow } from "../../components/ui/Switch";
 import {
   ErrorState,
   FatalError,
+  InlineError,
   LoadingState,
   UnsupportedCapability,
 } from "../../components/ui/states";
@@ -36,7 +37,7 @@ import {
 } from "../../push";
 import { ApiClientError, apiPatch, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { InlineError, InlineStatus, SectionPage } from "./shared";
+import { InlineStatus, SectionPage } from "./shared";
 import { isObject, useResource } from "./useResource";
 
 const PERMISSION: Record<

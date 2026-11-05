@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
-import { Dialog } from "../../components/ui/Overlay";
+import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
   EmptyState,
@@ -26,7 +26,6 @@ import {
 } from "./EnrollmentPanel";
 import { ProjectFoldersCard } from "./ProjectFoldersCard";
 import {
-  ConfirmDialog,
   CopyBlock,
   KeyValues,
   LastKnownNote,

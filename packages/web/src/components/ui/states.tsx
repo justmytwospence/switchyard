@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { cn } from "../../lib/cn";
 import { formatRelative, formatTime } from "../../lib/time";
+import { errorMessage } from "../../sync/api";
 import type { ConnectionState } from "../../sync/store";
 import { Button, buttonClasses } from "./Button";
 import { Spinner } from "./Spinner";
@@ -391,5 +392,19 @@ export function FatalError({
     >
       <span className="break-words">{message}</span>
     </Panel>
+  );
+}
+
+/** Inline error message for a failed mutation. */
+export function InlineError({ error }: { error: unknown }) {
+  if (!error) return null;
+  return (
+    <p
+      role="alert"
+      className="flex items-start gap-2 rounded-md border border-border bg-danger-soft px-3 py-2 text-sm"
+    >
+      <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
+      <span className="min-w-0 break-words">{errorMessage(error)}</span>
+    </p>
   );
 }

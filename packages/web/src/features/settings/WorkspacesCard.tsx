@@ -12,11 +12,12 @@ import { useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Checkbox } from "../../components/ui/Checkbox";
+import { ConfirmDialog } from "../../components/ui/Overlay";
 import { EmptyState } from "../../components/ui/states";
 import { toast } from "../../components/ui/Toast";
 import { apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { ConfirmDialog, InlineStatus } from "./shared";
+import { InlineStatus } from "./shared";
 
 const PROVENANCE_LABEL: Record<Workspace["provenance"], string> = {
   managed: "Managed by Switchyard",

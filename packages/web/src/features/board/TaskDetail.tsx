@@ -19,7 +19,7 @@ import { Markdown } from "../../components/intent/Markdown";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
-import { Dialog } from "../../components/ui/Overlay";
+import { ConfirmDialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
   ErrorState,
@@ -626,37 +626,26 @@ function DeleteTask({ task, onDeleted }: { task: Task; onDeleted?: () => void })
       >
         Delete task
       </Button>
-      <Dialog
+      <ConfirmDialog
         open={open}
-        onClose={() => !busy && setOpen(false)}
+        onClose={() => setOpen(false)}
         title="Delete this task?"
         description={`"${task.title}" and its history are removed from the board. Sessions and workspaces are kept.`}
-        footer={
-          <>
-            <Button onClick={() => setOpen(false)} disabled={busy}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              busy={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await deleteTask(task.id);
-                  toast.success(`Deleted "${task.title}"`);
-                  setOpen(false);
-                  onDeleted?.();
-                } catch (e) {
-                  toast.error(`Could not delete: ${errorMessage(e)}`);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Delete task
-            </Button>
-          </>
-        }
+        confirmLabel="Delete task"
+        busy={busy}
+        onConfirm={async () => {
+          setBusy(true);
+          try {
+            await deleteTask(task.id);
+            toast.success(`Deleted "${task.title}"`);
+            setOpen(false);
+            onDeleted?.();
+          } catch (e) {
+            toast.error(`Could not delete: ${errorMessage(e)}`);
+          } finally {
+            setBusy(false);
+          }
+        }}
       />
     </div>
   );
