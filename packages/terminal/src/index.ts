@@ -7,6 +7,5 @@ export {
   SwitchyardClient,
   wsUrlFor,
 } from "./client.js";
-export * from "./presence.js";
 export * from "./raw-terminal.js";
 export * from "./store.js";

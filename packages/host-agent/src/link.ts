@@ -7,6 +7,7 @@ import {
   type HostToCoordinator,
   newId,
   type Receipt,
+  reconnectDelay,
   type StreamDelta,
   type TermCoordinatorMsg,
   type TermServerToViewer,
@@ -15,8 +16,6 @@ import WebSocket from "ws";
 import type { HostDb } from "./db/index.js";
 import type { Logger } from "./logger.js";
 
-/** Reconnect delays; the last value repeats. Each delay gets +-20% jitter. */
-export const DEFAULT_BACKOFF_MS = [1000, 2000, 5000, 10000, 20000, 30000];
 /** Acked outbox rows are kept this long for diagnostics. */
 export const OUTBOX_RETENTION_MS = 24 * 60 * 60 * 1000;
 const ACKED_META = "outbox.ackedHostSeq";
@@ -37,7 +36,8 @@ export interface CoordinatorLinkOptions {
   /** Terminal relay frames from the coordinator. */
   onTerm?: (streamId: string, msg: TermCoordinatorMsg) => void;
   log: Logger;
-  backoffMs?: number[];
+  /** Reconnect delays; the last value repeats (default RECONNECT_BACKOFF_MS). */
+  backoffMs?: readonly number[];
   /** Interval for the WebSocket keepalive ping (default 20 s). */
   pingIntervalMs?: number;
 }
@@ -382,10 +382,8 @@ export class CoordinatorLink {
 
   private scheduleReconnect(): void {
     if (this.stopped || this.reconnectTimer) return;
-    const steps = this.opts.backoffMs ?? DEFAULT_BACKOFF_MS;
-    const base = steps[Math.min(this.attempt, steps.length - 1)] ?? 30000;
+    const delay = reconnectDelay(this.attempt, this.opts.backoffMs);
     this.attempt++;
-    const delay = Math.max(0, Math.round(base * (0.8 + Math.random() * 0.4)));
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();

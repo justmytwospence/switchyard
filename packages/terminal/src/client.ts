@@ -1,6 +1,5 @@
-import type { ClientToServer, ServerToClient } from "@switchyard/protocol";
+import { type ClientToServer, reconnectDelay, type ServerToClient } from "@switchyard/protocol";
 import WebSocket from "ws";
-import { backoffDelay } from "./presence.js";
 import { applyEvent, applyReplay, applySnapshot, Store, setConnection } from "./store.js";
 
 /** An error response from the coordinator REST API (`{error: {code, message, details}}`). */
@@ -285,7 +284,7 @@ export class SwitchyardClient {
         this.retryTimer = null;
         this.open();
       },
-      backoffDelay(this.attempts, this.opts.random),
+      reconnectDelay(this.attempts - 1, undefined, this.opts.random),
     );
     this.retryTimer.unref?.();
   }
