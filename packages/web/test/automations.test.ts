@@ -105,7 +105,9 @@ describe("describeTrigger", () => {
         { taskTitle: (id) => (id === "t1" ? "Ship it" : undefined) },
       ),
     ).toBe('When "Ship it" is done');
-    expect(describeTrigger({ kind: "dependency", taskId: "t9" })).toBe("When task t9 is done");
+    expect(describeTrigger({ kind: "dependency", taskId: "t9" })).toBe(
+      "When a deleted task is done",
+    );
   });
 });
 

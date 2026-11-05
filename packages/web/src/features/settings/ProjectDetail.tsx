@@ -299,7 +299,7 @@ function ProjectForm({
                   {p.name}
                 </option>
               ))}
-              {!profileKnown && <option value={profileId}>Unknown profile ({profileId})</option>}
+              {!profileKnown && <option value={profileId}>Removed profile</option>}
             </Select>
           </Field>
           <Field
@@ -320,7 +320,7 @@ function ProjectForm({
                   {h.connectivity === "connected" ? "" : ` (${h.connectivity})`}
                 </option>
               ))}
-              {!hostKnown && <option value={hostId}>Unknown host ({hostId})</option>}
+              {!hostKnown && <option value={hostId}>Removed host</option>}
             </Select>
           </Field>
         </div>

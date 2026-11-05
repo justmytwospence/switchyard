@@ -438,7 +438,7 @@ export function describeTrigger(trigger: Trigger, ctx: SummaryContext = {}): str
     case "dependency": {
       const title = trigger.taskId ? ctx.taskTitle?.(trigger.taskId) : undefined;
       if (title) return `When "${title}" is done`;
-      return trigger.taskId ? `When task ${trigger.taskId} is done` : "When a task is done";
+      return trigger.taskId ? "When a deleted task is done" : "When a task is done";
     }
   }
 }

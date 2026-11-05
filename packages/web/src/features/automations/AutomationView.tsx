@@ -660,6 +660,7 @@ function TriggerSection({
   savedAutomation: Automation | null;
   segmented: boolean;
 }) {
+  const hydrated = useSyncStore((s) => s.hydrated);
   const cronError = draft.triggerKind === "cron" ? validateCron(draft.cronExpr) : null;
   const cronText =
     draft.triggerKind === "cron" && !cronError
@@ -841,7 +842,9 @@ function TriggerSection({
             >
               <option value="">Choose a task</option>
               {draft.dependencyTaskId && !tasks[draft.dependencyTaskId] && (
-                <option value={draft.dependencyTaskId}>Task {draft.dependencyTaskId}</option>
+                <option value={draft.dependencyTaskId}>
+                  {hydrated ? "Deleted task" : "Loading task…"}
+                </option>
               )}
               {taskOptions.map((t) => (
                 <option key={t.id} value={t.id}>

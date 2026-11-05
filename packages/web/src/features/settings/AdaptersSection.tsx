@@ -75,7 +75,7 @@ export function AdaptersSection() {
         .filter(([, list]) => list.length > 0)
         .map(([hostId, list]) => ({
           hostId,
-          hostName: hosts[hostId]?.name ?? `Unknown host (${hostId})`,
+          hostName: hosts[hostId]?.name ?? "Removed host",
           adapters: [...list].sort((a, b) => a.id.localeCompare(b.id)),
         }))
         .sort((a, b) => a.hostName.localeCompare(b.hostName)),
