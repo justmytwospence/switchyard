@@ -34,6 +34,15 @@ test.describe("mobile coding view", () => {
     await expect(page.getByTestId("transcript")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Long transcript session" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Back to sessions" })).toBeVisible();
+    await expect(bottomNav(page)).toHaveCount(0);
+
+    // Tapping the title shows the session facts.
+    await page.getByRole("heading", { name: "Long transcript session" }).getByRole("button").tap();
+    const info = page.getByRole("dialog", { name: "Session details" });
+    await expect(info).toContainText("Demo project");
+    await expect(info).toContainText("Manual session");
+    await info.getByRole("button", { name: "Close" }).tap();
+    await expect(info).toHaveCount(0);
 
     await tabs.getByRole("radio", { name: "Changes" }).click();
     await expect(tabs.getByRole("radio", { name: "Changes" })).toHaveAttribute(
@@ -41,12 +50,20 @@ test.describe("mobile coding view", () => {
       "true",
     );
     await expect(page.getByRole("list", { name: "Changed files" })).toBeVisible();
-    await expect(page.getByTestId("transcript")).toHaveCount(0);
-    await expect(page.getByTestId("composer")).toHaveCount(0);
+    await expect(page.getByTestId("transcript")).toBeHidden();
+    await expect(page.getByTestId("composer")).toBeHidden();
 
     await tabs.getByRole("radio", { name: "Details" }).click();
-    await expect(page.getByRole("region", { name: "Details" })).toBeVisible();
-    await expect(page.getByRole("list", { name: "Changed files" })).toHaveCount(0);
+    const details = page.getByRole("region", { name: "Details" });
+    await expect(details).toBeVisible();
+    await expect(page.getByRole("list", { name: "Changed files" })).toBeHidden();
+    for (const name of ["Take over", "Return to automation", "Stop"]) {
+      await expect(details.getByRole("button", { name })).toHaveCount(0);
+    }
+    await expect(
+      details.getByText("No linked task: this session was started directly."),
+    ).toBeVisible();
+    await expect(details.getByRole("link", { name: "Open Board" })).toHaveCount(0);
 
     await tabs.getByRole("radio", { name: "Chat" }).click();
     await expect(page.getByTestId("transcript")).toBeVisible();
@@ -133,7 +150,7 @@ test.describe("mobile coding view", () => {
 
     await page.getByRole("button", { name: "Back to changed files" }).tap();
     await expect(list).toBeVisible();
-    await expect(bottomNav(page)).toBeVisible();
+    await expect(bottomNav(page)).toHaveCount(0);
 
     // Horizontal scrolling stays inside the code block, and a long line keeps its line numbers.
     await list.getByRole("button", { name: /src\/wide\.ts/ }).tap();
@@ -151,7 +168,7 @@ test.describe("mobile coding view", () => {
 
     await page.getByRole("button", { name: "Back to changed files" }).tap();
     await expect(list).toBeVisible();
-    await expect(bottomNav(page)).toBeVisible();
+    await expect(bottomNav(page)).toHaveCount(0);
   });
 
   test("a multiselect question is answered by tapping", async ({ page, state, api }, info) => {
@@ -204,7 +221,7 @@ test.describe("mobile coding view", () => {
 
     // The composer: hidden while composing; the header Back link keeps navigation reachable.
     await page.goto(`/code/${state.sessions.long}`);
-    await expect(bottomNav(page)).toBeVisible();
+    await expect(bottomNav(page)).toHaveCount(0);
     await page.getByLabel("Message to Pi").focus();
     await setKeyboard(page, true);
     await expect(bottomNav(page)).toHaveCount(0);
@@ -214,7 +231,19 @@ test.describe("mobile coding view", () => {
     ).toBeInViewport();
     await page.getByLabel("Message to Pi").blur();
     await setKeyboard(page, false);
+    await expect(bottomNav(page)).toHaveCount(0);
+    await page.getByRole("link", { name: "Back to sessions" }).tap();
     await expect(bottomNav(page)).toBeVisible();
+  });
+
+  test("archived session can be unarchived from the menu", async ({ page, state, api }, info) => {
+    const id = await createSession(api, state, `Mobile archived ${uid(info)}`, "hello");
+    await api("POST", `/api/sessions/${id}/archive`);
+    await page.goto(`/code/${id}`);
+    await expect(page.getByTestId("session-status")).toHaveAttribute("data-kind", "archived");
+    await page.getByRole("button", { name: "More actions" }).tap();
+    await page.getByRole("menuitem", { name: "Unarchive" }).tap();
+    await expect(page.getByText("Session unarchived.")).toBeVisible();
   });
 
   test("Review changes on the task opens the Changes segment", async ({ page, state }) => {

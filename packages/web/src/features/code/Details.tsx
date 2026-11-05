@@ -7,7 +7,7 @@ import { Markdown } from "../../components/intent/Markdown";
 import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { StatusChip } from "../../components/ui/StatusChip";
-import { EmptyState, HostUnavailable, UnsupportedCapability } from "../../components/ui/states";
+import { UnsupportedCapability } from "../../components/ui/states";
 import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
@@ -38,55 +38,52 @@ function Section({
   );
 }
 
-/** Take over, Return to automation and Stop as separate labeled actions, each explained. */
+/** Take over, Return to automation and Stop: only the controls that apply, each explained. */
 export function ControlButtons({ ctx, actions }: { ctx: SessionContext; actions: SessionActions }) {
-  const hasRun = ctx.control !== "none";
+  const { canTakeover, canReturn, canStop } = actions;
+  if (!canTakeover && !canReturn && !canStop) {
+    return <p className="text-sm text-muted">Manual session: no automation run controls it.</p>;
+  }
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <ControlChip ctx={ctx} />
-        {!hasRun && (
-          <span className="text-sm text-muted">Manual session: no automation run controls it.</span>
+      <ControlChip ctx={ctx} />
+      <div className="flex flex-wrap gap-2">
+        {canTakeover && (
+          <Button
+            icon={<Hand className="size-4" />}
+            busy={actions.busy.takeover}
+            onClick={actions.takeover}
+          >
+            Take over
+          </Button>
+        )}
+        {canReturn && (
+          <Button
+            icon={<Bot className="size-4" />}
+            busy={actions.busy.ret}
+            onClick={actions.returnToAutomation}
+          >
+            Return to automation
+          </Button>
+        )}
+        {canStop && (
+          <Button
+            variant={ctx.session.runtime === "waiting_input" ? "secondary" : "danger"}
+            icon={<Square className="size-4" />}
+            busy={actions.busy.stop}
+            onClick={actions.requestStop}
+          >
+            Stop
+          </Button>
         )}
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          icon={<Hand className="size-4" />}
-          disabled={!actions.canTakeover}
-          busy={actions.busy.takeover}
-          onClick={actions.takeover}
-        >
-          Take over
-        </Button>
-        <Button
-          icon={<Bot className="size-4" />}
-          disabled={!actions.canReturn}
-          busy={actions.busy.ret}
-          onClick={actions.returnToAutomation}
-        >
-          Return to automation
-        </Button>
-        <Button
-          variant="danger"
-          icon={<Square className="size-4" />}
-          disabled={!actions.canStop}
-          busy={actions.busy.stop}
-          onClick={actions.requestStop}
-        >
-          Stop
-        </Button>
-      </div>
-      <p className="text-xs text-muted">
-        {!hasRun
-          ? "Take over and Return to automation apply to sessions run by a task."
-          : ctx.control === "automation"
+      {(canTakeover || canReturn) && (
+        <p className="text-xs text-muted">
+          {ctx.control === "automation"
             ? "Taking over pauses automatic continuations; Pi keeps running."
-            : "You have control; returning lets automation continue."}{" "}
-        {!actions.canStop &&
-          (ctx.link !== "connected"
-            ? "Stop needs the host to be online."
-            : "Stop is available while Pi is running.")}
-      </p>
+            : "You have control; returning lets automation continue."}
+        </p>
+      )}
     </div>
   );
 }
@@ -167,15 +164,7 @@ export function TaskSection({
   const runs = useRunsForTask(task?.id);
   const tasks = useSyncStore((s) => s.tasks);
   if (!task) {
-    return (
-      <EmptyState
-        icon={<SquareKanban className="size-8" />}
-        title="No linked task"
-        description="This session was started directly. Tasks are optional; create one on the Board to automate work."
-        action={{ label: "Open Board", to: "/board" }}
-        className="py-6"
-      />
-    );
+    return <p className="text-sm text-muted">No linked task: this session was started directly.</p>;
   }
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -434,70 +423,74 @@ export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
   );
 }
 
-/** Mobile Details: task, control, host/workspace, subagents, limits, extensions. */
-export function MobileDetails({ ctx, actions }: { ctx: SessionContext; actions: SessionActions }) {
+/** Project, host, branch, model and context facts for a session. */
+export function SessionFacts({ ctx }: { ctx: SessionContext }) {
   const { session, workspace, host } = ctx;
-  const transcript = useTranscript(session.id);
-  const subagents = transcript.items.filter((i) => i.kind === "subagent");
   const meter = contextMeter(session);
   return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+      <dt className="text-muted">Project</dt>
+      <dd className="min-w-0 break-words">{ctx.project?.name ?? "None"}</dd>
+      <dt className="text-muted">Host</dt>
+      <dd className="min-w-0 break-words">
+        {ctx.hostName}
+        {ctx.link !== "connected" && ` (${ctx.link})`}
+        {host?.piVersion && ` · Pi ${host.piVersion}`}
+      </dd>
+      <dt className="text-muted">Control</dt>
+      <dd>{ctx.control === "none" ? "Manual session" : <ControlChip ctx={ctx} />}</dd>
+      <dt className="text-muted">Branch</dt>
+      <dd className="min-w-0 font-mono text-xs break-all">
+        {workspaceLabel(workspace, session.cwd)}
+        {workspace?.baseBranch && ` (from ${workspace.baseBranch})`}
+      </dd>
+      <dt className="text-muted">Path</dt>
+      <dd className="min-w-0 font-mono text-xs break-all">{workspace?.path ?? session.cwd}</dd>
+      {workspace && (
+        <>
+          <dt className="text-muted">Git</dt>
+          <dd>
+            {workspace.git.dirty ? `${workspace.git.changedFiles} changed files` : "Clean"}
+            {workspace.git.ahead > 0 && ` · ${workspace.git.ahead} ahead`}
+            {workspace.git.behind > 0 && ` · ${workspace.git.behind} behind`}
+          </dd>
+        </>
+      )}
+      <dt className="text-muted">Profile</dt>
+      <dd className="min-w-0 break-words">{session.profileSnapshot.name}</dd>
+      {session.model && (
+        <>
+          <dt className="text-muted">Model</dt>
+          <dd className="min-w-0 break-words">
+            {`${modelLabel(session.model)} (${session.model.provider}/${session.model.id})`}
+            {session.thinking && ` · effort ${session.thinking}`}
+          </dd>
+        </>
+      )}
+      {meter && (
+        <>
+          <dt className="text-muted">Context</dt>
+          <dd className="min-w-0 break-words">{`${meter.label} · ${meter.detail}`}</dd>
+        </>
+      )}
+    </dl>
+  );
+}
+
+/** Mobile Details: facts, control, task, subagents, extensions. */
+export function MobileDetails({ ctx, actions }: { ctx: SessionContext; actions: SessionActions }) {
+  const transcript = useTranscript(ctx.session.id);
+  const subagents = transcript.items.filter((i) => i.kind === "subagent");
+  return (
     <div className="flex min-w-0 flex-col gap-5 px-3 py-3">
+      <Section title="Session">
+        <SessionFacts ctx={ctx} />
+      </Section>
       <Section title="Automation and control">
         <ControlButtons ctx={ctx} actions={actions} />
       </Section>
       <Section title="Task">
         <TaskSection ctx={ctx} actions={actions} showControls={false} />
-      </Section>
-      <Section title="Host and workspace">
-        {ctx.link !== "connected" && (
-          <HostUnavailable
-            compact
-            hostName={ctx.hostName}
-            connectivity={ctx.link === "reconnecting" ? "reconnecting" : "unreachable"}
-            lastSeenAt={host?.lastSeenAt}
-          />
-        )}
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
-          <dt className="text-muted">Host</dt>
-          <dd className="min-w-0 break-words">
-            {ctx.hostName}
-            {host?.piVersion && ` · Pi ${host.piVersion}`}
-          </dd>
-          <dt className="text-muted">Branch</dt>
-          <dd className="min-w-0 font-mono text-xs break-all">
-            {workspaceLabel(workspace, session.cwd)}
-            {workspace?.baseBranch && ` (from ${workspace.baseBranch})`}
-          </dd>
-          <dt className="text-muted">Path</dt>
-          <dd className="min-w-0 font-mono text-xs break-all">{workspace?.path ?? session.cwd}</dd>
-          {workspace && (
-            <>
-              <dt className="text-muted">Git</dt>
-              <dd>
-                {workspace.git.dirty ? `${workspace.git.changedFiles} changed files` : "Clean"}
-                {workspace.git.ahead > 0 && ` · ${workspace.git.ahead} ahead`}
-                {workspace.git.behind > 0 && ` · ${workspace.git.behind} behind`}
-              </dd>
-            </>
-          )}
-          <dt className="text-muted">Profile</dt>
-          <dd className="min-w-0 break-words">{session.profileSnapshot.name}</dd>
-          {session.model && (
-            <>
-              <dt className="text-muted">Model</dt>
-              <dd className="min-w-0 break-words">
-                {`${modelLabel(session.model)} (${session.model.provider}/${session.model.id})`}
-                {session.thinking && ` · effort ${session.thinking}`}
-              </dd>
-            </>
-          )}
-          {meter && (
-            <>
-              <dt className="text-muted">Context</dt>
-              <dd className="min-w-0 break-words">{`${meter.label} · ${meter.detail}`}</dd>
-            </>
-          )}
-        </dl>
       </Section>
       <Section title="Subagents">
         {subagents.length === 0 ? (

@@ -1,22 +1,25 @@
 import type { Session } from "@switchyard/protocol";
-import { ArrowLeft, ChevronDown, ChevronUp, EllipsisVertical, SquareKanban } from "lucide-react";
+import { ArrowLeft, EllipsisVertical, Square, SquareKanban } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { useHideBottomNav } from "../../app/chrome";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
+import { CountBadge } from "../../components/ui/Badge";
 import { buttonClasses } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
+import { Sheet } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { useDraft } from "../../drafts";
 import { usePendingInteractions, useSyncStore } from "../../sync/store";
 import { MobileChanges } from "./Changes";
 import { Composer } from "./Composer";
-import { ControlChip, ConversationHeader, sessionMenuItems } from "./ConversationHeader";
+import { ConversationHeader, sessionMenuItems } from "./ConversationHeader";
 import { CodeContext, type CodeViewContext, type InspectorTab } from "./context";
-import { MobileDetails } from "./Details";
+import { MobileDetails, SessionFacts } from "./Details";
 import type { SessionContext } from "./hooks";
-import { AUTOMATION_LABEL, isSubagentView, SUBAGENT_READ_ONLY, workspaceLabel } from "./model";
+import { isSubagentView, SUBAGENT_READ_ONLY } from "./model";
 import type { SessionActions } from "./SessionActions";
 import { SessionStatusBar } from "./SessionStatusBar";
 import { Transcript } from "./Transcript";
@@ -112,24 +115,31 @@ export function MobileSession({
   tabRequest?: { tab: InspectorTab; key: string } | null;
 }) {
   const back = useBackTo("/code");
-  const { session, project, workspace, task } = ctx;
+  const { session, task } = ctx;
   const navigate = useNavigate();
   const [tab, setTab] = useState<MobileTab>(() => mobileTabFor(tabRequest?.tab));
-  const [metaOpen, setMetaOpen] = useState(false);
+  const [visited, setVisited] = useState<Set<MobileTab>>(
+    () => new Set([mobileTabFor(tabRequest?.tab)]),
+  );
+  const [infoOpen, setInfoOpen] = useState(false);
   const pending = usePendingInteractions(session.id);
   const d = useComposerDraft(session.id);
   useSubagentRefresh(session);
+  useHideBottomNav(true); // Back replaces the bottom navigation here.
 
   // Deep links and session switches show Chat, unless the link asks for a tab (`?tab=changes`).
   const tabKey = tabRequest ? `${tabRequest.tab}:${tabRequest.key}` : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: apply once per navigation
   useEffect(() => setTab(mobileTabFor(tabRequest?.tab)), [session.id, focusInteractionId, tabKey]);
+  // Changes and Details mount on first visit, then stay mounted.
+  useEffect(() => setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab))), [tab]);
 
   const codeCtx = useMemo<CodeViewContext>(
     () => ({ mobile: true, openInspector: (t) => setTab(t === "changes" ? "changes" : "details") }),
     [],
   );
 
+  const changed = ctx.workspace?.git.changedFiles ?? 0;
   const menuItems: MenuItem[] = [
     ...(task
       ? [
@@ -141,153 +151,134 @@ export function MobileSession({
           },
         ]
       : []),
+    ...(actions.canStop
+      ? [
+          {
+            id: "stop",
+            label: "Stop",
+            icon: <Square className="size-4" />,
+            danger: true,
+            onSelect: actions.requestStop,
+          },
+        ]
+      : []),
     ...sessionMenuItems(ctx, actions),
   ];
 
   return (
     <CodeContext.Provider value={codeCtx}>
       <div className="absolute inset-0 flex min-w-0 flex-col bg-bg">
-        <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-border bg-surface px-1.5 pb-1 safe-pt-1">
-          <Link
-            to="/code"
-            onClick={backLinkClick(back)}
-            aria-label="Back to sessions"
-            title="Back to sessions"
-            className={buttonClasses("ghost", "md", "size-11 px-0")}
-          >
-            <ArrowLeft aria-hidden className="size-5" />
-          </Link>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base leading-6 font-semibold" title={session.title}>
-              {session.title}
-            </h1>
-          </div>
-          <StatusChip kind="runtime" value={session.runtime} size="sm" className="shrink-0" />
-          <Menu
-            label="Session actions"
-            items={menuItems}
-            trigger={(p) => (
-              <IconButton
-                {...p}
-                label="More actions"
-                icon={<EllipsisVertical className="size-5" />}
-              />
-            )}
-          />
-        </header>
-        <div className="shrink-0 border-b border-border bg-surface px-3">
-          <button
-            type="button"
-            aria-expanded={metaOpen}
-            aria-controls="sy-session-meta"
-            onClick={() => setMetaOpen((o) => !o)}
-            className="tap flex w-full min-w-0 items-center gap-2 py-1.5 text-left text-xs text-muted"
-          >
-            <span className="min-w-0 flex-1 truncate">
-              {project?.name ?? "No project"} · {workspaceLabel(workspace, session.cwd)} ·{" "}
-              {ctx.hostName}
-              {ctx.link !== "connected" ? " (offline)" : ""} · {AUTOMATION_LABEL[ctx.control]}
-            </span>
-            {metaOpen ? (
-              <ChevronUp aria-hidden className="size-4 shrink-0" />
-            ) : (
-              <ChevronDown aria-hidden className="size-4 shrink-0" />
-            )}
-            <span className="sr-only">{metaOpen ? "Hide details" : "Show details"}</span>
-          </button>
-          {metaOpen && (
-            <dl
-              id="sy-session-meta"
-              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 pb-2 text-xs"
+        <div className="shrink-0 border-b border-border bg-surface safe-pt">
+          <header className="flex min-w-0 items-center gap-1 px-1.5 py-1">
+            <Link
+              to="/code"
+              onClick={backLinkClick(back)}
+              aria-label="Back to sessions"
+              title="Back to sessions"
+              className={buttonClasses("ghost", "md", "size-11 px-0")}
             >
-              <dt className="text-muted">Project</dt>
-              <dd className="min-w-0 break-words">{project?.name ?? "None"}</dd>
-              <dt className="text-muted">Branch</dt>
-              <dd className="min-w-0 font-mono break-all">
-                {workspaceLabel(workspace, session.cwd)}
-              </dd>
-              <dt className="text-muted">Host</dt>
-              <dd className="min-w-0 break-words">
-                {ctx.hostName} ({ctx.link})
-              </dd>
-              <dt className="text-muted">Control</dt>
-              <dd>
-                <ControlChip ctx={ctx} />
-                {ctx.control === "none" && "Manual session"}
-              </dd>
-              <dt className="text-muted">Path</dt>
-              <dd className="min-w-0 font-mono break-all">{session.cwd}</dd>
-              <dt className="text-muted">Profile</dt>
-              <dd className="min-w-0 break-words">{session.profileSnapshot.name}</dd>
-            </dl>
-          )}
-        </div>
-        <div className="shrink-0 bg-surface px-3 py-2" data-testid="mobile-tabs">
-          <SegmentedControl<MobileTab>
-            label="Session view"
-            block
-            value={tab}
-            onChange={setTab}
-            options={[
-              {
-                value: "chat",
-                label: "Chat",
-                badge:
-                  pending.length > 0 ? (
-                    <span className="rounded-full bg-warning-soft px-1.5 text-xs text-warning">
-                      {pending.length}
-                      <span className="sr-only"> pending questions</span>
-                    </span>
-                  ) : undefined,
-              },
-              { value: "changes", label: "Changes" },
-              { value: "details", label: "Details" },
-            ]}
-          />
+              <ArrowLeft aria-hidden className="size-5" />
+            </Link>
+            <h1 className="min-w-0 flex-1 text-base leading-6 font-semibold">
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                onClick={() => setInfoOpen(true)}
+                className="tap block w-full truncate text-left"
+              >
+                {session.title}
+              </button>
+            </h1>
+            <StatusChip kind="runtime" value={session.runtime} size="sm" className="shrink-0" />
+            <Menu
+              label="Session actions"
+              items={menuItems}
+              trigger={(p) => (
+                <IconButton
+                  {...p}
+                  label="More actions"
+                  icon={<EllipsisVertical className="size-5" />}
+                />
+              )}
+            />
+          </header>
+          <div className="px-3 pb-1.5" data-testid="mobile-tabs">
+            <SegmentedControl<MobileTab>
+              label="Session view"
+              block
+              value={tab}
+              onChange={setTab}
+              options={[
+                {
+                  value: "chat",
+                  label: "Chat",
+                  badge:
+                    pending.length > 0 ? (
+                      <>
+                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-warning" />
+                        <span className="sr-only">
+                          {pending.length} pending {pending.length === 1 ? "question" : "questions"}
+                        </span>
+                      </>
+                    ) : undefined,
+                },
+                {
+                  value: "changes",
+                  label: "Changes",
+                  badge: <CountBadge count={changed} label="changed files" tone="neutral" />,
+                },
+                { value: "details", label: "Details" },
+              ]}
+            />
+          </div>
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {tab === "chat" && (
-            <section
-              data-testid="conversation"
-              aria-label="Chat"
-              className="flex min-h-0 min-w-0 flex-1 flex-col"
-            >
-              <Transcript
-                sessionId={session.id}
-                draftEmpty={d.draft.trim() === ""}
-                onUseSuggestion={d.onUseSuggestion}
-                interactionReadOnly={interactionReadOnly(ctx)}
-                focusInteractionId={focusInteractionId}
-                footer={({ openFirstPending }) => (
-                  <SessionStatusBar ctx={ctx} actions={actions} onAnswer={openFirstPending} />
-                )}
-              />
-              <Composer
-                ctx={ctx}
-                draft={d.draft}
-                setDraft={d.setDraft}
-                clearDraft={d.clearDraft}
-                mobile
-              />
-            </section>
-          )}
-          {tab === "changes" && (
-            <section
-              aria-label="Changes"
-              className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
-            >
-              <MobileChanges ctx={ctx} />
-            </section>
-          )}
-          {tab === "details" && (
-            <section
-              aria-label="Details"
-              className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
-            >
+          <section
+            data-testid="conversation"
+            aria-label="Chat"
+            hidden={tab !== "chat"}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+          >
+            <Transcript
+              sessionId={session.id}
+              draftEmpty={d.draft.trim() === ""}
+              onUseSuggestion={d.onUseSuggestion}
+              interactionReadOnly={interactionReadOnly(ctx)}
+              focusInteractionId={focusInteractionId}
+              active={tab === "chat"}
+              footer={({ openFirstPending }) => (
+                <SessionStatusBar ctx={ctx} actions={actions} onAnswer={openFirstPending} />
+              )}
+            />
+            <Composer
+              ctx={ctx}
+              draft={d.draft}
+              setDraft={d.setDraft}
+              clearDraft={d.clearDraft}
+              mobile
+            />
+          </section>
+          <section
+            aria-label="Changes"
+            hidden={tab !== "changes"}
+            className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
+          >
+            {(tab === "changes" || visited.has("changes")) && <MobileChanges ctx={ctx} />}
+          </section>
+          <section
+            aria-label="Details"
+            hidden={tab !== "details"}
+            className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
+          >
+            {(tab === "details" || visited.has("details")) && (
               <MobileDetails ctx={ctx} actions={actions} />
-            </section>
-          )}
+            )}
+          </section>
         </div>
+        <Sheet open={infoOpen} onClose={() => setInfoOpen(false)} title="Session details">
+          <p className="mb-3 text-sm font-medium break-words">{session.title}</p>
+          <SessionFacts ctx={ctx} />
+        </Sheet>
         {actions.dialogs}
       </div>
     </CodeContext.Provider>

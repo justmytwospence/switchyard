@@ -121,10 +121,12 @@ test.describe("shared behavior", () => {
     // Navigate away through the app's navigation, then come back (on mobile the bottom nav
     // is hidden while composing, so leave the composer first).
     await box.blur();
+    if (isMobile(info)) await page.getByRole("link", { name: "Back to sessions" }).click();
     const nav = page.getByRole("navigation", { name: "Primary" });
     await nav.getByRole("link", { name: "Board" }).click();
     await expect(page.getByTestId("board")).toBeVisible();
     await page.goBack();
+    if (isMobile(info)) await page.goBack();
     await expect(page.getByLabel("Message to Pi")).toHaveValue(draft);
 
     await page.reload();
