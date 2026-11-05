@@ -53,7 +53,7 @@ const ATTENTION: Destination = {
   match: ["/attention"],
   badge: "attention",
 };
-const NOW: Destination = { to: "/now", label: "Now", icon: Timer, match: ["/now"] };
+const QUEUE: Destination = { to: "/queue", label: "Queue", icon: Timer, match: ["/queue"] };
 const AUTOMATIONS: Destination = {
   to: "/automations",
   label: "Automations",
@@ -70,12 +70,12 @@ const MORE: Destination = {
   to: "/more",
   label: "More",
   icon: Ellipsis,
-  match: ["/more", "/now", "/automations", "/settings"],
+  match: ["/more", "/queue", "/automations", "/settings"],
 };
 
 /** Desktop and compact rail destinations (spec 10). */
-export const RAIL_DESTINATIONS = [CODE, BOARD, ATTENTION, NOW, AUTOMATIONS, SETTINGS];
-/** Mobile bottom navigation; More holds Now, Automations and Settings. */
+export const RAIL_DESTINATIONS = [CODE, BOARD, ATTENTION, QUEUE, AUTOMATIONS, SETTINGS];
+/** Mobile bottom navigation; More holds Queue, Automations and Settings. */
 export const BOTTOM_DESTINATIONS = [CODE, BOARD, ATTENTION, MORE];
 
 function isActive(d: Destination, pathname: string): boolean {

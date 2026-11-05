@@ -56,8 +56,8 @@ const WAIT_ICONS: Record<WaitReason, LucideIcon> = {
   retry_backoff: RotateCw,
 };
 
-/** /now: running and queued work, each queued row explaining its wait. */
-export default function NowView() {
+/** /queue: running and queued work, each queued row explaining its wait. */
+export default function QueueView() {
   const now = useNow();
   const tasks = useSyncStore((s) => s.tasks);
   const runs = useSyncStore((s) => s.runs);
@@ -103,7 +103,7 @@ export default function NowView() {
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 px-4 pb-4 safe-pt-4 md:px-6">
       <header className="flex min-w-0 flex-wrap items-center gap-3">
-        <h1 className="flex-1 text-lg font-semibold">Now</h1>
+        <h1 className="flex-1 text-lg font-semibold">Queue</h1>
         <DispatchToggle />
       </header>
       <p className="text-sm text-muted">

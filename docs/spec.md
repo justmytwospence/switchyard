@@ -324,11 +324,11 @@ Destinations:
 - Sessions.
 - Board.
 - Attention.
-- Now.
+- Queue.
 - Automations.
 - Settings.
 
-Mobile bottom navigation: Sessions, Board, Attention, More. More contains Now, Automations, and Settings.
+Mobile bottom navigation: Sessions, Board, Attention, More. More contains Queue, Automations, and Settings.
 
 Hide bottom navigation while composing with the keyboard; preserve access through Back/header controls.
 
@@ -340,7 +340,7 @@ Canonical routes:
 - `/board`
 - `/tasks/:taskId`
 - `/attention`
-- `/now`
+- `/queue`
 - `/automations/:automationId`
 
 Interactions can be addressed with a session-route query parameter. Deep links survive authentication and reconnect.
@@ -598,7 +598,7 @@ Each item shows project/task/session, reason, age, and direct action.
 
 Resolving a question updates the same runtime interaction. Acknowledging a notification does not resolve the underlying task.
 
-### Now
+### Queue
 
 Running and queued sections.
 

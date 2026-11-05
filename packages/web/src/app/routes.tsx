@@ -9,7 +9,7 @@ import { lazyWithReload } from "./lazyWithReload";
 const CodeView = lazyWithReload(() => import("../features/code"));
 const BoardView = lazyWithReload(() => import("../features/board"));
 const AttentionView = lazyWithReload(() => import("../features/attention"));
-const NowView = lazyWithReload(() => import("../features/now"));
+const QueueView = lazyWithReload(() => import("../features/queue"));
 const AutomationsView = lazyWithReload(() => import("../features/automations"));
 const AutomationView = lazyWithReload(() => import("../features/automations/AutomationView"));
 const SettingsView = lazyWithReload(() => import("../features/settings"));
@@ -26,7 +26,7 @@ export const ROUTES = {
   board: "/board",
   task: (id: string) => `/tasks/${encodeURIComponent(id)}`,
   attention: "/attention",
-  now: "/now",
+  queue: "/queue",
   automations: "/automations",
   automation: (id: string) => `/automations/${encodeURIComponent(id)}`,
   settings: (section?: string) => (section ? `/settings/${section}` : "/settings"),
@@ -123,13 +123,14 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="now"
+            path="queue"
             element={
               <Page>
-                <NowView />
+                <QueueView />
               </Page>
             }
           />
+          <Route path="now" element={<Navigate to="/queue" replace />} />
           <Route
             path="automations"
             element={

@@ -2,7 +2,7 @@ import { ChevronRight, type LucideIcon, Settings, Timer, Workflow } from "lucide
 import { Link } from "react-router";
 
 const ITEMS: { to: string; label: string; description: string; icon: LucideIcon }[] = [
-  { to: "/now", label: "Now", description: "Running and queued runs", icon: Timer },
+  { to: "/queue", label: "Queue", description: "Running and queued runs", icon: Timer },
   {
     to: "/automations",
     label: "Automations",
@@ -17,7 +17,7 @@ const ITEMS: { to: string; label: string; description: string; icon: LucideIcon 
   },
 ];
 
-/** Mobile "More": Now, Automations and Settings (spec 10). */
+/** Mobile "More": Queue, Automations and Settings (spec 10). */
 export default function MoreView() {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 pb-4 safe-pt-4">

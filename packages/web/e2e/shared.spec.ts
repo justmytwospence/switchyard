@@ -29,7 +29,7 @@ test.describe("shared behavior", () => {
       `/tasks/${state.tasks.review}`,
       `/tasks/${state.tasks.running}`,
       "/attention",
-      "/now",
+      "/queue",
       "/automations",
       `/automations/${state.automationId}`,
       "/automations/new",
@@ -105,9 +105,9 @@ test.describe("shared behavior", () => {
     });
     await page
       .getByRole("navigation", { name: "Primary" })
-      .getByRole("link", { name: "Now" })
+      .getByRole("link", { name: "Queue" })
       .click();
-    await expect(page.getByRole("heading", { name: "Now" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Queue" })).toBeVisible();
     expect(await page.evaluate(() => (window as unknown as { __m?: number }).__m)).toBeUndefined();
   });
 
@@ -276,7 +276,7 @@ test.describe("shared behavior", () => {
       `/code/${state.sessions.question}`,
       `/code/${state.runningSessionId}`,
       `/tasks/${state.tasks.running}`,
-      "/now",
+      "/queue",
       "/attention",
       "/settings/hosts",
       `/automations/${state.automationId}`,

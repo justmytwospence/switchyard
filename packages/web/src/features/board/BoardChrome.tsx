@@ -147,7 +147,7 @@ function useDispatchControl() {
   return { paused, busy, toggle };
 }
 
-/** Dispatch status and the pause/resume button (never terminates active runs). Board and Now. */
+/** Dispatch status and the pause/resume button (never terminates active runs). Board and Queue. */
 export function DispatchToggle() {
   const { paused, busy, toggle } = useDispatchControl();
   const Icon = paused ? CirclePause : CirclePlay;
