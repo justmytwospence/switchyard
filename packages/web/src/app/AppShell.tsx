@@ -1,8 +1,8 @@
 import {
   Bell,
-  Code,
   Ellipsis,
   type LucideIcon,
+  MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -34,7 +34,12 @@ interface Destination {
   badge?: "attention";
 }
 
-const CODE: Destination = { to: "/code", label: "Code", icon: Code, match: ["/code"] };
+const CODE: Destination = {
+  to: "/code",
+  label: "Sessions",
+  icon: MessagesSquare,
+  match: ["/code"],
+};
 const BOARD: Destination = {
   to: "/board",
   label: "Board",

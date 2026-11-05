@@ -94,6 +94,11 @@ export default function AttentionView() {
           action={
             all.length > 0
               ? { label: "Show all", onClick: () => setShow("all") }
+              : { label: "Go to Sessions", to: ROUTES.code }
+          }
+          secondaryAction={
+            all.length > 0
+              ? { label: "Go to Sessions", to: ROUTES.code }
               : { label: "Go to Board", to: ROUTES.board }
           }
         />

@@ -321,14 +321,14 @@ Desktop global rail: 64 pixels wide, labeled on expansion.
 
 Destinations:
 
-- Code.
+- Sessions.
 - Board.
 - Attention.
 - Now.
 - Automations.
 - Settings.
 
-Mobile bottom navigation: Code, Board, Attention, More. More contains Now, Automations, and Settings.
+Mobile bottom navigation: Sessions, Board, Attention, More. More contains Now, Automations, and Settings.
 
 Hide bottom navigation while composing with the keyboard; preserve access through Back/header controls.
 

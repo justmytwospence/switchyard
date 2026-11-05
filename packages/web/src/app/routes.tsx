@@ -59,7 +59,7 @@ function NotFound() {
     <EmptyState
       title="Page not found"
       description="This link does not match any Switchyard view."
-      action={{ label: "Go to Code", to: "/code" }}
+      action={{ label: "Go to Sessions", to: ROUTES.code }}
     />
   );
 }
