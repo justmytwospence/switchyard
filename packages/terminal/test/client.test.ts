@@ -1,8 +1,9 @@
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import { ApiRequestError, SwitchyardClient, wsUrlFor } from "../src/client.js";
-import { event, interaction, session, syncState } from "./fixtures.js";
+import { event, session, syncState } from "./fixtures.js";
 
 let wss: WebSocketServer | null = null;
 let client: SwitchyardClient | null = null;
@@ -34,7 +35,7 @@ describe("wsUrlFor", () => {
 });
 
 describe("SwitchyardClient", () => {
-  it("authenticates with bearer, syncs from a snapshot, applies events, sends presence, handles force_logout", async () => {
+  it("authenticates with bearer, syncs from a snapshot, applies events, handles force_logout", async () => {
     const received: unknown[] = [];
     let auth: string | undefined;
     wss = new WebSocketServer({ port: 0 });
@@ -49,12 +50,6 @@ describe("SwitchyardClient", () => {
             JSON.stringify({
               type: "event",
               event: event(6, "session.updated", session({ runtime: "running" })),
-            }),
-          );
-          sock.send(
-            JSON.stringify({
-              type: "stream",
-              delta: { sessionId: "ses_1", itemId: "itm_s", kind: "text", delta: "hi" },
             }),
           );
         }
@@ -74,23 +69,7 @@ describe("SwitchyardClient", () => {
     expect(received[0]).toEqual({ type: "hello", cursor: null });
     expect(st.connection.state).toBe("live");
     expect(st.sessions.ses_1?.runtime).toBe("running");
-    await until(() => client!.store.getState().streaming.itm_s?.text === "hi");
-
-    // Presence: a keypress makes the client foreground and reports what it views.
-    client.setViewing("ses_1");
-    client.noteKeypress();
-    await until(() =>
-      received.some(
-        (m) =>
-          (m as { type: string; presence?: { foreground: boolean } }).type === "presence" &&
-          (m as { presence: { foreground: boolean } }).presence.foreground,
-      ),
-    );
-    const last = received.filter((m) => (m as { type: string }).type === "presence").at(-1) as {
-      presence: { viewing: { sessionId: string } | null; interactedAt: string | null };
-    };
-    expect(last.presence.viewing).toEqual({ sessionId: "ses_1" });
-    expect(last.presence.interactedAt).not.toBeNull();
+    expect(received.every((m) => (m as { type: string }).type !== "presence")).toBe(true);
 
     for (const c of wss.clients)
       c.send(JSON.stringify({ type: "force_logout", reason: "revoked" }));
@@ -126,50 +105,6 @@ describe("SwitchyardClient", () => {
     expect(hellos).toEqual([null, 7]);
   });
 
-  it("reports 'Already answered' with the accepted resolution on 409", async () => {
-    const accepted = interaction(
-      { t: "text", text: "q" },
-      {
-        revision: 2,
-        state: "resolved",
-        resolution: { by: "dev_web", summary: "Apple", at: "2026-11-02T10:00:00.000Z" },
-      },
-    );
-    const calls: { url: string; body: unknown; auth: string | null }[] = [];
-    client = new SwitchyardClient({
-      coordinatorUrl: "http://coord",
-      credential: "c",
-      fetch: async (url, init) => {
-        calls.push({
-          url,
-          body: JSON.parse(String(init?.body)),
-          auth: new Headers(init?.headers).get("authorization"),
-        });
-        return new Response(
-          JSON.stringify({
-            error: {
-              code: "already_answered",
-              message: "This question was already answered",
-              details: { interaction: accepted },
-            },
-          }),
-          { status: 409 },
-        );
-      },
-    });
-    const out = await client.answer(interaction({ t: "text", text: "q" }), {
-      kind: "form",
-      values: { q1: "Pear" },
-    });
-    expect(calls[0]).toEqual({
-      url: "http://coord/api/interactions/int_1/answer",
-      body: { revision: 1, response: { kind: "form", values: { q1: "Pear" } } },
-      auth: "Bearer c",
-    });
-    expect(out).toMatchObject({ status: "already_answered", summary: "Apple" });
-    expect(client.store.getState().interactions.int_1?.state).toBe("resolved");
-  });
-
   it("maps API errors", async () => {
     client = new SwitchyardClient({
       coordinatorUrl: "http://coord",
@@ -182,10 +117,46 @@ describe("SwitchyardClient", () => {
           },
         ),
     });
-    await expect(client.prompt("ses_1", "x", "prompt")).rejects.toMatchObject({
+    await expect(
+      client.api.post("/api/sessions/ses_1/prompt", { text: "x", mode: "prompt" }),
+    ).rejects.toMatchObject({
       code: "host_unreachable",
       status: 503,
     });
-    await expect(client.stop("ses_1")).rejects.toBeInstanceOf(ApiRequestError);
+    await expect(client.api.post("/api/sessions/ses_1/stop")).rejects.toBeInstanceOf(
+      ApiRequestError,
+    );
+  });
+
+  it("aborts a handshake that gets an unexpected response", async () => {
+    let attempts = 0;
+    let closed = 0;
+    const sockets = new Set<import("node:stream").Duplex>();
+    const server = createServer();
+    server.on("upgrade", (_req, socket) => {
+      attempts++;
+      sockets.add(socket);
+      // The server keeps its side half-open, so the client hanging up shows as "end".
+      socket.on("end", () => {
+        closed++;
+        socket.destroy();
+      });
+      socket.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      const port = (server.address() as AddressInfo).port;
+      client = new SwitchyardClient({
+        coordinatorUrl: `http://127.0.0.1:${port}`,
+        credential: "c",
+        random: () => 0,
+      });
+      client.connect();
+      await until(() => closed >= 1 && attempts >= 2, 5000);
+    } finally {
+      client?.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
   });
 });

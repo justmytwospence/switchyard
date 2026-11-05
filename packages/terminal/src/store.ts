@@ -13,43 +13,20 @@ import type {
   Project,
   Run,
   Session,
-  StreamDelta,
   SyncState,
   Task,
-  TranscriptItem,
   Workspace,
 } from "@switchyard/protocol";
 import { canonicalEventType } from "@switchyard/protocol";
 
 /**
- * Normalized client state and its pure reducers. Same semantics as the web store
- * (`packages/web/src/sync/reduce.ts`): durable events apply once in `seq` order, a snapshot
- * replaces every entity and marks loaded transcripts stale, stream deltas are buffered per item
- * and dropped when the durable item arrives or the session leaves a live runtime.
+ * Normalized client state of coordinator entities and its pure reducers: durable events apply
+ * once in `seq` order, a snapshot replaces every entity. Transcripts and stream deltas are not kept.
  */
 
 export type ById<T> = Record<string, T>;
 
 export type ConnectionState = "connecting" | "live" | "reconnecting" | "logged_out";
-
-export interface TranscriptState {
-  /** Items sorted by `order` ascending, unique by id. */
-  items: TranscriptItem[];
-  loaded: boolean;
-  hasMore: boolean;
-  /** Set after a snapshot resync; the next view reloads the newest page. */
-  stale: boolean;
-}
-
-export interface StreamBuffer {
-  sessionId: string;
-  itemId: string;
-  order: number | null;
-  text: string;
-  thinking: string;
-  toolArgs: string;
-  toolOutput: string;
-}
 
 export interface ClientState {
   /** Last applied durable event seq (the WS cursor), null before any sync. */
@@ -72,11 +49,7 @@ export interface ClientState {
   panels: ById<Panel>;
   devices: ById<Device>;
   dispatchPaused: boolean;
-  transcripts: Record<string, TranscriptState>;
-  streaming: Record<string, StreamBuffer>;
 }
-
-const LIVE_RUNTIMES = new Set<string>(["starting", "running", "waiting_input"]);
 
 export function emptyState(): ClientState {
   return {
@@ -97,13 +70,7 @@ export function emptyState(): ClientState {
     panels: {},
     devices: {},
     dispatchPaused: false,
-    transcripts: {},
-    streaming: {},
   };
-}
-
-export function emptyTranscript(): TranscriptState {
-  return { items: [], loaded: false, hasMore: false, stale: false };
 }
 
 export function panelKey(sessionId: string, adapterId: string, slot: string): string {
@@ -131,14 +98,12 @@ function drop<T>(map: ById<T>, id: string): ById<T> {
   return next;
 }
 
-/** Replace every entity with a server snapshot. Loaded transcripts are kept but marked stale. */
+/** Replace every entity with a server snapshot. */
 export function applySnapshot(state: ClientState, seq: number, snap: SyncState): ClientState {
   const panels: ById<Panel> = {};
   for (const p of snap.panels) {
     if (keepPanel(p)) panels[panelKey(p.sessionId, p.adapterId, p.slot)] = p;
   }
-  const transcripts: Record<string, TranscriptState> = {};
-  for (const [id, t] of Object.entries(state.transcripts)) transcripts[id] = { ...t, stale: true };
   return {
     ...state,
     seq,
@@ -157,48 +122,7 @@ export function applySnapshot(state: ClientState, seq: number, snap: SyncState):
     panels,
     devices: byId(snap.devices),
     dispatchPaused: snap.dispatchPaused,
-    transcripts,
-    streaming: {},
   };
-}
-
-/** Insert or replace transcript items by id, keeping `order` ascending. */
-export function mergeTranscriptItems(
-  existing: TranscriptItem[],
-  incoming: TranscriptItem[],
-): TranscriptItem[] {
-  if (incoming.length === 0) return existing;
-  const map = new Map<string, TranscriptItem>();
-  for (const it of existing) map.set(it.id, it);
-  for (const it of incoming) map.set(it.id, it);
-  return [...map.values()].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-}
-
-/** Merge the newest page fetched over REST. A stale transcript is replaced, not merged. */
-export function applyTranscriptPage(
-  state: ClientState,
-  sessionId: string,
-  items: TranscriptItem[],
-  hasMore: boolean,
-): ClientState {
-  const prev = state.transcripts[sessionId] ?? emptyTranscript();
-  const base = prev.stale ? [] : prev.items;
-  const next: TranscriptState = {
-    items: mergeTranscriptItems(base, items),
-    loaded: true,
-    stale: false,
-    hasMore,
-  };
-  return { ...state, transcripts: { ...state.transcripts, [sessionId]: next } };
-}
-
-function upsertTranscriptItem(state: ClientState, item: TranscriptItem): ClientState {
-  const prev = state.transcripts[item.sessionId] ?? emptyTranscript();
-  const transcripts = {
-    ...state.transcripts,
-    [item.sessionId]: { ...prev, items: mergeTranscriptItems(prev.items, [item]) },
-  };
-  return { ...state, transcripts, streaming: drop(state.streaming, item.id) };
 }
 
 /** Insert or replace an interaction unless a newer revision is already known. */
@@ -206,32 +130,6 @@ export function upsertInteraction(state: ClientState, i: Interaction): ClientSta
   const prev = state.interactions[i.id];
   if (prev && prev.revision > i.revision) return state;
   return { ...state, interactions: put(state.interactions, i.id, i) };
-}
-
-/**
- * Apply a host session snapshot (`GET /api/sessions/:id/snapshot`): the current partial items
- * become transcript items (later replaced by their durable versions) and pending interactions
- * are upserted.
- */
-export function applySessionSnapshot(
-  state: ClientState,
-  sessionId: string,
-  snap: { partial: TranscriptItem[]; pendingInteractions: Interaction[] },
-): ClientState {
-  let s = state;
-  const prev = s.transcripts[sessionId] ?? emptyTranscript();
-  const partial = snap.partial.filter((p) => !prev.items.some((x) => x.id === p.id));
-  if (partial.length > 0) {
-    s = {
-      ...s,
-      transcripts: {
-        ...s.transcripts,
-        [sessionId]: { ...prev, items: mergeTranscriptItems(prev.items, partial) },
-      },
-    };
-  }
-  for (const i of snap.pendingInteractions) s = upsertInteraction(s, i);
-  return s;
 }
 
 /** Apply one durable event; events at or below the cursor are ignored. */
@@ -291,11 +189,8 @@ function reduceEvent<T extends EventType>(
     }
     case "session.updated": {
       const d = data as EventData<"session.updated">;
-      const next = { ...state, sessions: put(state.sessions, d.id, d) };
-      return LIVE_RUNTIMES.has(d.runtime) ? next : clearSessionStreams(next, d.id);
+      return { ...state, sessions: put(state.sessions, d.id, d) };
     }
-    case "transcript.item":
-      return upsertTranscriptItem(state, data as EventData<"transcript.item">);
     case "interaction.updated":
       return upsertInteraction(state, data as EventData<"interaction.updated">);
     case "panel.updated": {
@@ -347,44 +242,6 @@ function reduceEvent<T extends EventType>(
     default:
       return state;
   }
-}
-
-/** Append an ephemeral stream delta to its per-item buffer. */
-export function applyStream(state: ClientState, delta: StreamDelta): ClientState {
-  const prev: StreamBuffer = state.streaming[delta.itemId] ?? {
-    sessionId: delta.sessionId,
-    itemId: delta.itemId,
-    order: delta.order ?? null,
-    text: "",
-    thinking: "",
-    toolArgs: "",
-    toolOutput: "",
-  };
-  const field =
-    delta.kind === "text"
-      ? "text"
-      : delta.kind === "thinking"
-        ? "thinking"
-        : delta.kind === "tool_args"
-          ? "toolArgs"
-          : "toolOutput";
-  const next: StreamBuffer = {
-    ...prev,
-    order: prev.order ?? delta.order ?? null,
-    [field]: prev[field] + delta.delta,
-  };
-  return { ...state, streaming: { ...state.streaming, [delta.itemId]: next } };
-}
-
-/** Drop all stream buffers of a session (for example when it settles). */
-export function clearSessionStreams(state: ClientState, sessionId: string): ClientState {
-  const streaming: Record<string, StreamBuffer> = {};
-  let changed = false;
-  for (const [id, b] of Object.entries(state.streaming)) {
-    if (b.sessionId === sessionId) changed = true;
-    else streaming[id] = b;
-  }
-  return changed ? { ...state, streaming } : state;
 }
 
 export function setConnection(

@@ -1,5 +1,4 @@
 export {
-  type AnswerOutcome,
   ApiClient,
   type ApiClientOptions,
   ApiRequestError,

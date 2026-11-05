@@ -1,32 +1,7 @@
-import type {
-  ClientToServer,
-  Interaction,
-  InteractionResponse,
-  Presence,
-  ServerToClient,
-  Session,
-  TranscriptItem,
-} from "@switchyard/protocol";
+import type { ClientToServer, ServerToClient } from "@switchyard/protocol";
 import WebSocket from "ws";
-import {
-  backoffDelay,
-  computePresence,
-  FOREGROUND_MS,
-  keypressShouldSend,
-  PRESENCE_INTERVAL_MS,
-  presenceChanged,
-} from "./presence.js";
-import {
-  applyEvent,
-  applyReplay,
-  applySessionSnapshot,
-  applySnapshot,
-  applyStream,
-  applyTranscriptPage,
-  Store,
-  setConnection,
-  upsertInteraction,
-} from "./store.js";
+import { backoffDelay } from "./presence.js";
+import { applyEvent, applyReplay, applySnapshot, Store, setConnection } from "./store.js";
 
 /** An error response from the coordinator REST API (`{error: {code, message, details}}`). */
 export class ApiRequestError extends Error {
@@ -50,7 +25,7 @@ export interface ApiClientOptions {
   fetch?: FetchLike;
 }
 
-/** Minimal JSON REST client for the coordinator, shared by the terminal app and the CLI. */
+/** Minimal JSON REST client for the coordinator (used by the CLI). */
 export class ApiClient {
   readonly baseUrl: string;
   private readonly credential: string | null;
@@ -123,22 +98,16 @@ export function wsUrlFor(coordinatorUrl: string): string {
 export interface ClientOptions extends ApiClientOptions {
   /** WebSocket constructor (tests inject a fake). */
   WebSocketImpl?: typeof WebSocket;
-  now?: () => number;
   random?: () => number;
   pingIntervalMs?: number;
 }
-
-export type AnswerOutcome =
-  | { status: "answered"; interaction: Interaction }
-  | { status: "already_answered"; summary: string; interaction: Interaction | null };
 
 const PING_INTERVAL_MS = 25_000;
 const PONG_TIMEOUT_MS = 10_000;
 
 /**
- * The terminal's connection to a coordinator: REST for queries and mutations, `/ws/client` for
- * live sync into an in-memory `Store`, interaction-based presence, reconnect with backoff, and
- * `force_logout` handling.
+ * The herdr mirror's connection to a coordinator: `/ws/client` live sync of entities into an
+ * in-memory `Store`, reconnect with backoff and `force_logout` handling; `api` for REST calls.
  */
 export class SwitchyardClient {
   readonly api: ApiClient;
@@ -150,12 +119,6 @@ export class SwitchyardClient {
   private retryTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   private pongTimer: NodeJS.Timeout | null = null;
-  private presenceTimer: NodeJS.Timeout | null = null;
-  private foregroundTimer: NodeJS.Timeout | null = null;
-  private lastKeyAt: number | null = null;
-  private viewing: string | null = null;
-  private lastPresence: Presence | null = null;
-  private lastPresenceSentAt: number | null = null;
   private logoutListeners = new Set<(reason: string) => void>();
   private liveListeners = new Set<() => void>();
 
@@ -164,25 +127,15 @@ export class SwitchyardClient {
     this.api = new ApiClient(opts);
   }
 
-  private now(): number {
-    return (this.opts.now ?? Date.now)();
-  }
-
   connect(): void {
     if (!this.stopped) return;
     this.stopped = false;
     this.open();
-    this.presenceTimer = setInterval(() => this.sendPresence(true), PRESENCE_INTERVAL_MS);
-    this.presenceTimer.unref?.();
   }
 
   close(): void {
     this.stopped = true;
     this.clearTimers();
-    if (this.presenceTimer) clearInterval(this.presenceTimer);
-    if (this.foregroundTimer) clearTimeout(this.foregroundTimer);
-    this.presenceTimer = null;
-    this.foregroundTimer = null;
     const ws = this.ws;
     this.ws = null;
     ws?.removeAllListeners();
@@ -247,7 +200,9 @@ export class SwitchyardClient {
         this.logout(code === 401 ? "This device's credential was rejected" : "Forbidden");
         return;
       }
+      // Abort the handshake: with a listener attached, ws leaves the socket open otherwise.
       this.ws = null;
+      ws.terminate();
       this.scheduleReconnect();
     });
     ws.on("close", (code, reason) => {
@@ -279,9 +234,6 @@ export class SwitchyardClient {
       case "event":
         this.store.update((s) => applyEvent(s, msg.event));
         break;
-      case "stream":
-        this.store.update((s) => applyStream(s, msg.delta));
-        break;
       case "pong":
         if (this.pongTimer) clearTimeout(this.pongTimer);
         this.pongTimer = null;
@@ -295,14 +247,8 @@ export class SwitchyardClient {
   private becomeLive(): void {
     this.attempts = 0;
     this.store.update((s) => setConnection(s, { state: "live", attempts: 0, reason: null }));
-    this.lastPresence = null;
-    this.sendPresence(true);
     this.startPing();
     for (const fn of this.liveListeners) fn();
-    // After a snapshot the viewed transcript is stale: reload it.
-    if (this.viewing && this.store.getState().transcripts[this.viewing]?.stale) {
-      void this.loadSession(this.viewing).catch(() => undefined);
-    }
   }
 
   private logout(reason: string): void {
@@ -351,113 +297,5 @@ export class SwitchyardClient {
     this.retryTimer = null;
     this.pingTimer = null;
     this.pongTimer = null;
-  }
-
-  // Presence
-
-  /** Record a keypress: foreground for 45 s and a fresh `interactedAt`. */
-  noteKeypress(): void {
-    const now = this.now();
-    this.lastKeyAt = now;
-    const next = computePresence(now, this.lastKeyAt, this.viewing);
-    if (keypressShouldSend(this.lastPresence, next, now, this.lastPresenceSentAt)) {
-      this.sendPresence(true);
-    }
-    // Report the end of the foreground lease when it lapses without further keys.
-    if (this.foregroundTimer) clearTimeout(this.foregroundTimer);
-    this.foregroundTimer = setTimeout(() => this.sendPresence(false), FOREGROUND_MS + 50);
-    this.foregroundTimer.unref?.();
-  }
-
-  setViewing(sessionId: string | null): void {
-    if (this.viewing === sessionId) return;
-    this.viewing = sessionId;
-    this.sendPresence(false);
-  }
-
-  get viewingSessionId(): string | null {
-    return this.viewing;
-  }
-
-  /** Send presence when it changed (or always, with `force`). */
-  private sendPresence(force: boolean): void {
-    const now = this.now();
-    const next = computePresence(now, this.lastKeyAt, this.viewing);
-    if (!force && !presenceChanged(this.lastPresence, next)) return;
-    if (this.send({ type: "presence", presence: next })) {
-      this.lastPresence = next;
-      this.lastPresenceSentAt = now;
-    }
-  }
-
-  // Data
-
-  /** Load the newest transcript page and the host's live snapshot (best effort) for a session. */
-  async loadSession(sessionId: string): Promise<void> {
-    const page = await this.api.get<{ items: TranscriptItem[]; hasMore: boolean }>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/transcript?limit=200`,
-    );
-    this.store.update((s) => applyTranscriptPage(s, sessionId, page.items, page.hasMore));
-    try {
-      const snap = await this.api.get<{
-        partial: TranscriptItem[];
-        pendingInteractions: Interaction[];
-      }>(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`);
-      if (snap && Array.isArray(snap.partial)) {
-        this.store.update((s) => applySessionSnapshot(s, sessionId, snap));
-      }
-    } catch {
-      // Host offline: the durable transcript is still shown.
-    }
-  }
-
-  prompt(sessionId: string, text: string, mode: "prompt" | "followUp" | "steer") {
-    return this.api.post<{ ok: boolean; automationActive?: boolean }>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/prompt`,
-      { text, mode },
-    );
-  }
-
-  /**
-   * Answer an interaction. The server is authoritative: a 409 `already_answered` carries the
-   * accepted resolution, which is applied and reported as "Already answered: <summary>".
-   */
-  async answer(interaction: Interaction, response: InteractionResponse): Promise<AnswerOutcome> {
-    try {
-      const res = await this.api.post<{ status: string; interaction: Interaction }>(
-        `/api/interactions/${encodeURIComponent(interaction.id)}/answer`,
-        { revision: interaction.revision, response },
-      );
-      this.store.update((s) => upsertInteraction(s, res.interaction));
-      return { status: "answered", interaction: res.interaction };
-    } catch (err) {
-      if (err instanceof ApiRequestError && err.code === "already_answered") {
-        const other =
-          (err.details as { interaction?: Interaction } | undefined)?.interaction ?? null;
-        if (other) this.store.update((s) => upsertInteraction(s, other));
-        return {
-          status: "already_answered",
-          summary: other?.resolution?.summary ?? "answered on another device",
-          interaction: other,
-        };
-      }
-      throw err;
-    }
-  }
-
-  takeover(sessionId: string) {
-    return this.api.post(`/api/sessions/${encodeURIComponent(sessionId)}/takeover`);
-  }
-
-  returnToAutomation(sessionId: string) {
-    return this.api.post(`/api/sessions/${encodeURIComponent(sessionId)}/return-to-automation`);
-  }
-
-  stop(sessionId: string) {
-    return this.api.post(`/api/sessions/${encodeURIComponent(sessionId)}/stop`);
-  }
-
-  session(sessionId: string): Session | undefined {
-    return this.store.getState().sessions[sessionId];
   }
 }
