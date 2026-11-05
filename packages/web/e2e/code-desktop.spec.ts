@@ -500,7 +500,7 @@ test.describe("desktop coding view", () => {
     await expect(projectBtn).toBeVisible();
 
     await nav.getByRole("button", { name: "View options" }).click();
-    await page.getByRole("menuitemradio", { name: /Recent/ }).click();
+    await page.getByRole("menuitemradio", { name: /^Recent(?! activity)/ }).click();
     await expect(projectBtn).toHaveCount(0);
     await expect(nav.getByRole("list", { name: "Recent sessions" })).toBeVisible();
     await expect(nav.getByRole("link", { name: /Question session/ })).toBeVisible();
@@ -509,7 +509,7 @@ test.describe("desktop coding view", () => {
     await expect(nav.getByRole("list", { name: "Recent sessions" })).toBeVisible();
 
     await nav.getByRole("button", { name: "View options" }).click();
-    await expect(page.getByRole("menuitemradio", { name: /Recent/ })).toHaveAttribute(
+    await expect(page.getByRole("menuitemradio", { name: /^Recent(?! activity)/ })).toHaveAttribute(
       "aria-checked",
       "true",
     );
