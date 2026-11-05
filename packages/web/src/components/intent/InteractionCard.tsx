@@ -655,14 +655,19 @@ function DocumentInteraction({
             </>
           ) : (
             <>
-              <span className="shrink-0 text-sm font-medium">{question}</span>
-              <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 min-[2200px]:grid-cols-6">
+              <span
+                className="max-w-[16rem] min-w-0 shrink truncate text-sm font-medium"
+                title={question}
+              >
+                {question}
+              </span>
+              <div className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2">
                 {options.map((o, i) => (
                   <Button
                     key={o.id}
                     variant={variant(i, o.tone)}
                     disabled={busy}
-                    className="w-full"
+                    className={cn(wrapBtn, "w-full md:text-center")}
                     onClick={() => answer(o.id)}
                   >
                     {o.label}

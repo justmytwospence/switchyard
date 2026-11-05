@@ -273,6 +273,24 @@ test.describe("desktop coding view", () => {
     await expect(list.getByRole("option", { name: /^\/tree/ })).toContainText("Switchyard");
     await box.fill("");
     await expect(composer.getByRole("button", { name: /^Context/ })).toBeVisible();
+    await expect(box).toHaveAttribute("placeholder", "Message Pi… (/ for commands)");
+  });
+
+  test("Commands button starts a command only in an empty draft", async ({ page, state }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    const composer = page.getByTestId("composer");
+    const box = page.getByLabel("Message to Pi");
+    await box.fill("");
+    await composer.getByRole("button", { name: "Commands" }).click();
+    await expect(box).toHaveValue("/");
+    await expect(page.getByRole("listbox", { name: "Commands" })).toBeVisible();
+    await box.fill("keep this text");
+    await composer.getByRole("button", { name: "Commands" }).click();
+    await expect(box).toHaveValue("keep this text");
+    await expect(page.getByRole("dialog", { name: "Commands" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Commands" })).toHaveCount(0);
+    await box.fill("");
   });
 
   test("effort slider on a reasoning model", async ({ page, state, api }, info) => {

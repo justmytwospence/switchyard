@@ -15,7 +15,7 @@ import { useHideBottomNav } from "../../app/chrome";
 import { Button } from "../../components/ui/Button";
 import { copyText } from "../../components/ui/Copy";
 import { IconButton } from "../../components/ui/IconButton";
-import { Sheet } from "../../components/ui/Overlay";
+import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -79,6 +79,7 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
   const [focused, setFocused] = useState(false);
   const [attachSheet, setAttachSheet] = useState(false);
   const [commandSheet, setCommandSheet] = useState(false);
+  const CommandSurface = mobile ? Sheet : Dialog;
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -480,7 +481,7 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
                 ? SUBAGENT_READ_ONLY
                 : running
                   ? "Steer Pi or queue a follow-up…"
-                  : "Message Pi… ( / for commands)"
+                  : "Message Pi… (/ for commands)"
             }
             onChange={(e) => {
               setDraft(e.target.value);
@@ -588,9 +589,18 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
                 setCommandSheet(true);
                 return;
               }
-              if (!draft.startsWith("/")) setDraft(`/${draft}`);
-              setSlashDismissed(false);
-              textRef.current?.focus();
+              if (draft.trim() === "") {
+                setDraft("/");
+                setSlashDismissed(false);
+                textRef.current?.focus();
+                return;
+              }
+              if (/^\/\S*$/.test(draft)) {
+                setSlashDismissed(false);
+                textRef.current?.focus();
+                return;
+              }
+              setCommandSheet(true);
             }}
           />
           {pills ? (
@@ -715,7 +725,7 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
           <p className="text-xs text-muted">Images up to 10 MB are sent with your next message.</p>
         </div>
       </Sheet>
-      <Sheet open={commandSheet} onClose={() => setCommandSheet(false)} title="Commands">
+      <CommandSurface open={commandSheet} onClose={() => setCommandSheet(false)} title="Commands">
         {controls ? (
           <SlashPicker
             id={`${hintId}-sheet-cmds`}
@@ -729,7 +739,11 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
                   : null
             }
             onPick={(e) => {
-              setDraft(`/${e.name} `);
+              setDraft(
+                draft.trim() === "" || draft.startsWith("/")
+                  ? `/${e.name} `
+                  : `/${e.name} ${draft}`,
+              );
               setCommandSheet(false);
               requestAnimationFrame(() => textRef.current?.focus());
             }}
@@ -737,20 +751,22 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
         ) : (
           <SlashHint adapters={commandAdapters.map((a) => a.id)} />
         )}
-        <div className="mt-3">
-          <Button
-            block
-            variant="primary"
-            onClick={() => {
-              if (!draft.startsWith("/")) setDraft(`/${draft}`);
-              setCommandSheet(false);
-              requestAnimationFrame(() => textRef.current?.focus());
-            }}
-          >
-            Start a command
-          </Button>
-        </div>
-      </Sheet>
+        {draft.trim() === "" && (
+          <div className="mt-3">
+            <Button
+              block
+              variant="primary"
+              onClick={() => {
+                setDraft("/");
+                setCommandSheet(false);
+                requestAnimationFrame(() => textRef.current?.focus());
+              }}
+            >
+              Start a command
+            </Button>
+          </div>
+        )}
+      </CommandSurface>
       <TreeDialog
         session={session}
         mode={dialogKind === "fork" ? "fork" : "tree"}

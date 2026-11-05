@@ -444,8 +444,16 @@ export function ContextMeter({ session, enabled }: { session: Session; enabled: 
         <button
           type="button"
           {...p}
-          aria-label={session.compacting ? "Context compacting" : `Context ${meter.label} used`}
-          title={meter.detail}
+          aria-label={
+            session.compacting
+              ? "Context compacting"
+              : meter.percent === null
+                ? "Context use not known yet"
+                : `Context ${meter.label} used`
+          }
+          title={
+            session.compacting ? meter.detail : `Context ${meter.label} used · ${meter.detail}`
+          }
           className="relative flex w-full items-center gap-2 py-0.5 text-[11px] leading-4 text-muted transition-colors before:absolute before:inset-x-0 before:-top-3 before:bottom-0 before:content-[''] hover:text-text [@media(pointer:coarse)]:before:-top-6"
         >
           <span className="h-[3px] flex-1 overflow-hidden rounded-full bg-surface-2">
@@ -454,7 +462,9 @@ export function ContextMeter({ session, enabled }: { session: Session; enabled: 
               style={{ width: `${Math.min(100, meter.percent ?? 0)}%` }}
             />
           </span>
-          <span className="tabular-nums">{meter.label}</span>
+          <span className="tabular-nums">
+            {session.compacting ? meter.label : `Context ${meter.label}`}
+          </span>
         </button>
       )}
     />
