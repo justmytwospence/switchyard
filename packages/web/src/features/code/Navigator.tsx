@@ -1,3 +1,4 @@
+import type { Session } from "@switchyard/protocol";
 import {
   ChevronDown,
   ChevronRight,
@@ -18,7 +19,7 @@ import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
-import { StatusChip } from "../../components/ui/StatusChip";
+import { RUNTIME_STATUS, StatusChip, type StatusInfo } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
@@ -226,9 +227,6 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             toggle={toggle}
             selectedId={selectedId}
             screen={screen}
-            emptyText={
-              prefs.layout === "worktrees" ? "No workspaces discovered yet." : "No sessions."
-            }
           />
         ))}
       </ul>
@@ -376,7 +374,6 @@ function GroupNode({
   toggle,
   selectedId,
   screen,
-  emptyText,
 }: {
   group: NavGroup;
   depth: number;
@@ -384,7 +381,6 @@ function GroupNode({
   toggle: (key: string) => void;
   selectedId: string | null;
   screen: boolean;
-  emptyText: string;
 }) {
   const open = !collapsed.has(group.key);
   return (
@@ -403,7 +399,7 @@ function GroupNode({
       {open && (
         <ul className={cn("flex min-w-0 flex-col", depth > 0 && "gap-0.5 py-0.5")}>
           {group.rows.length === 0 && group.groups.length === 0 && (
-            <li className="px-7 py-1 text-xs text-muted">{emptyText}</li>
+            <li className="px-7 py-1 text-xs text-muted">No sessions yet.</li>
           )}
           {group.groups.map((g) => (
             <GroupNode
@@ -414,7 +410,6 @@ function GroupNode({
               toggle={toggle}
               selectedId={selectedId}
               screen={screen}
-              emptyText={emptyText}
             />
           ))}
           {group.rows.map((row) => (
@@ -465,7 +460,7 @@ function SessionRow({
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
-          {attention && (
+          {attention && session.runtime !== "waiting_input" && (
             <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
               <MessageCircleQuestion aria-hidden className="size-3.5" />
               Needs you
@@ -473,7 +468,7 @@ function SessionRow({
           )}
         </span>
         <span className="flex min-w-0 items-center gap-x-1.5">
-          <StatusChip kind="runtime" value={session.runtime} size="sm" />
+          <StatusChip kind="custom" status={rowStatus(session.runtime)} size="sm" />
           {session.provenance === "subagent" && (
             <span className="shrink-0 text-xs text-muted">Subagent</span>
           )}
@@ -482,4 +477,10 @@ function SessionRow({
       </Link>
     </li>
   );
+}
+
+/** List rows stay calm: only failed and needs input stand out; interrupted reads like stopped. */
+function rowStatus(runtime: Session["runtime"]): StatusInfo {
+  const s = RUNTIME_STATUS[runtime];
+  return runtime === "interrupted" ? { ...s, tone: "neutral" } : s;
 }
