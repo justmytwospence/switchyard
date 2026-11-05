@@ -12,7 +12,7 @@ import { newToken, safeEqualHex, sha256 } from "../auth.js";
 import type { CoordinatorContext } from "../context.js";
 import { parse } from "../http.js";
 import { getService } from "../services.js";
-import { putTaskState, taskDoneAt } from "../tasks/common.js";
+import { putTaskState, shortError, taskDoneAt } from "../tasks/common.js";
 import { isLiveRun } from "../tasks/state.js";
 import {
   dateTimeIn,
@@ -376,7 +376,7 @@ export class AutomationService {
         store.setSetting(OCC_VARS + occurrenceId, vars);
         return { state: "queued", taskId: null, reason: `Queued until "${t.title}" finishes` };
       }
-      this.append(t, r, vars);
+      this.append(t, r, vars, occurrenceId);
       return { state: "appended", taskId: t.id, reason: null };
     }
     if (a.mode === "continue" && r.groupingKey) {
@@ -476,7 +476,7 @@ export class AutomationService {
   }
 
   /** Append: follow-up prompt to a live automated session, else extend the objective. */
-  private append(task: Task, r: Rendered, vars: TemplateVars): void {
+  private append(task: Task, r: Rendered, vars: TemplateVars, occurrenceId: string): void {
     const { store, hostHub } = this.ctx;
     const session = task.sessionId ? store.sessions.get(task.sessionId) : undefined;
     const run = task.currentRunId ? store.runs.get(task.currentRunId) : undefined;
@@ -497,9 +497,11 @@ export class AutomationService {
         controlRevision: run.controlRevision,
       };
       store.afterCommit(() => {
-        hostHub
-          .request(session.hostId, cmd)
-          .catch((err) => this.ctx.log.warn({ err, taskId: task.id }, "append follow-up failed"));
+        hostHub.request(session.hostId, cmd, { commandId: `app_${occurrenceId}` }).catch((err) => {
+          const e = shortError(err);
+          this.ctx.log.warn({ err, taskId: task.id }, "append follow-up failed");
+          this.markAppendFailed(occurrenceId, `Follow-up could not be sent: ${e.message}`);
+        });
       });
       store.putTask({ ...task, lastActivityAt: store.nowIso(), updatedAt: store.nowIso() });
       return;
@@ -510,6 +512,29 @@ export class AutomationService {
       return;
     }
     putTaskState(this.ctx, task, "ready", { objective, blocked: null });
+  }
+
+  /** The appended follow-up never reached Pi: the occurrence failed (counted like a failed fire). */
+  private markAppendFailed(occurrenceId: string, reason: string): void {
+    const { store } = this.ctx;
+    store.tx(() => {
+      const occ = store.occurrences.get(occurrenceId);
+      if (occ?.state !== "appended") return;
+      const task = occ.taskId ? store.tasks.get(occ.taskId) : undefined;
+      const next = store.putOccurrence(
+        { ...occ, state: "failed", reason: reason.slice(0, 500) },
+        task?.projectId,
+      );
+      const a = store.automations.get(occ.automationId);
+      if (a) {
+        store.putAutomation({
+          ...a,
+          lastOutcome: occurrenceLabel(next),
+          failureCount: a.failureCount + 1,
+          updatedAt: store.nowIso(),
+        });
+      }
+    });
   }
 
   // ---- reactions -------------------------------------------------------------------------

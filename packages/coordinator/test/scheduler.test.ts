@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/index.js";
-import { startCoordinator } from "./helpers.js";
-import { cleanupHarness, createTask, type Harness, setupHarness, task } from "./task-helpers.js";
+import { hostSession, sleep, startCoordinator, until } from "./helpers.js";
+import {
+  cleanupHarness,
+  createTask,
+  type Harness,
+  setupHarness,
+  task,
+  untilRun,
+} from "./task-helpers.js";
 
 let h: Harness | undefined;
 afterEach(async () => {
@@ -236,6 +243,40 @@ describe("overlap and modes", () => {
     expect(accepted.status).toBe(200);
     expect(h.t.c.store.occurrences.require(r2.body.occurrence.id).state).toBe("fired");
     expect(tasksOf(h, a.id)).toHaveLength(2);
+  });
+
+  it("append to a live session sends one follow-up per occurrence and records a failed send", async () => {
+    h = await setupHarness();
+    const a = await automation(h, { trigger: { kind: "manual" }, overlap: "append" });
+    const r1 = await h.t.admin("POST", `/api/automations/${a.id}/run`);
+    const run = await untilRun(h, r1.body.task.id, "running");
+    const cwd = h.t.c.store.sessions.require(run.sessionId!).cwd;
+    await h.host.event("session.updated", hostSession(run.sessionId!, { cwd, runtime: "running" }));
+    const followUps = () =>
+      h!.host.commands.filter(
+        (c) => c.command.type === "session.prompt" && c.command.mode === "followUp",
+      );
+    let fail = true;
+    h.override = (cmd) =>
+      cmd.type === "session.prompt" && cmd.mode === "followUp" && fail
+        ? { __error: { code: "invalid_request", message: "Pi is not running" } }
+        : undefined;
+    const r2 = await h.t.admin("POST", `/api/automations/${a.id}/run`);
+    const id2 = r2.body.occurrence.id;
+    await until(() => h!.t.c.store.occurrences.require(id2).state === "failed");
+    expect(h.t.c.store.occurrences.require(id2).reason).toBe(
+      "Follow-up could not be sent: Pi is not running",
+    );
+    expect(followUps().map((c) => c.commandId)).toEqual([`app_${id2}`]);
+    expect(h.t.c.store.automations.require(a.id)).toMatchObject({
+      lastOutcome: "Failed: Follow-up could not be sent: Pi is not running",
+      failureCount: 1,
+    });
+    fail = false;
+    const r3 = await h.t.admin("POST", `/api/automations/${a.id}/run`);
+    await until(() => followUps().length === 2);
+    await sleep(30);
+    expect(h.t.c.store.occurrences.require(r3.body.occurrence.id).state).toBe("appended");
   });
 
   it("append extends the tracked task's objective", async () => {
