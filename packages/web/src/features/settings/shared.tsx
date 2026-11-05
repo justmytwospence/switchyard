@@ -19,7 +19,7 @@ import {
   Stethoscope,
   TriangleAlert,
 } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
@@ -281,41 +281,6 @@ export function PiCompat({ host }: { host: Pick<Host, "piVersion" | "piCompatibl
 /* ------------------------------------------------------------------ */
 /* Form controls                                                       */
 /* ------------------------------------------------------------------ */
-
-/** A labelled checkbox (used for explicit confirmations). */
-export function Checkbox({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: ReactNode;
-  description?: ReactNode;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  const id = useId();
-  return (
-    <div className="flex min-w-0 items-start gap-2">
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        aria-describedby={description ? `${id}-desc` : undefined}
-        className="tap mt-0.5 size-5 shrink-0 accent-[var(--sy-accent)]"
-      />
-      <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer text-sm">
-        <span className="block font-medium">{label}</span>
-        {description && (
-          <span id={`${id}-desc`} className="block text-muted">
-            {description}
-          </span>
-        )}
-      </label>
-    </div>
-  );
-}
 
 /** Validate an absolute host path; returns an error message or null. */
 export function validateAbsolutePath(path: string): string | null {

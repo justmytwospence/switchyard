@@ -10,11 +10,12 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { EmptyState } from "../../components/ui/states";
 import { toast } from "../../components/ui/Toast";
 import { apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { Card, Checkbox, ConfirmDialog, InlineStatus } from "./shared";
+import { Card, ConfirmDialog, InlineStatus } from "./shared";
 
 const PROVENANCE_LABEL: Record<Workspace["provenance"], string> = {
   managed: "Managed by Switchyard",

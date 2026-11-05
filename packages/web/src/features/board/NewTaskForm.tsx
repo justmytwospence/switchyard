@@ -2,6 +2,7 @@ import type { Priority, Task, TaskPolicy } from "@switchyard/protocol";
 import { ChevronDown, ChevronRight, Inbox, Play } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
 import { Select } from "../../components/ui/Select";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
@@ -350,14 +351,11 @@ export function NewTaskForm({
 
           <fieldset className="flex flex-col gap-2">
             <legend className="text-sm font-medium">Continuation limits</legend>
-            <label className="tap flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={d.continuation}
-                onChange={(e) => set("continuation", e.target.checked)}
-              />
-              Continue automatically until done (off by default)
-            </label>
+            <Checkbox
+              label="Continue automatically until done (off by default)"
+              checked={d.continuation}
+              onChange={(on) => set("continuation", on)}
+            />
             {d.continuation && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field
@@ -423,15 +421,16 @@ export function NewTaskForm({
 
           <fieldset className="flex flex-col gap-2">
             <legend className="text-sm font-medium">Checks and review</legend>
-            <label className="tap flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={d.checksMode === "custom"}
-                onChange={(e) => set("checksMode", e.target.checked ? "custom" : "default")}
-              />
-              Use custom checks instead of the project's
-              {project?.checks.length ? ` (${project.checks.join(", ")})` : " (none)"}
-            </label>
+            <Checkbox
+              label={
+                <>
+                  Use custom checks instead of the project's
+                  {project?.checks.length ? ` (${project.checks.join(", ")})` : " (none)"}
+                </>
+              }
+              checked={d.checksMode === "custom"}
+              onChange={(on) => set("checksMode", on ? "custom" : "default")}
+            />
             {d.checksMode === "custom" && (
               <Field
                 id={`${id}-checks`}
@@ -446,14 +445,11 @@ export function NewTaskForm({
                 />
               </Field>
             )}
-            <label className="tap flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={d.humanReview}
-                onChange={(e) => set("humanReview", e.target.checked)}
-              />
-              Require human review before Done
-            </label>
+            <Checkbox
+              label="Require human review before Done"
+              checked={d.humanReview}
+              onChange={(on) => set("humanReview", on)}
+            />
           </fieldset>
         </div>
       )}

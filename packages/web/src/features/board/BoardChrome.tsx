@@ -5,6 +5,7 @@ import { type ReactNode, useId, useMemo, useState } from "react";
 import { ROUTES } from "../../app/routes";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import {
@@ -94,14 +95,11 @@ export function SortSelect({ board }: { board: BoardState }) {
 
 export function CompletedToggle({ board }: { board: BoardState }) {
   return (
-    <label className="tap inline-flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        checked={board.filters.showCompleted}
-        onChange={(e) => board.setFilters({ ...board.filters, showCompleted: e.target.checked })}
-      />
-      Show completed
-    </label>
+    <Checkbox
+      label="Show completed"
+      checked={board.filters.showCompleted}
+      onChange={(on) => board.setFilters({ ...board.filters, showCompleted: on })}
+    />
   );
 }
 
@@ -169,14 +167,12 @@ function FilterFields({
         <legend className="mb-1 text-sm font-medium">Priority</legend>
         <div className="flex flex-wrap gap-x-4">
           {PRIORITY_LABELS.map((l, i) => (
-            <label key={l} className="tap inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={value.priorities.includes(i as Priority)}
-                onChange={(e) => togglePriority(i as Priority, e.target.checked)}
-              />
-              {l}
-            </label>
+            <Checkbox
+              key={l}
+              label={l}
+              checked={value.priorities.includes(i as Priority)}
+              onChange={(on) => togglePriority(i as Priority, on)}
+            />
           ))}
         </div>
       </fieldset>
@@ -199,38 +195,26 @@ function FilterFields({
       </div>
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 text-sm font-medium">Show</legend>
-        <label className="tap inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={value.attentionOnly}
-            onChange={(e) => onChange({ ...value, attentionOnly: e.target.checked })}
-          />
-          Only tasks that need attention
-        </label>
-        <label className="tap inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={value.blockedOnly}
-            onChange={(e) => onChange({ ...value, blockedOnly: e.target.checked })}
-          />
-          Only blocked tasks
-        </label>
-        <label className="tap inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={value.showCanceled}
-            onChange={(e) => onChange({ ...value, showCanceled: e.target.checked })}
-          />
-          Canceled tasks
-        </label>
-        <label className="tap inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={value.showCompleted}
-            onChange={(e) => onChange({ ...value, showCompleted: e.target.checked })}
-          />
-          Completed tasks
-        </label>
+        <Checkbox
+          label="Only tasks that need attention"
+          checked={value.attentionOnly}
+          onChange={(on) => onChange({ ...value, attentionOnly: on })}
+        />
+        <Checkbox
+          label="Only blocked tasks"
+          checked={value.blockedOnly}
+          onChange={(on) => onChange({ ...value, blockedOnly: on })}
+        />
+        <Checkbox
+          label="Canceled tasks"
+          checked={value.showCanceled}
+          onChange={(on) => onChange({ ...value, showCanceled: on })}
+        />
+        <Checkbox
+          label="Completed tasks"
+          checked={value.showCompleted}
+          onChange={(on) => onChange({ ...value, showCompleted: on })}
+        />
       </fieldset>
       {withSort && (
         <div className="flex flex-col gap-1">

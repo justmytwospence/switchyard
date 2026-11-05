@@ -17,6 +17,7 @@ import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
 import { Markdown } from "../../components/intent/Markdown";
 import { Button, buttonClasses } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
@@ -923,19 +924,19 @@ export function DependencyPicker({
           <ul className="max-h-48 overflow-y-auto rounded-md border border-border">
             {shown.map((t) => (
               <li key={t.id}>
-                <label className="tap flex min-w-0 items-center gap-2 px-3 py-1.5 text-sm hover:bg-surface-2">
-                  <input
-                    type="checkbox"
-                    checked={value.includes(t.id)}
-                    onChange={(e) =>
-                      onChange(
-                        e.target.checked ? [...value, t.id] : value.filter((x) => x !== t.id),
-                      )
-                    }
-                  />
-                  <span className="min-w-0 flex-1 truncate">{t.title}</span>
-                  <span className="shrink-0 text-xs text-muted">{STATE_LABELS[t.state]}</span>
-                </label>
+                <Checkbox
+                  className="w-full px-3 py-1.5 hover:bg-surface-2"
+                  label={
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate">{t.title}</span>
+                      <span className="shrink-0 text-xs text-muted">{STATE_LABELS[t.state]}</span>
+                    </span>
+                  }
+                  checked={value.includes(t.id)}
+                  onChange={(on) =>
+                    onChange(on ? [...value, t.id] : value.filter((x) => x !== t.id))
+                  }
+                />
               </li>
             ))}
           </ul>
