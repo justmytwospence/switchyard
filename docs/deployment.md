@@ -44,7 +44,7 @@ switchyard up
 - The default public URL uses `localhost` so passkeys work on this machine. To reach it from another device, pass `--public-url` with the address that device uses (passkeys then need HTTPS and a domain name, see [auth.md](auth.md#passkeys)).
 - The local host is enrolled automatically on first start (`--name` sets its name). Its `host.json` and state live in `<data-dir>/host/`. Pi must be on `PATH` (or `SWITCHYARD_PI_BIN`).
 - `--dev` also trusts the Vite dev server origins (`http://localhost:5173`, `http://127.0.0.1:5173`) and turns on debug logs.
-- `up` records the local URL in `<data-dir>/cli-endpoint.json`, so `switchyard pair` on the same machine find it.
+- `up` records the local URL in `<data-dir>/cli-endpoint.json`, so `switchyard pair` on the same machine finds it.
 - `up` reads the same server variables as `switchyard coordinator start` (the container's command): the ones in the table above plus the OIDC, trusted-proxy and shared-secret variables in the [environment reference](#environment-reference). With an OIDC owner declared it comes up already set up and prints no link.
 - Schedules (cron, once, webhooks, dependency triggers) only run while the process is awake. A sleeping laptop fires nothing; missed cron occurrences follow each automation's missed-run policy when it wakes.
 
@@ -88,7 +88,7 @@ The coordinator container needs neither a home directory nor the Docker socket, 
 | `SWITCHYARD_HOST_CONFIG` | host, CLI | `~/.config/switchyard/host.json` | Host credential file. |
 | `SWITCHYARD_STATE_DIR` | host, CLI | `~/.local/state/switchyard` (Linux), `~/Library/Application Support/switchyard` (macOS) | Host state: `host.db`, `runtime/`, `logs/`. |
 | `SWITCHYARD_PI_BIN` | host, CLI | `pi` | The Pi binary. |
-| `SWITCHYARD_ADMIN_TOKEN` | CLI | the data dir's `admin.token` | Admin token for `init`, `pair` and local work commands. |
+| `SWITCHYARD_ADMIN_TOKEN` | CLI | the data dir's `admin.token` | Admin token for `pair` and local work commands. |
 | `SWITCHYARD_URL`, `SWITCHYARD_TOKEN` | CLI | `client.json` | Coordinator URL and device credential for work commands. |
 
 The OIDC variables are explained in [auth.md](auth.md#single-sign-on-oidc).
@@ -223,7 +223,7 @@ switchyard tui <session id>
 
 `login` shows a link and a code; approve it in the browser. `--token <link from switchyard pair>` signs in without a browser. `login` writes `~/.config/switchyard/client.json` (mode 0600) and registers the terminal as a device of kind `terminal`.
 
-Work commands (`sessions`, `tasks`, `automations`, `tui`, `doctor`) resolve credentials in this order: `--coordinator`/`--credential` flags, `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`, `~/.config/switchyard/client.json`, then the local `admin.token` in the data dir against the coordinator recorded in `cli-endpoint.json`, else `http://127.0.0.1:7400`. The admin token is sent only to a loopback URL or the one in `cli-endpoint.json`; `SWITCHYARD_URL` selects the coordinator like `--coordinator`.
+Work commands (`hosts`, `sessions`, `tasks`, `automations`, `tui`, `herdr`, `doctor`) resolve credentials in this order: `--coordinator`/`--credential` flags, `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`, `~/.config/switchyard/client.json`, then the local `admin.token` in the data dir against the coordinator recorded in `cli-endpoint.json`, else `http://127.0.0.1:7400`. The admin token is sent only to a loopback URL or the one in `cli-endpoint.json`; `SWITCHYARD_URL` selects the coordinator like `--coordinator`.
 
 ## iOS Home Screen push
 

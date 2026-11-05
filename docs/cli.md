@@ -23,9 +23,9 @@ List commands accept `--json`.
 
 ## Credentials
 
-`init` and `pair` act as the server's local administrator: they read `admin.token` from the data directory (or `SWITCHYARD_ADMIN_TOKEN`) and talk to the coordinator running on this machine.
+`pair` acts as the server's local administrator: it reads `admin.token` from the data directory (or `SWITCHYARD_ADMIN_TOKEN`) and talks to the coordinator running on this machine.
 
-Work commands (`sessions`, `tasks`, `automations`, `tui`, `doctor`) look for credentials in this order:
+Work commands (`hosts`, `sessions`, `tasks`, `automations`, `tui`, `herdr`, `doctor`) look for credentials in this order:
 
 1. `--coordinator` and `--credential`
 2. `SWITCHYARD_URL` and `SWITCHYARD_TOKEN`
@@ -45,7 +45,7 @@ The full table, with defaults, is in [deployment.md](deployment.md#environment-r
 | `SWITCHYARD_HOST_ENROLL_SECRET` | The coordinator (enables secret enrollment) and hosts |
 | `SWITCHYARD_COORDINATOR_URL`, `SWITCHYARD_HOST_NAME` | Hosts that enroll themselves |
 | `SWITCHYARD_HOST_CONFIG`, `SWITCHYARD_STATE_DIR`, `SWITCHYARD_PI_BIN` | The host agent |
-| `SWITCHYARD_ADMIN_TOKEN` | `init`, `pair` |
+| `SWITCHYARD_ADMIN_TOKEN` | `pair` and local work commands |
 | `SWITCHYARD_URL`, `SWITCHYARD_TOKEN` | Work commands |
 | `SWITCHYARD_CLIENT_CONFIG` | Work commands and `login`: use this client.json instead of `~/.config/switchyard/client.json` |
 | `SWITCHYARD_TERMINAL_SESSIONS` | The host agent: `0` runs sessions headless instead of as [terminal sessions](terminal-sessions.md) (the default) |

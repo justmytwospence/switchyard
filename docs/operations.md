@@ -7,9 +7,9 @@ Commands below assume the `switchyard` CLI. In the Docker image `switchyard` is 
 | Path | Contents |
 |---|---|
 | `coordinator.db` (+ `-wal`, `-shm`) | SQLite database in WAL mode: identities (devices, hosts, passkeys), whether the server is set up, projects, tasks, runs, automations, the durable event log, push subscriptions, settings (including VAPID keys). |
-| `admin.token` | Admin token for the local CLI (`init`, `pair`), mode 0600. Grants full access. Not part of a database backup; a new one is created if it is missing. |
+| `admin.token` | Admin token for the local CLI (`pair` and local work commands), mode 0600. Grants full access. Not part of a database backup; a new one is created if it is missing. |
 | `coordinator.lock` | Pid file written while a coordinator runs; a second coordinator on the same directory is refused, and `restore` checks it. |
-| `cli-endpoint.json` | The local URL of the running coordinator, written by `up` and `coordinator start` for `init`, `pair` and local admin-token commands. |
+| `cli-endpoint.json` | The local URL of the running coordinator, written by `up` and `coordinator start` for `pair` and local admin-token commands. |
 | `host/` | Local host agent config (`host.json`) and state in standalone mode (`switchyard up`). |
 
 Default locations are in [deployment.md](deployment.md). In the Docker deployment this is the `./data` bind mount at `/data` (the image sets `SWITCHYARD_DATA_DIR=/data`).
