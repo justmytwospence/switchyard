@@ -7,5 +7,5 @@ export * from "./commands/up.js";
 export * from "./commands/work.js";
 export * from "./config.js";
 export * from "./context.js";
-export { buildProgram, CLI_VERSION, describeError, main } from "./main.js";
+export { buildProgram, CLI_VERSION, describeError, main, reportError } from "./main.js";
 export * from "./paths.js";

@@ -21,9 +21,11 @@ export function parseClientConfig(raw: unknown): ClientConfig {
 }
 
 export class CliError extends Error {
+  /** `silent`: exit with `exitCode` without printing (the command already reported). */
   constructor(
     message: string,
     readonly exitCode = 1,
+    readonly silent = false,
   ) {
     super(message);
     this.name = "CliError";

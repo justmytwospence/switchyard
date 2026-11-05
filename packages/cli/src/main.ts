@@ -66,7 +66,9 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .configureOutput({
       writeOut: (s) => ctx.out(s.replace(/\n$/, "")),
       writeErr: (s) => ctx.err(s.replace(/\n$/, "")),
-    });
+    })
+    // Subcommands copy this at creation, so it must come before any `.command(...)`.
+    .exitOverride();
 
   program
     .command("up")
@@ -195,7 +197,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
   ).action(async (o) => {
     const results = await runDoctor(ctx, defaultDoctorDeps(ctx), connFlags(o));
     const code = printDoctor(ctx, results);
-    if (code !== 0) throw new CliError("doctor found failures", code);
+    if (code !== 0) throw new CliError("doctor found failures", code, true);
   });
 
   const hosts = program.command("hosts").description("Hosts and their project folders");
@@ -337,23 +339,27 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
   return program;
 }
 
-export async function main(argv: string[] = process.argv): Promise<number> {
-  const ctx = defaultCtx();
+/** Print a command's error (unless it is silent) and return the process exit code. */
+export function reportError(ctx: Ctx, err: unknown): number {
+  const e = err as { code?: string; exitCode?: number };
+  if (typeof e.code === "string" && e.code.startsWith("commander.")) {
+    return e.exitCode ?? 1;
+  }
+  const { message, code } = describeError(err);
+  if (!(err instanceof CliError && err.silent)) ctx.err(`switchyard: ${message}`);
+  return code;
+}
+
+export async function main(
+  argv: string[] = process.argv,
+  ctx: Ctx = defaultCtx(),
+): Promise<number> {
   const program = buildProgram(ctx);
-  program.exitOverride();
   try {
     await program.parseAsync(argv);
     return 0;
   } catch (err) {
-    const e = err as { code?: string; exitCode?: number };
-    if (typeof e.code === "string" && e.code.startsWith("commander.")) {
-      return e.exitCode ?? 1;
-    }
-    const { message, code } = describeError(err);
-    if (!(err instanceof CliError && message === "doctor found failures")) {
-      ctx.err(`switchyard: ${message}`);
-    }
-    return code;
+    return reportError(ctx, err);
   }
 }
 
