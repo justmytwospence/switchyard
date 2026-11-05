@@ -70,7 +70,7 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: CoordinatorCo
       base: baseFor(ctx, ws),
       force: body.force,
     });
-    if (ctx.store.workspaces.get(id)) ctx.store.removeWorkspace(ws);
+    ctx.store.archiveWorkspace(ws);
     return { ok: true, id };
   });
 

@@ -44,7 +44,7 @@ describe("host-reported attention and workspace removal", () => {
     const main = h.t.c.store.workspaceByPath(h.creds.hostId, ROOT)!;
     expect(main).toBeDefined();
     await h.host.event("workspace.removed" as never, { id: ROOT, path: ROOT });
-    expect(h.t.c.store.workspaces.get(main.id)).toBeUndefined();
+    expect(h.t.c.store.workspaces.get(main.id)?.archivedAt).not.toBeNull();
   });
 
   it("matches workspace.deleted by path", async () => {
@@ -52,6 +52,6 @@ describe("host-reported attention and workspace removal", () => {
     const main = h.t.c.store.workspaceByPath(h.creds.hostId, ROOT)!;
     expect(main).toBeDefined();
     await h.host.event("workspace.deleted", { id: ROOT, path: ROOT });
-    expect(h.t.c.store.workspaces.get(main.id)).toBeUndefined();
+    expect(h.t.c.store.workspaces.get(main.id)?.archivedAt).not.toBeNull();
   });
 });

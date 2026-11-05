@@ -105,7 +105,7 @@ describe("worktrees via the API", { timeout: 120_000 }, () => {
     expect(existsSync(featX.path)).toBe(false);
     expect(worktreePaths(env.repo!.path)).not.toContain(featX.path);
     expect(git(env.repo!.path, ["branch", "--list", "feat/x"]).trim()).toContain("feat/x");
-    expect(env.c.store.workspaces.get(featX.id)).toBeUndefined();
+    expect(env.c.store.workspaces.get(featX.id)?.archivedAt).not.toBeNull();
   });
 
   it("removes the external worktree only on request; the main checkout is protected", async () => {

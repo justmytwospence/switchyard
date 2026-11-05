@@ -122,7 +122,11 @@ describe("projects and workspaces", () => {
     const removeCmd = host!.commands.find((c) => c.command.type === "workspace.remove")!
       .command as HostCommandOf<"workspace.remove">;
     expect(removeCmd.force).toEqual({ dirty: true, unmerged: false });
-    expect(t!.c.store.workspaces.get(ws.body.id)).toBeUndefined();
+    expect(t!.c.store.workspaces.get(ws.body.id)?.archivedAt).not.toBeNull();
+    const last = t!.c.store
+      .latestEvents("workspace.updated", 50)
+      .find((e) => (e.data as { id: string }).id === ws.body.id)!;
+    expect((last.data as { archivedAt: string | null }).archivedAt).not.toBeNull();
   });
 });
 

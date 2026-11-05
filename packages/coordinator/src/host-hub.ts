@@ -638,7 +638,7 @@ export class HostHub {
         if (!ws) return;
         if (ws.hostId !== hostId)
           throw new SwitchyardError("forbidden", "Workspace of another host");
-        this.store.removeWorkspace(ws);
+        this.store.archiveWorkspace(ws);
         return;
       }
     }

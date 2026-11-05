@@ -524,16 +524,13 @@ export class Store {
     });
   }
 
-  removeWorkspace(w: Workspace): void {
-    this.tx(() => {
-      this.workspaces.delete(w.id);
-      this.appendEvent(
-        "workspace.deleted",
-        { projectId: w.projectId, hostId: w.hostId },
-        {
-          id: w.id,
-        },
-      );
+  /** A worktree that is gone is archived (as `refreshCheckoutWorkspaces` does), never deleted, so sessions and tasks that reference it keep resolving. */
+  archiveWorkspace(w: Workspace): Workspace {
+    return this.tx(() => {
+      const cur = this.workspaces.get(w.id) ?? w;
+      if (cur.archivedAt) return cur;
+      const now = this.nowIso();
+      return this.putWorkspace({ ...cur, archivedAt: now, updatedAt: now });
     });
   }
 
