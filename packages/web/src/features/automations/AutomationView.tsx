@@ -17,6 +17,7 @@ import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
+import { DangerZone } from "../../components/ui/DangerZone";
 import { Field, FieldError } from "../../components/ui/Field";
 import { IconButton } from "../../components/ui/IconButton";
 import { ConfirmDialog } from "../../components/ui/Overlay";
@@ -371,14 +372,6 @@ function Editor({ automation }: { automation: Automation | null }) {
           >
             Run now
           </Button>
-          <Button
-            variant="ghost"
-            icon={<Trash className="size-4" />}
-            onClick={() => setConfirmDelete(true)}
-            className="text-danger"
-          >
-            Delete
-          </Button>
         </>
       )}
       {isNew && dirty && (
@@ -529,6 +522,18 @@ function Editor({ automation }: { automation: Automation | null }) {
           {aside}
         </aside>
       </div>
+
+      {!isNew && automation && (
+        <DangerZone description="Future occurrences stop. Tasks it already created stay on the board; its history is removed.">
+          <Button
+            variant="danger"
+            icon={<Trash className="size-4" />}
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete automation
+          </Button>
+        </DangerZone>
+      )}
 
       {desktop ? (
         <div className="h-4" />

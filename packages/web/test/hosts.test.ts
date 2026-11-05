@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostSetupScript } from "../src/features/settings/HostsSection";
+import { disconnectedHostsTitle, hostSetupScript } from "../src/features/settings/HostsSection";
 import { parseProjectFolders, scanSummary } from "../src/features/settings/projectFolders";
 
 describe("hostSetupScript", () => {
@@ -11,6 +11,12 @@ describe("hostSetupScript", () => {
       "switchyard host enroll --coordinator https://x --token t",
       "switchyard host install-service",
     ]);
+  });
+});
+
+describe("disconnectedHostsTitle", () => {
+  it("names the disconnected hosts", () => {
+    expect(disconnectedHostsTitle(["nuc", "mac"])).toBe("2 hosts are not connected: nuc, mac");
   });
 });
 

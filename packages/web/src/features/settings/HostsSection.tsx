@@ -1,11 +1,20 @@
 import { CAPABILITY_KEYS, type CapabilityKey, type Host } from "@switchyard/protocol";
-import { ChevronRight, CircleCheck, CircleSlash, Plus, Server, ShieldOff } from "lucide-react";
+import {
+  ChevronRight,
+  CircleCheck,
+  CircleSlash,
+  Plus,
+  Server,
+  ServerOff,
+  ShieldOff,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { CopyBlock } from "../../components/ui/Copy";
+import { DangerZone } from "../../components/ui/DangerZone";
 import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
@@ -86,15 +95,32 @@ export function HostsSection() {
         />
       ) : (
         <>
-          {unavailable.map((h) => (
+          {unavailable.length === 1 && (
             <HostUnavailable
-              key={h.id}
               compact
-              hostName={h.name}
-              connectivity={h.connectivity === "reconnecting" ? "reconnecting" : "unreachable"}
-              lastSeenAt={h.lastSeenAt}
+              hostName={unavailable[0]!.name}
+              connectivity={
+                unavailable[0]!.connectivity === "reconnecting" ? "reconnecting" : "unreachable"
+              }
+              lastSeenAt={unavailable[0]!.lastSeenAt}
             />
-          ))}
+          )}
+          {unavailable.length > 1 && (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-md border border-border bg-danger-soft px-3 py-2 text-sm"
+            >
+              <ServerOff aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
+              <div className="min-w-0">
+                <div className="font-medium">
+                  {disconnectedHostsTitle(unavailable.map((h) => h.name))}
+                </div>
+                <div className="text-muted">
+                  Work on them keeps its last known state; nothing is restarted elsewhere.
+                </div>
+              </div>
+            </div>
+          )}
           <ul className="overflow-hidden rounded-lg border border-border bg-surface">
             {hosts.map((h) => (
               <li key={h.id} className="border-b border-border last:border-b-0">
@@ -109,6 +135,11 @@ export function HostsSection() {
   );
 }
 
+/** Banner title for several disconnected hosts. */
+export function disconnectedHostsTitle(names: string[]): string {
+  return `${names.length} hosts are not connected: ${names.join(", ")}`;
+}
+
 function HostRow({ host }: { host: Host }) {
   return (
     <Link
@@ -116,7 +147,7 @@ function HostRow({ host }: { host: Host }) {
       state={BACK_STATE}
       className="tap flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-surface-2"
     >
-      <Server aria-hidden className="size-5 shrink-0 text-muted" />
+      <Server aria-hidden className="size-5 shrink-0 self-center text-muted" />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="min-w-0 break-words font-medium">{host.name}</span>
@@ -125,10 +156,12 @@ function HostRow({ host }: { host: Host }) {
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           <StatusChip kind="host" value={host.connectivity} />
           <PiCompat host={host} />
-          <span className="text-xs text-muted">Last seen {formatRelative(host.lastSeenAt)}</span>
+          {host.connectivity !== "connected" && (
+            <span className="text-xs text-muted">Last seen {formatRelative(host.lastSeenAt)}</span>
+          )}
         </span>
       </span>
-      <ChevronRight aria-hidden className="size-4 shrink-0 text-subtle" />
+      <ChevronRight aria-hidden className="size-4 shrink-0 self-center text-subtle" />
     </Link>
   );
 }
@@ -275,18 +308,6 @@ export function HostDetail() {
       title={host.name}
       description={`${PLATFORM_LABEL[host.platform]} host`}
       back={back}
-      actions={
-        <Button
-          variant="danger"
-          icon={<ShieldOff className="size-4" />}
-          onClick={() => {
-            setRevokeError(null);
-            setRevokeOpen(true);
-          }}
-        >
-          Revoke host
-        </Button>
-      }
     >
       <LastKnownNote />
       {host.connectivity !== "connected" && (
@@ -419,6 +440,19 @@ export function HostDetail() {
           </ul>
         )}
       </Card>
+
+      <DangerZone description="Revoking disconnects the host agent and invalidates its credential. Sessions on it are not moved elsewhere.">
+        <Button
+          variant="danger"
+          icon={<ShieldOff className="size-4" />}
+          onClick={() => {
+            setRevokeError(null);
+            setRevokeOpen(true);
+          }}
+        >
+          Revoke host
+        </Button>
+      </DangerZone>
 
       <ConfirmDialog
         open={revokeOpen}
