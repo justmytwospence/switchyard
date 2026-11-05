@@ -366,7 +366,7 @@ Layouts, chosen from View options (persisted per device):
 - **Recent**: one list, sessions needing input first, then by last activity, with project, host and branch on each row.
 - **Hosts**: host (with connection state) → project → sessions.
 
-Subagent sessions are hidden unless "Show subagents" is on. Within a group, sessions needing input come first. Session rows show title, textual status, last activity, and attention indicator.
+Subagent sessions are hidden unless "Show subagents" is on. View options also choose a sort per layout (Recent activity, Newest, Name, Status; defaults: Projects and Hosts by name, Worktrees and Recent by activity), applied to groups and sessions, with sessions needing input first unless turned off. Session rows show title, textual status, last activity, and attention indicator.
 
 Provide search, active/all filter, view options, collapse controls, and New session.
 

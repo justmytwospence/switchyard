@@ -150,9 +150,35 @@ export type NavLayout = "projects" | "worktrees" | "recent" | "hosts";
 export const NAV_LAYOUTS: { value: NavLayout; label: string; hint: string }[] = [
   { value: "projects", label: "Projects", hint: "Sessions under each project" },
   { value: "worktrees", label: "Worktrees", hint: "Project, then branch or worktree" },
-  { value: "recent", label: "Recent", hint: "One list, needs-input first" },
+  { value: "recent", label: "Recent", hint: "One list of every session" },
   { value: "hosts", label: "Hosts", hint: "Host, then project" },
 ];
+
+export type NavSort = "activity" | "created" | "name" | "status";
+
+export const NAV_SORTS: { value: NavSort; label: string; hint: string }[] = [
+  { value: "activity", label: "Recent activity", hint: "Latest activity first" },
+  { value: "created", label: "Newest", hint: "Most recently started first" },
+  { value: "name", label: "Name", hint: "A to Z" },
+  { value: "status", label: "Status", hint: "Waiting and running first" },
+];
+
+export const DEFAULT_SORT: Record<NavLayout, NavSort> = {
+  projects: "name",
+  worktrees: "activity",
+  recent: "activity",
+  hosts: "name",
+};
+
+const STATUS_RANK: Record<Session["runtime"], number> = {
+  waiting_input: 0,
+  running: 1,
+  starting: 2,
+  idle: 3,
+  failed: 4,
+  interrupted: 5,
+  stopped: 6,
+};
 
 export interface NavRow {
   session: Session;
@@ -196,6 +222,10 @@ export interface NavOptions {
   layout?: NavLayout;
   /** Default false. */
   showSubagents?: boolean;
+  /** Default: the layout's default sort. */
+  sort?: NavSort;
+  /** Sessions needing input before the rest. Default true. */
+  needsInputFirst?: boolean;
 }
 
 export interface NavInput {
@@ -269,10 +299,24 @@ function latest(g: NavGroup): string {
   return best;
 }
 
-function sortGroups(groups: NavGroup[]): NavGroup[] {
+function newest(g: NavGroup): string {
+  let best = "";
+  for (const r of g.rows) if (r.session.createdAt > best) best = r.session.createdAt;
+  for (const c of g.groups) {
+    const l = newest(c);
+    if (l > best) best = l;
+  }
+  return best;
+}
+
+function sortGroups(groups: NavGroup[], sort: NavSort): NavGroup[] {
   const last = (g: NavGroup) =>
     g.key.endsWith("__none") || (g.kind === "host" && g.label === "Unknown host") ? 1 : 0;
-  return groups.sort((a, b) => last(a) - last(b) || a.label.localeCompare(b.label));
+  const key = (g: NavGroup) =>
+    sort === "activity" ? latest(g) : sort === "created" ? newest(g) : "";
+  return groups.sort(
+    (a, b) => last(a) - last(b) || key(b).localeCompare(key(a)) || a.label.localeCompare(b.label),
+  );
 }
 
 function countSessions(g: NavGroup): number {
@@ -289,6 +333,8 @@ function countSessions(g: NavGroup): number {
  */
 export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   const layout = opts.layout ?? "projects";
+  const sort = opts.sort ?? DEFAULT_SORT[layout];
+  const needsFirst = opts.needsInputFirst ?? true;
   const q = opts.query.trim().toLowerCase();
   const attn = sessionsNeedingAttention(input.attention, input.interactions);
 
@@ -314,11 +360,26 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       continue;
     entries.push({ session: s, attention: needs, ws, projectId, project, hostId, hostName });
   }
-  entries.sort(
-    (a, b) =>
-      Number(b.attention) - Number(a.attention) ||
-      b.session.lastActivityAt.localeCompare(a.session.lastActivityAt),
-  );
+  const byActivity = (a: NavEntry, b: NavEntry) =>
+    b.session.lastActivityAt.localeCompare(a.session.lastActivityAt);
+  entries.sort((a, b) => {
+    if (needsFirst && a.attention !== b.attention) return Number(b.attention) - Number(a.attention);
+    switch (sort) {
+      case "created":
+        return b.session.createdAt.localeCompare(a.session.createdAt) || byActivity(a, b);
+      case "name":
+        return (
+          a.session.title.localeCompare(b.session.title, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          }) || byActivity(a, b)
+        );
+      case "status":
+        return STATUS_RANK[a.session.runtime] - STATUS_RANK[b.session.runtime] || byActivity(a, b);
+      default:
+        return byActivity(a, b);
+    }
+  });
 
   const row = (e: NavEntry, ctx: Omit<NavRow, "session" | "attention">): NavRow => ({
     session: e.session,
@@ -358,9 +419,9 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       }
       pg.rows.push(row(e, { project: null, host: null, branch: branchFor(e) }));
     }
-    const groups = sortGroups([...hosts.values()]);
+    const groups = sortGroups([...hosts.values()], sort);
     for (const g of groups) {
-      sortGroups(g.groups);
+      sortGroups(g.groups, sort);
       countSessions(g);
     }
     return { groups, rows: [] };
@@ -392,7 +453,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       pg.detail = pg.rows[0]!.host;
       for (const r of pg.rows) r.host = null;
     }
-    const groups = sortGroups([...projects.values()]);
+    const groups = sortGroups([...projects.values()], sort);
     for (const g of groups) countSessions(g);
     return { groups, rows: [] };
   }
@@ -435,12 +496,14 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
     }
   }
 
-  const groups = sortGroups([...projects.values()]);
+  const groups = sortGroups([...projects.values()], sort);
   for (const g of groups) {
     g.groups.sort((a, b) => {
-      const la = latest(a);
-      const lb = latest(b);
-      if (la !== lb) return lb.localeCompare(la);
+      if (sort === "activity" || sort === "created") {
+        const la = sort === "activity" ? latest(a) : newest(a);
+        const lb = sort === "activity" ? latest(b) : newest(b);
+        if (la !== lb) return lb.localeCompare(la);
+      }
       // The main checkout first, then by branch.
       const ma = wsOf.get(a)?.provenance === "main" ? 0 : 1;
       const mb = wsOf.get(b)?.provenance === "main" ? 0 : 1;

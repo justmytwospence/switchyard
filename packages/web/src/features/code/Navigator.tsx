@@ -28,11 +28,14 @@ import { useFilter } from "../../prefs";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import {
   buildNavTree,
+  DEFAULT_SORT,
   NAV_LAYOUTS,
+  NAV_SORTS,
   type NavFilter,
   type NavGroup,
   type NavLayout,
   type NavRow,
+  type NavSort,
   navGroupKeys,
   navTreeIsEmpty,
   projectIdOfGroup,
@@ -44,6 +47,8 @@ interface NavPrefs {
   collapsed: string[];
   layout: NavLayout;
   showSubagents: boolean;
+  sorts: Partial<Record<NavLayout, NavSort>>;
+  needsInputFirst: boolean;
 }
 
 /** The phone session list defaults to Recent; the desktop navigator to Projects. */
@@ -54,6 +59,8 @@ function defaultPrefs(screen: boolean): NavPrefs {
     collapsed: [],
     layout: screen ? "recent" : "projects",
     showSubagents: false,
+    sorts: {},
+    needsInputFirst: true,
   };
 }
 
@@ -76,6 +83,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const projects = useSyncStore((s) => s.projects);
   const workspaces = useSyncStore((s) => s.workspaces);
   const sessions = useSyncStore((s) => s.sessions);
+  const sort = prefs.sorts?.[prefs.layout] ?? DEFAULT_SORT[prefs.layout];
   const hostsMap = useSyncStore((s) => s.hosts);
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
@@ -90,6 +98,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           query: prefs.query,
           layout: prefs.layout,
           showSubagents: prefs.showSubagents,
+          sort,
+          needsInputFirst: prefs.needsInputFirst,
         },
       ),
     [
@@ -103,6 +113,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       prefs.query,
       prefs.layout,
       prefs.showSubagents,
+      sort,
+      prefs.needsInputFirst,
     ],
   );
   const collapsed = new Set(prefs.collapsed);
@@ -125,6 +137,25 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         onSelect: () => setPrefs({ ...prefs, layout: l.value }),
       }),
     ),
+    "separator",
+    { id: "sort-heading", heading: "Sort sessions" },
+    ...NAV_SORTS.map(
+      (s): MenuItem => ({
+        id: `sort-${s.value}`,
+        label: s.label,
+        hint: s.value === DEFAULT_SORT[prefs.layout] ? `${s.hint} (default)` : s.hint,
+        kind: "radio",
+        checked: sort === s.value,
+        onSelect: () => setPrefs({ ...prefs, sorts: { ...prefs.sorts, [prefs.layout]: s.value } }),
+      }),
+    ),
+    {
+      id: "needs-first",
+      label: "Needs input first",
+      kind: "checkbox",
+      checked: prefs.needsInputFirst,
+      onSelect: () => setPrefs({ ...prefs, needsInputFirst: !prefs.needsInputFirst }),
+    },
     "separator",
     {
       id: "subagents",

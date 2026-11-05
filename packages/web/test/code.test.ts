@@ -230,6 +230,84 @@ describe("navigator tree", () => {
     expect(found.groups[0]!.groups.map((w) => w.key)).toEqual(["w:w2"]);
   });
 
+  describe("sort", () => {
+    const rows = (tree: NavTree) => ids(tree);
+    const sortInput = {
+      ...input,
+      sessions: {
+        a: session("a", {
+          title: "Bravo",
+          workspaceId: "w1",
+          runtime: "running",
+          lastActivityAt: "2026-11-01T10:00:00.000Z",
+          createdAt: "2026-10-01T00:00:00.000Z",
+        }),
+        b: session("b", {
+          title: "Alpha",
+          workspaceId: "w1",
+          runtime: "idle",
+          lastActivityAt: "2026-11-01T12:00:00.000Z",
+          createdAt: "2026-10-03T00:00:00.000Z",
+        }),
+        c: session("c", {
+          title: "Charlie",
+          workspaceId: "w1",
+          runtime: "waiting_input",
+          lastActivityAt: "2026-11-01T11:00:00.000Z",
+          createdAt: "2026-10-02T00:00:00.000Z",
+        }),
+        e: session("e", { title: "Echo", projectId: null, cwd: "/tmp/x", runtime: "idle" }),
+      } as Record<string, Session>,
+      attention: { att: attention("att", { sessionId: "a" }) },
+    };
+    const base = { filter: "active" as const, query: "" };
+
+    it("Projects sorts by name by default, needs input first", () => {
+      const beta = buildNavTree(sortInput, base).groups[0]!;
+      expect(beta.rows.map((r) => r.session.id)).toEqual(["a", "b", "c"]);
+    });
+
+    it("needsInputFirst false drops that preference", () => {
+      const beta = buildNavTree(sortInput, { ...base, needsInputFirst: false }).groups[0]!;
+      expect(beta.rows.map((r) => r.session.id)).toEqual(["b", "a", "c"]);
+    });
+
+    it("activity and created order sessions and groups; Other sessions stays last", () => {
+      const act = buildNavTree(sortInput, { ...base, sort: "activity", needsInputFirst: false });
+      expect(act.groups.map((g) => g.label)).toEqual(["beta", "Other sessions"]);
+      expect(act.groups[0]!.rows.map((r) => r.session.id)).toEqual(["b", "c", "a"]);
+      const created = buildNavTree(sortInput, { ...base, sort: "created", needsInputFirst: false });
+      expect(created.groups[0]!.rows.map((r) => r.session.id)).toEqual(["b", "c", "a"]);
+    });
+
+    it("status puts waiting_input before running before idle", () => {
+      const tree = buildNavTree(sortInput, { ...base, sort: "status", needsInputFirst: false });
+      expect(tree.groups[0]!.rows.map((r) => r.session.id)).toEqual(["c", "a", "b"]);
+      expect(rows(tree)).toContain("e");
+    });
+
+    it("Worktrees name sort puts the main checkout first, then branches A to Z", () => {
+      const tree = buildNavTree(
+        {
+          ...sortInput,
+          workspaces: {
+            w1: workspace("w1", { branch: "zeta", provenance: "worktree" }),
+            w2: workspace("w2", { branch: "alpha", provenance: "worktree" }),
+            wm: workspace("wm", { branch: "main", provenance: "main" }),
+          } as Record<string, Workspace>,
+          sessions: {
+            a: session("a", { workspaceId: "w1", runtime: "running" }),
+            b: session("b", { workspaceId: "w2", runtime: "running" }),
+            c: session("c", { workspaceId: "wm", runtime: "running" }),
+          } as Record<string, Session>,
+          attention: {},
+        },
+        { ...base, layout: "worktrees", sort: "name" },
+      );
+      expect(tree.groups[0]!.groups.map((g) => g.key)).toEqual(["w:wm", "w:w2", "w:w1"]);
+    });
+  });
+
   it("Projects with All hides projects without sessions", () => {
     const tree = buildNavTree(input, { filter: "all", query: "" });
     expect(tree.groups.map((g) => g.label)).toEqual(["beta", "Other sessions"]);
