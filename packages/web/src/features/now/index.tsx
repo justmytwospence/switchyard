@@ -29,13 +29,14 @@ import {
   ErrorState,
   FatalError,
   HostUnavailable,
+  LastKnownNote,
   LoadingState,
   UnsupportedCapability,
 } from "../../components/ui/states";
 import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { errorMessage, isApiError } from "../../sync/api";
-import { useConnectionState, useSyncStore } from "../../sync/store";
+import { useSyncStore } from "../../sync/store";
 import { updateTask } from "../board/api";
 import { DispatchToggle } from "../board/BoardChrome";
 import { isRunActive, WAIT_LABELS, type WaitReason } from "../board/logic";
@@ -61,7 +62,6 @@ export default function NowView() {
   const tasks = useSyncStore((s) => s.tasks);
   const runs = useSyncStore((s) => s.runs);
   const hydrated = useSyncStore((s) => s.hydrated);
-  const connState = useConnectionState();
   const unsupported = isApiError(now.error) && now.error.status === 404;
   const malformed =
     !!now.data && (!Array.isArray(now.data.running) || !Array.isArray(now.data.queued));
@@ -109,11 +109,7 @@ export default function NowView() {
       <p className="text-sm text-muted">
         Pausing stops new work from starting. Runs already in progress keep going.
       </p>
-      {connState !== "live" && now.data && (
-        <p role="status" className="text-sm text-muted">
-          Showing the last known queue.
-        </p>
-      )}
+      <LastKnownNote subject="queue" show={!!now.data} />
       {unsupported && (
         <UnsupportedCapability
           capability="Queue explanations"

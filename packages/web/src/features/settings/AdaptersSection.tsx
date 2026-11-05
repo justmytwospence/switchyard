@@ -4,10 +4,10 @@ import { useMemo } from "react";
 import { Link } from "react-router";
 import { Card } from "../../components/ui/Card";
 import { InlineStatus } from "../../components/ui/StatusChip";
-import { EmptyState, ErrorState, LoadingState } from "../../components/ui/states";
+import { EmptyState, ErrorState, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { formatTime } from "../../lib/time";
 import { useSyncStore } from "../../sync/store";
-import { KeyValues, LastKnownNote, SectionPage, settingsPath, useHydrated } from "./shared";
+import { KeyValues, SectionPage, settingsPath, useHydrated } from "./shared";
 import { isObject, useResource } from "./useResource";
 
 const ADAPTER_STATUS = {

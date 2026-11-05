@@ -1,5 +1,6 @@
 import {
   CircleAlert,
+  History,
   Inbox,
   MessageCircleQuestion,
   Puzzle,
@@ -12,7 +13,7 @@ import { Link } from "react-router";
 import { cn } from "../../lib/cn";
 import { formatRelative, formatTime } from "../../lib/time";
 import { errorMessage } from "../../sync/api";
-import type { ConnectionState } from "../../sync/store";
+import { type ConnectionState, useConnectionState, useStaleSince } from "../../sync/store";
 import { Button, buttonClasses } from "./Button";
 import { Spinner } from "./Spinner";
 
@@ -164,8 +165,10 @@ export function ReconnectingBanner({
         <Spinner className="size-4 text-warning" />
       )}
       <span className="min-w-0 flex-1">
-        {offline ? "Offline" : "Reconnecting…"} showing last known data from{" "}
-        <time dateTime={lastSyncedAt ?? undefined}>{when}</time>
+        {offline ? "Offline" : "Reconnecting…"}
+        <span aria-hidden> · </span>
+        <span className="sr-only">, </span>
+        showing last known data from <time dateTime={lastSyncedAt ?? undefined}>{when}</time>
       </span>
       {onRetry && (
         <button
@@ -177,6 +180,41 @@ export function ReconnectingBanner({
         </button>
       )}
     </div>
+  );
+}
+
+/** The text of a last-known-data note: "Showing last known {subject} from {time}." */
+export function lastKnownText(subject: string, at: string | null | undefined): string {
+  return `Showing last known ${subject}${at ? ` from ${formatTime(at)}` : ""}.`;
+}
+
+/**
+ * Quiet page-level note while the live link is down (the banner above the page
+ * carries the state). Hidden while live, and while connecting with nothing synced yet.
+ */
+export function LastKnownNote({
+  subject = "data",
+  consequence = "Changes made elsewhere appear after reconnecting.",
+  show = true,
+  className,
+}: {
+  /** What is shown, e.g. "automations". */
+  subject?: string;
+  consequence?: ReactNode;
+  /** Extra gate, e.g. only once the data has loaded. */
+  show?: boolean;
+  className?: string;
+}) {
+  const state = useConnectionState();
+  const staleSince = useStaleSince();
+  if (!show || state === "live" || (state === "connecting" && !staleSince)) return null;
+  return (
+    <p role="status" className={cn("flex items-start gap-1.5 text-sm text-muted", className)}>
+      <History aria-hidden className="mt-0.5 size-4 shrink-0" />
+      <span>
+        {lastKnownText(subject, staleSince)} {consequence}
+      </span>
+    </p>
   );
 }
 

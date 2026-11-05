@@ -11,6 +11,7 @@ import { InlineStatus } from "../../components/ui/StatusChip";
 import {
   EmptyState,
   InlineError,
+  LastKnownNote,
   LoadingState,
   UnsupportedCapability,
 } from "../../components/ui/states";
@@ -19,13 +20,7 @@ import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { apiPost } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
-import {
-  LastKnownNote,
-  SectionPage,
-  settingsPath,
-  useHydrated,
-  validateAbsolutePath,
-} from "./shared";
+import { SectionPage, settingsPath, useHydrated, validateAbsolutePath } from "./shared";
 import { WORKTREE_DIR_HINT, worktreeDirProblem } from "./worktreeDir";
 
 export const projectPath = (id: string) => settingsPath(`projects/${encodeURIComponent(id)}`);

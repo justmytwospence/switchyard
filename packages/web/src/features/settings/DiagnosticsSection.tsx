@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { copyText } from "../../components/ui/Copy";
 import { InlineStatus, StatusChip } from "../../components/ui/StatusChip";
-import { ErrorState, FatalError, LoadingState } from "../../components/ui/states";
+import { ErrorState, FatalError, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { formatRelative, formatTime } from "../../lib/time";
 import { useSyncStore } from "../../sync/store";
 import { DiagnosticLevel, useAllDiagnostics } from "./AdaptersSection";
@@ -13,7 +13,7 @@ import {
   type DiagnosticsResponse,
   isDiagnosticsResponse,
 } from "./diagnosticsApi";
-import { KeyValues, LastKnownNote, PiCompat, SectionPage } from "./shared";
+import { KeyValues, PiCompat, SectionPage } from "./shared";
 import { useResource } from "./useResource";
 
 const show = (v: unknown) => (v === null || v === undefined || v === "" ? "Unknown" : String(v));

@@ -29,6 +29,7 @@ import {
   ErrorState,
   FatalError,
   HostUnavailable,
+  LastKnownNote,
   LoadingState,
 } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
@@ -37,13 +38,7 @@ import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { apiDelete, apiGet, apiPatch, apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
-import {
-  automationPath,
-  ConnectionNote,
-  useLocalAutomations,
-  useMergedAutomation,
-  useRunNow,
-} from "./controls";
+import { automationPath, useLocalAutomations, useMergedAutomation, useRunNow } from "./controls";
 import {
   type AutomationDraft,
   type DraftErrors,
@@ -459,7 +454,10 @@ function Editor({ automation }: { automation: Automation | null }) {
         </div>
       </header>
 
-      <ConnectionNote />
+      <LastKnownNote
+        subject="automations"
+        consequence="Changes are sent once the coordinator is reachable again."
+      />
       {selectedHost && selectedHost.connectivity !== "connected" && (
         <HostUnavailable
           compact

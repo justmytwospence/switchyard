@@ -8,19 +8,12 @@ import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import { SwitchRow } from "../../components/ui/Switch";
-import { EmptyState, InlineError, LoadingState } from "../../components/ui/states";
+import { EmptyState, InlineError, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useHosts, useSyncStore } from "../../sync/store";
-import {
-  LastKnownNote,
-  SectionPage,
-  settingsPath,
-  splitLines,
-  useHydrated,
-  validateAbsolutePath,
-} from "./shared";
+import { SectionPage, settingsPath, splitLines, useHydrated, validateAbsolutePath } from "./shared";
 import { WorkspacesCard } from "./WorkspacesCard";
 import { WORKTREE_DIR_HINT, worktreeDirProblem } from "./worktreeDir";
 

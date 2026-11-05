@@ -6,7 +6,6 @@ import {
   CircleCheck,
   DatabaseBackup,
   FolderGit2,
-  History,
   Keyboard,
   KeyRound,
   type LucideIcon,
@@ -22,8 +21,7 @@ import { Link } from "react-router";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { InlineStatus } from "../../components/ui/StatusChip";
-import { formatTime } from "../../lib/time";
-import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
+import { useSyncStore } from "../../sync/store";
 
 /* ------------------------------------------------------------------ */
 /* Sections                                                            */
@@ -164,23 +162,6 @@ export function KeyValues({ items }: { items: [ReactNode, ReactNode][] }) {
         </div>
       ))}
     </dl>
-  );
-}
-
-/** "Showing last known data" when the live connection is down (spec 18). */
-export function LastKnownNote() {
-  const connState = useConnectionState();
-  const staleSince = useStaleSince();
-  if (connState === "live" || connState === "connecting") return null;
-  return (
-    <p role="status" className="flex items-center gap-1.5 text-sm text-muted">
-      <History aria-hidden className="size-4 shrink-0" />
-      <span>
-        Showing last known data
-        {staleSince ? ` from ${formatTime(staleSince)}` : ""}. Changes made elsewhere appear after
-        reconnecting.
-      </span>
-    </p>
   );
 }
 

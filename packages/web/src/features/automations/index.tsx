@@ -18,13 +18,18 @@ import { BACK_STATE } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { Switch } from "../../components/ui/Switch";
-import { EmptyState, ErrorState, FatalError, LoadingState } from "../../components/ui/states";
+import {
+  EmptyState,
+  ErrorState,
+  FatalError,
+  LastKnownNote,
+  LoadingState,
+} from "../../components/ui/states";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { apiGet } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 import {
-  ConnectionNote,
   FailureCount,
   useLocalAutomations,
   useMergedAutomations,
@@ -143,7 +148,10 @@ export default function AutomationsView() {
           New automation
         </Link>
       </header>
-      <ConnectionNote />
+      <LastKnownNote
+        subject="automations"
+        consequence="Changes are sent once the coordinator is reachable again."
+      />
       {body}
     </div>
   );

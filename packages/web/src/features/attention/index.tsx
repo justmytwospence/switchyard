@@ -11,6 +11,7 @@ import {
   EmptyState,
   ErrorState,
   HostUnavailable,
+  LastKnownNote,
   LoadingState,
   UnsupportedCapability,
 } from "../../components/ui/states";
@@ -19,7 +20,7 @@ import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { apiPost, errorMessage } from "../../sync/api";
 import { isUnacknowledgedAttention } from "../../sync/selectors";
-import { useConnectionState, useOpenAttention, useSyncStore } from "../../sync/store";
+import { useOpenAttention, useSyncStore } from "../../sync/store";
 
 export const ATTENTION_GROUPS: AttentionReason[] = [
   "needs_input",
@@ -53,7 +54,6 @@ export function groupAttention(items: AttentionItem[]): Record<AttentionReason, 
 export default function AttentionView() {
   const all = useOpenAttention();
   const hydrated = useSyncStore((s) => s.hydrated);
-  const connState = useConnectionState();
   const [show, setShow] = useFilter<"all" | "new">("attention", "all");
   const items = useMemo(
     () => (show === "new" ? all.filter(isUnacknowledgedAttention) : all),
@@ -76,11 +76,11 @@ export default function AttentionView() {
           ]}
         />
       </header>
-      {connState !== "live" && hydrated && (
-        <p className="text-sm text-muted" role="status">
-          Showing the last known attention items; answers are sent once the connection is back.
-        </p>
-      )}
+      <LastKnownNote
+        subject="attention items"
+        consequence="Answers are sent once the connection is back."
+        show={hydrated}
+      />
       {!hydrated ? (
         <LoadingState label="Loading attention…" />
       ) : items.length === 0 ? (

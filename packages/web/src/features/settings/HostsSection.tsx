@@ -11,6 +11,7 @@ import { StatusChip } from "../../components/ui/StatusChip";
 import {
   EmptyState,
   HostUnavailable,
+  LastKnownNote,
   LoadingState,
   UnsupportedCapability,
 } from "../../components/ui/states";
@@ -29,7 +30,6 @@ import {
 import { ProjectFoldersCard } from "./ProjectFoldersCard";
 import {
   KeyValues,
-  LastKnownNote,
   PiCompat,
   PLATFORM_LABEL,
   SectionPage,

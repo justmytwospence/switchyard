@@ -1,12 +1,10 @@
 import type { Automation } from "@switchyard/protocol";
-import { CircleCheck, CloudOff, TriangleAlert } from "lucide-react";
+import { CircleCheck, TriangleAlert } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { create } from "zustand";
 import { toast } from "../../components/ui/Toast";
-import { cn } from "../../lib/cn";
-import { formatTime } from "../../lib/time";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
-import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
+import { useSyncStore } from "../../sync/store";
 
 /* Small building blocks shared by the Automations list and editor. */
 
@@ -25,30 +23,6 @@ export function FailureCount({ count }: { count: number }) {
       <CircleCheck aria-hidden className="size-4 shrink-0" />
       No failures
     </span>
-  );
-}
-
-/** Inline last-known-data note when the coordinator link is not live. */
-export function ConnectionNote({ className }: { className?: string }) {
-  const connState = useConnectionState();
-  const staleSince = useStaleSince();
-  if (connState === "live") return null;
-  if (connState === "connecting" && !staleSince) return null;
-  return (
-    <p
-      role="status"
-      className={cn(
-        "flex items-start gap-1.5 rounded-md border border-border bg-warning-soft px-3 py-1.5 text-sm",
-        className,
-      )}
-    >
-      <CloudOff aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
-      <span>
-        Showing last known automations
-        {staleSince ? ` from ${formatTime(staleSince)}` : ""}. Changes are sent once the coordinator
-        is reachable again.
-      </span>
-    </p>
   );
 }
 

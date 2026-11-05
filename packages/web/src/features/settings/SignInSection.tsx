@@ -10,13 +10,13 @@ import { Field, fieldControlProps } from "../../components/ui/Field";
 import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
 import { InlineStatus } from "../../components/ui/StatusChip";
-import { ErrorState, InlineError, LoadingState } from "../../components/ui/states";
+import { ErrorState, InlineError, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { apiDelete, apiPost, errorMessage } from "../../sync/api";
 import { defaultDeviceName } from "../enroll/logic";
-import { isAuthMethods, KeyValues, LastKnownNote, SectionPage } from "./shared";
+import { isAuthMethods, KeyValues, SectionPage } from "./shared";
 import { useResource } from "./useResource";
 
 /** Settings › Sign-in: passkeys, single sign-on status and signing out of this device. */

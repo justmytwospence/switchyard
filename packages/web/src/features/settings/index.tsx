@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { Link, Route, Routes, useLocation } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
-import { EmptyState } from "../../components/ui/states";
+import { EmptyState, LastKnownNote } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
 import { useSyncStore } from "../../sync/store";
 import { AdaptersSection } from "./AdaptersSection";
@@ -17,7 +17,7 @@ import { ProfilesSection } from "./ProfilesSection";
 import { ProjectDetail } from "./ProjectDetail";
 import { ProjectCreate, ProjectsSection } from "./ProjectsSection";
 import { SignInSection } from "./SignInSection";
-import { LastKnownNote, SECTIONS, SectionPage, settingsPath } from "./shared";
+import { SECTIONS, SectionPage, settingsPath } from "./shared";
 
 /**
  * Settings (spec 15): hosts, devices, projects, Pi profiles, adapters,
