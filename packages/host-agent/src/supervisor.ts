@@ -635,6 +635,9 @@ export class SessionSupervisor {
   /** Start or resume a session. Never starts a second process for a live session or file. */
   async start(p: StartParams): Promise<StartResult> {
     if (this.closing) throw new SwitchyardError("host_unreachable", "Host agent is shutting down");
+    // A start for this session is already in flight: let it finish, then decide.
+    await this.starts.get(p.sessionId)?.done.catch(() => {});
+    if (this.closing) throw new SwitchyardError("host_unreachable", "Host agent is shutting down");
     const existing = this.live.get(p.sessionId);
     if (existing) {
       if (existing.ms?.isAlive || existing.rec.runtime === "starting") {
@@ -650,6 +653,20 @@ export class SessionSupervisor {
       }
       this.live.delete(p.sessionId);
     }
+    const abort = new AbortController();
+    const done = this.startNew(p, abort.signal);
+    this.starts.set(p.sessionId, { abort, done });
+    try {
+      return await done;
+    } finally {
+      if (this.starts.get(p.sessionId)?.done === done) this.starts.delete(p.sessionId);
+    }
+  }
+
+  /** Starts in flight, so `stop()` can interrupt one that is still waiting for Pi. */
+  private readonly starts = new Map<string, { abort: AbortController; done: Promise<unknown> }>();
+
+  private async startNew(p: StartParams, signal: AbortSignal): Promise<StartResult> {
     if (p.readOnly) {
       throw new SwitchyardError(
         "forbidden",
@@ -732,6 +749,7 @@ export class SessionSupervisor {
     const l = this.newLive(rec);
     this.live.set(rec.id, l);
     this.db.tx(() => this.saveAndEmit(rec));
+    if (signal.aborted) return this.canceledStart(l);
 
     // Adapters load while Pi starts; Pi events queue behind them on the session chain.
     const adaptersStart = Date.now();
@@ -757,7 +775,11 @@ export class SessionSupervisor {
     this.wire(l, ms);
     const piStart = Date.now();
     try {
-      await ms.start();
+      await ms.start(signal);
+      if (signal.aborted || ms.runtime === "stopped") {
+        if (ms.process) this.spawned++;
+        return this.canceledStart(l);
+      }
       this.opts.log.info(
         {
           sessionId: rec.id,
@@ -774,6 +796,7 @@ export class SessionSupervisor {
     } catch (err) {
       if (ms.process) this.spawned++;
       this.teardown(l);
+      if (signal.aborted) return this.canceledStart(l);
       if (this.closing && rec.terminal) {
         // Detached at shutdown while Pi was still starting: keep the record for the next agent.
         throw err instanceof SwitchyardError
@@ -799,6 +822,27 @@ export class SessionSupervisor {
       runtime: rec.runtime,
       reused: false,
       promptError,
+    };
+  }
+
+  /** A stop arrived while Pi was still starting: the session ends `stopped`, resolved, not thrown. */
+  private canceledStart(l: Live): StartResult {
+    const { rec } = l;
+    rec.terminal = null;
+    if (rec.runtime === "starting") {
+      rec.runtime = "stopped";
+      rec.runtimeDetail = null;
+    }
+    this.teardown(l);
+    this.db.tx(() => this.saveAndEmit(rec));
+    this.opts.log.info({ sessionId: rec.id }, "start canceled by stop");
+    return {
+      sessionId: rec.id,
+      nativeHandle: rec.nativeHandle,
+      workspacePath: rec.cwd,
+      runtime: "stopped",
+      reused: false,
+      promptError: null,
     };
   }
 
@@ -892,6 +936,12 @@ export class SessionSupervisor {
 
   /** Graceful stop; the runtime becomes `stopped`. A session that is not live is a no-op. */
   async stop(sessionId: string): Promise<{ runtime: RuntimeState }> {
+    // A start still waiting for Pi is interrupted, not waited for.
+    const pending = this.starts.get(sessionId);
+    if (pending) {
+      pending.abort.abort();
+      await pending.done.catch(() => {});
+    }
     const l = this.live.get(sessionId);
     if (!l?.ms) {
       const rec = this.requireRecord(sessionId);

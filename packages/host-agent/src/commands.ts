@@ -63,6 +63,7 @@ export function queueKey(command: HostCommand): string {
   if (
     command.type === "session.answer" ||
     command.type === "session.abort" ||
+    command.type === "session.stop" ||
     command.type === "session.setControl" ||
     command.type === "session.adapterAction" ||
     command.type === "session.snapshot" ||

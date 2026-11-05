@@ -329,12 +329,16 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     return args;
   }
 
-  /** Spawn Pi, read `get_state`, and emit `native`. */
-  async start(): Promise<void> {
+  /**
+   * Spawn Pi, read `get_state`, and emit `native`. Aborting `signal` (or `stop()`) while Pi is
+   * still starting stops it and resolves with the runtime `stopped`, instead of failing.
+   */
+  async start(signal?: AbortSignal): Promise<void> {
     if (this.proc) throw new Error("ManagedSession already started");
     this.setRuntime();
+    if (signal?.aborted) return this.cancelStart();
     if (this.transport === "terminal" && this.opts.terminalSocket) {
-      await this.attachTerminal(this.opts.terminalSocket);
+      await this.attachTerminal(this.opts.terminalSocket, signal);
       return;
     }
     if (this._native && !existsSync(this._native.sessionFile)) {
@@ -362,9 +366,10 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
         runtimeDir: this.opts.runtimeDir,
       };
       this.proc = terminal
-        ? await PiTerminalProcess.start(startOpts)
+        ? await PiTerminalProcess.start({ ...startOpts, signal })
         : await PiRpcProcess.start(startOpts);
     } catch (err) {
+      if (signal?.aborted || this.closeRequested) return this.cancelStart();
       this.fail((err as Error).message);
       throw new SwitchyardError("internal", (err as Error).message);
     }
@@ -372,10 +377,17 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     if (this.proc instanceof PiTerminalProcess) {
       this.emit("terminal", { socketPath: this.proc.socketPath });
     }
+    if (signal?.aborted || this.closeRequested) return this.cancelStart();
     if (terminal) this.setRuntime(STARTING_IN_TERMINAL);
+    const proc = this.proc;
+    const onAbort = () => {
+      this.closeRequested = true;
+      void proc.close({ graceMs: 1000, termMs: 2000 });
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     let state: PiState;
     try {
-      state = await this.proc.request<PiState>(
+      state = await proc.request<PiState>(
         { type: "get_state" },
         this.opts.startTimeoutMs ?? (terminal ? 15 * 60_000 : 30000),
       );
@@ -383,10 +395,13 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       if (this.detachedDuring) {
         throw new SwitchyardError("host_unreachable", "Host agent is shutting down");
       }
+      if (signal?.aborted || this.closeRequested) return this.cancelStart();
       const message = `Pi did not start: ${(err as Error).message}`;
       this.fail(message);
       void this.proc.close({ graceMs: 1000, termMs: 1000 });
       throw new SwitchyardError("internal", message);
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
     if (!state.sessionFile) {
       this.fail("Pi reported no session file");
@@ -409,8 +424,19 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     this.setRuntime();
   }
 
+  /** A start that was stopped before Pi finished starting: stop Pi and end `stopped`. */
+  private async cancelStart(): Promise<void> {
+    this.closeRequested = true;
+    if (this.proc && !this.proc.exited) await this.proc.close({ graceMs: 1000, termMs: 2000 });
+    if (!this.terminal) {
+      this.terminal = "stopped";
+      this._detail = null;
+    }
+    this.setRuntime(null);
+  }
+
   /** Terminal transport: attach to a running holder and adopt its Pi's state. */
-  private async attachTerminal(socketPath: string): Promise<void> {
+  private async attachTerminal(socketPath: string, signal?: AbortSignal): Promise<void> {
     try {
       this.proc = await PiTerminalProcess.attach(socketPath);
     } catch (err) {
@@ -421,9 +447,15 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     // A holder whose Pi had not finished starting when the last agent stopped: wait like a start.
     const starting = this.opts.reattachStarting === true;
     if (starting) this.setRuntime(STARTING_IN_TERMINAL);
+    const proc = this.proc;
+    const onAbort = () => {
+      this.closeRequested = true;
+      void proc.close({ graceMs: 1000, termMs: 2000 });
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     let state: PiState;
     try {
-      state = await this.proc.request<PiState>(
+      state = await proc.request<PiState>(
         { type: "get_state" },
         starting ? (this.opts.startTimeoutMs ?? 15 * 60_000) : 10000,
       );
@@ -431,6 +463,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       if (this.detachedDuring) {
         throw new SwitchyardError("host_unreachable", "Host agent is shutting down");
       }
+      if (signal?.aborted || this.closeRequested) return this.cancelStart();
       const exited = this.proc.exited;
       const message = exited
         ? `Pi exited while the host agent was away (code ${exited.code}, signal ${exited.signal})${screenTail(exited.screen)}`
@@ -439,6 +472,8 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       // Never leave a holder running that nothing controls.
       await this.proc.close({ graceMs: 1000, termMs: 3000 });
       throw new SwitchyardError("internal", message);
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
     if (state.sessionFile) {
       this._native = { sessionId: state.sessionId, sessionFile: state.sessionFile };

@@ -16,7 +16,13 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JsonlReader, writeJsonl } from "./jsonl.js";
-import { type PiExit, PiRpcError, screenTail, shortSocketPath } from "./rpc-process.js";
+import {
+  type PiExit,
+  PiRpcError,
+  START_CANCELED,
+  screenTail,
+  shortSocketPath,
+} from "./rpc-process.js";
 import type { PiTransport } from "./transport.js";
 import type { BridgeEvent, PiUiRequest, PiUiResponseBody } from "./types.js";
 
@@ -60,6 +66,8 @@ export interface PiTerminalStartOptions {
   logPath?: string;
   cols?: number;
   rows?: number;
+  /** Abort to stop waiting for the holder: it is killed and the start rejects. */
+  signal?: AbortSignal;
 }
 
 interface PendingRequest {
@@ -268,11 +276,17 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       }
     };
     const deadline = Date.now() + 10_000;
+    const canceled = () => {
+      killHolder();
+      return new PiRpcError("spawn", START_CANCELED, "transport");
+    };
     for (;;) {
+      if (opts.signal?.aborted) throw canceled();
       try {
         const socket = await connectOnce(socketPath, 1000);
         return new PiTerminalProcess(socketPath, socket);
       } catch {
+        if (opts.signal?.aborted) throw canceled();
         if (Date.now() > deadline) {
           const tail = logTail(logPath);
           killHolder();

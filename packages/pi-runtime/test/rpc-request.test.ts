@@ -103,3 +103,32 @@ describe("requests without a timeout", () => {
     }
   });
 });
+
+describe("aborting a start", () => {
+  it("stops Pi and ends stopped", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "sy-fakepi-"));
+    dirs.push(cwd);
+    const ms = new ManagedSession({
+      sessionId: "ses_hang",
+      cwd,
+      title: "Hang",
+      profile: {
+        provider: "mock",
+        model: "mock-1",
+        thinking: null,
+        projectTrust: "ask",
+        extraArgs: [],
+      },
+      nativeHandle: null,
+      piBin: fakePi,
+      env: { FAKE_PI_HANG: "1" },
+      transport: "rpc",
+    });
+    const ac = new AbortController();
+    const started = ms.start(ac.signal);
+    setTimeout(() => ac.abort(), 200);
+    await started;
+    expect(ms.runtime).toBe("stopped");
+    expect(ms.process?.exited).toMatchObject({ requested: true });
+  });
+});

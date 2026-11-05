@@ -35,6 +35,7 @@ export {
   type PiRpcErrorKind,
   PiRpcProcess,
   type PiRpcStartOptions,
+  START_CANCELED,
   screenTail,
   shortSocketPath,
   socketDirs,

@@ -31,6 +31,9 @@ export interface PiRpcStartOptions {
   bridge?: boolean;
 }
 
+/** Why a start that was canceled (the session was stopped while Pi was still starting) ended. */
+export const START_CANCELED = "Start canceled";
+
 export interface PiExit {
   code: number | null;
   signal: NodeJS.Signals | null;

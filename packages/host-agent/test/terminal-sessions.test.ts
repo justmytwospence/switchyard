@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { terminalSupport } from "@switchyard/pi-runtime";
 import type { HostEvent } from "@switchyard/protocol";
 import { skipRealPi, when } from "@switchyard/test-fixtures";
@@ -140,6 +141,26 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions still st
       await waitFor(() => agent2.supervisor.record(id)?.runtime === "idle", 30000, "idle");
       await h.coord.ok({ type: "session.stop", sessionId: id });
       await waitFor(() => agent2.supervisor.record(id)?.runtime === "stopped", 10000, "stopped");
+    } finally {
+      await h.dispose();
+      slow.cleanup();
+    }
+  });
+
+  it("session.stop during a slow terminal start kills its holder and ends stopped", async () => {
+    const slow = slowPi(20);
+    const h = await startHarness({ terminalSessions: true, piBin: slow.path });
+    try {
+      const id = sid();
+      const started = h.coord.command(startCommand(id, h.pi!.cwd));
+      await waitFor(() => h.agent.supervisor.record(id)?.runtime === "starting", 15000, "starting");
+      const socketPath = h.agent.supervisor.record(id)?.terminal?.socketPath;
+      const t0 = Date.now();
+      await h.coord.ok({ type: "session.stop", sessionId: id });
+      expect(Date.now() - t0).toBeLessThan(8000);
+      expect(h.agent.supervisor.record(id)).toMatchObject({ runtime: "stopped", terminal: null });
+      expect(await started).toMatchObject({ ok: true, result: { runtime: "stopped" } });
+      if (socketPath) await waitFor(() => !existsSync(socketPath), 10000, "holder gone");
     } finally {
       await h.dispose();
       slow.cleanup();
