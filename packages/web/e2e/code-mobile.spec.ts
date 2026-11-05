@@ -241,8 +241,11 @@ test.describe("mobile coding view", () => {
     const id = await createSession(api, state, `Mobile archived ${uid(info)}`, "hello");
     await page.goto(`/code/${id}`);
     await expect(page.getByTestId("transcript")).toBeVisible();
-    // An archived session is not in the snapshot, so archive it while it is open.
     await api("POST", `/api/sessions/${id}/archive`);
+    await expect(page.getByTestId("session-status")).toHaveAttribute("data-kind", "archived");
+    // An archived session is not in the snapshot, but its URL still opens after a reload.
+    await page.reload();
+    await expect(page.getByTestId("transcript")).toBeVisible();
     await expect(page.getByTestId("session-status")).toHaveAttribute("data-kind", "archived");
     await page.getByRole("button", { name: "More actions" }).tap();
     await page.getByRole("menuitem", { name: "Unarchive" }).tap();

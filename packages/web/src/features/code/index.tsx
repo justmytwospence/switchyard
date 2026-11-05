@@ -6,6 +6,7 @@ import { useViewingSession } from "../../presence";
 import { useSession, useSyncStore } from "../../sync/store";
 import { CodeDesktop, CodeMobile } from "./CodeLayouts";
 import type { InspectorTab } from "./context";
+import { useSessionLookup } from "./hooks";
 
 const INSPECTOR_TABS: readonly string[] = ["changes", "files", "task", "extensions"];
 
@@ -28,6 +29,7 @@ export default function CodeView() {
   const bp = useBreakpoint();
   const hydrated = useSyncStore((s) => s.hydrated);
   const session = useSession(sessionId);
+  const lookup = useSessionLookup(sessionId, session, hydrated);
   const lastSessionId = usePrefs((s) => s.lastSessionId);
   const lastSession = useSession(lastSessionId);
   const setPref = usePrefs((s) => s.set);
@@ -47,7 +49,8 @@ export default function CodeView() {
   const props = {
     session,
     sessionId,
-    hydrated,
+    hydrated: hydrated && lookup.state !== "loading",
+    loadError: lookup.state === "error" ? lookup.error : null,
     focusInteractionId,
     tabRequest: requestedTab ? { tab: requestedTab, key: requestKey } : null,
   };

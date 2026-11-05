@@ -41,6 +41,7 @@ export interface PromptResult {
 }
 
 export const codeApi = {
+  get: (id: string, signal?: AbortSignal) => apiGet<Session>(s(id), undefined, signal),
   createSession: (body: CreateSessionBody) => apiPost<Session>("/api/sessions", body),
   prompt: (
     id: string,

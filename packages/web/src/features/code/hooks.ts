@@ -9,8 +9,9 @@ import type {
 } from "@switchyard/protocol";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "../../components/ui/Toast";
-import { errorMessage } from "../../sync/api";
+import { errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
+import { codeApi } from "./api";
 import {
   type AutomationControl,
   automationControl,
@@ -33,6 +34,48 @@ export interface SessionContext {
 }
 
 const NO_ADAPTERS: AdapterInfo[] = [];
+
+export type SessionLookup =
+  | { state: "idle" }
+  | { state: "loading" }
+  | { state: "missing" }
+  | { state: "error"; error: string };
+
+/**
+ * A session the snapshot leaves out (archived) is fetched by id and kept in the sync store, so
+ * its URL still opens after a reload and live events (Unarchive) update it.
+ */
+export function useSessionLookup(
+  sessionId: string | null,
+  session: Session | undefined,
+  hydrated: boolean,
+): SessionLookup {
+  const absent = hydrated && !!sessionId && !session;
+  const [result, setResult] = useState<{ id: string; lookup: SessionLookup } | null>(null);
+  useEffect(() => {
+    if (!absent || !sessionId) return;
+    const ctrl = new AbortController();
+    setResult({ id: sessionId, lookup: { state: "loading" } });
+    codeApi.get(sessionId, ctrl.signal).then(
+      (s) => {
+        useSyncStore.getState().upsertSessionIfMissing(s);
+        setResult(null);
+      },
+      (e) => {
+        if (ctrl.signal.aborted) return;
+        setResult({
+          id: sessionId,
+          lookup: isApiError(e, "not_found")
+            ? { state: "missing" }
+            : { state: "error", error: errorMessage(e) },
+        });
+      },
+    );
+    return () => ctrl.abort();
+  }, [absent, sessionId]);
+  if (!absent) return { state: "idle" };
+  return result?.id === sessionId ? result.lookup : { state: "loading" };
+}
 
 /** Everything the session views need about one session, from the store. */
 export function useSessionContext(session: Session | undefined): SessionContext | null {

@@ -191,11 +191,14 @@ test.describe("desktop coding view", () => {
     await page.goto(`/code/${id}`);
     const conversation = page.getByTestId("conversation");
     await expect(page.getByTestId("transcript")).toBeVisible();
-    // An archived session is not in the snapshot, so archive it while it is open.
     await api("POST", `/api/sessions/${id}/archive`);
     const bar = page.getByTestId("session-status");
     await expect(bar).toHaveAttribute("data-kind", "archived");
     await expect(bar).toContainText("This session is archived. Unarchive it to send messages.");
+    // An archived session is not in the snapshot, but its URL still opens after a reload.
+    await page.reload();
+    await expect(page.getByTestId("transcript")).toBeVisible();
+    await expect(bar).toHaveAttribute("data-kind", "archived");
     await expect(conversation.getByRole("button", { name: "Resume" })).toHaveCount(0);
     await bar.getByRole("button", { name: "Unarchive" }).click();
     await expect(page.getByText("Session unarchived.")).toBeVisible();

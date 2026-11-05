@@ -16,12 +16,22 @@ import { NewSessionFlow } from "./NewSession";
 import { useSessionActions } from "./SessionActions";
 import { Conversation, MobileSession } from "./SessionView";
 
-function NoSession({ missing }: { missing: boolean }) {
+function NoSession({ missing, error }: { missing: boolean; error?: string | null }) {
+  if (error) {
+    return (
+      <EmptyState
+        icon={<SearchX className="size-8" />}
+        title="Could not load session"
+        description={error}
+        action={{ label: "Back to sessions", to: "/code" }}
+      />
+    );
+  }
   return missing ? (
     <EmptyState
       icon={<SearchX className="size-8" />}
       title="Session not found"
-      description="It may have been archived, or this link points to another coordinator."
+      description="This link may point to another coordinator."
       action={{ label: "Back to sessions", to: "/code" }}
     />
   ) : (
@@ -43,6 +53,7 @@ interface LayoutProps {
   session: Session | undefined;
   sessionId: string | null;
   hydrated: boolean;
+  loadError: string | null;
   focusInteractionId: string | null;
   tabRequest: TabRequest | null;
 }
@@ -112,7 +123,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
             tabRequest={props.tabRequest}
           />
         ) : (
-          <NoSession missing={!!props.sessionId} />
+          <NoSession missing={!!props.sessionId} error={props.loadError} />
         )}
       </div>
       <NewSessionFlow
@@ -269,7 +280,7 @@ export function CodeMobile(props: LayoutProps) {
   );
   if (props.sessionId) {
     if (!props.hydrated) return <LoadingState label="Loading session…" />;
-    if (!ctx) return <NoSession missing />;
+    if (!ctx) return <NoSession missing error={props.loadError} />;
     return (
       <MobileSessionScreen
         key={ctx.session.id}
