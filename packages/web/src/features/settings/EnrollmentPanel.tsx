@@ -1,3 +1,4 @@
+import type { CreateEnrollmentResponse } from "@switchyard/protocol";
 import { Clock, RefreshCw, TriangleAlert } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { InlineError, LoadingState } from "../../components/ui/states";
@@ -5,13 +6,7 @@ import { apiPost } from "../../sync/api";
 import { formatCountdown, useCountdown } from "./shared";
 
 /** Response of POST /api/enrollments (protocol CreateEnrollmentResponse). */
-export interface Enrollment {
-  token: string;
-  url: string;
-  expiresAt: string;
-  qrSvg: string;
-  command: string | null;
-}
+export type Enrollment = CreateEnrollmentResponse;
 
 export function createEnrollment(kind: "device" | "host"): Promise<Enrollment> {
   return apiPost<Enrollment>("/api/enrollments", { kind });

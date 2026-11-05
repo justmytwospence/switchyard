@@ -1,5 +1,9 @@
 import { hostname } from "node:os";
-import type { TerminalLoginClaimResponse, TerminalLoginStartResponse } from "@switchyard/protocol";
+import type {
+  CreateEnrollmentResponse,
+  TerminalLoginClaimResponse,
+  TerminalLoginStartResponse,
+} from "@switchyard/protocol";
 import { ApiClient, ApiRequestError } from "@switchyard/terminal";
 import QRCode from "qrcode";
 import {
@@ -20,13 +24,6 @@ export interface PairFlags {
   coordinator?: string;
   dataDir?: string;
   json?: boolean;
-}
-
-interface EnrollmentResponse {
-  token: string;
-  url: string;
-  expiresAt: string;
-  command: string | null;
 }
 
 /** An API client authenticated with this machine's local admin token. */
@@ -73,28 +70,22 @@ export async function printSignInLink(ctx: Ctx, url: string, expiresAt: string):
  * be able to reach that URL (LAN, VPN or reverse proxy). Also the recovery path when every
  * signed-in device is lost.
  */
-export async function pair(ctx: Ctx, flags: PairFlags): Promise<EnrollmentResponse> {
+export async function pair(ctx: Ctx, flags: PairFlags): Promise<CreateEnrollmentResponse> {
   const api = adminApi(ctx, flags);
   const kind = flags.host ? "host" : "device";
-  const e = await api.post<EnrollmentResponse>("/api/enrollments", { kind });
+  const e = await api.post<CreateEnrollmentResponse>("/api/enrollments", { kind });
   if (flags.json) {
     ctx.out(JSON.stringify(e, null, 2));
     return e;
   }
-  const qr = await QRCode.toString(e.url, { type: "terminal", small: true });
   if (kind === "host") {
-    ctx.out(`Host enrollment (single use, expires ${e.expiresAt}). On the host, run:`);
+    ctx.out(`Host enrollment (single use, expires ${clockTime(e.expiresAt)}). On the host, run:`);
     ctx.out("");
     ctx.out(`  ${e.command ?? `switchyard host enroll --coordinator <url> --token ${e.token}`}`);
     ctx.out("");
     ctx.out(`Token: ${e.token}`);
   } else {
-    ctx.out(`Open this link in a browser to sign it in (single use, expires ${e.expiresAt}):`);
-    ctx.out("");
-    ctx.out(`  ${e.url}`);
-    ctx.out("");
-    ctx.out(qr.trimEnd());
-    ctx.out("");
+    await printSignInLink(ctx, e.url, e.expiresAt);
     ctx.out(`Terminal: switchyard login --coordinator ${originOf(e.url)} --token ${e.token}`);
   }
   ctx.out("The link does not provide network access: the device must already reach this URL.");

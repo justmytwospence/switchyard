@@ -1,4 +1,8 @@
-import { CreateEnrollmentRequest, type Device } from "@switchyard/protocol";
+import {
+  CreateEnrollmentRequest,
+  type CreateEnrollmentResponse,
+  type Device,
+} from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import QRCode from "qrcode";
 import { z } from "zod";
@@ -14,7 +18,7 @@ export async function enrollmentResponse(
   ctx: CoordinatorContext,
   kind: "device" | "host",
   createdBy: string | null,
-) {
+): Promise<CreateEnrollmentResponse> {
   const e = ctx.auth.createEnrollment(kind, createdBy);
   const qrSvg = await QRCode.toString(e.url, { type: "svg", margin: 1 });
   return { token: e.token, url: e.url, expiresAt: e.expiresAt, qrSvg, command: e.command };

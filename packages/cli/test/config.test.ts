@@ -332,11 +332,17 @@ describe("credentials", () => {
       body: { kind: "device" },
       auth: "Bearer admintok",
     });
+    expect(ctx.lines[0]).toMatch(
+      /^Open this single-use sign-in link in your browser \(expires \d\d:\d\d\):$/,
+    );
     expect(ctx.lines).toContain("  http://127.0.0.1:7400/sign-in#token=t1");
     expect(ctx.lines.some((l) => l.includes("▄") || l.includes("█"))).toBe(true);
     const host = testCtx(fetch, { SWITCHYARD_ADMIN_TOKEN: "admintok" });
     await pair(host, { host: true });
     expect(calls[1]?.body).toEqual({ kind: "host" });
+    expect(host.lines[0]).toMatch(
+      /^Host enrollment \(single use, expires \d\d:\d\d\)\. On the host, run:$/,
+    );
     expect(host.lines).toContain("  switchyard host enroll ...");
     expect(clockTime("2026-11-02T10:10:00.000Z")).toMatch(/^\d\d:\d\d$/);
   });

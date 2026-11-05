@@ -37,6 +37,7 @@ export const CreateEnrollmentResponse = z.object({
   qrSvg: z.string(),
   command: z.string().nullable(),
 });
+export type CreateEnrollmentResponse = z.infer<typeof CreateEnrollmentResponse>;
 
 export const HostEnrollRequest = z.union([
   z.object({
