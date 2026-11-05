@@ -59,7 +59,12 @@ function gitHandler(cmd: HostCommand): unknown {
     case "workspace.create":
       return { path: `${cmd.checkoutPath}/.worktrees/${cmd.branch.replaceAll("/", "-")}` };
     case "session.start":
-      return { nativeHandle: { sessionId: "n-1", sessionFile: "/s/n-1.jsonl" } };
+      return {
+        nativeHandle: {
+          sessionId: `n-${cmd.sessionId}`,
+          sessionFile: `/s/n-${cmd.sessionId}.jsonl`,
+        },
+      };
     default:
       return null;
   }
@@ -151,7 +156,7 @@ describe("sessions", () => {
     await until(() => !!t!.c.store.sessions.require(r.body.id).nativeHandle);
     const s = t!.c.store.sessions.require(r.body.id);
     expect(s.workspaceId).not.toBeNull();
-    expect(s.nativeHandle?.sessionFile).toBe("/s/n-1.jsonl");
+    expect(s.nativeHandle?.sessionFile).toBe(`/s/n-${r.body.id}.jsonl`);
   });
 
   it("marks the session failed with an error item when the host refuses", async () => {
@@ -204,8 +209,8 @@ describe("sessions", () => {
     const start = (await host!.waitForCommand("session.start"))
       .command as HostCommandOf<"session.start">;
     expect(start.nativeHandle).toEqual({
-      sessionId: "native-1",
-      sessionFile: "/tmp/native-1.jsonl",
+      sessionId: "native-ses_p",
+      sessionFile: "/tmp/native-ses_p.jsonl",
     });
 
     // A session that never got a native handle cannot be resumed.
@@ -328,6 +333,49 @@ describe("sessions", () => {
     expect(again.status).toBe(409);
   });
 
+  it("concurrent imports of one Pi session create one session", async () => {
+    const { creds } = await setup();
+    let open!: () => void;
+    const gate = new Promise<void>((r) => {
+      open = r;
+    });
+    host!.handler = async (cmd) => {
+      if (cmd.type === "session.importable") {
+        return [
+          {
+            sessionFile: "/s/old.jsonl",
+            sessionId: "old",
+            cwd: ROOT,
+            name: "Old work",
+            mtime: new Date(0).toISOString(),
+            inactive: true,
+          },
+        ];
+      }
+      if (cmd.type === "session.readNative") {
+        await gate;
+        return [];
+      }
+      return gitHandler(cmd);
+    };
+    const post = () =>
+      t!.admin("POST", "/api/sessions/import", {
+        hostId: creds.hostId,
+        sessionFile: "/s/old.jsonl",
+      });
+    const both = Promise.all([post(), post()]);
+    await until(
+      () => host!.commands.filter((c) => c.command.type === "session.readNative").length === 2,
+    );
+    open();
+    const [a, b] = await both;
+    expect([a.status, b.status].sort()).toEqual([201, 409]);
+    const ok = a.status === 201 ? a : b;
+    const conflict = a.status === 201 ? b : a;
+    expect(conflict.body.error.details.sessionId).toBe(ok.body.id);
+    expect(t!.c.store.sessions.list("native_session_file = ?", ["/s/old.jsonl"])).toHaveLength(1);
+  });
+
   it("pages transcripts backwards", async () => {
     await setup();
     await host!.event("session.updated", hostSession("ses_pg"));
@@ -412,7 +460,7 @@ describe("session controls", () => {
             ],
           };
         case "session.branch":
-          return { sessionFile: "/tmp/b.jsonl", prefill: "hi" };
+          return { sessionFile: cmd.fork ? "/tmp/b.jsonl" : "/tmp/c.jsonl", prefill: "hi" };
         case "session.readNative":
           return { sessionId: "n2", cwd: "/repo", name: null, items: [] };
         case "session.reload":

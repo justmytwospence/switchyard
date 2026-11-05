@@ -49,8 +49,70 @@ describe("coordinator migrations", () => {
       '{"id":"wsp_1"}',
       "2026-01-01",
     );
-    expect(migrate(db)).toBe(5);
+    expect(migrate(db)).toBe(MIGRATIONS.at(-1)!.version);
     const ev = db.prepare("SELECT type FROM events WHERE id = 'evt_2'").get() as { type: string };
     expect(ev.type).toBe("workspace.deleted");
+  });
+
+  it("006 archives duplicate native files and makes them unique", () => {
+    const db = dbAt(5);
+    const insert = (
+      id: string,
+      file: string | null,
+      createdAt: string,
+      runtime = "stopped",
+      host = "hst_1",
+    ) =>
+      db
+        .prepare(
+          "INSERT INTO sessions (id, host_id, runtime, native_session_file, archived_at, last_activity_at, json) VALUES (?, ?, ?, ?, NULL, ?, ?)",
+        )
+        .run(
+          id,
+          host,
+          runtime,
+          file,
+          createdAt,
+          JSON.stringify({
+            id,
+            createdAt,
+            runtime,
+            archivedAt: null,
+            nativeHandle: file ? { sessionId: id, sessionFile: file } : null,
+          }),
+        );
+    insert("ses_old", "/s/a.jsonl", "2026-01-01");
+    insert("ses_new", "/s/a.jsonl", "2026-01-02");
+    insert("ses_b_old", "/s/b.jsonl", "2026-01-01");
+    insert("ses_live_new", "/s/b.jsonl", "2026-01-02", "idle");
+    insert("ses_n1", null, "2026-01-01");
+    insert("ses_n2", null, "2026-01-02");
+    insert("ses_other_host", "/s/a.jsonl", "2026-01-03", "stopped", "hst_2");
+    expect(migrate(db)).toBe(MIGRATIONS.at(-1)!.version);
+    const row = (id: string) =>
+      db
+        .prepare("SELECT archived_at, native_session_file, json FROM sessions WHERE id = ?")
+        .get(id) as {
+        archived_at: string | null;
+        native_session_file: string | null;
+        json: string;
+      };
+    expect(row("ses_old")).toMatchObject({ archived_at: null, native_session_file: "/s/a.jsonl" });
+    const dup = row("ses_new");
+    expect(dup.archived_at).not.toBeNull();
+    expect(dup.native_session_file).toBeNull();
+    expect(JSON.parse(dup.json)).toMatchObject({ nativeHandle: null, archivedAt: dup.archived_at });
+    expect(row("ses_live_new")).toMatchObject({
+      archived_at: null,
+      native_session_file: "/s/b.jsonl",
+    });
+    expect(row("ses_b_old").archived_at).not.toBeNull();
+    expect(row("ses_other_host")).toMatchObject({
+      archived_at: null,
+      native_session_file: "/s/a.jsonl",
+    });
+    expect(row("ses_n1")).toMatchObject({ archived_at: null, native_session_file: null });
+    expect(row("ses_n2")).toMatchObject({ archived_at: null, native_session_file: null });
+    expect(() => insert("ses_dup", "/s/a.jsonl", "2026-02-01")).toThrow(/UNIQUE/);
   });
 });

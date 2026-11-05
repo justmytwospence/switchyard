@@ -147,6 +147,12 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
       createdAt: now,
     };
     ctx.store.tx(() => {
+      const dup = ctx.store.sessionByNativeFile(hostId, native.sessionFile);
+      if (dup) {
+        throw new SwitchyardError("conflict", "This Pi session was already imported", {
+          sessionId: dup.id,
+        });
+      }
       ctx.store.putSession(session);
       items.forEach((raw, i) => {
         const item = TranscriptItem.safeParse({

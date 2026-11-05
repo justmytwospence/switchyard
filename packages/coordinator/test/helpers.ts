@@ -355,7 +355,7 @@ export function hostSession(id: string, over: Record<string, unknown> = {}) {
     cwd: "/tmp/repo",
     runtime: "idle",
     runtimeDetail: null,
-    nativeHandle: { sessionId: "native-1", sessionFile: "/tmp/native-1.jsonl" },
+    nativeHandle: { sessionId: `native-${id}`, sessionFile: `/tmp/native-${id}.jsonl` },
     queue: { steering: [], followUp: [] },
     stats: null,
     lastAssistantText: null,

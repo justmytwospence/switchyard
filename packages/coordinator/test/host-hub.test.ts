@@ -70,7 +70,7 @@ describe("host link", () => {
     const s = t.c.store.sessions.require("ses_a");
     expect(s.hostId).toBe(creds.hostId);
     expect(s.connectivity).toBe("connected");
-    expect(s.nativeHandle?.sessionFile).toBe("/tmp/native-1.jsonl");
+    expect(s.nativeHandle?.sessionFile).toBe("/tmp/native-ses_a.jsonl");
 
     const item = {
       id: "itm_1",
@@ -263,7 +263,7 @@ describe("host link", () => {
     expect(after.projectId).toBe("prj_x");
     expect(after.taskId).toBe("tsk_x");
     expect(after.runtime).toBe("running");
-    expect(after.nativeHandle?.sessionFile).toBe("/tmp/native-1.jsonl");
+    expect(after.nativeHandle?.sessionFile).toBe("/tmp/native-ses_e.jsonl");
   });
 
   it("forwards stream deltas to clients without persisting them", async () => {
