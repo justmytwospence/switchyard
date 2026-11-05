@@ -1,4 +1,10 @@
-import { type ErrorBody, HostCommand, type Receipt, SwitchyardError } from "@switchyard/protocol";
+import {
+  type ErrorBody,
+  HostCommand,
+  type HostCommandType,
+  type Receipt,
+  SwitchyardError,
+} from "@switchyard/protocol";
 import { runChecks } from "./checks.js";
 import type { HostDb } from "./db/index.js";
 import type { Dispatcher } from "./dispatch.js";
@@ -43,6 +49,22 @@ export interface CommandRouterOptions {
 
 export const RESTARTED_WHILE_RUNNING = "Host restarted while running";
 
+/** Sessionless commands that only read: they never queue (bounded by READ_CONCURRENCY). */
+export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostCommandType>([
+  "session.importable",
+  "session.readNative",
+  "checkout.inspect",
+  "projects.scan",
+  "workspace.discover",
+  "workspace.status",
+  "workspace.diff",
+  "workspace.files",
+  "workspace.readFile",
+  "dispatch.reconcile",
+]);
+/** Read-only commands in flight at once. */
+export const READ_CONCURRENCY = 8;
+
 /**
  * Commands safe to run again after a restart: reads, checks, and dispatch (idempotent by its
  * dispatch key). Every other command leaves a pending marker while it runs; a marker found at
@@ -81,8 +103,12 @@ export function toErrorBody(err: unknown): ErrorBody {
   return { code: "internal", message: err instanceof Error ? err.message : String(err) };
 }
 
-/** Serial-queue key: per session for session-scoped commands, else the shared host queue. */
-export function queueKey(command: HostCommand): string {
+/**
+ * Serial-queue key, or null for read-only commands that run without a queue: per session for
+ * session-scoped commands, per checkout for worktree mutations.
+ */
+export function queueKey(command: HostCommand): string | null {
+  if (READ_ONLY_COMMANDS.has(command.type)) return null;
   if (command.type === "checks.run") return `checks:${command.sessionId}`;
   // Control commands get their own per-session lane. A prompt that runs a slash command which
   // opens a dialog does not return until that dialog is answered, so the answer (and Stop) must
@@ -104,6 +130,9 @@ export function queueKey(command: HostCommand): string {
   ) {
     return `control:${command.sessionId}`;
   }
+  if (command.type === "workspace.create" || command.type === "workspace.remove") {
+    return `checkout:${command.checkoutPath}`;
+  }
   if ("sessionId" in command && typeof command.sessionId === "string") {
     return `session:${command.sessionId}`;
   }
@@ -113,12 +142,15 @@ export function queueKey(command: HostCommand): string {
 /**
  * Routes coordinator commands. Receipts are stored by `commandId` before they are sent, so a
  * duplicate command (the coordinator re-sends after reconnecting) gets the stored receipt and
- * never runs twice. Commands for one session run one at a time, in arrival order.
+ * never runs twice. Commands for one session run one at a time, in arrival order; worktree
+ * mutations run one at a time per checkout; read-only commands run concurrently (at most 8).
  */
 export class CommandRouter {
   private readonly opts: CommandRouterOptions;
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly inflight = new Map<string, Promise<Receipt>>();
+  private reading = 0;
+  private readonly readWaiters: (() => void)[] = [];
   /** Every command received (for diagnostics and tests). */
   readonly commandLog: CommandLogEntry[] = [];
 
@@ -255,18 +287,39 @@ export class CommandRouter {
       return receipt;
     };
 
-    const key = command ? queueKey(command) : "host";
-    const prev = this.queues.get(key) ?? Promise.resolve();
-    const p = prev.catch(() => {}).then(work);
-    this.queues.set(key, p);
+    const key = command ? queueKey(command) : null;
+    let p: Promise<Receipt>;
+    if (key === null) {
+      p = this.withReadSlot(work);
+    } else {
+      const prev = this.queues.get(key) ?? Promise.resolve();
+      p = prev.catch(() => {}).then(work);
+      this.queues.set(key, p);
+    }
     this.inflight.set(commandId, p);
     p.finally(() => {
       this.inflight.delete(commandId);
-      if (this.queues.get(key) === p) this.queues.delete(key);
+      if (key !== null && this.queues.get(key) === p) this.queues.delete(key);
     }).catch(() => {
       // The caller handles the rejection of `p`; this derived promise must not go unhandled.
     });
     return p;
+  }
+
+  /** Run `fn` holding one of READ_CONCURRENCY slots; a freed slot passes straight to a waiter. */
+  private async withReadSlot<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.reading >= READ_CONCURRENCY) {
+      await new Promise<void>((r) => this.readWaiters.push(r));
+    } else {
+      this.reading++;
+    }
+    try {
+      return await fn();
+    } finally {
+      const next = this.readWaiters.shift();
+      if (next) next();
+      else this.reading--;
+    }
   }
 
   /** Prune receipts older than `maxAgeMs` (default 7 days). */
