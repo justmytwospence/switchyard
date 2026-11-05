@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { detectPi, type PiDetection, terminalSupport } from "@switchyard/pi-runtime";
 import { PROTOCOL_VERSION, type Receipt } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
+import { stopAllShells } from "./checks.js";
 import { CommandRouter, type HostTestHooks } from "./commands.js";
 import {
   defaultConfigPath,
@@ -320,7 +321,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         process.off("SIGTERM", onSignal);
         process.off("SIGINT", onSignal);
         relay.closeAll();
-        await supervisor.stopAll(stopOpts);
+        await Promise.all([supervisor.stopAll(stopOpts), stopAllShells()]);
         // Let the final session.updated events go out before closing the socket.
         await new Promise((r) => setTimeout(r, 50));
         await link.stop();

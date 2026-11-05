@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import type { CheckResult, ChecksResult } from "@switchyard/protocol";
 
 export const CHECK_TIMEOUT_MS = 30 * 60 * 1000;
@@ -8,6 +8,37 @@ export const OUTPUT_TAIL_BYTES = 8 * 1024;
 const KILL_GRACE_MS = 3000;
 /** How long to wait for stdio to close after the shell exits (grandchildren may hold it open). */
 const CLOSE_GRACE_MS = 1000;
+
+/** Shell commands running now, so the agent's shutdown can end them (see `stopAllShells`). */
+const running = new Set<ChildProcess>();
+
+/** Signal a command's whole process group (the shell and everything it started). */
+function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // already gone
+    }
+  }
+}
+
+/**
+ * Stop every running check and setup command: SIGTERM to each process group, then SIGKILL for
+ * whatever has not exited after `graceMs`. Returns how many were running.
+ */
+export async function stopAllShells(graceMs = KILL_GRACE_MS): Promise<number> {
+  const children = [...running];
+  for (const child of children) killGroup(child, "SIGTERM");
+  const deadline = Date.now() + graceMs;
+  const alive = () => children.some((c) => c.exitCode === null && c.signalCode === null);
+  while (alive() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+  for (const child of children) killGroup(child, "SIGKILL");
+  return children.length;
+}
 
 /** Keep the last `maxBytes` bytes of `text`, cut at a UTF-8 character boundary. */
 export function tailBytes(text: string, maxBytes: number): string {
@@ -30,7 +61,9 @@ export interface ShellOutcome {
 
 /**
  * Run an owner-configured command line with `/bin/sh -c` in `cwd`, streaming interleaved
- * stdout and stderr to `onChunk`. On timeout the shell gets SIGTERM, then SIGKILL after 3 s.
+ * stdout and stderr to `onChunk`. The command runs in its own process group: on timeout the
+ * group gets SIGTERM, then SIGKILL after 3 s, so background children die with it. A command that
+ * exits on its own leaves its background processes alone (daemons started on purpose).
  */
 export function spawnShell(
   cwd: string,
@@ -48,23 +81,26 @@ export function spawnShell(
       cwd,
       env: { ...process.env, ...opts.env },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
+    running.add(child);
 
     const finish = (outcome: ShellOutcome) => {
       if (settled) return;
       settled = true;
+      running.delete(child);
       clearTimeout(timeout);
-      clearTimeout(killTimer);
+      // After a timeout the SIGKILL must still reach stragglers in the group.
+      if (!timedOut) clearTimeout(killTimer);
       clearTimeout(closeTimer);
       resolve(outcome);
     };
 
     const timeout = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-      }, KILL_GRACE_MS);
+      killGroup(child, "SIGTERM");
+      killTimer = setTimeout(() => killGroup(child, "SIGKILL"), KILL_GRACE_MS);
+      killTimer.unref();
     }, opts.timeoutMs);
 
     for (const stream of [child.stdout, child.stderr]) {
