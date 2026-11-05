@@ -21,7 +21,7 @@ import {
 import { modelInfo } from "./bridge/pi-model.js";
 import { readArgumentHint } from "./command-hints.js";
 import { readSessionNameSync } from "./importable.js";
-import { type PiExit, PiRpcError, PiRpcProcess } from "./rpc-process.js";
+import { type PiExit, PiRpcError, PiRpcProcess, screenTail } from "./rpc-process.js";
 import { PiTerminalProcess } from "./terminal-process.js";
 import {
   contentText,
@@ -868,7 +868,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       this._detail = QUIT_IN_TERMINAL;
     } else if (!this.started) {
       this.terminal = "failed";
-      this._detail = `Pi exited during startup (code ${info.code}, signal ${info.signal})`;
+      this._detail = `Pi exited during startup (code ${info.code}, signal ${info.signal})${screenTail(info.screen)}`;
     } else {
       this.terminal = "interrupted";
       this._detail = `Pi exited unexpectedly (code ${info.code}, signal ${info.signal})${

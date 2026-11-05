@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JsonlReader, writeJsonl } from "./jsonl.js";
-import { type PiExit, PiRpcError, shortSocketPath } from "./rpc-process.js";
+import { type PiExit, PiRpcError, screenTail, shortSocketPath } from "./rpc-process.js";
 import type { PiTransport } from "./transport.js";
 import type { BridgeEvent, PiUiRequest, PiUiResponseBody } from "./types.js";
 
@@ -282,7 +282,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
   private finish(info: PiExit): void {
     if (this.exitInfo) return;
     this.exitInfo = info;
-    const reason = `Pi exited (code ${info.code}, signal ${info.signal})`;
+    const reason = `Pi exited (code ${info.code}, signal ${info.signal})${screenTail(info.screen)}`;
     for (const [, p] of this.pending) {
       clearTimeout(p.timer);
       p.reject(new PiRpcError(p.command, reason));
@@ -350,6 +350,9 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
           code: typeof rec.code === "number" ? rec.code : null,
           signal: typeof rec.signal === "string" ? (rec.signal as NodeJS.Signals) : null,
           requested: this.closeRequested,
+          screen: Array.isArray(rec.screen)
+            ? rec.screen.filter((l: unknown) => typeof l === "string")
+            : undefined,
         });
         return;
       default:

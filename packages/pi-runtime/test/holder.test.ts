@@ -139,4 +139,16 @@ describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
     await until(() => c.lines.some((l) => l.type === "holder_exit"));
     await h.done;
   });
+
+  it("reports the last screen lines with its exit", async () => {
+    const h = startHolder("printf 'first\\nboom\\n'; exit 3");
+    await new Promise((r) => setTimeout(r, 300));
+    const c = await connect(h.socketPath, { role: "control" });
+    await until(() => c.lines.some((l) => l.type === "holder_exit"));
+    expect(c.lines.find((l) => l.type === "holder_exit")).toMatchObject({
+      code: 3,
+      screen: expect.arrayContaining(["boom"]),
+    });
+    await h.done;
+  });
 });

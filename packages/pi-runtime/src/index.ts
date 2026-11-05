@@ -34,6 +34,7 @@ export {
   PiRpcError,
   PiRpcProcess,
   type PiRpcStartOptions,
+  screenTail,
   shortSocketPath,
   socketDirs,
 } from "./rpc-process.js";

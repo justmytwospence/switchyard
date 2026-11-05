@@ -105,6 +105,27 @@ function write(socket: Socket | null, line: string): void {
   }
 }
 
+/** The last `n` non-empty lines of a terminal's active buffer (what Pi last showed). */
+export function lastScreenLines(
+  term: {
+    buffer: {
+      active: {
+        length: number;
+        getLine(i: number): { translateToString(trim?: boolean): string } | undefined;
+      };
+    };
+  },
+  n = 20,
+): string[] {
+  const buf = term.buffer.active;
+  const out: string[] = [];
+  for (let i = buf.length - 1; i >= 0 && out.length < n; i--) {
+    const text = buf.getLine(i)?.translateToString(true).trimEnd() ?? "";
+    if (text.trim()) out.unshift(text);
+  }
+  return out;
+}
+
 export function runHolder(cfg: HolderConfig): void {
   ensureSpawnHelper();
   const pty = require("node-pty") as PtyModule;
@@ -121,6 +142,8 @@ export function runHolder(cfg: HolderConfig): void {
   const toExtension: string[] = [];
   let gap = false;
   let exitInfo: { code: number | null; signal: string | null } | null = null;
+  /** The `holder_exit` line, with Pi's last screen lines, once Pi has exited. */
+  let exitRecord: string | null = null;
   let shuttingDown = false;
 
   const term = new Terminal({
@@ -180,20 +203,28 @@ export function runHolder(cfg: HolderConfig): void {
     setTimeout(() => process.exit(0), 100).unref();
   };
 
-  const onPiExit = ({ exitCode, signal }: { exitCode: number | null; signal?: number }) => {
+  const onPiExit = (
+    { exitCode, signal }: { exitCode: number | null; signal?: number },
+    extra?: string[],
+  ) => {
+    // Refuse input at once; the record follows when the terminal has parsed Pi's last output.
     exitInfo = { code: exitCode ?? null, signal: signal ? signalName(signal) : null };
-    const closed = JSON.stringify({ t: "closed", reason: "Pi exited" });
-    for (const v of viewers) {
-      write(v, closed);
-      v.end();
-    }
-    viewers.clear();
-    if (control && !control.destroyed) {
-      write(control, JSON.stringify({ type: "holder_exit", ...exitInfo }));
-      setTimeout(shutdown, 1000).unref();
-    } else {
-      setTimeout(shutdown, killRequested ? 1000 : EXIT_WAIT_MS).unref();
-    }
+    term.write("", () => {
+      const screen = extra ?? lastScreenLines(term);
+      exitRecord = JSON.stringify({ type: "holder_exit", ...exitInfo, screen });
+      const closed = JSON.stringify({ t: "closed", reason: "Pi exited" });
+      for (const v of viewers) {
+        write(v, closed);
+        v.end();
+      }
+      viewers.clear();
+      if (control && !control.destroyed) {
+        write(control, exitRecord);
+        setTimeout(shutdown, 1000).unref();
+      } else {
+        setTimeout(shutdown, killRequested ? 1000 : EXIT_WAIT_MS).unref();
+      }
+    });
   };
 
   /** Spawn Pi once the socket is listening, so the extension can always connect. */
@@ -210,7 +241,7 @@ export function runHolder(cfg: HolderConfig): void {
       process.stderr.write(
         `switchyard holder: could not start ${cfg.piBin}: ${(err as Error).message}\n`,
       );
-      onPiExit({ exitCode: null });
+      onPiExit({ exitCode: null }, [`Could not start ${cfg.piBin}: ${(err as Error).message}`]);
       return;
     }
     const started = proc;
@@ -255,8 +286,8 @@ export function runHolder(cfg: HolderConfig): void {
             gap = false;
           }
           for (const l of buffer.splice(0)) write(socket, l);
-          if (exitInfo) {
-            write(socket, JSON.stringify({ type: "holder_exit", ...exitInfo }));
+          if (exitRecord) {
+            write(socket, exitRecord);
             setTimeout(shutdown, 1000).unref();
           }
           if (extension && !extension.destroyed) {

@@ -36,6 +36,15 @@ export interface PiExit {
   signal: NodeJS.Signals | null;
   /** True when `close()`/`kill()` was requested by us. */
   requested: boolean;
+  /** Terminal transport: last non-empty screen lines when Pi exited. */
+  screen?: string[];
+}
+
+/** `": line | line"` for the last screen lines Pi showed before it exited, or `""`. */
+export function screenTail(screen?: string[]): string {
+  if (!screen || screen.length === 0) return "";
+  const joined = screen.slice(-5).join(" | ");
+  return `: ${joined.length > 500 ? joined.slice(-500) : joined}`;
 }
 
 /** Error from a Pi command answered with `success:false`, or a transport failure. */
