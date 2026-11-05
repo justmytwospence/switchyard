@@ -1,5 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
+import { LineSplitter } from "./bridge/lines.js";
 
 /**
  * Strict JSONL reader: splits records on LF only and strips one trailing CR.
@@ -7,7 +8,7 @@ import { StringDecoder } from "node:string_decoder";
  */
 export class JsonlReader {
   private readonly decoder = new StringDecoder("utf8");
-  private buffer = "";
+  private readonly lines = new LineSplitter((l) => this.emitLine(l));
 
   constructor(
     private readonly onRecord: (record: unknown) => void,
@@ -16,26 +17,17 @@ export class JsonlReader {
 
   /** Feed a chunk of bytes or text. */
   push(chunk: Buffer | string): void {
-    this.buffer += typeof chunk === "string" ? chunk : this.decoder.write(chunk);
-    let index = this.buffer.indexOf("\n");
-    while (index >= 0) {
-      const line = this.buffer.slice(0, index);
-      this.buffer = this.buffer.slice(index + 1);
-      this.emitLine(line);
-      index = this.buffer.indexOf("\n");
-    }
+    this.lines.push(typeof chunk === "string" ? chunk : this.decoder.write(chunk));
   }
 
   /** Flush a final unterminated record, if any. */
   end(): void {
-    this.buffer += this.decoder.end();
-    const rest = this.buffer;
-    this.buffer = "";
-    if (rest.length > 0) this.emitLine(rest);
+    this.lines.push(this.decoder.end());
+    const rest = this.lines.end();
+    if (rest) this.emitLine(rest);
   }
 
-  private emitLine(raw: string): void {
-    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+  private emitLine(line: string): void {
     if (line.trim().length === 0) return;
     let record: unknown;
     try {

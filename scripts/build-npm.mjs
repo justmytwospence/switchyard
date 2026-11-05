@@ -8,6 +8,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -94,11 +95,10 @@ await build({
   logLevel: "warning",
 });
 
-for (const ext of ["switchyard-bridge.js", "switchyard-terminal.js", "pi-model.js"]) {
-  cpSync(
-    join(root, "packages", "pi-runtime", "dist", "bridge", ext),
-    join(out, "dist", "bridge", ext),
-  );
+// The extensions load their sibling modules (pi-model.js, lines.js) as-is: copy every one.
+const bridgeDist = join(root, "packages", "pi-runtime", "dist", "bridge");
+for (const f of readdirSync(bridgeDist).filter((n) => n.endsWith(".js"))) {
+  cpSync(join(bridgeDist, f), join(out, "dist", "bridge", f));
 }
 cpSync(join(root, "packages", "web", "dist"), join(out, "web-dist"), { recursive: true });
 cpSync(join(root, "README.md"), join(out, "README.md"));

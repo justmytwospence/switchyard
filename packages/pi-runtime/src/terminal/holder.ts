@@ -18,6 +18,7 @@ import { createServer, type Socket } from "node:net";
 import { constants } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { LineSplitter } from "../bridge/lines.js";
 
 const require = createRequire(import.meta.url);
 
@@ -85,18 +86,9 @@ function signalName(signal: number): string {
 }
 
 function lineReader(socket: Socket, onLine: (line: string) => void): void {
-  let buf = "";
+  const lines = new LineSplitter(onLine);
   socket.setEncoding("utf8");
-  socket.on("data", (chunk: string) => {
-    buf += chunk;
-    let nl = buf.indexOf("\n");
-    while (nl >= 0) {
-      const line = buf.slice(0, nl).replace(/\r$/, "");
-      buf = buf.slice(nl + 1);
-      if (line) onLine(line);
-      nl = buf.indexOf("\n");
-    }
-  });
+  socket.on("data", (chunk: string) => lines.push(chunk));
 }
 
 function write(socket: Socket | null, line: string): void {

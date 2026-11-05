@@ -1,5 +1,6 @@
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { LineSplitter } from "../src/bridge/lines.js";
 import { JsonlReader, writeJsonl } from "../src/jsonl.js";
 
 function collect(): { records: unknown[]; errors: string[]; reader: JsonlReader } {
@@ -96,5 +97,31 @@ describe("writeJsonl", () => {
     const sink = new PassThrough();
     sink.end();
     await expect(writeJsonl(sink, { a: 1 })).rejects.toThrow();
+  });
+});
+
+describe("LineSplitter", () => {
+  const split = (chunks: string[]) => {
+    const lines: string[] = [];
+    const splitter = new LineSplitter((l) => lines.push(l));
+    for (const c of chunks) splitter.push(c);
+    return { lines, rest: splitter.end() };
+  };
+
+  it("strips CRLF, never splits on U+2028/U+2029 and skips empty lines", () => {
+    expect(split(["a\r\nb\u2028c\u2029d\n\n\r\ne\n"]).lines).toEqual(["a", "b\u2028c\u2029d", "e"]);
+  });
+
+  it("delivers a line split across chunks once", () => {
+    expect(split(["hel", "lo\nwor", "ld\n"]).lines).toEqual(["hello", "world"]);
+  });
+
+  it("end() returns and clears the unterminated rest", () => {
+    const lines: string[] = [];
+    const splitter = new LineSplitter((l) => lines.push(l));
+    splitter.push("one\ntwo\r");
+    expect(lines).toEqual(["one"]);
+    expect(splitter.end()).toBe("two");
+    expect(splitter.end()).toBe("");
   });
 });

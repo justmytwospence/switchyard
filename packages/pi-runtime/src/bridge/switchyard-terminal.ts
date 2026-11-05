@@ -6,7 +6,7 @@
  * dialogs while they are also shown in the terminal (whichever answer comes first wins).
  *
  * It connects to the holder's socket named by `SWITCHYARD_CONTROL_SOCKET`, imports only Node
- * built-ins, and never throws: without the variable it does nothing.
+ * built-ins and its sibling modules, and never throws: without the variable it does nothing.
  *
  * Dialogs: every extension's `ctx.ui` is the same object, so replacing `select`, `confirm`,
  * `input` and `editor` on it routes all dialogs through the race below. When that object cannot be
@@ -17,6 +17,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
+import { LineSplitter } from "./lines.js";
 import { modelInfo } from "./pi-model.js";
 
 const PATCHED = Symbol.for("switchyard.terminal");
@@ -694,18 +695,9 @@ export default function switchyardTerminal(pi: any): void {
     }
     socket = s;
     let connected = false;
-    let buf = "";
+    const lines = new LineSplitter(onLine);
     s.setEncoding("utf8");
-    s.on("data", (chunk: string) => {
-      buf += chunk;
-      let nl = buf.indexOf("\n");
-      while (nl >= 0) {
-        const line = buf.slice(0, nl).replace(/\r$/, "");
-        buf = buf.slice(nl + 1);
-        if (line) onLine(line);
-        nl = buf.indexOf("\n");
-      }
-    });
+    s.on("data", (chunk: string) => lines.push(chunk));
     s.once("connect", () => {
       connected = true;
       if (attempt > 1) announce();
