@@ -4,7 +4,13 @@ import { defaultConfigPath } from "@switchyard/host-agent";
 import { detectPi, type PiDetection, SUPPORTED_RANGE } from "@switchyard/pi-runtime";
 import type { SetupState } from "@switchyard/protocol";
 import { ApiClient, ApiRequestError } from "@switchyard/terminal";
-import { DEFAULT_LOCAL_URL, readEndpoint, resolveConnection, trimUrl } from "../config.js";
+import {
+  type ConnectionFlags,
+  DEFAULT_LOCAL_URL,
+  readEndpoint,
+  resolveConnection,
+  trimUrl,
+} from "../config.js";
 import type { Ctx } from "../context.js";
 import { defaultDataDir, standaloneHostPaths } from "../paths.js";
 
@@ -70,7 +76,7 @@ function findHostConfig(deps: DoctorDeps): HostCfg | null {
 export async function runDoctor(
   ctx: Ctx,
   deps: DoctorDeps,
-  flags: { coordinator?: string; token?: string; dataDir?: string } = {},
+  flags: ConnectionFlags = {},
 ): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
   const add = (status: CheckStatus, name: string, detail: string) =>

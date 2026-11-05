@@ -120,7 +120,9 @@ describe("credentials", () => {
   it("resolves flags, then env, then client.json, then the local admin token", () => {
     const ctx = testCtx(fetch);
     const paths = ctx.paths!;
-    expect(() => resolveConnection({}, {}, paths)).toThrow(/Not signed in/);
+    expect(() => resolveConnection({}, {}, paths)).toThrow(
+      "Not signed in. Run `switchyard login --coordinator <url>`, or set SWITCHYARD_URL and SWITCHYARD_TOKEN.",
+    );
     mkdirSync(paths.dataDir!, { recursive: true });
     writeFileSync(join(paths.dataDir!, "admin.token"), "admintok\n");
     writeEndpoint(paths.dataDir!, { localUrl: "http://127.0.0.1:7499", publicUrl: "x" });
@@ -141,13 +143,13 @@ describe("credentials", () => {
     expect(
       resolveConnection({}, { SWITCHYARD_URL: "https://env", SWITCHYARD_TOKEN: "envtok" }, paths),
     ).toMatchObject({ url: "https://env", credential: "envtok", source: "env" });
-    expect(resolveConnection({ coordinator: "https://f", token: "ftok" }, {}, paths)).toMatchObject(
-      {
-        url: "https://f",
-        credential: "ftok",
-        source: "flags",
-      },
-    );
+    expect(
+      resolveConnection({ coordinator: "https://f", credential: "ftok" }, {}, paths),
+    ).toMatchObject({
+      url: "https://f",
+      credential: "ftok",
+      source: "flags",
+    });
   });
 
   it("never sends the local admin token to another coordinator", () => {
@@ -195,7 +197,7 @@ describe("credentials", () => {
 
   it("--credential without a URL names the right flags", () => {
     const paths = testCtx(fetch).paths!;
-    expect(() => resolveConnection({ token: "x" }, {}, paths)).toThrow(
+    expect(() => resolveConnection({ credential: "x" }, {}, paths)).toThrow(
       /--credential needs --coordinator/,
     );
   });

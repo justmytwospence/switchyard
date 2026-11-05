@@ -9,7 +9,7 @@ import {
 } from "../src/commands/hosts.js";
 import { stubFetch, testCtx } from "./helpers.js";
 
-const conn = { coordinator: "http://coord", token: "cred" };
+const conn = { coordinator: "http://coord", credential: "cred" };
 const T = "2026-11-02T10:00:00.000Z";
 
 function host(id: string, name: string, over: Record<string, unknown> = {}) {

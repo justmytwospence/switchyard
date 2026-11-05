@@ -98,7 +98,7 @@ export interface Connection {
 
 export interface ConnectionFlags {
   coordinator?: string;
-  token?: string;
+  credential?: string;
   dataDir?: string;
 }
 
@@ -130,10 +130,10 @@ export function resolveConnection(
   const dataDir = flags.dataDir ?? paths.dataDir ?? defaultDataDir(env);
   const raw = flags.coordinator?.trim() || env.SWITCHYARD_URL?.trim() || undefined;
   const target = raw ? trimUrl(raw) : undefined;
-  if (flags.token) {
+  if (flags.credential) {
     const url = target ?? cfg?.coordinatorUrl;
     if (!url) throw new CliError("--credential needs --coordinator <url> (or SWITCHYARD_URL)");
-    return { url: trimUrl(url), credential: flags.token, source: "flags" };
+    return { url: trimUrl(url), credential: flags.credential, source: "flags" };
   }
   if (env.SWITCHYARD_TOKEN?.trim()) {
     const url = target ?? cfg?.coordinatorUrl;
@@ -158,8 +158,7 @@ export function resolveConnection(
     );
   }
   throw new CliError(
-    "Not signed in. Run `switchyard login --coordinator <url> --token <enrollment token>` " +
-      "(get a token with `switchyard pair` or Settings > Devices), or set SWITCHYARD_URL and SWITCHYARD_TOKEN.",
+    "Not signed in. Run `switchyard login --coordinator <url>`, or set SWITCHYARD_URL and SWITCHYARD_TOKEN.",
   );
 }
 

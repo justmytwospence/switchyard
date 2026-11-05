@@ -12,7 +12,7 @@ import {
 import { buildProgram } from "../src/main.js";
 import { PROJECT, stubFetch, testCtx } from "./helpers.js";
 
-const conn = { coordinator: "http://coord", token: "cred" };
+const conn = { coordinator: "http://coord", credential: "cred" };
 
 describe("tasks", () => {
   it("builds the create body", () => {

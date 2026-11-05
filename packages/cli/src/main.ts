@@ -54,7 +54,7 @@ function connectionOptions(cmd: Command): Command {
 }
 
 function connFlags(o: { coordinator?: string; credential?: string; dataDir?: string }) {
-  return { coordinator: o.coordinator, token: o.credential, dataDir: o.dataDir };
+  return { coordinator: o.coordinator, credential: o.credential, dataDir: o.dataDir };
 }
 
 /** Build the `switchyard` program. `ctx` is injectable for tests. */

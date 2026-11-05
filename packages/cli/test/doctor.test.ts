@@ -44,7 +44,7 @@ function healthy(over: Record<string, (c: unknown) => unknown> = {}) {
   });
 }
 
-const flags = { coordinator: "http://coord", token: "cred" };
+const flags = { coordinator: "http://coord", credential: "cred" };
 
 describe("doctor", () => {
   it("passes every check on a healthy host", async () => {
