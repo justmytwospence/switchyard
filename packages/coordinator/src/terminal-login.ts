@@ -30,7 +30,6 @@ interface TerminalFlow {
   expiresAt: string;
   pollTokenHash: string;
   status: "pending" | "approved" | "denied";
-  result: { deviceId: string; credential: string } | null;
 }
 
 /** Device-code style terminal sign-in: a signed-in browser approves a code the terminal shows. */
@@ -87,7 +86,6 @@ export class TerminalLogins {
       expiresAt,
       pollTokenHash: sha256(pollToken),
       status: "pending",
-      result: null,
     };
     this.flows.put("terminal_login", id, flow, TERMINAL_LOGIN_TTL_MS);
     const userCode = formatUserCode(id);
@@ -111,12 +109,7 @@ export class TerminalLogins {
       if (flow.status !== "pending") {
         throw new SwitchyardError("invalid_request", "This sign-in was already approved or denied");
       }
-      const { device, credential } = this.auth.createDevice(flow.name, "terminal", "approval");
-      const next: TerminalFlow = {
-        ...flow,
-        status: "approved",
-        result: { deviceId: device.id, credential },
-      };
+      const next: TerminalFlow = { ...flow, status: "approved" };
       this.flows.update(id, next);
       return this.view(id, next);
     });
@@ -135,14 +128,18 @@ export class TerminalLogins {
   }
 
   claim(code: string, pollToken: string): TerminalLoginClaimResponse {
-    const id = normalizeUserCode(code);
-    const flow = this.flows.get<TerminalFlow>("terminal_login", id);
-    if (!flow || !safeEqualHex(sha256(pollToken), flow.pollTokenHash)) {
-      throw new SwitchyardError("unauthorized", "Unknown or expired sign-in");
-    }
-    if (flow.status === "pending") return { status: "pending" };
-    this.flows.delete(id);
-    if (flow.status === "denied" || !flow.result) return { status: "denied" };
-    return { status: "done", deviceId: flow.result.deviceId, credential: flow.result.credential };
+    return this.store.tx(() => {
+      const id = normalizeUserCode(code);
+      const flow = this.flows.get<TerminalFlow>("terminal_login", id);
+      if (!flow || !safeEqualHex(sha256(pollToken), flow.pollTokenHash)) {
+        throw new SwitchyardError("unauthorized", "Unknown or expired sign-in");
+      }
+      if (flow.status === "pending") return { status: "pending" };
+      this.flows.delete(id);
+      if (flow.status === "denied") return { status: "denied" };
+      // The device and its credential exist only once the terminal claims them.
+      const { device, credential } = this.auth.createDevice(flow.name, "terminal", "approval");
+      return { status: "done", deviceId: device.id, credential };
+    });
   }
 }

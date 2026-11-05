@@ -47,8 +47,18 @@ describe("terminal login", () => {
     const ok = await t.api("POST", `${path}/approve`, { cookie: b.cookie, headers: b.headers });
     expect(ok.status).toBe(200);
     expect((await t.api("GET", path, { cookie: b.cookie })).body.status).toBe("approved");
+    expect(t.c.store.devices.list("kind = 'terminal'")).toHaveLength(0);
+    const stored = t.c.store.st
+      .get("SELECT data FROM auth_flows WHERE kind = 'terminal_login'")
+      .get() as {
+      data: string;
+    };
+    expect(stored.data).not.toContain("credential");
     const done = await claim(s);
     expect(done.body.status).toBe("done");
+    const devices = t.c.store.devices.list("kind = 'terminal'");
+    expect(devices).toHaveLength(1);
+    expect(devices[0]!.id).toBe(done.body.deviceId);
     const me = await t.api("GET", "/api/me", { token: done.body.credential });
     expect(me.body.device).toMatchObject({
       kind: "terminal",
@@ -56,6 +66,17 @@ describe("terminal login", () => {
       name: "my terminal",
     });
     expect((await claim(s)).status).toBe(401);
+  });
+
+  it("an approved request that is never claimed creates no device", async () => {
+    t = await startCoordinator();
+    const s = await start();
+    const b = await browser();
+    const url = `/api/auth/terminal/requests/${s.userCode}/approve`;
+    expect((await t.api("POST", url, { cookie: b.cookie, headers: b.headers })).status).toBe(200);
+    t.clock.advance(TERMINAL_LOGIN_TTL_MS + 1);
+    expect((await claim(s)).status).toBe(401);
+    expect(t.c.store.devices.list("kind = 'terminal'")).toHaveLength(0);
   });
 
   it("deny ends the request", async () => {
