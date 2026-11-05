@@ -108,7 +108,7 @@ The web app shows this under Settings > Diagnostics.
 
 A missing Pi or git is a FAIL only on a machine with a host config; elsewhere (a pure client) it is a WARN. Not being signed in, an offline host and no push subscriptions are WARNs.
 
-`switchyard host status` reports the state of this machine's host link.
+`switchyard host status` reports this machine's host link (`--instance <name>` with `--config` and `--state-dir` for a second agent). It asks the coordinator about the link only with a client credential for that coordinator.
 
 ## Upgrading
 

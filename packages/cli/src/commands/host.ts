@@ -11,10 +11,10 @@ import {
 } from "@switchyard/host-agent";
 import { detectPi, SUPPORTED_RANGE } from "@switchyard/pi-runtime";
 import { ApiClient } from "@switchyard/terminal";
-import { CliError, resolveConnection } from "../config.js";
+import { CliError, type Connection, resolveConnection, trimUrl } from "../config.js";
 import type { Ctx } from "../context.js";
 import { waitForSignal } from "./coordinator.js";
-import { serviceFilePath, serviceKindFor } from "./service.js";
+import { serviceFilePath, serviceKindFor, serviceNames } from "./service.js";
 
 export interface HostEnrollFlags {
   coordinator: string;
@@ -88,8 +88,16 @@ export function hostBackup(ctx: Ctx, out: string, flags: { stateDir?: string }):
 
 export async function hostStatus(
   ctx: Ctx,
-  flags: { config?: string; stateDir?: string; json?: boolean },
+  flags: { config?: string; stateDir?: string; instance?: string; json?: boolean },
 ): Promise<void> {
+  if (flags.instance !== undefined) {
+    serviceNames(flags.instance); // validates the name
+    if (!(flags.config && flags.stateDir)) {
+      throw new CliError(
+        "--instance needs --config and --state-dir, so the status describes that agent's enrollment and state",
+      );
+    }
+  }
   const configPath = flags.config ?? defaultConfigPath(ctx.env);
   const stateDir = flags.stateDir ?? defaultStateDir(ctx.env);
   const status: Record<string, unknown> = { configPath, stateDir };
@@ -107,30 +115,41 @@ export async function hostStatus(
     } catch {
       status.coordinatorReachable = false;
     }
-    // With a client credential for the same coordinator, ask how it sees this host.
+    // With a client credential for this host's own coordinator, ask how it sees this host.
+    let conn: Connection | null = null;
     try {
-      const conn = resolveConnection({}, ctx.env, ctx.paths);
-      const api = new ApiClient({
-        coordinatorUrl: conn.url,
-        credential: conn.credential,
-        fetch: ctx.fetch,
-      });
-      const h = await api.get<{
-        connectivity: string;
-        lastSeenAt: string | null;
-        piVersion: string | null;
-      }>(`/api/hosts/${encodeURIComponent(cfg.hostId)}`);
-      status.connectivity = h.connectivity;
-      status.lastSeenAt = h.lastSeenAt;
+      conn = resolveConnection({}, ctx.env, ctx.paths);
     } catch {
+      // not signed in
+    }
+    if (!conn || trimUrl(conn.url) !== trimUrl(cfg.coordinatorUrl)) {
       status.connectivity = "unknown";
+      status.connectivityNote = `no client credential for ${trimUrl(cfg.coordinatorUrl)}`;
+    } else {
+      try {
+        const api = new ApiClient({
+          coordinatorUrl: conn.url,
+          credential: conn.credential,
+          fetch: ctx.fetch,
+        });
+        const h = await api.get<{
+          connectivity: string;
+          lastSeenAt: string | null;
+          piVersion: string | null;
+        }>(`/api/hosts/${encodeURIComponent(cfg.hostId)}`);
+        status.connectivity = h.connectivity;
+        status.lastSeenAt = h.lastSeenAt;
+      } catch {
+        status.connectivity = "unknown";
+      }
     }
   }
+  status.instance = flags.instance ?? null;
   const pi = await detectPi(ctx.env.SWITCHYARD_PI_BIN ?? "pi");
   status.pi = { version: pi.version, compatible: pi.compatible, reason: pi.reason };
   try {
     const kind = serviceKindFor(process.platform);
-    const file = serviceFilePath(kind);
+    const file = serviceFilePath(kind, undefined, flags.instance);
     status.service = { kind, file, installed: existsSync(file) };
   } catch {
     status.service = null;
@@ -148,7 +167,10 @@ export async function hostStatus(
     ctx.out(
       `Coordinator:  ${status.coordinatorUrl} (${status.coordinatorReachable ? "reachable" : "unreachable"})`,
     );
-    ctx.out(`Link:         ${status.connectivity}`);
+    const note = status.connectivityNote as string | undefined;
+    ctx.out(
+      `Link:         ${status.connectivity}${note ? ` (${note}; run switchyard login --coordinator ${status.coordinatorUrl})` : ""}`,
+    );
   }
   ctx.out(`Config:       ${configPath}`);
   ctx.out(`State dir:    ${stateDir}`);

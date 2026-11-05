@@ -155,6 +155,10 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .description("Show this host's enrollment, link and Pi status")
     .option("--config <path>", "host.json path")
     .option("--state-dir <dir>", "state dir")
+    .option(
+      "--instance <name>",
+      "a second host agent (install-service --instance); needs --config and --state-dir",
+    )
     .option("--json", "JSON output")
     .action((o) => hostStatus(ctx, o));
 
