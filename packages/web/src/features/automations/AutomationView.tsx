@@ -363,16 +363,14 @@ function Editor({ automation }: { automation: Automation | null }) {
   const actions = (
     <>
       {!isNew && (
-        <>
-          <Button
-            icon={<Play className="size-4" />}
-            busy={running}
-            onClick={runNow}
-            title={dirty ? "Runs the saved version" : undefined}
-          >
-            Run now
-          </Button>
-        </>
+        <Button
+          icon={<Play className="size-4" />}
+          busy={running}
+          onClick={runNow}
+          title={dirty ? "Runs the saved version" : undefined}
+        >
+          Run now
+        </Button>
       )}
       {isNew && dirty && (
         <Button variant="ghost" icon={<X className="size-4" />} onClick={discardNew}>

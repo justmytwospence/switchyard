@@ -206,6 +206,7 @@ test.describe("mobile coding view", () => {
     // Any text field: the visual viewport shrinking under focus hides the nav.
     await page.goto("/board");
     await expect(bottomNav(page)).toBeVisible();
+    await page.getByRole("button", { name: "Show search" }).tap();
     const search = page.getByPlaceholder("Search tasks");
     await search.focus();
     await expect(bottomNav(page)).toBeVisible();

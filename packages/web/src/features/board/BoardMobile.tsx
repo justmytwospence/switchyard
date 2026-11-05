@@ -1,6 +1,14 @@
 import type { Task, TaskState } from "@switchyard/protocol";
-import { ArrowLeft, ArrowRightLeft, Columns3, List, Plus, SquareKanban } from "lucide-react";
-import { useLayoutEffect, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRightLeft,
+  Columns3,
+  List,
+  Plus,
+  Search,
+  SquareKanban,
+} from "lucide-react";
+import { useId, useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useHideBottomNav } from "../../app/chrome";
 import { ROUTES } from "../../app/routes";
@@ -18,13 +26,20 @@ import { useFilter } from "../../prefs";
 import { useSyncStore, useTask } from "../../sync/store";
 import {
   BoardNotices,
-  DispatchToggle,
+  DispatchChip,
   FilterButton,
   FilterChips,
   ProjectSelect,
   SearchBox,
 } from "./BoardChrome";
-import { DEFAULT_FILTERS, moveTargets, planMove, STATE_LABELS } from "./logic";
+import {
+  ALL_STATES,
+  DEFAULT_FILTERS,
+  moveHint,
+  moveTargets,
+  planMove,
+  STATE_LABELS,
+} from "./logic";
 import { useTaskMover } from "./MoveProvider";
 import { NewTaskForm } from "./NewTaskForm";
 import { moveLabel, StateIcon, TaskCard } from "./TaskCard";
@@ -49,6 +64,9 @@ export function BoardMobile() {
     layout: "column",
   });
   const [newOpen, setNewOpen] = useState(false);
+  const searchId = useId();
+  const [searchOpen, setSearchOpen] = useState(() => board.filters.search !== "");
+  const searchShown = searchOpen || board.filters.search !== "";
   const tab = board.states.includes(prefs.tab) ? prefs.tab : "ready";
 
   // Restore the vertical position when coming back from task detail.
@@ -103,44 +121,80 @@ export function BoardMobile() {
 
   return (
     <div data-testid="board" className="flex min-w-0 flex-col">
-      <header className="flex min-w-0 flex-col gap-2 border-b border-border bg-bg px-3 pb-0 safe-pt-3">
-        <div className="flex items-center gap-2">
-          <h1 className="flex-1 text-lg font-semibold">Board</h1>
+      <header
+        data-testid="board-header"
+        className="sticky top-0 z-20 flex min-w-0 flex-col border-b border-border bg-bg safe-pt"
+      >
+        <div className="flex h-14 min-w-0 items-center gap-1 px-3">
+          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">Board</h1>
+          <IconButton
+            label={searchShown ? "Hide search" : "Show search"}
+            aria-expanded={searchShown}
+            aria-controls={searchId}
+            icon={<Search className="size-5" />}
+            onClick={() => {
+              if (searchShown) {
+                board.setFilters({ ...board.filters, search: "" });
+                setSearchOpen(false);
+              } else setSearchOpen(true);
+            }}
+          />
+          <FilterButton
+            board={board}
+            mobile
+            extraCount={board.projectId ? 1 : 0}
+            extra={
+              <>
+                <ProjectSelect board={board} labelVisible />
+                <div className="flex flex-col gap-1">
+                  <span className="text-sm font-medium">Layout</span>
+                  <SegmentedControl
+                    label="Board layout"
+                    block
+                    value={prefs.layout}
+                    onChange={(layout) => setPrefs({ ...prefs, layout })}
+                    options={[
+                      {
+                        value: "column",
+                        label: "Columns",
+                        icon: <Columns3 aria-hidden className="size-4" />,
+                      },
+                      {
+                        value: "list",
+                        label: "List",
+                        icon: <List aria-hidden className="size-4" />,
+                      },
+                    ]}
+                  />
+                </div>
+              </>
+            }
+          />
           <Button
             variant="primary"
+            size="sm"
             icon={<Plus className="size-4" />}
+            aria-label="New task"
             onClick={() => setNewOpen(true)}
             disabled={noProjects}
           >
-            New task
+            New
           </Button>
         </div>
-        <div className="flex min-w-0 items-center gap-2">
-          <ProjectSelect board={board} className="min-w-0 flex-1" />
-          <FilterButton board={board} mobile />
+        {noProjects && (
+          <p className="px-3 pb-2 text-xs text-muted">Add a project to create tasks.</p>
+        )}
+        {searchShown && (
+          <div id={searchId} className="px-3 pb-2">
+            <SearchBox board={board} autoFocus={searchOpen && !board.filters.search} />
+          </div>
+        )}
+        <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 pb-2">
+          <DispatchChip queueCount={board.queueCount} />
+          <FilterChips board={board} />
         </div>
-        <SearchBox board={board} />
-        <FilterChips board={board} />
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <DispatchToggle />
-          <span className="text-sm text-muted">{board.queueCount} queued</span>
-        </div>
-        <SegmentedControl
-          label="Board layout"
-          block
-          value={prefs.layout}
-          onChange={(layout) => setPrefs({ ...prefs, layout })}
-          options={[
-            {
-              value: "column",
-              label: "Columns",
-              icon: <Columns3 aria-hidden className="size-4" />,
-            },
-            { value: "list", label: "List", icon: <List aria-hidden className="size-4" /> },
-          ]}
-        />
         {prefs.layout === "column" && (
-          <div data-testid="status-tabs" className="-mx-3 px-1">
+          <div data-testid="status-tabs" className="px-1">
             <Tabs
               label="Task status"
               idPrefix="board-tab"
@@ -311,7 +365,6 @@ export function MoveSheet({
   const mover = useTaskMover();
   const runs = useSyncStore((s) => s.runs);
   const run = task.currentRunId ? runs[task.currentRunId] : undefined;
-  const all: TaskState[] = ["backlog", "ready", "in_progress", "review", "done", "canceled"];
   const valid = new Set(moveTargets(task));
   return (
     <Sheet
@@ -321,40 +374,29 @@ export function MoveSheet({
       description={`Currently ${STATE_LABELS[task.state]}`}
     >
       <ul data-testid="move-sheet" className="flex flex-col">
-        {all
-          .filter((s) => s !== task.state)
-          .map((s) => {
-            const plan = planMove(task, s, run);
-            const hint =
-              plan.kind === "invalid"
-                ? plan.reason
-                : plan.kind === "choose_running"
-                  ? "Asks whether to pause automation or stop execution."
-                  : plan.kind === "confirm_done"
-                    ? "Asks you to confirm acceptance."
-                    : plan.kind === "run_now"
-                      ? "Starts now if the task is eligible."
-                      : null;
-            return (
-              <li key={s}>
-                <button
-                  type="button"
-                  disabled={!valid.has(s)}
-                  onClick={() => {
-                    onClose();
-                    void mover.move(task, s);
-                  }}
-                  className="tap flex w-full items-start gap-3 rounded-md px-2 py-3 text-left hover:bg-surface-2 disabled:opacity-60"
-                >
-                  <StateIcon state={s} className="mt-0.5 text-muted" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium">{moveLabel(task.state, s)}</span>
-                    {hint && <span className="block text-sm text-muted">{hint}</span>}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
+        {ALL_STATES.filter((s) => s !== task.state).map((s) => {
+          const plan = planMove(task, s, run);
+          const hint = moveHint(plan);
+          return (
+            <li key={s}>
+              <button
+                type="button"
+                disabled={!valid.has(s)}
+                onClick={() => {
+                  onClose();
+                  void mover.move(task, s);
+                }}
+                className="tap flex w-full items-start gap-3 rounded-md px-2 py-3 text-left hover:bg-surface-2 disabled:opacity-60"
+              >
+                <StateIcon state={s} className="mt-0.5 text-muted" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{moveLabel(task.state, s)}</span>
+                  {hint && <span className="block text-sm text-muted">{hint}</span>}
+                </span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </Sheet>
   );

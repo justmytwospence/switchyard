@@ -5,6 +5,7 @@ import {
   buildColumns,
   DEFAULT_FILTERS,
   eligibilityText,
+  moveHint,
   normalizeFilters,
   planMove,
   positionFor,
@@ -177,5 +178,17 @@ describe("previewEligibility", () => {
         { ...base, runningByProject: { prj_1: 1 } },
       ),
     ).toMatchObject({ wait: "project_limit" });
+  });
+});
+
+describe("moveHint", () => {
+  it("explains invalid and decision moves", () => {
+    expect(moveHint(planMove(task("t", { state: "backlog" }), "in_progress"))).toMatch(
+      /Ready first/,
+    );
+    expect(moveHint(planMove(task("t", { state: "backlog" }), "ready"))).toBeNull();
+    expect(moveHint(planMove(task("t", { state: "ready" }), "in_progress"))).toBe(
+      "Starts now if the task is eligible.",
+    );
   });
 });

@@ -25,17 +25,30 @@ import { setDispatchPaused } from "./api";
 import { activeFilterChips, type BoardFilters, type BoardSort, DEFAULT_FILTERS } from "./logic";
 import type { BoardState } from "./useBoard";
 
-export function ProjectSelect({ board, className }: { board: BoardState; className?: string }) {
+export function ProjectSelect({
+  board,
+  className,
+  labelVisible,
+}: {
+  board: BoardState;
+  className?: string;
+  labelVisible?: boolean;
+}) {
   const projects = useProjects();
   const id = useId();
   return (
-    <div className={cn("flex min-w-0 items-center gap-2", className)}>
-      <label htmlFor={id} className="sr-only">
+    <div
+      className={cn(
+        labelVisible ? "flex min-w-0 flex-col gap-1" : "flex min-w-0 items-center gap-2",
+        className,
+      )}
+    >
+      <label htmlFor={id} className={labelVisible ? "text-sm font-medium" : "sr-only"}>
         Project
       </label>
       <Select
         id={id}
-        className="max-w-56"
+        className={labelVisible ? "w-full" : "max-w-56"}
         value={board.projectId ?? ""}
         onChange={(e) => board.setProjectId(e.target.value || null)}
       >
@@ -50,7 +63,15 @@ export function ProjectSelect({ board, className }: { board: BoardState; classNa
   );
 }
 
-export function SearchBox({ board, className }: { board: BoardState; className?: string }) {
+export function SearchBox({
+  board,
+  className,
+  autoFocus,
+}: {
+  board: BoardState;
+  className?: string;
+  autoFocus?: boolean;
+}) {
   const id = useId();
   return (
     <div className={cn("relative min-w-0", className)}>
@@ -65,6 +86,7 @@ export function SearchBox({ board, className }: { board: BoardState; className?:
         id={id}
         type="search"
         placeholder="Search tasks"
+        autoFocus={autoFocus}
         className="pl-8"
         value={board.filters.search}
         onChange={(e) => board.setFilters({ ...board.filters, search: e.target.value })}
@@ -272,17 +294,30 @@ function FilterFields({
 }
 
 /** Filters button: a dialog on desktop, a sheet on mobile. Applies on "Show results". */
-export function FilterButton({ board, mobile }: { board: BoardState; mobile?: boolean }) {
+export function FilterButton({
+  board,
+  mobile,
+  extra,
+  extraCount = 0,
+}: {
+  board: BoardState;
+  mobile?: boolean;
+  /** Controls above the filter fields that apply at once (mobile board: project and layout). */
+  extra?: ReactNode;
+  extraCount?: number;
+}) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(board.filters);
   const hosts = useSyncStore((s) => s.hosts);
-  const count = activeFilterChips(board.filters, (id) => hosts[id]?.name ?? "host").filter(
-    (c) => c.key !== "search",
-  ).length;
+  const count =
+    activeFilterChips(board.filters, (id) => hosts[id]?.name ?? "host").filter(
+      (c) => c.key !== "search",
+    ).length + extraCount;
   const Surface = mobile ? Sheet : Dialog;
   return (
     <>
       <Button
+        size={mobile ? "sm" : "md"}
         icon={<Filter className="size-4" />}
         onClick={() => {
           setDraft(board.filters);
@@ -317,7 +352,10 @@ export function FilterButton({ board, mobile }: { board: BoardState; mobile?: bo
           </>
         }
       >
-        <FilterFields value={draft} onChange={setDraft} withSort={mobile} />
+        <div className="flex flex-col gap-4">
+          {extra && <div className="flex flex-col gap-4 border-b border-border pb-4">{extra}</div>}
+          <FilterFields value={draft} onChange={setDraft} withSort={mobile} />
+        </div>
       </Surface>
     </>
   );

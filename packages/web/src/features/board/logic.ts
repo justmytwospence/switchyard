@@ -236,6 +236,31 @@ export function unresolvedForDone(task: Task, run: Run | undefined | null): stri
   return reasons;
 }
 
+export const ALL_STATES: TaskState[] = [
+  "backlog",
+  "ready",
+  "in_progress",
+  "review",
+  "done",
+  "canceled",
+];
+
+/** Short explanation under a move target: why it is blocked, or what choice it asks for. */
+export function moveHint(plan: MovePlan): string | null {
+  switch (plan.kind) {
+    case "invalid":
+      return plan.reason;
+    case "choose_running":
+      return "Asks whether to pause automation or stop execution.";
+    case "confirm_done":
+      return "Asks you to confirm acceptance.";
+    case "run_now":
+      return "Starts now if the task is eligible.";
+    default:
+      return null;
+  }
+}
+
 export function planMove(task: Task, to: TaskState, run?: Run | null): MovePlan {
   if (task.state === to) return { kind: "noop" };
   const from = task.state;

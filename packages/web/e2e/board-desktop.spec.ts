@@ -190,4 +190,42 @@ test.describe("desktop board", () => {
     await expect(drawer).toBeVisible();
     expect(await sameBoard()).toBe(true);
   });
+
+  test("the drawer offers Move to… with reasons", async ({ page, api, state }, info) => {
+    const t = await createTask(api, state, { title: `Drawer move ${uid(info)}` });
+    await page.goto(`/tasks/${t.id}`);
+    const drawer = page.getByRole("dialog", { name: t.title });
+    await drawer.getByRole("button", { name: "Move to…", exact: true }).click();
+    const blocked = page.getByRole("menuitem", { name: /In progress/ });
+    await expect(blocked).toBeDisabled();
+    await expect(blocked).toContainText("Backlog task cannot start directly");
+    await page.getByRole("menuitem", { name: /Make ready/ }).click();
+    await poll("drawer move", async () => (await taskState(api, t.id)) === "ready");
+  });
+
+  test("invalid columns are marked while dragging", async ({ page, api, state }, info) => {
+    const t = await createTask(api, state, { title: `Drag hint ${uid(info)}`, priority: 0 });
+    const c = card(page, t.title);
+    await page.goto("/board");
+    await c.scrollIntoViewIfNeeded();
+    const b = (await c.boundingBox())!;
+    await page.mouse.move(b.x + b.width / 2, b.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2 + 20, b.y + 30, { steps: 5 });
+    await expect(column(page, "in_progress")).toHaveAttribute("data-drop", "invalid");
+    await expect(column(page, "ready")).toHaveAttribute("data-drop", "valid");
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    expect(await taskState(api, t.id)).toBe("backlog");
+  });
+
+  test("each session action appears once in the drawer", async ({ page, state }) => {
+    await page.goto(`/tasks/${state.tasks.review}`);
+    const review = page.getByRole("dialog", { name: "Review the greeting copy" });
+    await expect(review.getByRole("link", { name: "Review changes" })).toHaveCount(1);
+    await expect(review.getByRole("button", { name: "Review changes" })).toHaveCount(0);
+    await page.goto(`/tasks/${state.tasks.running}`);
+    const running = page.getByRole("dialog", { name: "Long running migration" });
+    await expect(running.getByRole("link", { name: "Open session" })).toHaveCount(1);
+  });
 });

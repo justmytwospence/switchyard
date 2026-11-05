@@ -16,16 +16,18 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import type { Task, TaskState } from "@switchyard/protocol";
-import { Plus, SquareKanban } from "lucide-react";
+import { ArrowRightLeft, Plus, SquareKanban } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
 import { BACK_STATE, useBackTo } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
+import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { Dialog, Drawer } from "../../components/ui/Overlay";
 import { TASK_STATUS } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextLink } from "../../components/ui/TextLink";
+import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
 import {
@@ -38,10 +40,17 @@ import {
   SearchBox,
   SortSelect,
 } from "./BoardChrome";
-import { DEFAULT_FILTERS, positionFor, STATE_LABELS } from "./logic";
+import {
+  ALL_STATES,
+  DEFAULT_FILTERS,
+  moveHint,
+  planMove,
+  positionFor,
+  STATE_LABELS,
+} from "./logic";
 import { useTaskMover } from "./MoveProvider";
 import { NewTaskForm } from "./NewTaskForm";
-import { type DragBindings, TaskCard } from "./TaskCard";
+import { type DragBindings, moveLabel, StateIcon, TaskCard } from "./TaskCard";
 import { PrimaryAction, TaskDetailBody, useEligibility } from "./TaskDetail";
 import { type BoardState, boardMemory, useBoard } from "./useBoard";
 
@@ -176,6 +185,12 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
   const activeTask = activeId ? tasks[activeId] : undefined;
   const drawerTask = taskId ? tasks[taskId] : undefined;
   const noProjects = hydrated && Object.keys(projects).length === 0;
+  const runs = useSyncStore((s) => s.runs);
+  const dropOf = (state: TaskState): "valid" | "invalid" | null => {
+    if (!activeTask || state === activeTask.state) return null;
+    const run = activeTask.currentRunId ? runs[activeTask.currentRunId] : undefined;
+    return planMove(activeTask, state, run).kind === "invalid" ? "invalid" : "valid";
+  };
 
   return (
     <div data-testid="board" className="absolute inset-0 flex min-w-0 flex-col">
@@ -184,13 +199,13 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
         <ProjectSelect board={board} />
         <SearchBox board={board} className="w-56 max-w-full" />
         <FilterButton board={board} />
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {noProjects && <span className="text-xs text-muted">Add a project first</span>}
           <Button
             variant="primary"
             icon={<Plus className="size-4" />}
             onClick={() => setNewOpen(true)}
             disabled={noProjects}
-            title={noProjects ? "Add a project first" : undefined}
           >
             New task
           </Button>
@@ -265,6 +280,7 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
                   width={colWidth}
                   onOpen={open}
                   selectedId={taskId}
+                  drop={dropOf(state)}
                   onNew={() => setNewOpen(true)}
                 />
               ))}
@@ -340,9 +356,35 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
 
 function DrawerFooter({ task }: { task: Task }) {
   const { eligibility } = useEligibility(task);
+  const mover = useTaskMover();
+  const run = useSyncStore((s) => (task.currentRunId ? s.runs[task.currentRunId] : undefined));
+  const items: MenuItem[] = ALL_STATES.filter((s) => s !== task.state).map((s) => {
+    const plan = planMove(task, s, run);
+    return {
+      id: `move-${s}`,
+      label: moveLabel(task.state, s),
+      icon: <StateIcon state={s} />,
+      disabled: plan.kind === "invalid",
+      hint: moveHint(plan) ?? undefined,
+      onSelect: () => void mover.move(task, s),
+    };
+  });
   return (
-    <div className="w-full min-w-0">
-      <PrimaryAction task={task} eligibility={eligibility} />
+    <div className="flex w-full min-w-0 items-start gap-2">
+      <div className="min-w-0 flex-1">
+        <PrimaryAction task={task} eligibility={eligibility} />
+      </div>
+      <Menu
+        label={`Move ${task.title}`}
+        side="top"
+        align="end"
+        items={items}
+        trigger={(p) => (
+          <Button {...p} icon={<ArrowRightLeft className="size-4" />}>
+            Move to…
+          </Button>
+        )}
+      />
     </div>
   );
 }
@@ -365,6 +407,7 @@ function Column({
   width,
   onOpen,
   selectedId,
+  drop,
   onNew,
 }: {
   state: TaskState;
@@ -372,6 +415,7 @@ function Column({
   width: number;
   onOpen: (t: Task) => void;
   selectedId?: string;
+  drop: "valid" | "invalid" | null;
   onNew: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `${COL_PREFIX}${state}` });
@@ -392,7 +436,15 @@ function Column({
       data-testid={`column-${state}`}
       aria-labelledby={headingId}
       style={{ width: `clamp(288px, ${width}px, 360px)` }}
-      className={`flex h-full shrink-0 flex-col rounded-lg border bg-surface-2 ${isOver ? "border-accent" : "border-border"}`}
+      data-drop={drop ?? undefined}
+      className={cn(
+        "flex h-full shrink-0 flex-col rounded-lg border bg-surface-2",
+        drop === "invalid"
+          ? cn("border-dashed opacity-50", isOver ? "border-danger" : "border-border")
+          : isOver
+            ? "border-accent"
+            : "border-border",
+      )}
     >
       <div
         ref={restoreColumnScroll}
@@ -408,6 +460,9 @@ function Column({
         >
           <Icon aria-hidden className="size-4 text-muted" />
           <span className="flex-1">{STATE_LABELS[state]}</span>
+          {drop === "invalid" && (
+            <span className="text-xs font-normal text-muted">Can't move here</span>
+          )}
           <span className="rounded-full bg-surface px-2 text-xs font-medium text-muted tabular-nums">
             {tasks.length}
             <span className="sr-only"> tasks</span>

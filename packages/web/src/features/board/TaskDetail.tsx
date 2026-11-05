@@ -12,7 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { ROUTES } from "../../app/routes";
 import { Markdown } from "../../components/intent/Markdown";
 import { Button, buttonClasses } from "../../components/ui/Button";
@@ -36,14 +36,7 @@ import { useResource } from "../../lib/useResource";
 import { errorMessage, isApiError } from "../../sync/api";
 import { countPendingInteractions } from "../../sync/selectors";
 import { runsForTask, useSyncStore } from "../../sync/store";
-import {
-  deleteTask,
-  fetchEligibility,
-  fetchRuns,
-  requestChanges,
-  taskAction,
-  updateTask,
-} from "./api";
+import { deleteTask, fetchEligibility, fetchRuns, requestChanges, updateTask } from "./api";
 import { eligibilityText, isRunActive, previewEligibility, STATE_LABELS } from "./logic";
 import { useTaskMover } from "./MoveProvider";
 import { executionLine, useTaskInfo } from "./taskInfo";
@@ -146,7 +139,6 @@ export function PrimaryAction({
 }) {
   const mover = useTaskMover();
   const busy = mover.isBusy(task.id);
-  const [reopening, setReopening] = useState(false);
   const wait = eligibility ? (
     <EligibilityNote e={eligibility} prefix={task.state === "backlog" ? "If made ready: " : ""} />
   ) : null;
@@ -219,21 +211,11 @@ export function PrimaryAction({
         <Button
           variant="primary"
           block={block}
-          busy={reopening}
+          busy={busy}
           icon={<RotateCcw className="size-4" />}
-          onClick={async () => {
-            setReopening(true);
-            try {
-              await taskAction(task.id, "reopen");
-              toast.success(`Reopened "${task.title}"`);
-            } catch (e) {
-              toast.error(`Could not reopen: ${errorMessage(e)}`);
-            } finally {
-              setReopening(false);
-            }
-          }}
+          onClick={() => void mover.move(task, "backlog")}
         >
-          Reopen
+          Reopen to Backlog
         </Button>
       );
     case "canceled":
@@ -434,7 +416,7 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
         ) : (
           <p className="text-sm text-muted">No run yet.</p>
         )}
-        {task.sessionId && (
+        {task.sessionId && task.state !== "in_progress" && task.state !== "review" && (
           <div>
             <Link to={ROUTES.session(task.sessionId)} className={buttonClasses("secondary", "sm")}>
               <ExternalLink aria-hidden className="size-3.5" />
@@ -648,10 +630,9 @@ function DeleteTask({ task, onDeleted }: { task: Task; onDeleted?: () => void })
 
 const feedbackKey = (id: string) => `sy:feedback:${id}`;
 
-/** Review controls: Review changes, Request changes with feedback, Accept, Start new attempt. */
+/** Review controls: Request changes with feedback, Accept, Start new attempt. */
 export function ReviewPanel({ task }: { task: Task }) {
   const mover = useTaskMover();
-  const navigate = useNavigate();
   const [feedback, setFeedback] = useState(
     () => sessionStorage.getItem(feedbackKey(task.id)) ?? "",
   );
@@ -661,7 +642,6 @@ export function ReviewPanel({ task }: { task: Task }) {
     if (feedback) sessionStorage.setItem(feedbackKey(task.id), feedback);
     else sessionStorage.removeItem(feedbackKey(task.id));
   }, [feedback, task.id]);
-  const href = reviewChangesHref(task);
   const items = feedback
     .split("\n")
     .map((l) => l.replace(/^[-*]\s*/, "").trim())
@@ -676,13 +656,6 @@ export function ReviewPanel({ task }: { task: Task }) {
       <h3 id={`${fid}-h`} className="text-sm font-semibold">
         Review
       </h3>
-      {href && (
-        <div>
-          <Button size="sm" icon={<Eye className="size-3.5" />} onClick={() => navigate(href)}>
-            Review changes
-          </Button>
-        </div>
-      )}
       <div className="flex flex-col gap-1">
         <label htmlFor={fid} className="text-sm font-medium">
           Feedback for the next attempt

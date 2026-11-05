@@ -13,6 +13,16 @@ test.describe("mobile board", () => {
 
   test("status tabs with counts and a List toggle", async ({ page }) => {
     await page.goto("/board");
+    const setLayout = async (name: "List" | "Columns") => {
+      await page.getByRole("button", { name: /^Filters/ }).tap();
+      const sheet = page.getByRole("dialog", { name: "Filter tasks" });
+      await sheet
+        .getByRole("radiogroup", { name: "Board layout" })
+        .getByRole("radio", { name })
+        .tap();
+      await sheet.getByRole("button", { name: "Show results" }).tap();
+      await expect(sheet).toHaveCount(0);
+    };
     const tabs = page.getByTestId("status-tabs");
     await expect(tabs).toBeVisible();
     const names = ["Backlog", "Ready", "In progress", "Review", "Done"];
@@ -32,10 +42,7 @@ test.describe("mobile board", () => {
     expect((await running.boundingBox())!.width).toBeGreaterThan(vw - 40);
 
     // The grouped List shows several statuses together.
-    await page
-      .getByRole("radiogroup", { name: "Board layout" })
-      .getByRole("radio", { name: "List" })
-      .tap();
+    await setLayout("List");
     await expect(tabs).toHaveCount(0);
     for (const s of ["backlog", "ready", "in_progress", "review"]) {
       await expect(page.getByTestId(`column-${s}`)).toBeVisible();
@@ -45,10 +52,7 @@ test.describe("mobile board", () => {
     // The layout choice is remembered.
     await page.reload();
     await expect(page.getByTestId("column-backlog")).toBeVisible();
-    await page
-      .getByRole("radiogroup", { name: "Board layout" })
-      .getByRole("radio", { name: "Columns" })
-      .tap();
+    await setLayout("Columns");
     await expect(page.getByTestId("status-tabs")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -162,5 +166,22 @@ test.describe("mobile board", () => {
     await chip.tap();
     await expect(chips).toHaveCount(0);
     await expect(page.getByRole("article", { name: "Long running migration" })).toBeVisible();
+  });
+
+  test("compact sticky header", async ({ page }) => {
+    await page.goto("/board");
+    const header = page.getByTestId("board-header");
+    expect((await header.boundingBox())!.height).toBeLessThan(190);
+    await expect(page.getByPlaceholder("Search tasks")).toHaveCount(0);
+    await page.getByRole("button", { name: "Show search" }).tap();
+    await expect(page.getByPlaceholder("Search tasks")).toBeFocused();
+    await page.locator("#main").evaluate((el) => {
+      el.scrollTop = 400;
+    });
+    expect(Math.round((await header.boundingBox())!.y)).toBeLessThanOrEqual(1);
+    await page.getByRole("button", { name: /^Dispatch (on|paused)/ }).tap();
+    const sheet = page.getByRole("dialog", { name: "Dispatch" });
+    await expect(sheet.getByRole("button", { name: /^(Pause|Resume) dispatch$/ })).toBeVisible();
+    await sheet.getByRole("button", { name: "Close" }).tap(); // never toggle: global state
   });
 });
