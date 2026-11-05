@@ -5,7 +5,7 @@ export const HANDOFF_POLL_MS = 2000;
 /** How long a handoff waits before giving up (the coordinator flow lives 10 minutes). */
 export const HANDOFF_TIMEOUT_MS = 10 * 60 * 1000;
 
-export type HandoffPhase = "waiting" | "done" | "timeout" | "failed" | "cancelled";
+export type HandoffPhase = "waiting" | "done" | "timeout" | "failed" | "canceled";
 
 export interface HandoffState {
   phase: HandoffPhase;
@@ -31,7 +31,7 @@ export function startHandoff(now: number): HandoffState {
  */
 export function handoffReduce(state: HandoffState, event: HandoffEvent): HandoffState {
   if (state.phase !== "waiting") return state;
-  if (event.type === "cancel") return { ...state, phase: "cancelled" };
+  if (event.type === "cancel") return { ...state, phase: "canceled" };
   if (event.now - state.startedAt >= HANDOFF_TIMEOUT_MS && event.type !== "claim") {
     return { ...state, phase: "timeout" };
   }

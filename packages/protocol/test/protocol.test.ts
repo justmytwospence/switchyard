@@ -6,6 +6,7 @@ import {
   DEFAULT_WORKTREE_DIR,
   DeviceKind,
   HostCommand,
+  InteractionState,
   isFieldVisible,
   isPlaceholderTitle,
   mergePatch,
@@ -290,5 +291,13 @@ describe("task policy patches", () => {
       TaskPolicy.safeParse(mergePatch(base, { continuation: { enabled: true } })).success,
     ).toBe(false);
     expect(TaskPolicyPatch.safeParse({ continuation: { maxContinuations: 3 } }).success).toBe(true);
+  });
+});
+
+describe("interaction state", () => {
+  it("spells canceled and accepts the pre-0.9 cancelled", () => {
+    expect(InteractionState.parse("canceled")).toBe("canceled");
+    expect(InteractionState.parse("cancelled")).toBe("canceled");
+    expect(InteractionState.safeParse("bogus").success).toBe(false);
   });
 });

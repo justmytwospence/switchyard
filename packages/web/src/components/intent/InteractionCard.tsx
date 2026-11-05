@@ -232,7 +232,7 @@ export function InteractionCard({
         <p className="text-sm text-muted">
           {interaction.state === "expired"
             ? "This question expired before it was answered (Pi closed the dialog)."
-            : "This question was cancelled."}
+            : "This question was canceled."}
         </p>
       )}
 

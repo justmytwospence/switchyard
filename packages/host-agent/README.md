@@ -23,7 +23,7 @@ await agent.stop(); // every Pi stopped gracefully (runtime `stopped`), link and
 
 | Module | Role |
 |---|---|
-| `db/` | `node:sqlite` in WAL mode; migrations `001_init` (meta, outbox, receipts, dispatches, sessions, interactions, adapter_state, panels); `tx()` issues `BEGIN IMMEDIATE`/`COMMIT` and runs `afterCommit` hooks |
+| `db/` | `node:sqlite` in WAL mode; migrations `001_init` (meta, outbox, receipts, dispatches, sessions, interactions, adapter_state, panels) and `002_interaction_canceled`; `tx()` issues `BEGIN IMMEDIATE`/`COMMIT` and runs `afterCommit` hooks |
 | `config.ts` | host.json and state-dir paths; `enroll()` (`POST /api/hosts/enroll`) |
 | `link.ts` | `CoordinatorLink`: hello, welcome, outbox replay, cumulative acks, reconnect backoff (1, 2, 5, 10, 20, 30 s, +-20% jitter), keepalive |
 | `commands.ts` | `CommandRouter`: receipt dedupe, per-session serial queues, `stale_control`, every `HostCommand` |
@@ -66,7 +66,7 @@ When a run settles (`agent_settled`), the single `session.updated` that moves th
 
 - Pi dialogs (`select`, `confirm`, `input`, `editor`) go through `AdapterSession.onUiRequest`: an adapter claim or the generic renderer becomes an `Interaction` (`pending`, revision 1), persisted before `interaction.updated` is emitted, plus a transcript item of kind `interaction`.
 - A dialog answered from an adapter's `queueAnswers` is answered immediately and recorded as `resolved` by `"host"` with the summary "Answered from your earlier form".
-- `session.answer` requires `state === "pending"` and a matching `revision`; otherwise it returns `{status: "already_answered", interaction}` and nothing reaches Pi. Answers are serialized per session and per interaction. The response is mapped through the claim (`AdapterSession.respond`) and written with `extension_ui_response`; the interaction becomes `resolved` (or `cancelled`), revision + 1, `resolution.by` = the device id. If the adapter fails while mapping, the interaction is re-shown with the generic form (revision + 1) and the command fails with `conflict`.
+- `session.answer` requires `state === "pending"` and a matching `revision`; otherwise it returns `{status: "already_answered", interaction}` and nothing reaches Pi. Answers are serialized per session and per interaction. The response is mapped through the claim (`AdapterSession.respond`) and written with `extension_ui_response`; the interaction becomes `resolved` (or `canceled`), revision + 1, `resolution.by` = the device id. If the adapter fails while mapping, the interaction is re-shown with the generic form (revision + 1) and the command fails with `conflict`.
 - When Pi closes a dialog itself (timeout or abort, reported by the bridge `ui_prompt_end`), a pending interaction becomes `expired` with "Pi closed this question (timeout or abort)".
 - `ctx.ui.custom()` (bridge `ui_prompt_start` kind `custom`) creates an `unsupported` interaction with the actions `abort` ("Stop the run", which aborts with `clearQueue`) and `message` ("Send a message to Pi"). The coordinator raises the `unsupported_interaction` attention from the interaction state.
 - Fire-and-forget requests: `notify` becomes a notice item; `setStatus` and `setWidget` go to adapter hooks and then the generic panels (`adapterId: "generic"`, slots `status` and `widget:<key>`); `setTitle` sets `subtitle`; `set_editor_text` becomes a `system` item `{text, suggestion: true}`.

@@ -181,7 +181,7 @@ test.describe("owner sign-in", () => {
     }
   });
 
-  test("a passkey prompt can be cancelled", async ({ page, browser }) => {
+  test("a passkey prompt can be canceled", async ({ page, browser }) => {
     const server = await startLocal();
     let other: BrowserContext | undefined;
     try {
@@ -228,7 +228,7 @@ test.describe("owner sign-in", () => {
       await page2.getByTestId("signin-passkey").click();
       await expect(page2.getByText("Waiting for your passkey…")).toBeVisible();
       await page2.getByRole("button", { name: "Cancel" }).click();
-      await expect(page2.getByText("Passkey sign-in was cancelled.")).toBeVisible();
+      await expect(page2.getByText("Passkey sign-in was canceled.")).toBeVisible();
       await expect(page2.getByTestId("signin-passkey")).toBeEnabled();
       await expect(page2.getByTestId("signin-passkey")).not.toHaveAttribute("aria-busy", "true");
     } finally {

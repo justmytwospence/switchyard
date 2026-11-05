@@ -1,12 +1,12 @@
 import type {
   AttentionReason,
   Connectivity,
-  InteractionState,
   OccurrenceState,
   RunState,
   RuntimeState,
   TaskState,
 } from "@switchyard/protocol";
+import { InteractionState } from "@switchyard/protocol";
 import {
   Activity,
   Ban,
@@ -102,7 +102,7 @@ export const INTERACTION_STATUS: Record<InteractionState, StatusInfo> = {
   pending: { label: "Needs input", icon: MessageCircleQuestion, tone: "warning" },
   resolved: { label: "Answered", icon: CircleCheck, tone: "success" },
   expired: { label: "Expired", icon: Hourglass, tone: "neutral" },
-  cancelled: { label: "Cancelled", icon: CircleSlash, tone: "neutral" },
+  canceled: { label: "Canceled", icon: CircleSlash, tone: "neutral" },
   unsupported: { label: "Unsupported here", icon: TriangleAlert, tone: "warning" },
 };
 
@@ -177,8 +177,11 @@ export function statusInfo(props: StatusChipProps): StatusInfo {
       return HOST_STATUS[props.value] ?? FALLBACK;
     case "connection":
       return CONNECTION_STATUS[props.value] ?? FALLBACK;
-    case "interaction":
-      return INTERACTION_STATUS[props.value] ?? FALLBACK;
+    case "interaction": {
+      // Offline-cache values may still carry the pre-0.9 spelling.
+      const s = InteractionState.safeParse(props.value);
+      return s.success ? INTERACTION_STATUS[s.data] : FALLBACK;
+    }
     case "attention":
       return ATTENTION_STATUS[props.value] ?? FALLBACK;
     case "occurrence":

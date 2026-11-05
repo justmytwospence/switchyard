@@ -301,7 +301,7 @@ function AddPasskeyDialog({
     } catch (err) {
       setError(
         err instanceof Error && err.name === "NotAllowedError"
-          ? new Error("The passkey prompt was cancelled or timed out. Try again.")
+          ? new Error("The passkey prompt was canceled or timed out. Try again.")
           : err instanceof Error
             ? err
             : new Error(errorMessage(err)),

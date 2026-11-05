@@ -10,6 +10,7 @@ import {
   HostDb,
   hostSocketUrl,
   loadConfig,
+  MIGRATIONS,
   openHostDb,
   saveConfig,
 } from "../src/index.js";
@@ -21,11 +22,27 @@ afterEach(() => {
 });
 
 describe("host db", () => {
+  it("rewrites cancelled interactions in migration 002", () => {
+    const db = new HostDb(":memory:");
+    db.migrate(MIGRATIONS.filter((m) => m.name === "001_init"));
+    db.run(
+      "INSERT INTO interactions (id, session_id, revision, state, json) VALUES (?, ?, ?, ?, ?)",
+      ["int_1", "ses_1", 1, "cancelled", '{"id":"int_1","state":"cancelled"}'],
+    );
+    expect(db.migrate()).toEqual(["002_interaction_canceled"]);
+    const row = db.get<{ state: string; json: string }>(
+      "SELECT state, json FROM interactions WHERE id = 'int_1'",
+    );
+    expect(row?.state).toBe("canceled");
+    expect(JSON.parse(row!.json).state).toBe("canceled");
+    db.close();
+  });
+
   it("migrates once, in WAL mode, and records the level", () => {
     const d = tempDir();
     dirs.push(d);
     const db = openHostDb(join(d.path, "host.db"));
-    expect(db.migrationLevel()).toBe("001_init");
+    expect(db.migrationLevel()).toBe("002_interaction_canceled");
     expect(db.migrate()).toEqual([]);
     expect(db.get<{ journal_mode: string }>("PRAGMA journal_mode")?.journal_mode).toBe("wal");
     for (const t of [

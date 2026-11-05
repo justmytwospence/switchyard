@@ -76,4 +76,8 @@ CREATE TABLE panels (
 );
 `,
   },
+  {
+    name: "002_interaction_canceled",
+    sql: "UPDATE interactions SET state = 'canceled', json = json_set(json, '$.state', 'canceled') WHERE state = 'cancelled';",
+  },
 ];

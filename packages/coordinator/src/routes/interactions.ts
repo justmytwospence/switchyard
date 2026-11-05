@@ -1,4 +1,9 @@
-import { AnswerRequest, AnswerResult, SwitchyardError } from "@switchyard/protocol";
+import {
+  AnswerRequest,
+  AnswerResult,
+  InteractionState,
+  SwitchyardError,
+} from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { CoordinatorContext } from "../context.js";
@@ -21,7 +26,7 @@ export function registerInteractionRoutes(app: FastifyInstance, ctx: Coordinator
     }
     if (q.state) {
       where.push("state = ?");
-      params.push(q.state);
+      params.push(InteractionState.safeParse(q.state).data ?? q.state);
     }
     return ctx.store.interactions.list(where.join(" AND ") || undefined, params, "created_at");
   });

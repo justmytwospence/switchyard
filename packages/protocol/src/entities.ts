@@ -467,13 +467,11 @@ export const Occurrence = z.object({
 });
 export type Occurrence = z.infer<typeof Occurrence>;
 
-export const InteractionState = z.enum([
-  "pending",
-  "resolved",
-  "expired",
-  "cancelled",
-  "unsupported",
-]);
+/** "canceled" is spelled like TaskState and RunState. Parsing also accepts the pre-0.9 "cancelled" for one release. */
+export const InteractionState = z.preprocess(
+  (v) => (v === "cancelled" ? "canceled" : v),
+  z.enum(["pending", "resolved", "expired", "canceled", "unsupported"]),
+);
 export type InteractionState = z.infer<typeof InteractionState>;
 
 export const Interaction = z.object({

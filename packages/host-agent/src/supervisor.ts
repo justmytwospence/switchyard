@@ -226,7 +226,7 @@ export function summarizeResponse(resp: InteractionResponse, presentation?: UINo
       return label ?? resp.actionId;
     }
     case "cancel":
-      return "Cancelled";
+      return "Canceled";
   }
 }
 
@@ -1061,7 +1061,7 @@ export class SessionSupervisor {
     let resolved: Interaction;
     try {
       resolved = this.updateInteraction(latest, {
-        state: response.kind === "cancel" ? "cancelled" : "resolved",
+        state: response.kind === "cancel" ? "canceled" : "resolved",
         resolution: {
           by: deviceId,
           summary: summarizeResponse(response, latest.presentation),

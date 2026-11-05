@@ -195,9 +195,9 @@ function SignInPanel({ next }: { next: string | null }) {
 
   const fail = (err: unknown) => {
     const code = isApiError(err) ? err.code : "internal";
-    // A cancelled or dismissed WebAuthn prompt is not an error worth shouting about.
+    // A canceled or dismissed WebAuthn prompt is not an error worth shouting about.
     if (err instanceof Error && err.name === "NotAllowedError") {
-      setNotice({ code, message: "Passkey sign-in was cancelled or timed out." });
+      setNotice({ code, message: "Passkey sign-in was canceled or timed out." });
       return;
     }
     setNotice({
@@ -233,7 +233,7 @@ function SignInPanel({ next }: { next: string | null }) {
         }),
       );
       if (!result.ok) {
-        setNotice({ code: "cancelled", message: "Passkey sign-in was cancelled." });
+        setNotice({ code: "canceled", message: "Passkey sign-in was canceled." });
         return;
       }
       const response = result.value;
@@ -423,7 +423,7 @@ function HandoffScreen({
     };
   }, [poll, apply]);
 
-  if (state.phase === "timeout" || state.phase === "failed" || state.phase === "cancelled") {
+  if (state.phase === "timeout" || state.phase === "failed" || state.phase === "canceled") {
     return (
       <div data-testid="signin-handoff" className="flex flex-col gap-3 text-sm">
         <AlertBox title={state.phase === "timeout" ? "Sign-in timed out" : "Sign-in stopped"}>

@@ -2,7 +2,7 @@ import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** A dismissed or aborted passkey prompt. */
-export function isCancelledCeremony(err: unknown): boolean {
+export function isCanceledCeremony(err: unknown): boolean {
   return err instanceof Error && (err.name === "NotAllowedError" || err.name === "AbortError");
 }
 
@@ -30,18 +30,18 @@ export function usePasskeyCeremony() {
   const run = useCallback(
     async <T>(
       fn: () => Promise<T>,
-    ): Promise<{ ok: true; value: T } | { ok: false; cancelled: true }> => {
+    ): Promise<{ ok: true; value: T } | { ok: false; canceled: true }> => {
       const mine = ++token.current;
       set(true);
       try {
         const value = await fn();
-        if (token.current !== mine) return { ok: false, cancelled: true };
+        if (token.current !== mine) return { ok: false, canceled: true };
         set(false);
         return { ok: true, value };
       } catch (err) {
-        if (token.current !== mine) return { ok: false, cancelled: true };
+        if (token.current !== mine) return { ok: false, canceled: true };
         set(false);
-        if (isCancelledCeremony(err)) return { ok: false, cancelled: true };
+        if (isCanceledCeremony(err)) return { ok: false, canceled: true };
         throw err;
       }
     },

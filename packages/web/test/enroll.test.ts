@@ -73,7 +73,7 @@ describe("handoff poll state machine", () => {
 
   it("cancels, and terminal phases never change", () => {
     const cancelled = handoffReduce(startHandoff(T), { type: "cancel" });
-    expect(cancelled.phase).toBe("cancelled");
+    expect(cancelled.phase).toBe("canceled");
     const after = handoffReduce(cancelled, {
       type: "claim",
       result: { status: "done", deviceId: "d" },
