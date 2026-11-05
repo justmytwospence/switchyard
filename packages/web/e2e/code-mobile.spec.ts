@@ -238,8 +238,10 @@ test.describe("mobile coding view", () => {
 
   test("archived session can be unarchived from the menu", async ({ page, state, api }, info) => {
     const id = await createSession(api, state, `Mobile archived ${uid(info)}`, "hello");
-    await api("POST", `/api/sessions/${id}/archive`);
     await page.goto(`/code/${id}`);
+    await expect(page.getByTestId("transcript")).toBeVisible();
+    // An archived session is not in the snapshot, so archive it while it is open.
+    await api("POST", `/api/sessions/${id}/archive`);
     await expect(page.getByTestId("session-status")).toHaveAttribute("data-kind", "archived");
     await page.getByRole("button", { name: "More actions" }).tap();
     await page.getByRole("menuitem", { name: "Unarchive" }).tap();
@@ -331,15 +333,12 @@ test.describe("mobile coding view", () => {
     await expect(page).toHaveURL(/\/code\//);
   });
 
-  test("the session header adds the top safe-area inset to its padding", async ({
-    page,
-    state,
-  }) => {
+  test("the session header adds the top safe-area inset", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
-    const header = page.locator("header").first();
-    await expect(header).toBeVisible();
+    const top = page.locator("header").first().locator("..");
+    await expect(top).toBeVisible();
     await page.evaluate(() => document.documentElement.style.setProperty("--safe-top", "20px"));
-    // 20px inset + 4px (pb-1 step): the inset used to be lost to the header's py-1.
-    await expect(header).toHaveCSS("padding-top", "24px");
+    // The inset sits on a wrapper with no padding utility, so it is not lost to the header's py-1.
+    await expect(top).toHaveCSS("padding-top", "20px");
   });
 });

@@ -126,7 +126,10 @@ test.describe("shared behavior", () => {
     await nav.getByRole("link", { name: "Board" }).click();
     await expect(page.getByTestId("board")).toBeVisible();
     await page.goBack();
-    if (isMobile(info)) await page.goBack();
+    // Back replaced the session with the list, so reopen the session from it.
+    if (isMobile(info)) {
+      await page.getByTestId("session-row").filter({ hasText: "Long transcript session" }).click();
+    }
     await expect(page.getByLabel("Message to Pi")).toHaveValue(draft);
 
     await page.reload();

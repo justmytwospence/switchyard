@@ -188,9 +188,11 @@ test.describe("desktop coding view", () => {
     api,
   }, info) => {
     const id = await createSession(api, state, `Archived ${uid(info)}`, "hello");
-    await api("POST", `/api/sessions/${id}/archive`);
     await page.goto(`/code/${id}`);
     const conversation = page.getByTestId("conversation");
+    await expect(page.getByTestId("transcript")).toBeVisible();
+    // An archived session is not in the snapshot, so archive it while it is open.
+    await api("POST", `/api/sessions/${id}/archive`);
     const bar = page.getByTestId("session-status");
     await expect(bar).toHaveAttribute("data-kind", "archived");
     await expect(bar).toContainText("This session is archived. Unarchive it to send messages.");
@@ -288,7 +290,10 @@ test.describe("desktop coding view", () => {
     await composer.getByRole("button", { name: "Commands" }).click();
     await expect(box).toHaveValue("keep this text");
     await expect(page.getByRole("dialog", { name: "Commands" })).toBeVisible();
-    await page.keyboard.press("Escape");
+    await page
+      .getByRole("dialog", { name: "Commands" })
+      .getByRole("button", { name: "Close" })
+      .click();
     await expect(page.getByRole("dialog", { name: "Commands" })).toHaveCount(0);
     await box.fill("");
   });
