@@ -23,3 +23,20 @@ describe("profile resources", () => {
     expect(a).not.toContain("--no-prompt-templates");
   });
 });
+
+describe("allocOrder", () => {
+  it("reserves orders monotonically, never below the floor", () => {
+    const ms = new ManagedSession({
+      sessionId: "s",
+      cwd: "/tmp",
+      title: "t",
+      profile: mockProfile,
+      nextOrder: 5,
+    });
+    expect(ms.allocOrder()).toBe(5);
+    expect(ms.nextOrder).toBe(6);
+    expect(ms.allocOrder(10)).toBe(10);
+    expect(ms.nextOrder).toBe(11);
+    expect(ms.allocOrder(3)).toBe(11);
+  });
+});

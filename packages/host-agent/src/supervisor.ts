@@ -1864,19 +1864,9 @@ export class SessionSupervisor {
     return this.db.allJson<Panel>("SELECT json FROM panels WHERE session_id = ?", [sessionId]);
   }
 
-  /**
-   * Allocate a transcript order for a host-created item. ManagedSession owns the counter while
-   * live (it keeps it private), so bump it there to keep orders unique and monotonic.
-   */
+  /** Allocate a transcript order for a host-created item (through the live ManagedSession when there is one). */
   private allocOrder(l: Live): number {
-    const ms = l.ms as unknown as { order?: number } | null;
-    let order: number;
-    if (ms && typeof ms.order === "number") {
-      order = Math.max(ms.order, l.rec.nextOrder);
-      ms.order = order + 1;
-    } else {
-      order = l.rec.nextOrder;
-    }
+    const order = l.ms ? l.ms.allocOrder(l.rec.nextOrder) : l.rec.nextOrder;
     l.rec.nextOrder = order + 1;
     return order;
   }

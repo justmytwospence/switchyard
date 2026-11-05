@@ -273,6 +273,15 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   get nextOrder(): number {
     return this.order;
   }
+  /**
+   * Reserve a transcript order for an item created outside the session (host notices,
+   * interactions), never below `atLeast`. Keeps orders unique and monotonic with the session's own.
+   */
+  allocOrder(atLeast = 0): number {
+    const order = Math.max(this.order, atLeast);
+    this.order = order + 1;
+    return order;
+  }
   get pendingUi(): PiDialogRequest[] {
     return [...this.pending.values()];
   }
