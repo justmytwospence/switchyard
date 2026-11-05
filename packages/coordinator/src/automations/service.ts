@@ -57,6 +57,11 @@ export interface FireResult {
 const OCC_VARS = "occurrenceVars:";
 const TERMINAL = ["done", "canceled"];
 
+/** An automation's task still counts as its tracked (overlapping) work until Done or Canceled. */
+function isTracked(task: Pick<Task, "state">): boolean {
+  return !TERMINAL.includes(task.state);
+}
+
 function getPath(obj: unknown, path: string): unknown {
   let cur: unknown = obj;
   for (const part of path.split(".")) {
@@ -391,11 +396,13 @@ export class AutomationService {
 
   /** Non-terminal tasks of this automation with the same rendered grouping key. */
   private trackedTasks(a: Automation, groupingKey: string | null): Task[] {
-    const list = this.ctx.store.tasks.list(
-      "automation_id = ? AND state NOT IN ('done', 'canceled')",
-      [a.id],
-      "created_at",
-    );
+    const list = this.ctx.store.tasks
+      .list(
+        `automation_id = ? AND state NOT IN (${TERMINAL.map(() => "?").join(", ")})`,
+        [a.id, ...TERMINAL],
+        "created_at",
+      )
+      .filter(isTracked);
     return groupingKey === null ? list : list.filter((t) => t.groupingKey === groupingKey);
   }
 
@@ -525,16 +532,12 @@ export class AutomationService {
         }
       }
     }
-    if (
-      task.origin.kind === "automation" &&
-      task.state !== "ready" &&
-      task.state !== "in_progress"
-    ) {
+    if (task.origin.kind === "automation" && !isTracked(task)) {
       this.releaseQueued(task.origin.automationId);
     }
   }
 
-  /** Fire the queued occurrence once its tracked work has left Ready / In progress. */
+  /** Fire the queued occurrence once none of its tracked work is left (all Done or Canceled). */
   private releaseQueued(automationId: string): void {
     const { store } = this.ctx;
     const a = store.automations.get(automationId);
@@ -548,10 +551,7 @@ export class AutomationService {
     const vars = store.getSetting<TemplateVars | null>(OCC_VARS + occ.id, null);
     if (!vars) return;
     const r = renderTemplate(a, vars);
-    const busy = this.trackedTasks(a, r.groupingKey).some(
-      (t) => t.state === "ready" || t.state === "in_progress",
-    );
-    if (busy) return;
+    if (this.trackedTasks(a, r.groupingKey).length > 0) return;
     store.tx(() => {
       const cur = store.occurrences.get(occ.id);
       if (cur?.state !== "queued") return;

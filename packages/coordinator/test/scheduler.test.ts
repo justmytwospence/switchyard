@@ -218,6 +218,21 @@ describe("overlap and modes", () => {
     expect(occ).toMatchObject({ state: "fired", taskId: tasks[1]!.id });
   });
 
+  it("queue_one keeps waiting while the tracked task is in Review, then fires once it is Done", async () => {
+    const h = await setup("2026-05-01T00:00:00Z");
+    const a = await automation(h, { trigger: { kind: "manual" }, overlap: "queue_one" });
+    const r1 = await h.t.admin("POST", `/api/automations/${a.id}/run`);
+    const r2 = await h.t.admin("POST", `/api/automations/${a.id}/run`);
+    expect(r2.body.occurrence.state).toBe("queued");
+    h.t.c.store.putTask({ ...task(h, r1.body.task.id), state: "review" });
+    expect(h.t.c.store.occurrences.require(r2.body.occurrence.id).state).toBe("queued");
+    expect(tasksOf(h, a.id)).toHaveLength(1);
+    const accepted = await h.t.admin("POST", `/api/tasks/${r1.body.task.id}/accept`);
+    expect(accepted.status).toBe(200);
+    expect(h.t.c.store.occurrences.require(r2.body.occurrence.id).state).toBe("fired");
+    expect(tasksOf(h, a.id)).toHaveLength(2);
+  });
+
   it("append extends the tracked task's objective", async () => {
     const h = await setup("2026-05-01T00:00:00Z");
     const a = await automation(h, {
