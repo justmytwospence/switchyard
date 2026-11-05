@@ -139,6 +139,11 @@ export class Dispatcher {
   /** Runs with a send in flight. */
   private inflight = new Set<string>();
   private lastReconcile = new Map<string, number>();
+  /** Last seen dispatch-relevant shape per session (runtime class, archive, workspace). */
+  private sessionShapes = new Map<
+    string,
+    { cls: "down" | "idle" | "busy"; archivedAt: string | null; workspaceId: string | null }
+  >();
   private unsubscribe: (() => void)[] = [];
 
   constructor(
@@ -166,15 +171,36 @@ export class Dispatcher {
       void this.reconcileHost(hostId).finally(() => this.schedule());
     });
     on("host.disconnected", ({ hostId }: { hostId: string }) => this.onHostLost(hostId));
-    on("event", (e: { type: string }) => {
+    on("event", (e: { type: string; data: unknown }) => {
       if (e.type === "settings.updated" || e.type === "project.updated") this.schedule();
-      else if (e.type === "session.updated") this.schedule();
+      else if (e.type === "session.updated" && this.sessionMayFree(e.data as Session))
+        this.schedule();
     });
     if (this.opts.tickMs > 0) {
       this.timer = setInterval(() => this.tick(), this.opts.tickMs);
       this.timer.unref();
     }
     this.schedule();
+  }
+
+  /**
+   * Whether a session update can change a Ready task's eligibility: the session left a live
+   * runtime (frees a single-writer workspace), went from busy to idle (a task may reuse it), or
+   * its archive state or workspace changed. The periodic tick still covers anything else.
+   */
+  private sessionMayFree(s: Session): boolean {
+    const cls = !LIVE_RUNTIMES.includes(s.runtime)
+      ? "down"
+      : s.runtime === "idle"
+        ? "idle"
+        : "busy";
+    const next = { cls, archivedAt: s.archivedAt, workspaceId: s.workspaceId } as const;
+    const prev = this.sessionShapes.get(s.id);
+    this.sessionShapes.set(s.id, next);
+    if (!prev) return true;
+    if (prev.archivedAt !== next.archivedAt || prev.workspaceId !== next.workspaceId) return true;
+    if (cls === "down") return prev.cls !== "down";
+    return cls === "idle" && prev.cls === "busy";
   }
 
   stop(): void {

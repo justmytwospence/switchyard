@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { enrollHost, FakeHost, NO_REPLY, sleep, until } from "./helpers.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { enrollHost, FakeHost, hostSession, NO_REPLY, sleep, until } from "./helpers.js";
 import {
   cleanupHarness,
   commandsOf,
@@ -152,6 +152,28 @@ describe("dispatcher", () => {
     expect(
       (dispatcherOf(h) as unknown as { lastReconcile: Map<string, number> }).lastReconcile.size,
     ).toBe(0);
+  });
+
+  it("session updates schedule dispatch only when a session can free work", async () => {
+    h = await setupHarness();
+    await h.host.event("session.updated", hostSession("ses_x", { runtime: "running" }));
+    const spy = vi.spyOn(dispatcherOf(h), "schedule");
+    await h.host.event(
+      "session.updated",
+      hostSession("ses_x", { runtime: "running", title: "Renamed" }),
+    );
+    await sleep(20);
+    expect(spy).toHaveBeenCalledTimes(0);
+    await h.host.event("session.updated", hostSession("ses_x", { runtime: "idle" }));
+    await until(() => spy.mock.calls.length === 1);
+    await h.host.event("session.updated", hostSession("ses_x", { runtime: "running" }));
+    await sleep(20);
+    expect(spy).toHaveBeenCalledTimes(1);
+    await h.host.event("session.updated", hostSession("ses_x", { runtime: "stopped" }));
+    await until(() => spy.mock.calls.length === 2);
+    const store = h.t.c.store;
+    store.putSession({ ...store.sessions.require("ses_x"), archivedAt: new Date().toISOString() });
+    await until(() => spy.mock.calls.length === 3);
   });
 
   it("an unknown dispatch is resent with the same dispatchKey", async () => {
