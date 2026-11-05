@@ -3,7 +3,7 @@ import { PRIORITY_LABELS } from "@switchyard/protocol";
 import { CirclePause, CirclePlay, Filter, Search, X } from "lucide-react";
 import { type ReactNode, useId, useMemo, useState } from "react";
 import { ROUTES } from "../../app/routes";
-import { Badge } from "../../components/ui/Badge";
+import { Badge, TONE_CLASSES } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
@@ -104,10 +104,30 @@ export function CompletedToggle({ board }: { board: BoardState }) {
   );
 }
 
-/** Automation enabled/paused status and the pause/resume toggle (never terminates active runs). */
-export function DispatchToggle({ compact }: { compact?: boolean }) {
+function useDispatchControl() {
   const paused = useSyncStore((s) => s.dispatchPaused);
   const [busy, setBusy] = useState(false);
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      await setDispatchPaused(!paused);
+      toast.success(
+        paused
+          ? "Dispatch resumed. Ready tasks start when eligible."
+          : "Dispatch paused. Running work continues; nothing new starts.",
+      );
+    } catch (e) {
+      toast.error(`Could not ${paused ? "resume" : "pause"} dispatch: ${errorMessage(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { paused, busy, toggle };
+}
+
+/** Dispatch status and the pause/resume button (never terminates active runs). Board and Now. */
+export function DispatchToggle() {
+  const { paused, busy, toggle } = useDispatchControl();
   const Icon = paused ? CirclePause : CirclePlay;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
@@ -119,30 +139,44 @@ export function DispatchToggle({ compact }: { compact?: boolean }) {
         )}
       >
         <Icon aria-hidden className="size-4" />
-        <span className="text-text">{paused ? "Automation paused" : "Automation enabled"}</span>
+        <span className="text-text">{paused ? "Dispatch paused" : "Dispatch on"}</span>
       </span>
-      <Button
-        size="sm"
-        busy={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await setDispatchPaused(!paused);
-            toast.success(
-              paused
-                ? "Dispatch resumed. Ready tasks start when eligible."
-                : "Dispatch paused. Running work continues; nothing new starts.",
-            );
-          } catch (e) {
-            toast.error(`Could not ${paused ? "resume" : "pause"} dispatch: ${errorMessage(e)}`);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        {paused ? "Resume dispatch" : compact ? "Pause" : "Pause dispatch"}
+      <Button size="sm" busy={busy} onClick={() => void toggle()}>
+        {paused ? "Resume dispatch" : "Pause dispatch"}
       </Button>
     </div>
+  );
+}
+
+/** Mobile board: compact dispatch status that opens a sheet with the toggle. */
+export function DispatchChip({ queueCount }: { queueCount: number }) {
+  const paused = useSyncStore((s) => s.dispatchPaused);
+  const [open, setOpen] = useState(false);
+  const Icon = paused ? CirclePause : CirclePlay;
+  return (
+    <>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+        className={cn(
+          "tap inline-flex items-center gap-1 rounded-full border px-2.5 text-xs leading-6 font-medium",
+          paused ? TONE_CLASSES.warning : TONE_CLASSES.neutral,
+        )}
+      >
+        <Icon aria-hidden className={cn("size-3.5", paused ? "text-warning" : "text-success")} />
+        <span className="text-text">{paused ? "Dispatch paused" : "Dispatch on"}</span>
+        <span>· {queueCount} queued</span>
+      </button>
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Dispatch"
+        description="Pausing stops new work from starting. Runs already in progress keep going."
+      >
+        <DispatchToggle />
+      </Sheet>
+    </>
   );
 }
 

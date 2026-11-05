@@ -417,7 +417,7 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
             </DetailRow>
             <DetailRow label="Attempt">{run.attempt}</DetailRow>
             <DetailRow label="Control">
-              {run.controlMode === "human" ? "You (automation paused)" : "Automation"}
+              {run.controlMode === "human" ? "You (taken over from automation)" : "Automation"}
             </DetailRow>
             {runHost && <DetailRow label="Host">{runHost.name}</DetailRow>}
             {run.startedAt && (

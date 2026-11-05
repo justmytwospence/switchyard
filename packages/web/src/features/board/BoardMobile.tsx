@@ -122,7 +122,7 @@ export function BoardMobile() {
         <SearchBox board={board} />
         <FilterChips board={board} />
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <DispatchToggle compact />
+          <DispatchToggle />
           <span className="text-sm text-muted">{board.queueCount} queued</span>
         </div>
         <SegmentedControl

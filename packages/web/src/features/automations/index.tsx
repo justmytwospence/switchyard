@@ -245,7 +245,7 @@ function TriggerText({ automation, trigger }: { automation: Automation; trigger:
 }
 
 function NextOccurrence({ automation }: { automation: Automation }) {
-  if (!automation.enabled) return <span className="text-sm text-muted">Paused (disabled)</span>;
+  if (!automation.enabled) return <span className="text-sm text-muted">Disabled</span>;
   if (!automation.nextAt) {
     const k = automation.trigger.kind;
     const text =

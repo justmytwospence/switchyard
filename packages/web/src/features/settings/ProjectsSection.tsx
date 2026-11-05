@@ -106,7 +106,7 @@ function ProjectRow({
           <span>
             {c.workspaces} workspace{c.workspaces === 1 ? "" : "s"}
           </span>
-          <span>Automation {p.automationEnabled ? "on" : "off"}</span>
+          {!p.automationEnabled && <span>Auto-start off</span>}
         </span>
       </span>
       <ChevronRight aria-hidden className="size-4 shrink-0 text-subtle" />

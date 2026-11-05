@@ -308,7 +308,7 @@ export const WAIT_LABELS: Record<WaitReason, string> = {
   scheduled_time: "Scheduled for later",
   invalid_configuration: "Invalid configuration",
   dispatch_paused: "Dispatch paused",
-  project_automation_disabled: "Project automation is off",
+  project_automation_disabled: "Auto-start is off for this project",
   not_ready: "Not ready",
   already_dispatched: "Already dispatched",
   retry_backoff: "Retrying after a failure",
@@ -353,7 +353,7 @@ export function previewEligibility(input: PreviewInput, state: PreviewState): El
     return {
       eligible: false,
       wait: "project_automation_disabled",
-      message: `Automation is off for ${project.name}`,
+      message: `Auto-start is off for ${project.name}`,
     };
   const unmet = input.dependencies
     .map((id) => state.tasks[id])

@@ -245,8 +245,8 @@ function ProjectForm({
           />
         </Field>
         <SwitchRow
-          label="Automation"
-          description="When off, ready tasks in this project wait instead of starting automatically."
+          label="Auto-start Ready tasks"
+          description="When off, Ready tasks in this project wait instead of starting automatically."
           checked={automationEnabled}
           onChange={setAutomationEnabled}
         />
