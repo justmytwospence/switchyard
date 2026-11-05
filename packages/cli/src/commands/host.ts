@@ -8,6 +8,7 @@ import {
   enroll,
   loadConfig,
   runHostAgent,
+  waitForConfigChange,
 } from "@switchyard/host-agent";
 import { detectPi, SUPPORTED_RANGE } from "@switchyard/pi-runtime";
 import { ApiClient } from "@switchyard/terminal";
@@ -55,16 +56,36 @@ export async function hostRun(
       `No host config at ${configPath} yet: waiting for it (with SWITCHYARD_HOST_ENROLL_SECRET and SWITCHYARD_COORDINATOR_URL set, the host enrolls itself).`,
     );
   }
-  // Without host.json the agent waits (self-enrolling with the shared secret when configured).
-  const agent = await runHostAgent({
-    configPath,
-    stateDir: flags.stateDir,
-    handleSignals: false,
-  });
-  ctx.err(`Switchyard host agent ${agent.hostId} running (Ctrl+C stops it and its Pi sessions)`);
-  const sig = await waitForSignal();
-  ctx.err(`${sig}: stopping host agent`);
-  await agent.stop();
+  const signal = waitForSignal();
+  for (;;) {
+    // Without host.json the agent waits (self-enrolling with the shared secret when configured).
+    const agent = await runHostAgent({
+      configPath,
+      stateDir: flags.stateDir,
+      handleSignals: false,
+    });
+    ctx.err(`Switchyard host agent ${agent.hostId} running (Ctrl+C stops it and its Pi sessions)`);
+    // A rejected credential idles the agent until host.json changes (re-enroll), then it restarts.
+    const ac = new AbortController();
+    const reenrolled = agent.rejected
+      .then((r) => {
+        ctx.err(
+          `${r.code === "forbidden" ? "Host revoked" : "Credential rejected"}: waiting for ${configPath} to change (switchyard host enroll); the agent restarts by itself.`,
+        );
+        return waitForConfigChange(configPath, agent.config, { signal: ac.signal });
+      })
+      .then(() => "reenrolled" as const);
+    const outcome = await Promise.race([signal, reenrolled]);
+    ac.abort();
+    reenrolled.catch(() => {});
+    if (outcome !== "reenrolled") {
+      ctx.err(`${outcome}: stopping host agent`);
+      await agent.stop();
+      return;
+    }
+    ctx.err(`${configPath} changed: restarting the host agent with the new enrollment`);
+    await agent.stop();
+  }
 }
 
 /** Consistent copy of the host database (`VACUUM INTO`), safe while the agent runs. */

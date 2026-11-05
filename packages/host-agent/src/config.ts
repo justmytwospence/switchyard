@@ -286,3 +286,30 @@ export async function waitForConfig(opts: WaitForConfigOptions): Promise<HostCon
     await sleep(t.pollMs, signal);
   }
 }
+
+/**
+ * Resolve once host.json at `configPath` loads with a different hostId, credential or coordinator
+ * than `current` (polled; unreadable or partial files are retried). Rejects only when `signal` aborts.
+ */
+export async function waitForConfigChange(
+  configPath: string,
+  current: Pick<HostConfig, "hostId" | "credential" | "coordinatorUrl">,
+  opts: { signal?: AbortSignal; pollMs?: number } = {},
+): Promise<HostConfig> {
+  for (;;) {
+    if (opts.signal?.aborted) throw abortError(opts.signal);
+    try {
+      const next = loadConfig(configPath);
+      if (
+        next.hostId !== current.hostId ||
+        next.credential !== current.credential ||
+        next.coordinatorUrl !== current.coordinatorUrl
+      ) {
+        return next;
+      }
+    } catch {
+      // missing, partial or invalid: try again
+    }
+    await sleep(opts.pollMs ?? 5000, opts.signal);
+  }
+}

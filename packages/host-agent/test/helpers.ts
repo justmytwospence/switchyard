@@ -57,6 +57,8 @@ export class FakeCoordinator {
   /** Cumulative ack, kept across restarts of this fake. */
   ackedHostSeq = 0;
   autoAck = true;
+  /** Answer every hello with this rejection and close the socket (4401), as a real coordinator does. */
+  rejectWith: { code: string; message: string } | null = null;
   socket: WebSocket | null = null;
   private wss: WebSocketServer | null = null;
   private waiters: { pred: () => boolean; resolve: () => void }[] = [];
@@ -86,6 +88,11 @@ export class FakeCoordinator {
         switch (frame.type) {
           case "hello":
             this.hellos.push(frame);
+            if (this.rejectWith) {
+              this.send({ type: "reject", error: this.rejectWith as any });
+              ws.close(4401, this.rejectWith.message);
+              break;
+            }
             this.send({
               type: "welcome",
               coordinatorVersion: "test",

@@ -63,6 +63,22 @@ export interface RunHostAgentOptions {
   terminalSessions?: boolean;
 }
 
+/** The coordinator refused this host's credential: unknown (`unauthorized`) or revoked (`forbidden`). */
+export type HostRejection = { code: "unauthorized" | "forbidden"; message: string };
+
+/** The error a host logs when the coordinator rejects its credential, with the re-enroll command. */
+export function rejectionMessage(
+  r: HostRejection,
+  coordinatorUrl: string,
+  configPath: string,
+): string {
+  const why =
+    r.code === "forbidden"
+      ? `This host was revoked on coordinator ${coordinatorUrl}`
+      : `Coordinator ${coordinatorUrl} does not recognize this host's credential (${r.message})`;
+  return `${why}. The host agent stopped connecting. Create a host token in Settings › Hosts › Add host, then run: switchyard host enroll --coordinator ${coordinatorUrl} --token <token> --config ${configPath}`;
+}
+
 export interface HostAgentHandle {
   hostId: string;
   config: HostConfig;
@@ -80,6 +96,11 @@ export interface HostAgentHandle {
   readonly spawnedPiProcesses: number;
   /** Whether sessions run in terminal holders. */
   terminalSessions: boolean;
+  /**
+   * Resolves when the coordinator rejected this host's credential (unknown or revoked); the link
+   * is stopped then and the agent idles. Never resolves otherwise.
+   */
+  rejected: Promise<HostRejection>;
   /**
    * Graceful shutdown: stop every RPC Pi (runtime `stopped`), detach from terminal sessions (or
    * stop them with `terminals: "stop"`), close the link and the DB.
@@ -201,6 +222,29 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     log,
   });
   link.events.on("disconnected", () => relay.closeAll());
+  let resolveRejected!: (r: HostRejection) => void;
+  const rejected = new Promise<HostRejection>((r) => {
+    resolveRejected = r;
+  });
+  let refusal: string | null = null;
+  link.events.on("rejected", ({ code, message }) => {
+    if (code === "unauthorized" || code === "forbidden") {
+      void link.stop();
+      log.error(
+        { code, configPath },
+        rejectionMessage({ code, message }, config.coordinatorUrl, configPath),
+      );
+      resolveRejected({ code, message });
+      return;
+    }
+    // A protocol mismatch is not a credential problem: keep retrying, but say so only once.
+    if (refusal === message) return;
+    refusal = message;
+    log.error(
+      { code },
+      `The coordinator refused this host: ${message}. Upgrade Switchyard on this host or on the coordinator so both speak the same protocol.`,
+    );
+  });
   const workspaces = new WorkspaceService({
     db,
     link,
@@ -320,6 +364,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     interruptedOnStart,
     stoppedOnStart,
     terminalSessions: terminalEnabled,
+    rejected,
     get spawnedPiProcesses() {
       return supervisor.spawnedProcesses;
     },

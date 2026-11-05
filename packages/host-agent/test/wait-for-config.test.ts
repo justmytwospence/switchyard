@@ -3,7 +3,13 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { type HostConfig, loadConfig, saveConfig, waitForConfig } from "../src/config.js";
+import {
+  type HostConfig,
+  loadConfig,
+  saveConfig,
+  waitForConfig,
+  waitForConfigChange,
+} from "../src/config.js";
 import { tempDir } from "./helpers.js";
 
 const FAST = { unreachableRetryMs: 20, errorRetryMs: 30, pollMs: 20, reminderMs: 60_000 };
@@ -198,5 +204,35 @@ describe("waitForConfig", () => {
     });
     setTimeout(() => ctl.abort(new Error("stop")), 30);
     await expect(waiting).rejects.toThrow("stop");
+  });
+});
+
+describe("waitForConfigChange", () => {
+  it("waitForConfigChange resolves on a new credential and ignores partial files", async () => {
+    const configPath = join(dir(), "host.json");
+    const a: HostConfig = {
+      coordinatorUrl: "http://c",
+      hostId: "hst_a",
+      credential: "cred_a",
+      name: "a",
+    };
+    saveConfig(configPath, a);
+    const waiting = waitForConfigChange(configPath, a, { pollMs: 20 });
+    let done = false;
+    void waiting.then(() => {
+      done = true;
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    writeFileSync(configPath, "{");
+    await new Promise((r) => setTimeout(r, 60));
+    expect(done).toBe(false);
+    const b = { ...a, credential: "cred_b" };
+    saveConfig(configPath, b);
+    await expect(waiting).resolves.toEqual(b);
+
+    const ctl = new AbortController();
+    const aborted = waitForConfigChange(configPath, b, { signal: ctl.signal, pollMs: 20 });
+    setTimeout(() => ctl.abort(new Error("stop")), 30);
+    await expect(aborted).rejects.toThrow("stop");
   });
 });
