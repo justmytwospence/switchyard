@@ -490,7 +490,7 @@ function DocumentInteraction({
   const variant = (i: number, tone?: string) =>
     i === 0 || tone === "primary" ? "primary" : tone === "danger" ? "danger" : "secondary";
   const showBar = !disabled && !optionsVisible;
-  const wrapBtn = "h-auto min-h-9 min-w-0 py-1.5 text-left leading-tight whitespace-normal";
+  const wrapBtn = "h-auto! min-h-9 min-w-0 py-1.5 text-left leading-tight whitespace-normal!";
   const jump = (el: HTMLElement | null) => scrollTo(el, "start");
   return (
     <article
