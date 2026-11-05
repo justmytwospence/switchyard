@@ -377,9 +377,7 @@ export function BoardNotices({ board }: { board: BoardState }) {
         count={pending.length}
         to={ROUTES.interaction(pending[0]!.sessionId, pending[0]!.id)}
         label={
-          pending.length === 1
-            ? "A task needs your answer"
-            : `${pending.length} questions need your answer`
+          pending.length === 1 ? "A task needs input" : `${pending.length} questions need input`
         }
       />,
     );

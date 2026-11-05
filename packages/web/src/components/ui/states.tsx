@@ -289,7 +289,7 @@ export function InteractionPending({
   className?: string;
 }) {
   if (count <= 0) return null;
-  const text = label ?? (count === 1 ? "Needs your answer" : `${count} questions need your answer`);
+  const text = label ?? (count === 1 ? "Needs input" : `${count} questions need input`);
   const inner = (
     <>
       <MessageCircleQuestion aria-hidden className="size-4 shrink-0 text-warning" />

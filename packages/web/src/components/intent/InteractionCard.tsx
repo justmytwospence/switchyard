@@ -24,7 +24,7 @@ export interface InteractionCardProps {
   className?: string;
   /** Called after the coordinator acknowledged an answer. */
   onAnswered?: (interaction: Interaction) => void;
-  /** DOM id (the "Needs your answer" strip scrolls to it). */
+  /** DOM id (the "Needs input" strip scrolls to it). */
   id?: string;
   /** Stick the document header to the top of its scroller (false when the page scrolls). */
   sticky?: boolean;
@@ -286,12 +286,12 @@ function UnsupportedBody({
       ) : composing ? (
         <div className="flex min-w-0 flex-col gap-2">
           <TextArea
-            aria-label="Message to the agent"
+            aria-label="Message for Pi"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             rows={3}
             autoFocus
-            placeholder="Tell the agent what to do instead"
+            placeholder="Tell Pi what to do instead"
           />
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" busy={busy} disabled={!message.trim()} onClick={onSend}>

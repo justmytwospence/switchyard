@@ -99,7 +99,7 @@ export const CONNECTION_STATUS: Record<ConnectionState, StatusInfo> = {
 };
 
 export const INTERACTION_STATUS: Record<InteractionState, StatusInfo> = {
-  pending: { label: "Needs your answer", icon: MessageCircleQuestion, tone: "warning" },
+  pending: { label: "Needs input", icon: MessageCircleQuestion, tone: "warning" },
   resolved: { label: "Answered", icon: CircleCheck, tone: "success" },
   expired: { label: "Expired", icon: Hourglass, tone: "neutral" },
   cancelled: { label: "Cancelled", icon: CircleSlash, tone: "neutral" },

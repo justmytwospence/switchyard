@@ -395,7 +395,7 @@ Tool cards show name, status, useful summary, elapsed time, and expandable argum
 
 Maintain scroll position when the user reads history. Show "Jump to latest" with unseen-event count; do not pull the viewport downward.
 
-Pending interactions appear inline and in a persistent "Needs your answer" strip linking to the first unanswered item.
+Pending interactions appear inline and in a persistent "Needs input" strip linking to the first unanswered item.
 
 Subagents appear as linked rows/cards with status. Opening one uses the same session interface where supported.
 
