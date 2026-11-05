@@ -235,3 +235,17 @@ describe("lastSyncedAt", () => {
     expect(store.getState().lastSyncedAt).not.toBeNull();
   });
 });
+
+describe("applyReplay", () => {
+  it("drops stream buffers missed while disconnected", () => {
+    const store = useSyncStore;
+    store.getState().reset();
+    store.getState().applySnapshot(1, snapshot());
+    store
+      .getState()
+      .applyStream({ sessionId: "ses_1", itemId: "i9", kind: "text", delta: "partial", order: 9 });
+    expect(store.getState().streaming.i9).toBeDefined();
+    store.getState().applyReplay(2, []);
+    expect(store.getState().streaming).toEqual({});
+  });
+});

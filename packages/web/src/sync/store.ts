@@ -112,7 +112,8 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
   },
   applyReplay(seq, events) {
     set((s) => {
-      const next = applyEvents(s, events);
+      // Deltas missed while disconnected are never resent: drop partial buffers.
+      const next = applyEvents({ ...s, streaming: {} }, events);
       return {
         ...next,
         seq: Math.max(next.seq ?? 0, seq),
