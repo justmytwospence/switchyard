@@ -12,6 +12,7 @@ import {
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
 import type { Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
 import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Select } from "../../components/ui/Select";
 import { SwitchRow } from "../../components/ui/Switch";
@@ -35,7 +36,7 @@ import {
 } from "../../push";
 import { ApiClientError, apiPatch, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { Card, InlineError, InlineStatus, SectionPage } from "./shared";
+import { InlineError, InlineStatus, SectionPage } from "./shared";
 import { isObject, useResource } from "./useResource";
 
 const PERMISSION: Record<

@@ -3,6 +3,7 @@ import { FolderGit2, Plus, RefreshCw, Save } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
 import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
@@ -13,7 +14,6 @@ import { toast } from "../../components/ui/Toast";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useHosts, useSyncStore } from "../../sync/store";
 import {
-  Card,
   InlineError,
   LastKnownNote,
   SectionPage,

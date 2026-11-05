@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
 import { Dialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
@@ -25,7 +26,6 @@ import {
 } from "./EnrollmentPanel";
 import { ProjectFoldersCard } from "./ProjectFoldersCard";
 import {
-  Card,
   ConfirmDialog,
   CopyBlock,
   KeyValues,

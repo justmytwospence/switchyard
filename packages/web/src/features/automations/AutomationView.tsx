@@ -16,6 +16,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
 import { Field, FieldError } from "../../components/ui/Field";
 import { IconButton } from "../../components/ui/IconButton";
 import { Dialog } from "../../components/ui/Overlay";
@@ -38,7 +39,6 @@ import {
   automationPath,
   ConnectionNote,
   PriorityIcon,
-  Section,
   useLocalAutomations,
   useMergedAutomation,
   useRunNow,
@@ -585,7 +585,7 @@ function BasicsSection({
   projects,
 }: SectionProps & { projects: { id: string; name: string }[] }) {
   return (
-    <Section title="Basics">
+    <Card stack title="Basics">
       <Field label="Name" error={err("name")}>
         {(p) => (
           <TextInput
@@ -641,7 +641,7 @@ function BasicsSection({
           )}
         </Field>
       </div>
-    </Section>
+    </Card>
   );
 }
 
@@ -696,7 +696,7 @@ function TriggerSection({
   const onceIso = draft.triggerKind === "once" ? localInputToIso(draft.onceAt) : "";
 
   return (
-    <Section title="Trigger" description={TRIGGER_HELP[draft.triggerKind]}>
+    <Card stack title="Trigger" description={TRIGGER_HELP[draft.triggerKind]}>
       {segmented ? (
         <div className="flex min-w-0 flex-col gap-1">
           <span aria-hidden className="text-sm font-medium">
@@ -867,7 +867,7 @@ function TriggerSection({
           )}
         </Field>
       )}
-    </Section>
+    </Card>
   );
 }
 
@@ -887,7 +887,8 @@ function FiltersSection({
     }));
   const isWebhook = draft.triggerKind === "webhook";
   return (
-    <Section
+    <Card
+      stack
       title="Filters"
       description="Filters apply to webhook payloads. Each row compares a dot path (for example pull_request.base.ref) with an exact value; all rows must match. Payloads that do not match are recorded as Filtered out."
     >
@@ -950,13 +951,14 @@ function FiltersSection({
           Add filter
         </Button>
       </div>
-    </Section>
+    </Card>
   );
 }
 
 function TemplateSection({ draft, update, err }: SectionProps) {
   return (
-    <Section
+    <Card
+      stack
       title="Task template"
       description={`Use ${TEMPLATE_VARIABLES.join(", ")} in the title, objective, criteria and grouping key.`}
     >
@@ -1014,7 +1016,7 @@ function TemplateSection({ draft, update, err }: SectionProps) {
           </div>
         )}
       </Field>
-    </Section>
+    </Card>
   );
 }
 
@@ -1084,7 +1086,7 @@ function ExecutionSection({
   selectedProfileMissing: boolean;
 }) {
   return (
-    <Section title="Where and how it runs">
+    <Card stack title="Where and how it runs">
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Host" error={err("hostId")}>
           {(p) => (
@@ -1153,14 +1155,14 @@ function ExecutionSection({
           />
         )}
       </Field>
-    </Section>
+    </Card>
   );
 }
 
 function PoliciesSection({ draft, update }: Omit<SectionProps, "err">) {
   const scheduled = draft.triggerKind === "cron" || draft.triggerKind === "once";
   return (
-    <Section title="Overlap and missed runs">
+    <Card stack title="Overlap and missed runs">
       <RadioCards
         legend="When previous work is still open"
         value={draft.overlap}
@@ -1178,13 +1180,14 @@ function PoliciesSection({ draft, update }: Omit<SectionProps, "err">) {
             : "Only applies to Schedule and Once triggers."
         }
       />
-    </Section>
+    </Card>
   );
 }
 
 function LimitsSection({ draft, update, err }: SectionProps) {
   return (
-    <Section
+    <Card
+      stack
       title="Limits"
       description="Continuation prompts the agent to keep going after a turn ends without finishing. It is off by default."
     >
@@ -1277,7 +1280,7 @@ function LimitsSection({ draft, update, err }: SectionProps) {
           </p>
         </>
       )}
-    </Section>
+    </Card>
   );
 }
 
@@ -1292,7 +1295,7 @@ function ReviewSection({
       ? `the project's checks (${projectChecks.join(", ")})`
       : "the project's checks";
   return (
-    <Section title="Review">
+    <Card stack title="Review">
       <Field
         label="Checks"
         optional
@@ -1327,6 +1330,6 @@ function ReviewSection({
           />
         )}
       </Field>
-    </Section>
+    </Card>
   );
 }

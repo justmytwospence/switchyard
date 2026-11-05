@@ -1,3 +1,4 @@
+import { Card } from "../../components/ui/Card";
 import { ErrorState, FatalError, LoadingState } from "../../components/ui/states";
 import { formatTime } from "../../lib/time";
 import {
@@ -5,7 +6,7 @@ import {
   type DiagnosticsResponse,
   isDiagnosticsResponse,
 } from "./diagnosticsApi";
-import { Card, CopyBlock, KeyValues, SectionPage } from "./shared";
+import { CopyBlock, KeyValues, SectionPage } from "./shared";
 import { isObject, useResource } from "./useResource";
 
 const BACKUP = "switchyard coordinator backup <file>";

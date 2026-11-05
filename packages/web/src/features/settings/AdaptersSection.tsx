@@ -2,11 +2,11 @@ import type { AdapterInfo, Diagnostic } from "@switchyard/protocol";
 import { CircleCheck, CircleSlash, CircleX, Info, Puzzle, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router";
+import { Card } from "../../components/ui/Card";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/states";
 import { formatTime } from "../../lib/time";
 import { useSyncStore } from "../../sync/store";
 import {
-  Card,
   InlineStatus,
   KeyValues,
   LastKnownNote,

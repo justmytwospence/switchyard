@@ -1,10 +1,11 @@
 import { currentDeviceId, useAuth } from "../../app/auth";
 import { useBreakpoint, useCoarsePointer } from "../../app/useBreakpoint";
+import { Card } from "../../components/ui/Card";
 import { SwitchRow } from "../../components/ui/Switch";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
 import { DEVICE_KIND_LABEL } from "./DevicesSection";
-import { Card, KeyValues, SectionPage } from "./shared";
+import { KeyValues, SectionPage } from "./shared";
 
 /** Settings › This device: preferences stored only in this browser. */
 export function DeviceSection() {

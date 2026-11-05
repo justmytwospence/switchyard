@@ -5,6 +5,7 @@ import { type FormEvent, useId, useState } from "react";
 import { signOut } from "../../app/auth";
 import { usePasskeyCeremony } from "../../app/passkeyCeremony";
 import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
 import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
@@ -15,7 +16,6 @@ import { formatRelative } from "../../lib/time";
 import { apiDelete, apiPost, errorMessage } from "../../sync/api";
 import { defaultDeviceName } from "../enroll/logic";
 import {
-  Card,
   ConfirmDialog,
   InlineError,
   InlineStatus,

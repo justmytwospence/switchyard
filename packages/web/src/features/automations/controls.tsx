@@ -8,7 +8,7 @@ import {
   SignalMedium,
   TriangleAlert,
 } from "lucide-react";
-import { type ReactNode, useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { create } from "zustand";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
@@ -17,43 +17,6 @@ import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
 
 /* Small building blocks shared by the Automations list and editor. */
-
-/** Titled card section. */
-export function Section({
-  title,
-  description,
-  children,
-  actions,
-  className,
-  testId,
-}: {
-  title: ReactNode;
-  description?: ReactNode;
-  children: ReactNode;
-  actions?: ReactNode;
-  className?: string;
-  testId?: string;
-}) {
-  const id = useId();
-  return (
-    <section
-      aria-labelledby={id}
-      data-testid={testId}
-      className={cn("min-w-0 rounded-lg border border-border bg-surface p-4", className)}
-    >
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 id={id} className="text-base font-semibold">
-            {title}
-          </h2>
-          {description && <p className="text-sm text-muted">{description}</p>}
-        </div>
-        {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
-      </div>
-      <div className="flex flex-col gap-4">{children}</div>
-    </section>
-  );
-}
 
 const PRIORITY_ICONS = [OctagonAlert, SignalHigh, SignalMedium, SignalLow];
 

@@ -160,36 +160,6 @@ export function SectionPage({
   );
 }
 
-/** A titled block inside a settings page. */
-export function Card({
-  title,
-  description,
-  actions,
-  children,
-  className,
-}: {
-  title?: ReactNode;
-  description?: ReactNode;
-  actions?: ReactNode;
-  children?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={cn("min-w-0 rounded-lg border border-border bg-surface p-4", className)}>
-      {(title || actions) && (
-        <div className="mb-3 flex min-w-0 flex-wrap items-start gap-2">
-          <div className="min-w-0 flex-[1_1_12rem]">
-            {title && <h2 className="text-base font-semibold">{title}</h2>}
-            {description && <p className="text-sm text-muted">{description}</p>}
-          </div>
-          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-        </div>
-      )}
-      {children}
-    </section>
-  );
-}
-
 /** Key/value list that stacks on narrow screens. */
 export function KeyValues({ items }: { items: [ReactNode, ReactNode][] }) {
   return (

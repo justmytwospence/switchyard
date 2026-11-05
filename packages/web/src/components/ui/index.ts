@@ -1,5 +1,6 @@
 export { Badge, CountBadge, TONE_CLASSES, type Tone } from "./Badge";
 export { Button, type ButtonProps, buttonClasses } from "./Button";
+export { Card, type CardProps } from "./Card";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
 export { ErrorBoundary } from "./ErrorBoundary";
 export {

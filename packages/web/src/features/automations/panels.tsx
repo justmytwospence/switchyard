@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
 import { Dialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
@@ -32,7 +33,7 @@ import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { apiGet, apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { automationPath, PriorityIcon, Section } from "./controls";
+import { automationPath, PriorityIcon } from "./controls";
 import {
   curlExample,
   formatAbsolute,
@@ -54,7 +55,7 @@ function isMissingEndpoint(e: unknown): boolean {
 
 export function SummaryPanel({ summary, errorCount }: { summary: string; errorCount: number }) {
   return (
-    <Section title="Summary" testId="automation-summary">
+    <Card stack title="Summary" testId="automation-summary">
       <p className="text-sm break-words">{summary}</p>
       {errorCount > 0 && (
         <p className="flex items-center gap-1.5 text-sm text-danger">
@@ -62,7 +63,7 @@ export function SummaryPanel({ summary, errorCount }: { summary: string; errorCo
           {errorCount === 1 ? "1 field needs attention" : `${errorCount} fields need attention`}
         </p>
       )}
-    </Section>
+    </Card>
   );
 }
 
@@ -126,7 +127,8 @@ export function PreviewPanel({
   };
 
   return (
-    <Section
+    <Card
+      stack
       title="Preview"
       description="See the task an occurrence would create, and when it would run next."
       testId="automation-preview"
@@ -158,7 +160,7 @@ export function PreviewPanel({
       {state.status === "done" && (
         <PreviewResult preview={state.preview} stale={state.key !== currentKey} />
       )}
-    </Section>
+    </Card>
   );
 }
 
@@ -295,7 +297,8 @@ export function WebhookSection({ automation }: { automation: Automation }) {
   };
 
   return (
-    <Section
+    <Card
+      stack
       title="Webhook"
       description="POST JSON to the URL with the token as a Bearer header. Filters decide which payloads fire."
       testId="webhook-token"
@@ -361,7 +364,7 @@ export function WebhookSection({ automation }: { automation: Automation }) {
           </>
         }
       />
-    </Section>
+    </Card>
   );
 }
 
@@ -415,7 +418,8 @@ export function HistorySection({
   const items = mergeOccurrences(state.status === "done" ? state.items : [], live);
 
   return (
-    <Section
+    <Card
+      stack
       title="History"
       description="Occurrences of this automation. Routine successes are hidden from the board and appear only here."
       testId="automation-history"
@@ -478,6 +482,6 @@ export function HistorySection({
           })}
         </ol>
       )}
-    </Section>
+    </Card>
   );
 }

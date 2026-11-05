@@ -1,6 +1,7 @@
 import { PI_SUPPORTED_RANGE } from "@switchyard/protocol";
 import { CircleCheck, Copy, RefreshCw, TriangleAlert } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { ErrorState, FatalError, LoadingState } from "../../components/ui/states";
 import { formatRelative, formatTime } from "../../lib/time";
@@ -11,15 +12,7 @@ import {
   type DiagnosticsResponse,
   isDiagnosticsResponse,
 } from "./diagnosticsApi";
-import {
-  Card,
-  copyText,
-  InlineStatus,
-  KeyValues,
-  LastKnownNote,
-  PiCompat,
-  SectionPage,
-} from "./shared";
+import { copyText, InlineStatus, KeyValues, LastKnownNote, PiCompat, SectionPage } from "./shared";
 import { useResource } from "./useResource";
 
 const show = (v: unknown) => (v === null || v === undefined || v === "" ? "Unknown" : String(v));
