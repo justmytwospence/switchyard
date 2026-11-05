@@ -220,3 +220,18 @@ describe("upsertSessionIfMissing", () => {
     expect(store.getState().sessions.ses_up?.title).toBe("from sync");
   });
 });
+
+describe("lastSyncedAt", () => {
+  it("lives outside connection so live events keep its identity", () => {
+    const store = useSyncStore;
+    store.getState().reset();
+    expect(store.getState().lastSyncedAt).toBeNull();
+    store.getState().applySnapshot(1, snapshot());
+    const c = store.getState().connection;
+    expect(store.getState().lastSyncedAt).not.toBeNull();
+    store.getState().applyEvent(ev("session.updated", session("ses_1"), 2));
+    store.getState().markSynced();
+    expect(store.getState().connection).toBe(c);
+    expect(store.getState().lastSyncedAt).not.toBeNull();
+  });
+});

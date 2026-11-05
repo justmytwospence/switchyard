@@ -187,7 +187,7 @@ export class SyncClient {
       case "pong":
         if (this.pongTimer) clearTimeout(this.pongTimer);
         this.pongTimer = null;
-        store.setConnection({ lastSyncedAt: new Date().toISOString() });
+        store.markSynced();
         break;
       case "force_logout":
         this.emitLogout(msg.reason);

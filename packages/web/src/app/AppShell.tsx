@@ -20,7 +20,7 @@ import { Toaster } from "../components/ui/Toast";
 import { cn } from "../lib/cn";
 import { usePrefs } from "../prefs";
 import { syncClient } from "../sync/client";
-import { useAttentionCount, useConnection } from "../sync/store";
+import { useAttentionCount, useConnectionState, useStaleSince } from "../sync/store";
 import { useChrome } from "./chrome";
 import { useBreakpoint } from "./useBreakpoint";
 import { useComposingWithKeyboard } from "./useComposing";
@@ -83,7 +83,8 @@ function isActive(d: Destination, pathname: string): boolean {
  */
 export function AppShell() {
   const bp = useBreakpoint();
-  const connection = useConnection();
+  const connState = useConnectionState();
+  const staleSince = useStaleSince();
   const mobile = bp === "mobile";
   return (
     <div
@@ -101,8 +102,8 @@ export function AppShell() {
       {!mobile && <Rail />}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <ReconnectingBanner
-          state={connection.state}
-          lastSyncedAt={connection.lastSyncedAt}
+          state={connState}
+          lastSyncedAt={staleSince}
           onRetry={() => syncClient.reconnectNow()}
           className={mobile ? "safe-pt" : undefined}
         />
@@ -125,8 +126,8 @@ function Rail() {
   const setPref = usePrefs((s) => s.set);
   const { pathname } = useLocation();
   const count = useAttentionCount();
-  const connection = useConnection();
-  const conn = statusInfo({ kind: "connection", value: connection.state });
+  const connState = useConnectionState();
+  const conn = statusInfo({ kind: "connection", value: connState });
   const ConnIcon = conn.icon;
 
   return (

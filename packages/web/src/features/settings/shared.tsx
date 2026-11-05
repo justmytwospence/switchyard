@@ -30,7 +30,7 @@ import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
 import { errorMessage } from "../../sync/api";
-import { useConnection, useSyncStore } from "../../sync/store";
+import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
 
 /* ------------------------------------------------------------------ */
 /* Sections                                                            */
@@ -204,15 +204,16 @@ export function KeyValues({ items }: { items: [ReactNode, ReactNode][] }) {
 
 /** "Showing last known data" when the live connection is down (spec 18). */
 export function LastKnownNote() {
-  const connection = useConnection();
-  if (connection.state === "live" || connection.state === "connecting") return null;
+  const connState = useConnectionState();
+  const staleSince = useStaleSince();
+  if (connState === "live" || connState === "connecting") return null;
   return (
     <p role="status" className="flex items-center gap-1.5 text-sm text-muted">
       <History aria-hidden className="size-4 shrink-0" />
       <span>
         Showing last known data
-        {connection.lastSyncedAt ? ` from ${formatTime(connection.lastSyncedAt)}` : ""}. Changes
-        made elsewhere appear after reconnecting.
+        {staleSince ? ` from ${formatTime(staleSince)}` : ""}. Changes made elsewhere appear after
+        reconnecting.
       </span>
     </p>
   );

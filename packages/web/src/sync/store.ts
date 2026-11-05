@@ -36,8 +36,6 @@ export type ConnectionState = "connecting" | "live" | "reconnecting" | "offline"
 
 export interface ConnectionInfo {
   state: ConnectionState;
-  /** When the client last received data from the coordinator (ISO). */
-  lastSyncedAt: string | null;
   /** Consecutive failed connection attempts. */
   attempts: number;
 }
@@ -48,6 +46,11 @@ export interface SyncStore extends SyncData {
   /** Server data was received during this page load. */
   synced: boolean;
   connection: ConnectionInfo;
+  /**
+   * When the client last received data from the coordinator (ISO). Top-level so live events
+   * do not change `connection`.
+   */
+  lastSyncedAt: string | null;
 
   hydrateFromCache(seq: number, state: SyncState, savedAt: string): void;
   applySnapshot(seq: number, state: SyncState): void;
@@ -55,6 +58,8 @@ export interface SyncStore extends SyncData {
   applyEvent(event: EventEnvelope): void;
   applyStream(delta: StreamDelta): void;
   setConnection(patch: Partial<ConnectionInfo>): void;
+  /** Record that data just arrived from the coordinator. */
+  markSynced(): void;
   /** Store an interaction returned by a REST acknowledgement (answer, 409 already_answered). */
   upsertInteraction(interaction: Interaction): void;
   /** Insert a session from an HTTP response; never replaces one sync already delivered. */
@@ -86,14 +91,15 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
   ...emptySyncData(),
   hydrated: false,
   synced: false,
-  connection: { state: "connecting", lastSyncedAt: null, attempts: 0 },
+  connection: { state: "connecting", attempts: 0 },
+  lastSyncedAt: null,
 
   hydrateFromCache(seq, state, savedAt) {
     if (get().synced) return;
     set((s) => ({
       ...applySnapshot(s, seq, state),
       hydrated: true,
-      connection: { ...s.connection, lastSyncedAt: s.connection.lastSyncedAt ?? savedAt },
+      lastSyncedAt: s.lastSyncedAt ?? savedAt,
     }));
   },
   applySnapshot(seq, state) {
@@ -101,7 +107,7 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
       ...applySnapshot(s, seq, state),
       hydrated: true,
       synced: true,
-      connection: { ...s.connection, lastSyncedAt: new Date().toISOString() },
+      lastSyncedAt: new Date().toISOString(),
     }));
   },
   applyReplay(seq, events) {
@@ -112,21 +118,21 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
         seq: Math.max(next.seq ?? 0, seq),
         hydrated: true,
         synced: true,
-        connection: { ...s.connection, lastSyncedAt: new Date().toISOString() },
+        lastSyncedAt: new Date().toISOString(),
       };
     });
   },
   applyEvent(event) {
-    set((s) => ({
-      ...applyEvent(s, event),
-      connection: { ...s.connection, lastSyncedAt: new Date().toISOString() },
-    }));
+    set((s) => ({ ...applyEvent(s, event), lastSyncedAt: new Date().toISOString() }));
   },
   applyStream(delta) {
     set((s) => applyStream(s, delta));
   },
   setConnection(patch) {
     set((s) => ({ connection: { ...s.connection, ...patch } }));
+  },
+  markSynced() {
+    set({ lastSyncedAt: new Date().toISOString() });
   },
   upsertInteraction(interaction) {
     set((s) => {
@@ -196,7 +202,8 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
       ...emptySyncData(),
       hydrated: false,
       synced: false,
-      connection: { state: "connecting", lastSyncedAt: null, attempts: 0 },
+      connection: { state: "connecting", attempts: 0 },
+      lastSyncedAt: null,
     });
   },
 }));
@@ -295,6 +302,10 @@ export function streamsForSession(
 /* ------------------------------------------------------------------ */
 
 export const useConnection = () => useSyncStore((s) => s.connection);
+export const useConnectionState = () => useSyncStore((s) => s.connection.state);
+/** Last sync time while the link is down; null while live so live events never re-render. */
+export const useStaleSince = () =>
+  useSyncStore((s) => (s.connection.state === "live" ? null : s.lastSyncedAt));
 export const useHost = (id: string | null | undefined) =>
   useSyncStore((s) => (id ? s.hosts[id] : undefined));
 export const useProject = (id: string | null | undefined) =>

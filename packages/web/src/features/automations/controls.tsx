@@ -23,7 +23,7 @@ import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
-import { useConnection, useSyncStore } from "../../sync/store";
+import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
 
 /* Small building blocks shared by the Automations list and editor. */
 
@@ -228,9 +228,10 @@ export function FailureCount({ count }: { count: number }) {
 
 /** Inline last-known-data note when the coordinator link is not live. */
 export function ConnectionNote({ className }: { className?: string }) {
-  const connection = useConnection();
-  if (connection.state === "live") return null;
-  if (connection.state === "connecting" && !connection.lastSyncedAt) return null;
+  const connState = useConnectionState();
+  const staleSince = useStaleSince();
+  if (connState === "live") return null;
+  if (connState === "connecting" && !staleSince) return null;
   return (
     <p
       role="status"
@@ -242,8 +243,8 @@ export function ConnectionNote({ className }: { className?: string }) {
       <CloudOff aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
       <span>
         Showing last known automations
-        {connection.lastSyncedAt ? ` from ${formatTime(connection.lastSyncedAt)}` : ""}. Changes are
-        sent once the coordinator is reachable again.
+        {staleSince ? ` from ${formatTime(staleSince)}` : ""}. Changes are sent once the coordinator
+        is reachable again.
       </span>
     </p>
   );
