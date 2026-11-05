@@ -20,7 +20,7 @@ import { requireService } from "../services.js";
 import { stopSession, takeoverRun } from "../sessions/control.js";
 import { LIVE_RUNTIMES } from "../sessions/service.js";
 import { effectiveChecks, putTaskState, saveRun } from "../tasks/common.js";
-import { detectCycle, isLiveRun, move, STATE_LABELS } from "../tasks/state.js";
+import { detectCycle, isLiveRun, isTerminalTask, move, STATE_LABELS } from "../tasks/state.js";
 
 const ListQuery = z.object({
   projectId: z.string().optional(),
@@ -125,6 +125,27 @@ export async function applyMove(
     if (to === "done") patch.review = { ...cur.review, changesRequested: false };
     if (curRun?.state === "queued" && to !== "ready") {
       saveRun(ctx, curRun, { state: "canceled", endedAt: store.nowIso(), nextAttemptAt: null });
+    }
+    // A task that ends ends its live run too, or the run would hold a concurrency slot forever.
+    // Nothing is stopped on the host: paused work stays under the person's control.
+    if (isTerminalTask(to) && curRun && isLiveRun(curRun)) {
+      saveRun(ctx, curRun, {
+        state: "interrupted",
+        endedAt: store.nowIso(),
+        outcome: {
+          kind: "canceled",
+          summary:
+            to === "canceled" ? "Ended: the task was canceled" : "Ended: the task was marked Done",
+        },
+      });
+      const s = curRun.sessionId ? store.sessions.get(curRun.sessionId) : undefined;
+      if (s?.runtime === "starting") {
+        store.putSession({
+          ...s,
+          runtime: "stopped",
+          runtimeDetail: "The task ended before its launch was confirmed",
+        });
+      }
     }
     if (to === "canceled") {
       ctx.attention.resolve({ taskId, reason: "failed" });

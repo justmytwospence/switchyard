@@ -148,6 +148,46 @@ describe("takeover during an unconfirmed launch", () => {
   });
 });
 
+describe("ending paused work", () => {
+  it("canceling paused work ends its run and frees the project slot without stopping the session", async () => {
+    h = await setupHarness();
+    const { task: a, run } = await startRun(h);
+    const b = await createTask(h, { state: "ready", title: "B" });
+    const elig = await h.t.admin("GET", `/api/tasks/${b.id}/eligibility`);
+    expect(elig.body).toMatchObject({ wait: "project_limit" });
+    const r = await h.t.admin("POST", `/api/tasks/${a.id}/cancel`, { onRunning: "pause" });
+    expect(r.body.state).toBe("canceled");
+    expect(runOf(h, a.id)).toMatchObject({
+      state: "interrupted",
+      controlMode: "human",
+      outcome: { summary: "Ended: the task was canceled" },
+    });
+    expect(runOf(h, a.id).endedAt).not.toBeNull();
+    expect(commandsOf(h.host, "session.abort")).toHaveLength(0);
+    expect(commandsOf(h.host, "session.stop")).toHaveLength(0);
+    await untilRun(h, b.id, "running");
+    const cwd = h.t.c.store.sessions.require(run.sessionId!).cwd;
+    await h.host.event("session.updated", hostSession(run.sessionId!, { cwd, runtime: "running" }));
+    await sleep(30);
+    expect(runOf(h, a.id).state).toBe("interrupted");
+  });
+
+  it("marking paused work Done ends its run", async () => {
+    h = await setupHarness();
+    const { task: a } = await startRun(h);
+    const r = await h.t.admin("POST", `/api/tasks/${a.id}/move`, {
+      to: "done",
+      onRunning: "pause",
+      confirm: true,
+    });
+    expect(r.body.state).toBe("done");
+    expect(runOf(h, a.id)).toMatchObject({
+      state: "interrupted",
+      outcome: { summary: "Ended: the task was marked Done" },
+    });
+  });
+});
+
 describe("takeover", () => {
   it("takeover racing a continuation: the host rejects the stale revision, nothing more is sent", async () => {
     h = await setupHarness();

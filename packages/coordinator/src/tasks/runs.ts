@@ -10,6 +10,7 @@ import type { CoordinatorContext } from "../context.js";
 import type { SessionSettled } from "../event-hub.js";
 import { getService } from "../services.js";
 import { effectiveChecks, putTaskState, raiseFailed, saveRun, shortError } from "./common.js";
+import { isTerminalTask } from "./state.js";
 
 export type Marker = { kind: "done" } | { kind: "blocked"; reason: string } | { kind: "no_change" };
 
@@ -266,7 +267,11 @@ export class RunsService {
           raiseFailed(this.ctx, blocked, reason);
           this.recordAutomationOutcome(blocked, `Failed: ${reason}`, true);
         }
-      } else if (cur.state === "interrupted" && rt === "running") {
+      } else if (
+        cur.state === "interrupted" &&
+        rt === "running" &&
+        !(task && isTerminalTask(task.state))
+      ) {
         // Resumed and working again.
         patch.state = "running";
         if (task && owns && task.state === "in_progress" && task.blocked) {
