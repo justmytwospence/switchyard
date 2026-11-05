@@ -1339,9 +1339,11 @@ export class SessionSupervisor {
         });
         return;
       case "setStatus": {
-        await l.adapters?.onStatus(req.statusKey, req.statusText);
-        if (req.statusText === undefined || req.statusText === "") l.statuses.delete(req.statusKey);
-        else l.statuses.set(req.statusKey, req.statusText);
+        const presented = (await l.adapters?.onStatus(req.statusKey, req.statusText)) === true;
+        // An adapter that presented this key owns it: leave it out of the generic Status panel.
+        if (presented || req.statusText === undefined || req.statusText === "") {
+          l.statuses.delete(req.statusKey);
+        } else l.statuses.set(req.statusKey, req.statusText);
         this.setPanel(rec.id, {
           adapterId: GENERIC_ADAPTER_ID,
           slot: "status",
@@ -1353,14 +1355,14 @@ export class SessionSupervisor {
         return;
       }
       case "setWidget": {
-        await l.adapters?.onWidget(req.widgetKey, req.widgetLines);
+        const presented = (await l.adapters?.onWidget(req.widgetKey, req.widgetLines)) === true;
         this.setPanel(rec.id, {
           adapterId: GENERIC_ADAPTER_ID,
           slot: `widget:${req.widgetKey}`,
           title: req.widgetKey,
-          node: genericWidgetPanel(req.widgetLines),
+          node: presented ? null : genericWidgetPanel(req.widgetLines),
           webRenderer: false,
-          mobileFallback: req.widgetLines?.join("\n") ?? null,
+          mobileFallback: presented ? null : (req.widgetLines?.join("\n") ?? null),
         });
         return;
       }

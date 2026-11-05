@@ -154,7 +154,7 @@ export interface AdapterContext {
 // ---------------------------------------------------------------------------
 // Server adapter
 
-/** `true` when a status/widget hook fully presented the value; hooks may also return nothing. */
+/** `true` when a status/widget hook presented the value (the host then hides the generic one); hooks may also return nothing. */
 // biome-ignore lint/suspicious/noConfusingVoidType: hooks without a return statement are fine
 export type PresentedFlag = boolean | undefined | void;
 
@@ -162,8 +162,8 @@ export type PresentedFlag = boolean | undefined | void;
  * A server adapter. Every hook is optional and may be async. Hooks run in the host agent with a
  * 2 s timeout; a throw or timeout disables the adapter for that session.
  *
- * `onStatus` and `onWidget` may return true to say they fully presented the value; the host
- * still keeps the generic status/widget panels unless it chooses otherwise.
+ * `onStatus` and `onWidget` may return true to say they presented the value; the host then
+ * leaves that status key out of the generic Status panel, or removes the generic widget panel.
  */
 export interface ServerAdapter {
   toolCard?(tool: ToolInfo, ctx: AdapterContext): MaybePromise<UINode | undefined>;

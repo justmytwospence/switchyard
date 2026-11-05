@@ -24,6 +24,8 @@ export default {
     if (tool.name !== "fixture_select") return undefined;
     return { t: "text", text: tool.result ? "fruit chosen" : "choosing fruit" };
   },
+  onStatus(key) { return key === "fixture"; },
+  onWidget(key) { return key === "fixture"; },
   onToolEnd(e, ctx) {
     if (e.name !== "fixture_select") return;
     ctx.state.set("lastFruit", e.details && e.details.value);
@@ -672,6 +674,22 @@ describe("adapter integration", () => {
   afterAll(async () => {
     await h?.dispose();
     work?.cleanup();
+  });
+
+  it("an adapter that presents a status or widget hides the generic one", async () => {
+    const id = sid();
+    await startSession(h, id, work.path, { initialPrompt: "set status please" });
+    await h.coord.waitEvent(isSettled(id), 30000, "settled");
+    await waitFor(
+      () => items(h, id).some((i) => i.kind === "notice" && i.data.text === "fixture notified"),
+      10000,
+      "notice",
+    );
+    const slots = h.coord.eventsOf("panel.updated", id).map((e) => (e.data as any).slot);
+    expect(slots).not.toContain("status");
+    expect(slots).not.toContain("widget:fixture");
+    expect(h.agent.supervisor.panels(id).filter((p) => p.adapterId === "generic")).toEqual([]);
+    await h.coord.ok({ type: "session.stop", sessionId: id });
   });
 
   it("loads project adapters and applies queued answers, tool cards, panels and state", async () => {

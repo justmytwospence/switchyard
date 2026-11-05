@@ -100,7 +100,7 @@ interface ServerAdapter {
 Every hook is optional and may be async. The host calls them in precedence order:
 
 - `toolCard` and `claimInteraction`: the first adapter that returns something wins.
-- Observation hooks (`onToolStart`, `onToolUpdate`, `onToolEnd`, `onEntry`, `onCustomMessage`, `onStatus`, `onWidget`): every adapter is called. `onToolUpdate` gets each `tool_execution_update` with the partial result and its `details`. `onStatus` and `onWidget` may return `true` to say they presented the value; the generic status and widget panels are still kept.
+- Observation hooks (`onToolStart`, `onToolUpdate`, `onToolEnd`, `onEntry`, `onCustomMessage`, `onStatus`, `onWidget`): every adapter is called. `onToolUpdate` gets each `tool_execution_update` with the partial result and its `details`. `onStatus` and `onWidget` may return `true` to say they presented the value: the host then leaves that status key out of the generic Status panel, or removes the generic `widget:<key>` panel. Return nothing (or `false`) to keep the generic presentation; if the adapter is later disabled, the key's next update shows in the generic panel again.
 - `onAction`: only the adapter named in the action.
 
 **Failure isolation.** Each call runs inside try/catch with a 2 s timeout. A throw, a timeout, or an invalid result (a card or claim that fails `validateUINode`, a response that does not fit the dialog) disables that adapter for the rest of the session and emits an error diagnostic. The caller then falls back to generic. Nothing is ever answered automatically: a failed claim becomes the generic form, and the Pi call stays blocked until a human answers it.
