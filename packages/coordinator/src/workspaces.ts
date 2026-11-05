@@ -2,6 +2,7 @@ import {
   branchSlug,
   type Checkout,
   CheckoutInfo,
+  DEFAULT_WORKTREE_DIR,
   DiscoveredWorktree,
   GitState,
   newId,
@@ -10,9 +11,6 @@ import {
 } from "@switchyard/protocol";
 import { z } from "zod";
 import type { CoordinatorContext } from "./context.js";
-
-/** Default managed worktree folder, relative to the checkout root. */
-export const DEFAULT_WORKTREE_DIR = ".worktrees";
 
 /** A project's worktree folder (rows written before 0.2 have none: the default). */
 export function worktreeDirOf(project: Pick<Project, "worktreeDir"> | undefined): string {

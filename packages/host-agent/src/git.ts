@@ -5,6 +5,7 @@ import { join, resolve, sep } from "node:path";
 import {
   branchSlug,
   type CheckoutInfo,
+  DEFAULT_WORKTREE_DIR,
   type DiffFile,
   type DiffResult,
   type DiscoveredWorktree,
@@ -278,8 +279,6 @@ export async function validateBranch(name: string): Promise<void> {
   const res = await runGit(tmpdir(), ["check-ref-format", "--branch", name], { allowFail: true });
   if (res.code !== 0 || res.stdout.trim() !== name) throw invalid();
 }
-
-export const DEFAULT_WORKTREE_DIR = ".worktrees";
 
 /** Re-validate a project's worktree folder: a plain relative path inside the checkout. */
 export function checkWorktreeDir(worktreeDir: string): string {

@@ -1,4 +1,4 @@
-import type { Host, Profile, Project } from "@switchyard/protocol";
+import { DEFAULT_WORKTREE_DIR, type Host, type Profile, type Project } from "@switchyard/protocol";
 import { FolderGit2, Plus, RefreshCw, Save } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { useParams } from "react-router";
@@ -129,7 +129,7 @@ function ProjectForm({
   const [sharing, setSharing] = useState(project.workspaceSharing);
   const [profileId, setProfileId] = useState(project.defaultProfileId ?? "");
   const [hostId, setHostId] = useState(project.defaultHostId ?? "");
-  const [worktreeDir, setWorktreeDir] = useState(project.worktreeDir ?? ".worktrees");
+  const [worktreeDir, setWorktreeDir] = useState(project.worktreeDir ?? DEFAULT_WORKTREE_DIR);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -241,7 +241,7 @@ function ProjectForm({
             data-testid="project-worktree-dir"
             value={worktreeDir}
             onChange={(e) => setWorktreeDir(e.target.value)}
-            placeholder=".worktrees"
+            placeholder={DEFAULT_WORKTREE_DIR}
             className="font-mono"
             autoComplete="off"
             autoCapitalize="off"

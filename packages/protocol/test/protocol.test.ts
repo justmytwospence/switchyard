@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   branchSlug,
+  CAPABILITY_KEYS,
   CoordinatorToHost,
+  DEFAULT_WORKTREE_DIR,
+  DeviceKind,
   HostCommand,
   isFieldVisible,
   isPlaceholderTitle,
   newId,
   Profile,
+  RuntimeCapabilities,
   Session,
   SwitchyardError,
   titleFrom,
@@ -190,5 +194,34 @@ describe("titles", () => {
     expect(isPlaceholderTitle("New session")).toBe(true);
     expect(isPlaceholderTitle("Untitled session")).toBe(true);
     expect(isPlaceholderTitle("New session 2")).toBe(false);
+  });
+});
+
+describe("shared schemas", () => {
+  it("derives CAPABILITY_KEYS from the core capabilities, in display order", () => {
+    expect([...CAPABILITY_KEYS]).toEqual([
+      "prompt",
+      "steer",
+      "followUp",
+      "abort",
+      "resume",
+      "rename",
+      "importInactive",
+      "extensionDialogs",
+      "customUi",
+      "widgetsText",
+      "widgetsComponent",
+      "tokenAccounting",
+      "costAccounting",
+    ]);
+    const caps = Object.fromEntries(CAPABILITY_KEYS.map((k) => [k, true]));
+    expect(RuntimeCapabilities.safeParse({ ...caps, unsupported: [] }).success).toBe(true);
+  });
+
+  it("names the shared enums and defaults", () => {
+    expect(DEFAULT_WORKTREE_DIR).toBe(".worktrees");
+    expect(DeviceKind.extract(["browser", "pwa"]).safeParse("cli").success).toBe(false);
+    const cmd = HostCommand.parse({ type: "workspace.discover", checkoutPath: "/r" });
+    expect(cmd).toMatchObject({ worktreeDir: ".worktrees" });
   });
 });

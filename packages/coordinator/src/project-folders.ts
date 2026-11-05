@@ -1,5 +1,6 @@
 import {
   type Checkout,
+  DEFAULT_WORKTREE_DIR,
   newId,
   type Project,
   ProjectFolderScan,
@@ -9,7 +10,7 @@ import {
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "./context.js";
 import { requireConnected } from "./sessions/service.js";
-import { DEFAULT_WORKTREE_DIR, refreshCheckoutWorkspaces } from "./workspaces.js";
+import { refreshCheckoutWorkspaces } from "./workspaces.js";
 
 /**
  * Project folders: every git repository directly inside a host's folders becomes a project, or

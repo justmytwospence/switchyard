@@ -1,9 +1,12 @@
 import { z } from "zod";
 import {
   CheckResult,
+  ControlMode,
+  DEFAULT_WORKTREE_DIR,
   GitState,
   Interaction,
   NativeHandle,
+  Platform,
   Profile,
   RuntimeCapabilities,
   RuntimeState,
@@ -29,7 +32,7 @@ export const HostCommand = z.discriminatedUnion("type", [
     initialPrompt: z.string().nullable(),
     dispatchKey: z.string().nullable(),
     controlRevision: z.number().int(),
-    controlMode: z.enum(["automation", "human"]),
+    controlMode: ControlMode,
     origin: Origin,
     readOnly: z.boolean().default(false),
   }),
@@ -63,7 +66,7 @@ export const HostCommand = z.discriminatedUnion("type", [
     type: z.literal("session.setControl"),
     sessionId: z.string(),
     controlRevision: z.number().int(),
-    mode: z.enum(["automation", "human"]),
+    mode: ControlMode,
   }),
   z.object({ type: z.literal("session.rename"), sessionId: z.string(), title: z.string() }),
   z.object({ type: z.literal("session.importable") }),
@@ -102,7 +105,7 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("workspace.discover"),
     checkoutPath: z.string(),
-    worktreeDir: z.string().default(".worktrees"),
+    worktreeDir: z.string().default(DEFAULT_WORKTREE_DIR),
   }),
   z.object({
     type: z.literal("workspace.create"),
@@ -110,7 +113,7 @@ export const HostCommand = z.discriminatedUnion("type", [
     branch: z.string(),
     base: z.string(),
     setupCommand: z.string().nullable(),
-    worktreeDir: z.string().default(".worktrees"),
+    worktreeDir: z.string().default(DEFAULT_WORKTREE_DIR),
   }),
   z.object({ type: z.literal("workspace.status"), path: z.string(), base: z.string().nullable() }),
   z.object({
@@ -144,7 +147,7 @@ export const HostCommand = z.discriminatedUnion("type", [
           branch: z.string(),
           base: z.string(),
           setupCommand: z.string().nullable(),
-          worktreeDir: z.string().default(".worktrees"),
+          worktreeDir: z.string().default(DEFAULT_WORKTREE_DIR),
         }),
       }),
     ]),
@@ -153,7 +156,7 @@ export const HostCommand = z.discriminatedUnion("type", [
     prompt: z.string(),
     /** The launch's own revision; a takeover always carries a newer one. */
     controlRevision: z.number().int(),
-    controlMode: z.enum(["automation", "human"]).default("automation"),
+    controlMode: ControlMode.default("automation"),
   }),
   z.object({ type: z.literal("dispatch.reconcile"), dispatchKey: z.string() }),
   z.object({
@@ -288,7 +291,7 @@ export const HostToCoordinator = z.discriminatedUnion("type", [
     agentVersion: z.string(),
     piVersion: z.string().nullable(),
     piCompatible: z.boolean(),
-    platform: z.enum(["darwin", "linux"]),
+    platform: Platform,
     capabilities: RuntimeCapabilities.nullable(),
     protocolVersion: z.number().int(),
   }),

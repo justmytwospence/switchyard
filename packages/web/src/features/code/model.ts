@@ -14,7 +14,7 @@ import type {
   TranscriptItem,
   Workspace,
 } from "@switchyard/protocol";
-import { ThinkingLevel } from "@switchyard/protocol";
+import { DEFAULT_WORKTREE_DIR, ThinkingLevel } from "@switchyard/protocol";
 import { PANE_LIMITS } from "../../prefs";
 import { isBusyRuntime, isLiveRuntime, sessionsNeedingAttention } from "../../sync/selectors";
 import type { StreamBuffer } from "../../sync/store";
@@ -40,9 +40,6 @@ export function isBusy(s: Pick<Session, "runtime">): boolean {
 export function branchSlug(branch: string): string {
   return branch.replaceAll("/", "-");
 }
-
-/** The default managed worktree folder (`Project.worktreeDir`). */
-const DEFAULT_WORKTREE_DIR = ".worktrees";
 
 /** `<checkout>/<worktreeDir>/<branch with / replaced by ->`. */
 export function worktreePath(

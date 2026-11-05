@@ -7,24 +7,19 @@ const Id = z.string();
 export const Connectivity = z.enum(["connected", "reconnecting", "unreachable"]);
 export type Connectivity = z.infer<typeof Connectivity>;
 
-export const CAPABILITY_KEYS = [
-  "prompt",
-  "steer",
-  "followUp",
-  "abort",
-  "resume",
-  "rename",
-  "importInactive",
-  "extensionDialogs",
-  "customUi",
-  "widgetsText",
-  "widgetsComponent",
-  "tokenAccounting",
-  "costAccounting",
-] as const;
-export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
+export const ControlMode = z.enum(["automation", "human"]);
+export type ControlMode = z.infer<typeof ControlMode>;
+export const Platform = z.enum(["darwin", "linux"]);
+export type Platform = z.infer<typeof Platform>;
+export const DeviceKind = z.enum(["browser", "pwa", "terminal", "cli"]);
+export type DeviceKind = z.infer<typeof DeviceKind>;
+export const DiagnosticLevel = z.enum(["info", "warning", "error"]);
+export type DiagnosticLevel = z.infer<typeof DiagnosticLevel>;
+/** Default managed worktree folder, relative to the checkout root. */
+export const DEFAULT_WORKTREE_DIR = ".worktrees";
 
-export const RuntimeCapabilities = z.object({
+/** The capabilities every runtime reports, in display order. */
+const CoreCapabilities = z.object({
   prompt: z.boolean(),
   steer: z.boolean(),
   followUp: z.boolean(),
@@ -38,6 +33,11 @@ export const RuntimeCapabilities = z.object({
   widgetsComponent: z.boolean(),
   tokenAccounting: z.boolean(),
   costAccounting: z.boolean(),
+});
+export const CAPABILITY_KEYS = CoreCapabilities.keyof().options;
+export type CapabilityKey = keyof z.infer<typeof CoreCapabilities>;
+
+export const RuntimeCapabilities = CoreCapabilities.extend({
   /** The host runs sessions as interactive Pi in a terminal that clients can attach to. */
   terminal: z.boolean().optional(),
   /** The host answers session.models, session.commands, session.setModel, session.setThinking and session.compact. */
@@ -64,7 +64,7 @@ export type ProjectScan = z.infer<typeof ProjectScan>;
 export const Host = z.object({
   id: Id,
   name: z.string(),
-  platform: z.enum(["darwin", "linux"]),
+  platform: Platform,
   agentVersion: z.string(),
   piVersion: z.string().nullable(),
   piCompatible: z.boolean(),
@@ -101,7 +101,7 @@ export const Project = z.object({
   setupCommand: z.string().nullable(),
   checks: z.array(z.string()),
   workspaceSharing: z.enum(["single_writer", "shared"]),
-  worktreeDir: WorktreeDir.default(".worktrees"),
+  worktreeDir: WorktreeDir.default(DEFAULT_WORKTREE_DIR),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -374,7 +374,7 @@ export const Run = z.object({
   dispatchKey: z.string(),
   attempt: z.number().int().min(1),
   state: RunState,
-  controlMode: z.enum(["automation", "human"]),
+  controlMode: ControlMode,
   controlRevision: z.number().int().min(1),
   continuationsUsed: z.number().int().min(0),
   infraRetries: z.number().int().min(0),
@@ -525,7 +525,7 @@ export type AttentionItem = z.infer<typeof AttentionItem>;
 export const Device = z.object({
   id: Id,
   name: z.string(),
-  kind: z.enum(["browser", "pwa", "terminal", "cli"]),
+  kind: DeviceKind,
   createdAt: Iso,
   lastSeenAt: Iso.nullable(),
   revokedAt: Iso.nullable(),
@@ -591,7 +591,7 @@ export const TranscriptItem = z.discriminatedUnion("kind", [
     order: z.number().int(),
     at: Iso,
     kind: z.literal("notice"),
-    data: z.object({ level: z.enum(["info", "warning", "error"]), text: z.string() }),
+    data: z.object({ level: DiagnosticLevel, text: z.string() }),
   }),
   z.object({
     id: Id,
@@ -641,7 +641,7 @@ export type Panel = z.infer<typeof Panel>;
 export const Diagnostic = z.object({
   sessionId: Id.nullable(),
   adapterId: z.string().nullable(),
-  level: z.enum(["info", "warning", "error"]),
+  level: DiagnosticLevel,
   message: z.string(),
   at: Iso,
 });

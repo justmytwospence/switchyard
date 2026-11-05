@@ -3,8 +3,10 @@ import {
   CompletionPolicy,
   ContinuationPolicy,
   Device,
+  DeviceKind,
   ExtraArg,
   Passkey,
+  Platform,
   Priority,
   ProjectScan,
   Session,
@@ -24,7 +26,7 @@ import { InteractionResponseSchema, UINodeSchema } from "./ui.js";
 export const EnrollRequest = z.object({
   token: z.string().min(1),
   name: z.string().min(1).max(80),
-  kind: z.enum(["browser", "pwa", "terminal", "cli"]),
+  kind: DeviceKind,
 });
 export const EnrollResponse = z.object({ deviceId: z.string(), credential: z.string() });
 
@@ -42,12 +44,12 @@ export const HostEnrollRequest = z.union([
   z.object({
     token: z.string().min(1),
     name: z.string().min(1).max(80),
-    platform: z.enum(["darwin", "linux"]),
+    platform: Platform,
   }),
   z.object({
     secret: z.string().min(1),
     name: z.string().min(1).max(80),
-    platform: z.enum(["darwin", "linux"]),
+    platform: Platform,
   }),
 ]);
 export const HostEnrollResponse = z.object({ hostId: z.string(), credential: z.string() });
@@ -303,12 +305,7 @@ export type AutomationInput = z.infer<typeof AutomationInput>;
 
 export const AutomationPreview = z.object({
   summary: z.string(),
-  task: z.object({
-    title: z.string(),
-    objective: z.string(),
-    acceptanceCriteria: z.array(z.string()),
-    priority: Priority,
-  }),
+  task: TaskTemplate,
   next: z.array(z.string()),
 });
 export type AutomationPreview = z.infer<typeof AutomationPreview>;
@@ -375,12 +372,12 @@ export const PasskeySignInVerifyRequest = z.object({
   challengeId: z.string(),
   response: z.unknown(),
   deviceName: z.string().min(1).max(80),
-  kind: z.enum(["browser", "pwa"]),
+  kind: DeviceKind.extract(["browser", "pwa"]),
 });
 
 export const OidcBeginRequest = z.object({
   deviceName: z.string().min(1).max(80),
-  kind: z.enum(["browser", "pwa"]),
+  kind: DeviceKind.extract(["browser", "pwa"]),
   next: z.string().default("/"),
   handoff: z.boolean().default(false),
 });

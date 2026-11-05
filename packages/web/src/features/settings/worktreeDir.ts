@@ -1,6 +1,5 @@
 import { WorktreeDir } from "@switchyard/protocol";
 
-export const DEFAULT_WORKTREE_DIR = ".worktrees";
 export const WORKTREE_DIR_HINT =
   "Inside the repository, for example .worktrees or .git/worktrees-switchyard";
 

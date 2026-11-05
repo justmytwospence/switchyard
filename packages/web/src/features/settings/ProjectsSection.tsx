@@ -1,4 +1,4 @@
-import type { Project } from "@switchyard/protocol";
+import { DEFAULT_WORKTREE_DIR, type Project } from "@switchyard/protocol";
 import { ChevronRight, FolderGit2, FolderPlus, Plus, Search } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -160,7 +160,7 @@ export function ProjectCreate() {
   const [hostId, setHostId] = useState("");
   const [path, setPath] = useState("");
   const [profileId, setProfileId] = useState("");
-  const [worktreeDir, setWorktreeDir] = useState(".worktrees");
+  const [worktreeDir, setWorktreeDir] = useState(DEFAULT_WORKTREE_DIR);
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -283,7 +283,7 @@ export function ProjectCreate() {
               id={`${ids}-worktree`}
               value={worktreeDir}
               onChange={(e) => setWorktreeDir(e.target.value)}
-              placeholder=".worktrees"
+              placeholder={DEFAULT_WORKTREE_DIR}
               autoComplete="off"
               autoCapitalize="off"
               spellCheck={false}
