@@ -21,6 +21,7 @@ import { IconButton } from "../../components/ui/IconButton";
 import { Dialog } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { Select } from "../../components/ui/Select";
+import { Switch } from "../../components/ui/Switch";
 import {
   EmptyState,
   ErrorState,
@@ -38,7 +39,6 @@ import {
   ConnectionNote,
   PriorityIcon,
   Section,
-  Switch,
   useLocalAutomations,
   useMergedAutomation,
   useRunNow,
@@ -630,7 +630,7 @@ function BasicsSection({
         >
           {(p) => (
             <Switch
-              id={p.id}
+              {...p}
               checked={draft.enabled}
               onChange={(v) => update("enabled", v)}
               label="Enabled"
@@ -1191,7 +1191,7 @@ function LimitsSection({ draft, update, err }: SectionProps) {
       <Field label="Automatic continuation">
         {(p) => (
           <Switch
-            id={p.id}
+            {...p}
             checked={draft.continuationEnabled}
             onChange={(v) => update("continuationEnabled", v)}
             label="Automatic continuation"
@@ -1317,7 +1317,7 @@ function ReviewSection({
       >
         {(p) => (
           <Switch
-            id={p.id}
+            {...p}
             checked={draft.requireHumanReview}
             onChange={(v) => update("requireHumanReview", v)}
             label="Require human review"

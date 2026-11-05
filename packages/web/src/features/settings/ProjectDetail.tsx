@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Dialog } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
+import { SwitchRow } from "../../components/ui/Switch";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -18,7 +19,6 @@ import {
   SectionPage,
   settingsPath,
   splitLines,
-  Toggle,
   useHydrated,
   validateAbsolutePath,
 } from "./shared";
@@ -252,7 +252,7 @@ function ProjectForm({
             {...fieldControlProps(`${ids}-worktree`, { hint: true, error: worktreeDirError })}
           />
         </Field>
-        <Toggle
+        <SwitchRow
           label="Automation"
           description="When off, ready tasks in this project wait instead of starting automatically."
           checked={automationEnabled}

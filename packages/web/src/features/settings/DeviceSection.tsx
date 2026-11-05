@@ -1,9 +1,10 @@
 import { currentDeviceId, useAuth } from "../../app/auth";
 import { useBreakpoint, useCoarsePointer } from "../../app/useBreakpoint";
+import { SwitchRow } from "../../components/ui/Switch";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
 import { DEVICE_KIND_LABEL } from "./DevicesSection";
-import { Card, KeyValues, SectionPage, Toggle } from "./shared";
+import { Card, KeyValues, SectionPage } from "./shared";
 
 /** Settings › This device: preferences stored only in this browser. */
 export function DeviceSection() {
@@ -22,7 +23,7 @@ export function DeviceSection() {
     >
       <Card title="Composer">
         <div className="flex flex-col gap-3">
-          <Toggle
+          <SwitchRow
             label="Send with Enter"
             description="On desktop, Enter sends the message and Shift+Enter inserts a newline. When off, Enter inserts a newline; send with the Send button."
             checked={sendWithEnter}

@@ -17,6 +17,7 @@ import { Link } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button, buttonClasses } from "../../components/ui/Button";
+import { Switch } from "../../components/ui/Switch";
 import { EmptyState, ErrorState, FatalError, LoadingState } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
@@ -25,7 +26,6 @@ import { useSyncStore } from "../../sync/store";
 import {
   ConnectionNote,
   FailureCount,
-  Switch,
   useLocalAutomations,
   useMergedAutomations,
   useRunNow,

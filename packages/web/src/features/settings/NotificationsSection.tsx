@@ -14,6 +14,7 @@ import type { Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Select } from "../../components/ui/Select";
+import { SwitchRow } from "../../components/ui/Switch";
 import {
   ErrorState,
   FatalError,
@@ -34,7 +35,7 @@ import {
 } from "../../push";
 import { ApiClientError, apiPatch, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { Card, InlineError, InlineStatus, SectionPage, Toggle } from "./shared";
+import { Card, InlineError, InlineStatus, SectionPage } from "./shared";
 import { isObject, useResource } from "./useResource";
 
 const PERMISSION: Record<
@@ -343,7 +344,7 @@ function PreferencesForm({
 
   return (
     <form className="flex min-w-0 flex-col gap-4" onSubmit={save} noValidate>
-      <Toggle
+      <SwitchRow
         label="Quiet hours"
         description="No push notifications during these hours. Attention items still collect in Switchyard."
         checked={quiet}
@@ -381,7 +382,7 @@ function PreferencesForm({
           </Field>
         </div>
       )}
-      <Toggle
+      <SwitchRow
         label="Private previews"
         description="Hide task and session text in notifications; show only the status, e.g. Needs input."
         checked={privatePreviews}

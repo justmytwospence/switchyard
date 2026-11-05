@@ -30,6 +30,7 @@ export {
   statusInfo,
   TASK_STATUS,
 } from "./StatusChip";
+export { Switch, SwitchRow } from "./Switch";
 export {
   EmptyState,
   ErrorState,

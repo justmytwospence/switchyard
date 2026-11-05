@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { type ReactNode, useCallback, useId, useMemo, useState } from "react";
 import { create } from "zustand";
-import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
@@ -18,65 +17,6 @@ import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
 
 /* Small building blocks shared by the Automations list and editor. */
-
-/** Accessible on/off switch with a text label that states the current value. */
-export function Switch({
-  checked,
-  onChange,
-  label,
-  onText = "On",
-  offText = "Off",
-  busy,
-  disabled,
-  id,
-  className,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  /** Accessible name. */
-  label: string;
-  onText?: string;
-  offText?: string;
-  busy?: boolean;
-  disabled?: boolean;
-  id?: string;
-  className?: string;
-}) {
-  return (
-    <button
-      id={id}
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      aria-busy={busy || undefined}
-      disabled={disabled || busy}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "tap inline-flex min-h-9 shrink-0 items-center gap-2 rounded-md px-1.5 text-sm",
-        "hover:bg-surface-2 disabled:opacity-60",
-        className,
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
-          checked ? "border-accent bg-accent" : "border-border-strong bg-surface-2",
-        )}
-      >
-        <span
-          className={cn(
-            "absolute size-3.5 rounded-full shadow-sm transition-transform",
-            checked ? "translate-x-[18px] bg-accent-fg" : "translate-x-[2px] bg-muted",
-          )}
-        />
-      </span>
-      {busy ? <Spinner className="size-3.5" /> : null}
-      <span className={checked ? "text-text" : "text-muted"}>{checked ? onText : offText}</span>
-    </button>
-  );
-}
 
 /** Titled card section. */
 export function Section({
