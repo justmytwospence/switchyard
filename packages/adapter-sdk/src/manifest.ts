@@ -6,17 +6,21 @@ import { z } from "zod";
 
 export const MANIFEST_FILE = "switchyard-adapter.json";
 
+/** Informational: shown in Settings and session details; the host does not enforce them. */
 export const ADAPTER_CAPABILITIES = [
   "toolCards",
   "interactions",
   "panels",
-  "commands",
   "progress",
   "subagents",
   "attention",
   "state",
 ] as const;
 export type AdapterCapability = (typeof ADAPTER_CAPABILITIES)[number];
+
+/** Accepted in a manifest and dropped: `commands` had no effect on the host. */
+const RETIRED_CAPABILITIES = ["commands"] as const;
+const MANIFEST_CAPABILITIES = [...ADAPTER_CAPABILITIES, ...RETIRED_CAPABILITIES] as const;
 
 const relativePath = z
   .string()
@@ -38,7 +42,13 @@ export const AdapterManifestSchema = z
     protocolVersion: z.literal(PROTOCOL_VERSION),
     server: relativePath,
     webRenderer: relativePath.nullable(),
-    capabilities: z.array(z.enum(ADAPTER_CAPABILITIES)),
+    capabilities: z
+      .array(z.enum(MANIFEST_CAPABILITIES))
+      .transform((c) =>
+        c.filter(
+          (x): x is AdapterCapability => !(RETIRED_CAPABILITIES as readonly string[]).includes(x),
+        ),
+      ),
   })
   .strict();
 export type AdapterManifest = z.infer<typeof AdapterManifestSchema>;

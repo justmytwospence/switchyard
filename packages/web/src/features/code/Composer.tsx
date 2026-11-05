@@ -105,9 +105,6 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
   const running = isBusy(session);
   const text = draft.trim();
   const noText = !text;
-  const commandAdapters = ctx.adapters.filter(
-    (a) => a.status === "active" && a.capabilities.includes("commands"),
-  );
   const slashOpen = !mobile && !slashDismissed && /^\/\S*$/.test(draft) && focused;
   const controls = piControlsAvailable(host, block);
   const {
@@ -452,7 +449,6 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
           {slashOpen && !controls && (
             <SlashHint
               className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-3 shadow-pop"
-              adapters={commandAdapters.map((a) => a.id)}
               onClose={() => setSlashDismissed(true)}
             />
           )}
@@ -749,7 +745,7 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
             }}
           />
         ) : (
-          <SlashHint adapters={commandAdapters.map((a) => a.id)} />
+          <SlashHint />
         )}
         {draft.trim() === "" && (
           <div className="mt-3">
@@ -803,15 +799,7 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
   );
 }
 
-function SlashHint({
-  adapters,
-  onClose,
-  className,
-}: {
-  adapters: string[];
-  onClose?: () => void;
-  className?: string;
-}) {
+function SlashHint({ onClose, className }: { onClose?: () => void; className?: string }) {
   return (
     <div role="note" aria-label="Slash commands" className={className}>
       <div className="flex items-start gap-2">
@@ -829,11 +817,6 @@ function SlashHint({
           />
         )}
       </div>
-      {adapters.length > 0 && (
-        <p className="mt-1 text-xs text-muted">
-          Extensions with commands on this host: {adapters.join(", ")}
-        </p>
-      )}
     </div>
   );
 }

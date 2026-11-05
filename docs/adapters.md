@@ -34,7 +34,7 @@ Every adapter is a directory with a `switchyard-adapter.json`:
 | `protocolVersion` | Must be `1`. |
 | `server` | ESM module, relative to the manifest, whose default export is a `ServerAdapter` or a factory `({manifest, dir}) => ServerAdapter`. A `.ts` file works too: Node (24 or later) strips its types on import, so it may use only erasable syntax (see [Shipping an adapter with your Pi package](#shipping-an-adapter-with-your-pi-package)). |
 | `webRenderer` | Relative path to an HTML file for the custom web renderer, or `null`. |
-| `capabilities` | Any of `toolCards`, `interactions`, `panels`, `commands`, `progress`, `subagents`, `attention`, `state`. |
+| `capabilities` | Informational: any of `toolCards`, `interactions`, `panels`, `progress`, `subagents`, `attention`, `state`, shown in Settings › Adapters and session details. The host does not enforce them. `commands` is retired: accepted and ignored. |
 
 `parseManifest()` and `loadManifest()` validate it and list every problem. Unknown keys are rejected.
 

@@ -11,6 +11,11 @@ describe("manifest", () => {
     expect(m.webRenderer).toBe("web/x.html");
   });
 
+  it("accepts the retired commands capability and drops it", () => {
+    const m = parseManifest(manifest("x", { capabilities: ["commands", "panels"] as never }));
+    expect(m.capabilities).toEqual(["panels"]);
+  });
+
   it.each([
     ["bad id", { id: "Tool Gate" }, "id"],
     ["protocol version", { protocolVersion: 2 }, "protocolVersion"],
