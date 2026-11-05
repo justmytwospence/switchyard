@@ -8,15 +8,7 @@ import {
   SignalMedium,
   TriangleAlert,
 } from "lucide-react";
-import {
-  type ReactElement,
-  type ReactNode,
-  type SelectHTMLAttributes,
-  useCallback,
-  useId,
-  useMemo,
-  useState,
-} from "react";
+import { type ReactElement, type ReactNode, useCallback, useId, useMemo, useState } from "react";
 import { create } from "zustand";
 import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
@@ -80,23 +72,6 @@ export function FieldError({ id, children }: { id?: string; children: ReactNode 
       <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
       <span>{children}</span>
     </p>
-  );
-}
-
-/** Native select styled like TextInput. */
-export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      className={cn(
-        "tap block h-9 w-full min-w-0 rounded-md border border-border bg-surface px-2.5 text-base text-text md:text-sm",
-        "focus:border-accent focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-0",
-        "aria-[invalid=true]:border-danger",
-        className,
-      )}
-      {...rest}
-    >
-      {children}
-    </select>
   );
 }
 

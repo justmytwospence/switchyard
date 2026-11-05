@@ -3,6 +3,7 @@ import { Pencil, Plus, SlidersHorizontal, Trash } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Overlay";
+import { Select } from "../../components/ui/Select";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -15,7 +16,6 @@ import {
   InlineError,
   LastKnownNote,
   SectionPage,
-  SelectInput,
   splitLines,
   useHydrated,
 } from "./shared";
@@ -290,7 +290,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
         </div>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2">
           <Field id={`${ids}-thinking`} label="Thinking">
-            <SelectInput
+            <Select
               id={`${ids}-thinking`}
               value={thinking}
               onChange={(e) => setThinking(e.target.value)}
@@ -301,10 +301,10 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
                   {l}
                 </option>
               ))}
-            </SelectInput>
+            </Select>
           </Field>
           <Field id={`${ids}-trust`} label="Project trust" hint={TRUST_HELP[trust]}>
-            <SelectInput
+            <Select
               id={`${ids}-trust`}
               value={trust}
               onChange={(e) => setTrust(e.target.value as Profile["projectTrust"])}
@@ -315,11 +315,11 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
                   {TRUST_LABEL[t]}
                 </option>
               ))}
-            </SelectInput>
+            </Select>
           </Field>
         </div>
         <Field id={`${ids}-resources`} label="Resources" hint={RESOURCES_HELP[resources]}>
-          <SelectInput
+          <Select
             id={`${ids}-resources`}
             value={resources}
             onChange={(e) => setResources(e.target.value as NonNullable<Profile["resources"]>)}
@@ -327,7 +327,7 @@ function ProfileDialog({ profile, onClose }: { profile: Profile | null; onClose:
           >
             <option value="all">Your Pi setup</option>
             <option value="vanilla">Vanilla Pi</option>
-          </SelectInput>
+          </Select>
         </Field>
         <Field
           id={`${ids}-extra`}

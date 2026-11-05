@@ -3,6 +3,7 @@ import { GitBranch } from "lucide-react";
 import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
+import { Select } from "../../components/ui/Select";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
@@ -14,9 +15,6 @@ import { branchProblem, workspaceLabel, worktreePath } from "./model";
 import { rememberInitialPrompt } from "./startingPrompts";
 
 type WsMode = "existing" | "new";
-
-const SELECT_CLASS =
-  "tap block h-9 w-full rounded-md border border-border bg-surface px-2 text-base text-text md:text-sm focus:border-accent focus:outline-none disabled:opacity-55";
 
 function Field({
   label,
@@ -172,9 +170,8 @@ type Form = ReturnType<typeof useNewSessionForm>;
 function ProjectField({ form, id }: { form: Form; id: string }) {
   return (
     <Field label="Project" htmlFor={`${id}-project`}>
-      <select
+      <Select
         id={`${id}-project`}
-        className={SELECT_CLASS}
         value={form.values.projectId}
         onChange={(e) => form.set.projectId(e.target.value)}
       >
@@ -183,7 +180,7 @@ function ProjectField({ form, id }: { form: Form; id: string }) {
             {p.name}
           </option>
         ))}
-      </select>
+      </Select>
     </Field>
   );
 }
@@ -225,9 +222,8 @@ function WorkspaceFields({ form, id }: { form: Form; id: string }) {
           htmlFor={`${id}-ws`}
           hint={form.host ? `Runs on ${form.host.name}` : undefined}
         >
-          <select
+          <Select
             id={`${id}-ws`}
-            className={SELECT_CLASS}
             value={values.workspaceId}
             onChange={(e) => set.workspaceId(e.target.value)}
           >
@@ -240,14 +236,13 @@ function WorkspaceFields({ form, id }: { form: Form; id: string }) {
                 </option>
               );
             })}
-          </select>
+          </Select>
         </Field>
       ) : (
         <>
           <Field label="Host and checkout" htmlFor={`${id}-checkout`}>
-            <select
+            <Select
               id={`${id}-checkout`}
-              className={SELECT_CLASS}
               value={values.checkoutId}
               onChange={(e) => set.checkoutId(e.target.value)}
             >
@@ -261,7 +256,7 @@ function WorkspaceFields({ form, id }: { form: Form; id: string }) {
                   </option>
                 );
               })}
-            </select>
+            </Select>
           </Field>
           <Field
             label="New branch"
@@ -313,9 +308,8 @@ function ProfileField({ form, id }: { form: Form; id: string }) {
           : undefined
       }
     >
-      <select
+      <Select
         id={`${id}-profile`}
-        className={SELECT_CLASS}
         value={form.values.profileId}
         onChange={(e) => form.set.profileId(e.target.value)}
       >
@@ -325,7 +319,7 @@ function ProfileField({ form, id }: { form: Form; id: string }) {
             {form.project?.defaultProfileId === p.id ? " (project default)" : ""}
           </option>
         ))}
-      </select>
+      </Select>
     </Field>
   );
 }

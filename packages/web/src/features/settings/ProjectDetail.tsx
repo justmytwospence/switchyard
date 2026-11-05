@@ -4,6 +4,7 @@ import { type FormEvent, useId, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Overlay";
+import { Select } from "../../components/ui/Select";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -16,7 +17,6 @@ import {
   InlineError,
   LastKnownNote,
   SectionPage,
-  SelectInput,
   settingsPath,
   splitLines,
   Toggle,
@@ -297,7 +297,7 @@ function ProjectForm({
         </fieldset>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2">
           <Field id={`${ids}-profile`} label="Default Pi profile">
-            <SelectInput
+            <Select
               id={`${ids}-profile`}
               value={profileId}
               onChange={(e) => setProfileId(e.target.value)}
@@ -309,14 +309,14 @@ function ProjectForm({
                 </option>
               ))}
               {!profileKnown && <option value={profileId}>Unknown profile ({profileId})</option>}
-            </SelectInput>
+            </Select>
           </Field>
           <Field
             id={`${ids}-host`}
             label="Default host"
             hint="Runs start here when the task does not choose a host."
           >
-            <SelectInput
+            <Select
               id={`${ids}-host`}
               value={hostId}
               onChange={(e) => setHostId(e.target.value)}
@@ -330,7 +330,7 @@ function ProjectForm({
                 </option>
               ))}
               {!hostKnown && <option value={hostId}>Unknown host ({hostId})</option>}
-            </SelectInput>
+            </Select>
           </Field>
         </div>
         <InlineError error={error} />
@@ -488,7 +488,7 @@ function AddCheckoutDialog({
           </p>
         )}
         <Field id={`${ids}-host`} label="Host" hint="Only connected hosts are listed.">
-          <SelectInput
+          <Select
             id={`${ids}-host`}
             value={effectiveHost}
             onChange={(e) => setHostId(e.target.value)}
@@ -501,7 +501,7 @@ function AddCheckoutDialog({
                 {h.name}
               </option>
             ))}
-          </SelectInput>
+          </Select>
         </Field>
         <Field
           id={`${ids}-path`}

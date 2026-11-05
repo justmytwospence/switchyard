@@ -4,6 +4,7 @@ import { type FormEvent, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Button, buttonClasses } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 import { EmptyState, LoadingState, UnsupportedCapability } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -17,7 +18,6 @@ import {
   InlineStatus,
   LastKnownNote,
   SectionPage,
-  SelectInput,
   settingsPath,
   useHydrated,
   validateAbsolutePath,
@@ -211,7 +211,7 @@ export function ProjectCreate() {
             hint="Only connected hosts are listed."
             error={hostError}
           >
-            <SelectInput
+            <Select
               id={`${ids}-host`}
               value={effectiveHost}
               onChange={(e) => setHostId(e.target.value)}
@@ -224,7 +224,7 @@ export function ProjectCreate() {
                   {h.name}
                 </option>
               ))}
-            </SelectInput>
+            </Select>
           </Field>
           <Field
             id={`${ids}-path`}
@@ -263,7 +263,7 @@ export function ProjectCreate() {
             />
           </Field>
           <Field id={`${ids}-profile`} label="Default Pi profile (optional)">
-            <SelectInput
+            <Select
               id={`${ids}-profile`}
               value={profileId}
               onChange={(e) => setProfileId(e.target.value)}
@@ -274,7 +274,7 @@ export function ProjectCreate() {
                   {p.name}
                 </option>
               ))}
-            </SelectInput>
+            </Select>
           </Field>
           <InlineError error={error} />
           <div className="flex flex-wrap gap-2">

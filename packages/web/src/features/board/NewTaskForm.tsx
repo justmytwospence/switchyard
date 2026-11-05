@@ -2,6 +2,7 @@ import type { Priority, Task, TaskPolicy } from "@switchyard/protocol";
 import { ChevronDown, ChevronRight, Inbox, Play } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { errorMessage } from "../../sync/api";
@@ -216,8 +217,6 @@ export function NewTaskForm({
         {errors[k]}
       </p>
     ) : null;
-  const selectCls =
-    "tap h-9 w-full rounded-md border border-border bg-surface px-2 text-base md:text-sm";
 
   return (
     <form
@@ -260,9 +259,8 @@ export function NewTaskForm({
         <label htmlFor={`${id}-project`} className="text-sm font-medium">
           Project
         </label>
-        <select
+        <Select
           id={`${id}-project`}
-          className={selectCls}
           value={d.projectId}
           aria-invalid={!!errors.projectId}
           onChange={(e) => setD((x) => ({ ...x, projectId: e.target.value, dependencies: [] }))}
@@ -273,7 +271,7 @@ export function NewTaskForm({
               {p.name}
             </option>
           ))}
-        </select>
+        </Select>
         {err("projectId")}
       </div>
 
@@ -324,9 +322,8 @@ export function NewTaskForm({
               <label htmlFor={`${id}-host`} className="text-sm font-medium">
                 Host
               </label>
-              <select
+              <Select
                 id={`${id}-host`}
-                className={selectCls}
                 value={d.hostId}
                 onChange={(e) => set("hostId", e.target.value)}
               >
@@ -339,15 +336,14 @@ export function NewTaskForm({
                     {h.connectivity !== "connected" ? " (offline)" : ""}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor={`${id}-profile`} className="text-sm font-medium">
                 Pi profile
               </label>
-              <select
+              <Select
                 id={`${id}-profile`}
-                className={selectCls}
                 value={d.profileId}
                 onChange={(e) => set("profileId", e.target.value)}
               >
@@ -359,7 +355,7 @@ export function NewTaskForm({
                     {p.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
           <div className="flex flex-col gap-1">

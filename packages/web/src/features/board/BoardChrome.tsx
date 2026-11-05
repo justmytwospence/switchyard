@@ -6,6 +6,7 @@ import { ROUTES } from "../../app/routes";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
+import { Select } from "../../components/ui/Select";
 import {
   ErrorState,
   HostUnavailable,
@@ -22,9 +23,6 @@ import { setDispatchPaused } from "./api";
 import { activeFilterChips, type BoardFilters, type BoardSort, DEFAULT_FILTERS } from "./logic";
 import type { BoardState } from "./useBoard";
 
-const selectCls =
-  "tap h-9 min-w-0 rounded-md border border-border bg-surface px-2 text-base text-text md:text-sm";
-
 export function ProjectSelect({ board, className }: { board: BoardState; className?: string }) {
   const projects = useProjects();
   const id = useId();
@@ -33,9 +31,9 @@ export function ProjectSelect({ board, className }: { board: BoardState; classNa
       <label htmlFor={id} className="sr-only">
         Project
       </label>
-      <select
+      <Select
         id={id}
-        className={cn(selectCls, "w-full max-w-56")}
+        className="max-w-56"
         value={board.projectId ?? ""}
         onChange={(e) => board.setProjectId(e.target.value || null)}
       >
@@ -45,7 +43,7 @@ export function ProjectSelect({ board, className }: { board: BoardState; classNa
             {p.name}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }
@@ -80,16 +78,16 @@ export function SortSelect({ board }: { board: BoardState }) {
       <label htmlFor={id} className="text-muted">
         Sort
       </label>
-      <select
+      <Select
         id={id}
-        className={selectCls}
+        width="auto"
         value={board.filters.sort}
         onChange={(e) => board.setFilters({ ...board.filters, sort: e.target.value as BoardSort })}
       >
         <option value="priority">Priority</option>
         <option value="updated">Recently updated</option>
         <option value="created">Newest</option>
-      </select>
+      </Select>
     </div>
   );
 }
@@ -186,9 +184,8 @@ function FilterFields({
         <label htmlFor={`${id}-host`} className="text-sm font-medium">
           Host
         </label>
-        <select
+        <Select
           id={`${id}-host`}
-          className={selectCls}
           value={value.hostId ?? ""}
           onChange={(e) => onChange({ ...value, hostId: e.target.value || null })}
         >
@@ -198,7 +195,7 @@ function FilterFields({
               {h.name}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 text-sm font-medium">Show</legend>
@@ -240,16 +237,15 @@ function FilterFields({
           <label htmlFor={`${id}-sort`} className="text-sm font-medium">
             Sort
           </label>
-          <select
+          <Select
             id={`${id}-sort`}
-            className={selectCls}
             value={value.sort}
             onChange={(e) => onChange({ ...value, sort: e.target.value as BoardSort })}
           >
             <option value="priority">Priority</option>
             <option value="updated">Recently updated</option>
             <option value="created">Newest</option>
-          </select>
+          </Select>
         </div>
       )}
     </div>

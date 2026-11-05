@@ -328,26 +328,6 @@ export function describedBy(id: string, opts: { hint?: boolean; error?: string |
   } as const;
 }
 
-/** Native select styled like TextInput. */
-export function SelectInput({
-  className,
-  children,
-  ...rest
-}: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      className={cn(
-        "tap block h-9 w-full min-w-0 rounded-md border border-border bg-surface px-2 text-base text-text md:text-sm",
-        "focus:border-accent focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-0",
-        className,
-      )}
-      {...rest}
-    >
-      {children}
-    </select>
-  );
-}
-
 /** On/off switch built on a checkbox, with the state written out. */
 export function Toggle({
   label,

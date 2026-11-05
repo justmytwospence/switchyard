@@ -12,6 +12,7 @@ import {
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
 import type { Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Select } from "../../components/ui/Select";
 import {
   ErrorState,
   FatalError,
@@ -32,16 +33,7 @@ import {
 } from "../../push";
 import { ApiClientError, apiPatch, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import {
-  Card,
-  describedBy,
-  Field,
-  InlineError,
-  InlineStatus,
-  SectionPage,
-  SelectInput,
-  Toggle,
-} from "./shared";
+import { Card, describedBy, Field, InlineError, InlineStatus, SectionPage, Toggle } from "./shared";
 import { isObject, useResource } from "./useResource";
 
 const PERMISSION: Record<
@@ -399,7 +391,7 @@ function PreferencesForm({
         label="Preferred device"
         hint="Receives push when no desktop was recently active."
       >
-        <SelectInput
+        <Select
           id={`${ids}-device`}
           value={preferred}
           onChange={(e) => setPreferred(e.target.value)}
@@ -413,7 +405,7 @@ function PreferencesForm({
             </option>
           ))}
           {!preferredKnown && <option value={preferred}>Unknown device ({preferred})</option>}
-        </SelectInput>
+        </Select>
       </Field>
       <InlineError error={error} />
       <div>

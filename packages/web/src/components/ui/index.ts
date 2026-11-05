@@ -6,6 +6,7 @@ export { Menu, type MenuItem, type MenuProps } from "./Menu";
 export { Dialog, Drawer, type DrawerProps, type OverlayProps, Sheet } from "./Overlay";
 export { Popover, type PopoverProps } from "./Popover";
 export { SegmentedControl, type SegmentOption } from "./SegmentedControl";
+export { Select, type SelectProps } from "./Select";
 export { Spinner } from "./Spinner";
 export { Splitter, type SplitterProps } from "./Splitter";
 export {

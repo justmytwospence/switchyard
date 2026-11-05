@@ -19,6 +19,7 @@ import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Dialog } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { Select } from "../../components/ui/Select";
 import {
   EmptyState,
   ErrorState,
@@ -38,7 +39,6 @@ import {
   FieldError,
   PriorityIcon,
   Section,
-  Select,
   Switch,
   useLocalAutomations,
   useMergedAutomation,
