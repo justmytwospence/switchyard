@@ -109,6 +109,11 @@ export function continuationCommandId(runId: string, n: number): string {
   return `cont_${runId}_${n}`;
 }
 
+/** Whether `commandId` is one of this run's automated continuation or checks commands. */
+export function isRunAutomationCommand(runId: string, commandId: string): boolean {
+  return commandId.startsWith(`cont_${runId}_`) || commandId.startsWith(`chk_${runId}_`);
+}
+
 /**
  * Run lifecycle after launch: mirrors session runtime into the run, evaluates completion
  * markers when the session settles, continues within limits, runs acceptance checks and moves
@@ -399,6 +404,11 @@ export class RunsService {
     } catch (err) {
       if (this.stopped) return;
       const e = shortError(err);
+      if ((e.details as { withdrawn?: boolean } | undefined)?.withdrawn) {
+        // Withdrawn by a takeover while the host was away: never re-send it.
+        store.deleteSetting(CONTINUATION_PREFIX + runId);
+        return;
+      }
       if (e.code === "host_unreachable" || e.code === "timeout") {
         // Unacknowledged: the recovery sweep re-sends it when the host is back.
         return;

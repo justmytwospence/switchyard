@@ -809,12 +809,18 @@ export class Dispatcher {
   private async assertHumanControl(run: Run): Promise<boolean> {
     if (!run.hostId || !run.sessionId) return false;
     try {
-      await this.ctx.hostHub.request(run.hostId, {
-        type: "session.setControl",
-        sessionId: run.sessionId,
-        controlRevision: run.controlRevision,
-        mode: "human",
-      });
+      // Same id as the reconnect announcement (`HostHub.onHello`): joins it while it is pending,
+      // and the host dedupes it otherwise.
+      await this.ctx.hostHub.request(
+        run.hostId,
+        {
+          type: "session.setControl",
+          sessionId: run.sessionId,
+          controlRevision: run.controlRevision,
+          mode: "human",
+        },
+        { commandId: `ctl_${run.dispatchKey}_${run.controlRevision}` },
+      );
       return true;
     } catch (err) {
       this.ctx.log.warn({ err, runId: run.id }, "session.setControl (human) failed");

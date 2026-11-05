@@ -189,6 +189,62 @@ describe("takeover", () => {
     expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
   });
 
+  it("takeover while the host is offline withdraws the unacknowledged continuation; reconnect hears human control first", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h, { policy });
+    const sid = run.sessionId!;
+    h.override = (cmd) => {
+      if (cmd.type !== "session.prompt" || cmd.origin !== "automation") return undefined;
+      void h!.host.close();
+      return NO_REPLY;
+    };
+    await settle(h, sid, "partial");
+    await until(() => !h!.t.c.hostHub.isConnected(h!.creds.hostId));
+    const r = await h.t.admin("POST", `/api/sessions/${sid}/takeover`);
+    expect(r.body.run).toMatchObject({ controlMode: "human", controlRevision: 2 });
+    h.override = undefined;
+    const mark = h.host.commands.length;
+    await h.host.open();
+    await until(() => (h!.state.revisions.get(sid) ?? 0) >= 2);
+    await sleep(50);
+    expect(h.host.commands.slice(mark)[0]?.command).toMatchObject({
+      type: "session.setControl",
+      mode: "human",
+      controlRevision: 2,
+    });
+    // The continuation that never got a receipt is not re-sent.
+    expect(automationPrompts(h)).toHaveLength(1);
+    expect(runOf(h, tk.id)).toMatchObject({ state: "running", controlMode: "human" });
+    expect(h.t.c.store.getSetting(`runContinuation:${run.id}`, null)).toBeNull();
+    expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(0);
+  });
+
+  it("a reconnecting host hears current control before re-sent commands", async () => {
+    h = await setupHarness();
+    const { run } = await startRun(h, { policy });
+    const sid = run.sessionId!;
+    const cwd = h.t.c.store.sessions.require(sid).cwd;
+    await h.host.event("session.updated", hostSession(sid, { cwd, runtime: "idle" }));
+    await h.t.admin("POST", `/api/sessions/${sid}/takeover`);
+    let dropped = false;
+    h.override = (cmd) => {
+      if (cmd.type !== "session.prompt" || cmd.origin !== "human" || dropped) return undefined;
+      dropped = true;
+      void h!.host.close();
+      return NO_REPLY;
+    };
+    const prompt = h.t.admin("POST", `/api/sessions/${sid}/prompt`, { text: "let me look" });
+    await until(() => !h!.t.c.hostHub.isConnected(h!.creds.hostId));
+    const mark = h.host.commands.length;
+    await h.host.open();
+    await until(() => h!.host.commands.length >= mark + 2);
+    expect(h.host.commands.slice(mark, mark + 2).map((c) => c.command.type)).toEqual([
+      "session.setControl",
+      "session.prompt",
+    ]);
+    expect((await prompt).status).toBe(200);
+  });
+
   it("takeover before the settle means no automated prompt at all", async () => {
     h = await setupHarness();
     const { task: tk, run } = await startRun(h, { policy });

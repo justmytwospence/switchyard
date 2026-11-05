@@ -234,6 +234,20 @@ export class HostHub {
     return true;
   }
 
+  /** Withdraw every pending command for a disconnected host whose id matches. Returns the count. */
+  withdrawMatching(hostId: string, match: (commandId: string) => boolean, reason: string): number {
+    if (this.isConnected(hostId)) return 0;
+    let n = 0;
+    for (const [id, p] of this.pending) {
+      if (p.hostId !== hostId || !match(id)) continue;
+      clearTimeout(p.timer);
+      this.pending.delete(id);
+      p.reject(new SwitchyardError("host_unreachable", reason, { commandId: id, withdrawn: true }));
+      n++;
+    }
+    return n;
+  }
+
   /** `send` and unwrap: returns `result` or throws a SwitchyardError with the host's code. */
   async request<T = unknown>(
     hostId: string,
@@ -366,9 +380,33 @@ export class HostHub {
       coordinatorVersion: COORDINATOR_VERSION,
       ackedHostSeq: this.store.ackedHostSeq(hostId),
     });
-    for (const p of this.pending.values()) {
-      if (p.hostId === hostId) socket.send(p.frame);
+    // Snapshot first: the setControl frames sent below would otherwise go out twice.
+    const resend = [...this.pending.entries()].filter(([, p]) => p.hostId === hostId);
+    const sent = new Set<string>();
+    // The host learns current control before any re-sent automated command can run.
+    for (const run of this.store.activeRunsOnHost(hostId)) {
+      if (!run.sessionId || run.state === "queued") continue;
+      const commandId = `ctl_${run.dispatchKey}_${run.controlRevision}`;
+      const existing = this.pending.get(commandId);
+      if (existing) {
+        socket.send(existing.frame);
+        sent.add(commandId);
+        continue;
+      }
+      this.send(
+        hostId,
+        {
+          type: "session.setControl",
+          sessionId: run.sessionId,
+          controlRevision: run.controlRevision,
+          mode: run.controlMode,
+        },
+        { commandId },
+      ).catch((err) =>
+        this.log.warn({ err, hostId, runId: run.id }, "session.setControl on reconnect failed"),
+      );
     }
+    for (const [id, p] of resend) if (!sent.has(id)) socket.send(p.frame);
     const reconnect = this.everConnected.has(hostId);
     this.everConnected.add(hostId);
     this.log.info({ hostId, name: hello.name, reconnect }, "host connected");

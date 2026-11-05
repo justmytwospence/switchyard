@@ -163,6 +163,41 @@ describe("host link", () => {
     await expect(pending).resolves.toEqual([{ fake: true }]);
   });
 
+  it("withdrawMatching drops matching pending commands of a disconnected host only", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    let h = await connect(t, creds);
+    h.handler = () => NO_REPLY;
+    const matching = t.c.hostHub.request(
+      creds.hostId,
+      { type: "session.importable" },
+      { commandId: "cont_run_x_1" },
+    );
+    const other = t.c.hostHub.request(
+      creds.hostId,
+      { type: "session.importable" },
+      { commandId: "other_1" },
+    );
+    const matchingResult = matching.catch((e) => e);
+    await until(() => h.commands.length === 2);
+    const isCont = (id: string) => id.startsWith("cont_run_x_");
+    expect(t.c.hostHub.withdrawMatching(creds.hostId, isCont, "withdrawn")).toBe(0);
+    await h.close();
+    await until(() => !t!.c.hostHub.isConnected(creds.hostId));
+    expect(t.c.hostHub.withdrawMatching(creds.hostId, isCont, "withdrawn")).toBe(1);
+    expect(await matchingResult).toMatchObject({
+      code: "host_unreachable",
+      details: { withdrawn: true },
+    });
+
+    h = new FakeHost(t.c.localUrl.replace("http", "ws"), creds.hostId, creds.credential);
+    hosts.push(h);
+    h.handler = () => [];
+    await h.open();
+    await expect(other).resolves.toEqual([]);
+    expect(h.commands.map((c) => c.commandId)).toEqual(["other_1"]);
+  });
+
   it("maps error receipts to SwitchyardError and times out silent hosts", async () => {
     t = await startCoordinator({ commandTimeoutMs: 200 });
     const creds = await enrollHost(t);

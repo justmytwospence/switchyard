@@ -1,6 +1,7 @@
 import { type Run, type Session, SwitchyardError } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
 import { getService } from "../services.js";
+import { isRunAutomationCommand } from "../tasks/runs.js";
 
 /**
  * Session control routes. The tasks/runs worker extends these (continuation checks,
@@ -35,7 +36,15 @@ async function setControl(
     return { session, run: updated };
   });
   ctx.hub.emit("control.changed", { run, session, mode });
-  if (mode === "human") getService(ctx, "dispatcher")?.onTakeover(run.id);
+  if (mode === "human") {
+    getService(ctx, "dispatcher")?.onTakeover(run.id);
+    // A host that is away must not run this run's automated follow-ups when it is back.
+    ctx.hostHub.withdrawMatching(
+      session.hostId,
+      (id) => isRunAutomationCommand(run.id, id),
+      "Withdrawn: a person took over",
+    );
+  }
   if (ctx.hostHub.isConnected(session.hostId)) {
     try {
       await ctx.hostHub.request(session.hostId, {
