@@ -12,7 +12,9 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it (`status --instance <name>` with `--config` and `--state-dir` for a second agent) |
 | `login` | Sign this terminal in by approving a code in a browser (`--coordinator`, `--name`, `--open`/`--no-open`; `--token <link>` from `pair` instead) |
 | `tui <sessionId>` | Open a terminal session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
-| `herdr daemon` / `pane` / `new` / `status` | The herdr integration: mirror Switchyard into a paired herdr session, a space per workspace and a tab per session ([integrations/herdr](../integrations/herdr/README.md)) |
+| `herdr daemon` / `pane` / `new` / `status` / `pair` | The herdr integration: mirror Switchyard into a paired herdr session, a space per workspace and a tab per session ([integrations/herdr](../integrations/herdr/README.md)); `pair` writes the env file that pairs a herdr session (default: the unnamed one), optionally bound to a view |
+| `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux integration: mirror Switchyard into a paired tmux session, a window per session ([integrations/tmux](../integrations/tmux/README.md)) |
+| `views list` / `create` / `edit` / `delete` / `pin` / `unpin` | Views: named session filters (projects, hosts, pins) that herdr and tmux sessions bind to with `SWITCHYARD_VIEW`, and the web navigator can select |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
 | `tasks create` / `list` / `move` | Create, list and move tasks |

@@ -24,9 +24,13 @@ Requirements:
 switchyard tui <session id>       # Ctrl+] detaches; the session keeps running
 ```
 
-`tui` resumes a stopped session first. Several viewers can watch the same session; they share one terminal size, and the most recent viewer to attach or resize sets it. Quitting Pi in the terminal (`/quit`, Ctrl+D) stops the session, and the next prompt or `tui` resumes it.
+`tui` resumes a stopped session first. Several viewers can watch the same session; they share one terminal size. By default the smallest attached viewer sets it (a phone viewer shrinks every other viewer); set `SWITCHYARD_TERMINAL_SIZING=latest` in the host agent's environment for the old behavior, where the last viewer to attach or resize wins. It applies to terminals started afterwards. Quitting Pi in the terminal (`/quit`, Ctrl+D) stops the session, and the next prompt or `tui` resumes it.
 
 The herdr integration in [`integrations/herdr/`](../integrations/herdr/README.md) pairs a whole herdr session with a coordinator: a space per workspace and a tab per session, showing Pi's own TUI in each. Sessions without a Pi terminal are left out of it.
+
+## Views and TUI clients
+
+A view is a named filter over sessions (projects, hosts, pinned sessions), managed with `switchyard views`. A herdr or tmux session bound to a view (`SWITCHYARD_VIEW`, set by `switchyard herdr pair --view` or `switchyard tmux pair --view`) mirrors only that view, and any number of clients can share one: closing a tab or window archives the session, so every client and the web app stay in sync. The web navigator has a view switcher and shows which clients have a view open. See the [herdr](../integrations/herdr/README.md) and [tmux](../integrations/tmux/README.md) integrations.
 
 ## Limits
 

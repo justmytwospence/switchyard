@@ -27,7 +27,7 @@ Sessions started anywhere else (the web app, your phone, automations) appear her
 ## Setup
 
 1. Sign this machine's CLI in to the coordinator: `switchyard login --coordinator <url>` (approve the code in a signed-in browser). Set `SWITCHYARD_CLIENT_CONFIG` to keep a separate login per coordinator.
-2. Pair a herdr session by creating `~/.config/switchyard-herdr/<herdr session>.env`, for example `switchyard-dev.env`:
+2. Pair a herdr session with `switchyard herdr pair [--session <name>] [--view <name>]` (`default`, the unnamed session, is the default). Or create it by hand: `~/.config/switchyard-herdr/<herdr session>.env`, for example `switchyard-dev.env`:
 
    ```sh
    # How to run switchyard (default: switchyard on PATH)
@@ -36,9 +36,13 @@ Sessions started anywhere else (the web app, your phone, automations) appear her
    SWITCHYARD_CLIENT_CONFIG="$HOME/.config/switchyard-dev/client.json"
    ```
 
-   Use `switchyard.env` for a production coordinator. Herdr sessions without an env file, including your default one, are left alone.
+   Use `switchyard.env` for a production coordinator. Herdr sessions without an env file are left alone. Set `SWITCHYARD_VIEW` to mirror only a view.
 3. Link or install the plugin: `herdr plugin link <repo>/integrations/herdr`.
 4. Start the paired session: `herdr --session switchyard-dev`. Its startup hook starts the mirror.
+
+## Views
+
+`SWITCHYARD_VIEW` binds the paired session to a view (`switchyard views create`). Clients sharing a view mirror each other, herdr and tmux alike, and a close archives the session everywhere. New tabs are only offered the picker in spaces the mirror owns, so pairing your default session leaves your own spaces alone.
 
 ## Files
 
