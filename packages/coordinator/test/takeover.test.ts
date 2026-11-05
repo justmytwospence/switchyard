@@ -300,6 +300,23 @@ describe("takeover", () => {
     expect(commandsOf(h.host, "session.abort")).toHaveLength(0);
   });
 
+  it("a move re-validates after pausing: a task that changed meanwhile is refused", async () => {
+    h = await setupHarness();
+    const { task: tk } = await startRun(h);
+    h.override = (cmd) => {
+      if (cmd.type !== "session.setControl") return undefined;
+      h!.t.c.store.putTask({ ...task(h!, tk.id), state: "review" });
+      return undefined;
+    };
+    const r = await h.t.admin("POST", `/api/tasks/${tk.id}/move`, {
+      to: "backlog",
+      onRunning: "pause",
+    });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatchObject({ code: "invalid_transition" });
+    expect(task(h, tk.id).state).toBe("review");
+  });
+
   it("stop keeps run data written while the abort was in flight", async () => {
     h = await setupHarness();
     const { task: tk, run } = await startRun(h);

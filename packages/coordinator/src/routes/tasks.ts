@@ -18,7 +18,7 @@ import { requireService } from "../services.js";
 import { stopSession, takeoverRun } from "../sessions/control.js";
 import { LIVE_RUNTIMES } from "../sessions/service.js";
 import { effectiveChecks, putTaskState, saveRun } from "../tasks/common.js";
-import { detectCycle, isLiveRun, move } from "../tasks/state.js";
+import { detectCycle, isLiveRun, move, STATE_LABELS } from "../tasks/state.js";
 
 const ListQuery = z.object({
   projectId: z.string().optional(),
@@ -53,7 +53,7 @@ function validateDeps(ctx: CoordinatorContext, taskId: string, title: string, de
 
 /**
  * Apply a move: validate (`invalid_transition` with a concrete reason), pause or stop live work
- * as chosen, then write the new state. Never kills running work silently.
+ * as chosen, then validate again and write the new state. Never kills running work silently.
  */
 export async function applyMove(
   ctx: CoordinatorContext,
@@ -102,6 +102,21 @@ export async function applyMove(
   const updated = store.tx(() => {
     const cur = store.tasks.require(taskId);
     const curRun = cur.currentRunId ? store.runs.get(cur.currentRunId) : undefined;
+    // Pausing or stopping was awaited: the task may have moved meanwhile, so validate again.
+    if (cur.state !== plan.from) {
+      throw new SwitchyardError(
+        "invalid_transition",
+        `The task moved to ${STATE_LABELS[cur.state]} while this move was applied; try again`,
+        { from: plan.from, current: cur.state, to },
+      );
+    }
+    move(cur, to, {
+      confirm: opts.confirm,
+      onRunning: opts.onRunning,
+      run: curRun,
+      checks: effectiveChecks(ctx, cur),
+      accepted: opts.accepted,
+    });
     const patch: Partial<Task> = {};
     if (opts.position !== undefined) patch.position = opts.position;
     if (to === "ready" || to === "backlog" || to === "canceled") patch.blocked = null;
