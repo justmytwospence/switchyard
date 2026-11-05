@@ -2,7 +2,7 @@ import type { Eligibility, TaskState } from "@switchyard/protocol";
 import { useMemo } from "react";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
-import { useNow } from "../now/useNow";
+import { useNow } from "../queue/useNow";
 import {
   type BoardFilters,
   buildColumns,
