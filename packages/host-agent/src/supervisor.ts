@@ -256,7 +256,7 @@ function toSdkRequest(req: PiDialogRequest): SdkUiRequest {
 
 const UNSUPPORTED_ACTIONS = [
   { id: "abort", label: "Stop the run", tone: "danger" as const },
-  { id: "message", label: "Send a message to the agent", tone: "primary" as const },
+  { id: "message", label: "Send a message to Pi", tone: "primary" as const },
 ];
 
 /** Presentation of an unsupported terminal-only `ctx.ui.custom()` call. */
@@ -1095,7 +1095,7 @@ export class SessionSupervisor {
     if (response.kind !== "action" || !["abort", "message"].includes(response.actionId)) {
       throw new SwitchyardError(
         "invalid_request",
-        "This interaction only offers: Stop the run, Send a message to the agent",
+        "This interaction only offers: Stop the run, Send a message to Pi",
       );
     }
     const resolved = this.updateInteraction(current, {

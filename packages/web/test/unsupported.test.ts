@@ -16,7 +16,7 @@ const hostPresentation = {
       t: "actions" as const,
       actions: [
         { id: "abort", label: "Stop the run", tone: "danger" as const },
-        { id: "message", label: "Send a message to the agent", tone: "primary" as const },
+        { id: "message", label: "Send a message to Pi", tone: "primary" as const },
       ],
     },
   ],
@@ -41,7 +41,7 @@ describe("unsupported interactions", () => {
       copy: UNSUPPORTED_COPY,
       actions: [
         { id: "abort", label: "Stop the run", tone: "danger" },
-        { id: "message", label: "Send a message to the agent", tone: "primary" },
+        { id: "message", label: "Send a message to Pi", tone: "primary" },
       ],
     });
     const chosen = unsupported({

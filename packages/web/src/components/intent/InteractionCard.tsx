@@ -116,7 +116,7 @@ export function InteractionCard({
     }
   };
 
-  /** "Send a message to the agent": deliver the message first, then record the choice. */
+  /** "Send a message to Pi": deliver the message first, then record the choice. */
   const sendMessage = async () => {
     const text = message.trim();
     if (!text) return;

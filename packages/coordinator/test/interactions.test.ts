@@ -197,7 +197,7 @@ describe("interaction answers", () => {
         t: "actions",
         actions: [
           { id: "abort", label: "Stop the run", tone: "danger" },
-          { id: "message", label: "Send a message to the agent", tone: "primary" },
+          { id: "message", label: "Send a message to Pi", tone: "primary" },
         ],
       },
       state: "unsupported",
@@ -252,7 +252,7 @@ describe("interaction answers", () => {
     expect(t.c.attention.open({ sessionId: "ses_w" })).toHaveLength(1);
     await host.event("interaction.updated", {
       ...base,
-      resolution: { by: "dev_x", summary: "Send a message to the agent", at: base.createdAt },
+      resolution: { by: "dev_x", summary: "Send a message to Pi", at: base.createdAt },
     });
     expect(t.c.attention.open({ sessionId: "ses_w" })).toEqual([]);
   });

@@ -12,7 +12,7 @@ export interface UnsupportedAction {
 
 const DEFAULT_ACTIONS: UnsupportedAction[] = [
   { id: "abort", label: "Stop the run", tone: "danger" },
-  { id: "message", label: "Send a message to the agent", tone: "primary" },
+  { id: "message", label: "Send a message to Pi", tone: "primary" },
 ];
 
 function findActions(node: UINode): Extract<UINode, { t: "actions" }> | null {

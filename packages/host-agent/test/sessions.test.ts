@@ -595,7 +595,7 @@ describe("host agent with real Pi", () => {
             t: "actions",
             actions: [
               expect.objectContaining({ id: "abort", label: "Stop the run" }),
-              expect.objectContaining({ id: "message", label: "Send a message to the agent" }),
+              expect.objectContaining({ id: "message", label: "Send a message to Pi" }),
             ],
           },
         ],
@@ -617,7 +617,7 @@ describe("host agent with real Pi", () => {
       status: "answered",
       interaction: {
         state: "unsupported",
-        resolution: { by: "dev_a", summary: "Send a message to the agent" },
+        resolution: { by: "dev_a", summary: "Send a message to Pi" },
       },
     });
     // The resolution is published (the coordinator resolves its attention from it), and only
