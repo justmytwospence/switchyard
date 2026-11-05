@@ -62,6 +62,8 @@ export const PI_CLOSED_SUMMARY = "Pi closed this question (timeout or abort)";
 export const UNSUPPORTED_TITLE = "Terminal-only interface requested";
 export const UNSUPPORTED_TEXT =
   "An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one.";
+export const PROMPT_NOT_SENT = "The launch prompt was not sent to Pi";
+export const PROMPT_NOT_SENT_LIVE = "Session was already live; the initial prompt was not sent";
 export const SESSION_LIVE_CONFLICT = "Session already live on this host";
 
 /** What a session the previous agent lost becomes: mid-turn work is interrupted, idle is stopped. */
@@ -111,6 +113,8 @@ export interface HostSessionRecord {
   createdAt: string;
   /** Terminal sessions: the holder's socket while the session is live. */
   terminal?: { socketPath: string } | null;
+  /** Dispatch whose launch prompt this session was sent; a retry dispatch with another key sends its own. */
+  promptedDispatchKey?: string | null;
 }
 
 export interface StartParams {
@@ -136,6 +140,8 @@ export interface StartResult {
   workspacePath: string;
   runtime: RuntimeState;
   reused: boolean;
+  /** Set when the launch prompt could not be delivered (the session itself is running). */
+  promptError: string | null;
 }
 
 export interface SupervisorOptions {
@@ -570,12 +576,14 @@ export class SessionSupervisor {
     const existing = this.live.get(p.sessionId);
     if (existing) {
       if (existing.ms?.isAlive || existing.rec.runtime === "starting") {
+        const promptError = await this.promptOnReuse(existing, p);
         return {
           sessionId: p.sessionId,
           nativeHandle: existing.rec.nativeHandle,
           workspacePath: existing.rec.cwd,
           runtime: existing.rec.runtime,
           reused: true,
+          promptError,
         };
       }
       this.live.delete(p.sessionId);
@@ -714,25 +722,71 @@ export class SessionSupervisor {
         : new SwitchyardError("internal", `Pi failed to start: ${errorMessage(err)}`);
     }
     this.spawned++;
-    if (p.initialPrompt) {
-      // An automated launch taken over meanwhile starts Pi but never sends its prompt.
-      const lostControl = p.origin === "automation" && rec.controlMode === "human";
-      if (lostControl) {
-        this.opts.log.info(
-          { sessionId: rec.id, controlRevision: rec.controlRevision },
-          "launch prompt withheld: a person took over before it was sent",
-        );
-      } else {
-        await ms.prompt(p.initialPrompt, [], "prompt");
-      }
-    }
+    const promptError = await this.sendInitialPrompt(l, ms, p);
     return {
       sessionId: rec.id,
       nativeHandle: rec.nativeHandle,
       workspacePath: rec.cwd,
       runtime: rec.runtime,
       reused: false,
+      promptError,
     };
+  }
+
+  /**
+   * Send a launch's prompt. The dispatch is marked before the prompt goes out, so a duplicate or
+   * concurrent call never sends it twice. Returns why it was not delivered, or null.
+   */
+  private async sendInitialPrompt(
+    l: Live,
+    ms: ManagedSession,
+    p: StartParams,
+  ): Promise<string | null> {
+    if (!p.initialPrompt) return null;
+    // An automated launch taken over meanwhile starts Pi but never sends its prompt.
+    if (p.origin === "automation" && l.rec.controlMode === "human") {
+      this.opts.log.info(
+        { sessionId: l.rec.id, controlRevision: l.rec.controlRevision },
+        "launch prompt withheld: a person took over before it was sent",
+      );
+      return null;
+    }
+    if (p.dispatchKey) {
+      l.rec.promptedDispatchKey = p.dispatchKey;
+      this.db.tx(() => this.saveRecord(l.rec));
+    }
+    try {
+      await ms.prompt(p.initialPrompt, [], "prompt");
+      return null;
+    } catch (err) {
+      const msg = errorMessage(err);
+      this.opts.log.warn({ sessionId: l.rec.id, err: msg }, "launch prompt failed");
+      this.hostItem(l, "notice", { level: "error", text: `${PROMPT_NOT_SENT}: ${msg}` });
+      return msg;
+    }
+  }
+
+  /** A start that found the session already live: deliver a retry's own prompt, or say why not. */
+  private async promptOnReuse(existing: Live, p: StartParams): Promise<string | null> {
+    if (!p.initialPrompt) return null;
+    let reason: string | null = null;
+    if (p.dispatchKey) {
+      if (existing.rec.promptedDispatchKey === p.dispatchKey) return null;
+      if (existing.ms?.isAlive && existing.rec.runtime !== "starting") {
+        return this.sendInitialPrompt(existing, existing.ms, p);
+      }
+      reason =
+        existing.rec.runtime === "starting"
+          ? "Session is still starting; the prompt was not sent"
+          : "Session is not running; the prompt was not sent";
+    } else {
+      reason = PROMPT_NOT_SENT_LIVE;
+    }
+    this.hostItem(existing, "notice", {
+      level: "error",
+      text: reason === PROMPT_NOT_SENT_LIVE ? reason : `${PROMPT_NOT_SENT}: ${reason}`,
+    });
+    return reason;
   }
 
   async prompt(

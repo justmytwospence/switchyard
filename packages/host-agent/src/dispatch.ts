@@ -224,6 +224,7 @@ export class Dispatcher {
         workspacePath,
         nativeHandle: started.nativeHandle,
         reused: false,
+        promptError: started.promptError,
       };
       db.tx(() => this.update(key, { state: "started", result_json: JSON.stringify(result) }));
       return result;

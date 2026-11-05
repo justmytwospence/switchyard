@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { HostCommand, HostEvent, Interaction, TranscriptItem } from "@switchyard/protocol";
 import { type MockScript, makeRepo, type TempRepo, when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RESTART_NOTICE, SESSION_LIVE_CONFLICT } from "../src/index.js";
+import { PROMPT_NOT_SENT, RESTART_NOTICE, SESSION_LIVE_CONFLICT } from "../src/index.js";
 import {
   type HostHarness,
   mockProfile,
@@ -320,6 +320,70 @@ describe("host agent with real Pi", () => {
     await h.coord.ok({ type: "session.stop", sessionId });
     await waitFor(() => !h.agent.supervisor.isLive(sessionId), 15000, "stopped");
     expect(h.agent.supervisor.record(sessionId)?.runtime).toBe("stopped");
+  });
+
+  it("a retry dispatch delivers its own launch prompt and a repeat never sends it twice", async () => {
+    const id = sid();
+    const dispatch = (key: string, prompt: string): HostCommand => ({
+      type: "dispatch.start",
+      dispatchKey: key,
+      runId: key,
+      taskId: "tsk_retry",
+      sessionId: id,
+      projectId: "prj_1",
+      title: "Retry",
+      workspace: { path: h.pi!.cwd },
+      nativeHandle: null,
+      profile: mockProfile,
+      prompt,
+      controlRevision: 1,
+      controlMode: "automation",
+    });
+    const userItems = () => items(h, id).filter((i) => i.kind === "user").length;
+    const first = await h.coord.ok(dispatch(`run_retry_a_${id}`, "hello"));
+    expect(first).toMatchObject({ reused: false, promptError: null });
+    await h.coord.waitEvent(isSettled(id), 30000, "first settle");
+    expect(userItems()).toBe(1);
+
+    const retry = await h.coord.ok(dispatch(`run_retry_b_${id}`, "again"));
+    expect(retry).toMatchObject({ promptError: null });
+    await waitFor(() => userItems() === 2, 30000, "second prompt");
+    await waitFor(() => h.agent.supervisor.record(id)?.runtime === "idle", 30000, "idle");
+
+    const again = await h.coord.ok(dispatch(`run_retry_b_${id}`, "again"));
+    expect(again).toMatchObject({ reused: true, promptError: null });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(userItems()).toBe(2);
+    await h.coord.ok({ type: "session.stop", sessionId: id });
+  });
+
+  it("a launch prompt Pi refuses is reported, not thrown", async () => {
+    const id = sid();
+    const dispatch = (key: string, prompt: string): HostCommand => ({
+      type: "dispatch.start",
+      dispatchKey: key,
+      runId: key,
+      taskId: "tsk_refused",
+      sessionId: id,
+      projectId: "prj_1",
+      title: "Refused",
+      workspace: { path: h.pi!.cwd },
+      nativeHandle: null,
+      profile: mockProfile,
+      prompt,
+      controlRevision: 1,
+      controlMode: "automation",
+    });
+    await h.coord.ok(dispatch(`run_refused_a_${id}`, "work slowly"));
+    await waitFor(() => h.agent.supervisor.record(id)?.runtime === "running", 30000, "running");
+    const retry = await h.coord.ok(dispatch(`run_refused_b_${id}`, "again"));
+    expect(retry.promptError).toMatch(/Session is running/);
+    expect(
+      items(h, id).some(
+        (i) => i.kind === "notice" && (i.data as any).text.startsWith(PROMPT_NOT_SENT),
+      ),
+    ).toBe(true);
+    await h.coord.ok({ type: "session.stop", sessionId: id });
   });
 
   it("two concurrent answers: one answered, one already_answered, Pi gets one response", async () => {

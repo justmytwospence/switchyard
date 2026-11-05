@@ -257,6 +257,8 @@ export const DispatchStartResult = z.object({
   workspacePath: z.string(),
   nativeHandle: NativeHandle.nullable(),
   reused: z.boolean(),
+  /** Why the launch prompt was not delivered to Pi (the session itself started), if it was not. */
+  promptError: z.string().nullable().optional(),
 });
 export type DispatchStartResult = z.infer<typeof DispatchStartResult>;
 
