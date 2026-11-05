@@ -4,11 +4,7 @@ import { getService } from "../services.js";
 import { isRunAutomationCommand } from "../tasks/runs.js";
 import { TERMINAL_RUN_STATES } from "../tasks/state.js";
 
-/**
- * Session control routes. The tasks/runs worker extends these (continuation checks,
- * `onSessionSettled` on return-to-automation) by subscribing to `control.changed` or editing
- * this module.
- */
+/** Session control: take over, return to automation and stop. */
 
 function requireRun(ctx: CoordinatorContext, session: Session): Run {
   const run = ctx.store.runForSession(session);
@@ -36,7 +32,6 @@ async function setControl(
     );
     return { session, run: updated };
   });
-  ctx.hub.emit("control.changed", { run, session, mode });
   if (mode === "human") {
     getService(ctx, "dispatcher")?.onTakeover(run.id);
     // A host that is away must not run this run's automated follow-ups when it is back.

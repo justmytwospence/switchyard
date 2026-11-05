@@ -446,8 +446,6 @@ export class Store {
       this.hub.emit("task.changed", { id: (e.data as { id: string }).id, task: null });
     } else if (e.type === "run.updated") {
       this.hub.emit("run.changed", e.data as Run);
-    } else if (e.type === "interaction.updated") {
-      this.hub.emit("interaction.updated", e.data as Interaction);
     }
   }
 

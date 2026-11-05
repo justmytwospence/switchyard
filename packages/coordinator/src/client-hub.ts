@@ -111,7 +111,6 @@ export class ClientHub {
           viewingSessionId: p.viewing?.sessionId ?? null,
           updatedAt: now.toISOString(),
         });
-        this.hub.emit("presence.changed", { deviceId: conn.deviceId });
         return;
       }
     }

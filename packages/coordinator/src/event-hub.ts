@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 import type {
   AttentionItem,
   EventEnvelope,
-  Interaction,
   Run,
   RuntimeState,
   Session,
@@ -31,16 +30,11 @@ export interface CoordinatorEventMap {
   /** A host completed `hello`. `reconnect` is false only for its first connection since start. */
   "host.connected": [{ hostId: string; reconnect: boolean }];
   "host.disconnected": [{ hostId: string }];
-  "host.unreachable": [{ hostId: string }];
   /** A task was upserted (`task` set) or deleted (`task` null). */
   "task.changed": [{ id: string; task: Task | null }];
   "run.changed": [Run];
   "attention.raised": [AttentionItem];
   "attention.resolved": [AttentionItem];
-  "interaction.updated": [Interaction];
-  "presence.changed": [{ deviceId: string }];
-  /** Control mode changed through takeover / return-to-automation routes. */
-  "control.changed": [{ run: Run; session: Session; mode: "automation" | "human" }];
   "device.revoked": [{ deviceId: string }];
 }
 

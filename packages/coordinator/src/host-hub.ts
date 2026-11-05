@@ -498,7 +498,6 @@ export class HostHub {
         });
       }
     });
-    this.hub.emit("host.unreachable", { hostId });
   }
 
   private setConnectivity(hostId: string, connectivity: Host["connectivity"]): void {

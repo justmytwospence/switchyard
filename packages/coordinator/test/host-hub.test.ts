@@ -132,10 +132,9 @@ describe("host link", () => {
     const creds = await enrollHost(t);
     const h = await connect(t, creds);
     await h.event("session.updated", hostSession("ses_c"), { hostSeq: 1 });
-    const unreachable = new Promise<void>((r) => t!.c.events.once("host.unreachable", () => r()));
     await h.close();
     await until(() => t!.c.store.hosts.require(creds.hostId).connectivity === "reconnecting");
-    await unreachable;
+    await until(() => t!.c.store.hosts.require(creds.hostId).connectivity === "unreachable");
     expect(t.c.store.hosts.require(creds.hostId).connectivity).toBe("unreachable");
     expect(t.c.store.sessions.require("ses_c").connectivity).toBe("unreachable");
   });
