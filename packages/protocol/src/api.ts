@@ -12,6 +12,7 @@ import {
   Session,
   SessionModel,
   SlashCommand,
+  Task,
   TaskPolicy,
   TaskState,
   TaskTemplate,
@@ -252,6 +253,9 @@ export const MoveTaskRequest = z.object({
   onRunning: z.enum(["pause", "stop"]).optional(),
   position: z.number().optional(),
 });
+/** POST /api/tasks/:id/move (and accept, reopen, cancel) returns the updated task. */
+export const MoveTaskResult = Task;
+export type MoveTaskResult = Task;
 export const RequestChangesRequest = z.object({ feedback: z.array(z.string().min(1)).min(1) });
 
 export const Eligibility = z.union([

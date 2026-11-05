@@ -1,6 +1,7 @@
 import type {
   Automation,
   Host,
+  MoveTaskResult,
   Occurrence,
   Project,
   Session,
@@ -198,24 +199,19 @@ export async function tasksMove(
   ctx: Ctx,
   id: string,
   to: string,
-  flags: ConnectionFlags & { confirm?: boolean; onRunning?: string; json?: boolean },
-): Promise<unknown> {
+  flags: ConnectionFlags & { confirm?: boolean; onRunning?: "pause" | "stop"; json?: boolean },
+): Promise<MoveTaskResult> {
+  if (to.includes(",")) throw new CliError(`Give one target state, not a list ("${to}")`);
   const [state] = parseStates(to) ?? [];
   if (!state) throw new CliError("Give the target state");
-  if (flags.onRunning && flags.onRunning !== "pause" && flags.onRunning !== "stop") {
-    throw new CliError("--on-running must be pause or stop");
-  }
   const { api } = connect(ctx, flags);
   const body: { to: TaskState; confirm?: boolean; onRunning?: "pause" | "stop" } = { to: state };
   if (flags.confirm) body.confirm = true;
-  if (flags.onRunning) body.onRunning = flags.onRunning as "pause" | "stop";
-  const res = await api.post<unknown>(`/api/tasks/${encodeURIComponent(id)}/move`, body);
-  if (flags.json) ctx.out(JSON.stringify(res, null, 2));
-  else {
-    const task = (res as { task?: Task } & Partial<Task>)?.task ?? (res as Task);
-    ctx.out(`Moved ${task?.title ?? id} to ${task?.state ?? state}`);
-  }
-  return res;
+  if (flags.onRunning) body.onRunning = flags.onRunning;
+  const task = await api.post<MoveTaskResult>(`/api/tasks/${encodeURIComponent(id)}/move`, body);
+  if (flags.json) ctx.out(JSON.stringify(task, null, 2));
+  else ctx.out(`Moved ${task.title} to ${task.state}`);
+  return task;
 }
 
 // automations

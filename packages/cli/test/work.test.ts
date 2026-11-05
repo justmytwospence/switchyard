@@ -145,6 +145,32 @@ describe("tasks", () => {
     expect(calls[0]?.body).toEqual({ to: "backlog", confirm: true, onRunning: "pause" });
     expect(ctx.lines).toEqual(["Moved Fix to backlog"]);
     await expect(tasksMove(ctx, "tsk_1", "nope", conn)).rejects.toThrow(/Unknown state/);
+    await expect(tasksMove(ctx, "tsk_1", "ready,review", conn)).rejects.toThrow(
+      /Give one target state/,
+    );
+  });
+
+  it("rejects an unknown --on-running choice before any request", async () => {
+    const { fetch, calls } = stubFetch({});
+    const ctx = testCtx(fetch);
+    await expect(
+      buildProgram(ctx).parseAsync(
+        [
+          "tasks",
+          "move",
+          "tsk_1",
+          "backlog",
+          "--on-running",
+          "later",
+          "--coordinator",
+          "http://coord",
+          "--credential",
+          "cred",
+        ],
+        { from: "user" },
+      ),
+    ).rejects.toThrow(/Allowed choices are pause, stop/);
+    expect(calls).toEqual([]);
   });
 });
 
