@@ -16,6 +16,7 @@ import { herdrDaemon, herdrNew, herdrPair, herdrPane, herdrStatus } from "./comm
 import { hostBackup, hostEnroll, hostRun, hostStatus } from "./commands/host.js";
 import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
 import { installService } from "./commands/service.js";
+import { tmuxDaemon, tmuxNew, tmuxPair, tmuxPane, tmuxStatus } from "./commands/tmux.js";
 import { tuiCommand } from "./commands/tui.js";
 import { up } from "./commands/up.js";
 import { viewsCreate, viewsDelete, viewsEdit, viewsList, viewsPin } from "./commands/views.js";
@@ -321,6 +322,48 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--force", "replace an existing pairing")
     .action(async (o) => {
       await herdrPair(ctx, {
+        session: o.session,
+        view: o.view,
+        cli: o.cli,
+        clientConfig: o.clientConfig,
+        force: o.force,
+      });
+    });
+
+  const tmux = program
+    .command("tmux")
+    .description("tmux integration: mirror Switchyard into a paired tmux session");
+  connectionOptions(tmux.command("daemon").description("Mirror Switchyard into this tmux session"))
+    .option("--ensure", "start the daemon in the background unless it runs")
+    .option("--once", "sync once and print what changed")
+    .action(async (o) => {
+      await tmuxDaemon(ctx, { ...connFlags(o), ensure: o.ensure, once: o.once });
+    });
+  connectionOptions(
+    tmux.command("pane <sessionId>").description("Show a session in this tmux window"),
+  ).action(async (sessionId, o) => {
+    await tmuxPane(ctx, sessionId, connFlags(o));
+  });
+  connectionOptions(tmux.command("new").description("Start a session from this tmux window"))
+    .option("--workspace <id>", "the Switchyard workspace to offer first")
+    .action(async (o) => {
+      await tmuxNew(ctx, { ...connFlags(o), workspace: o.workspace });
+    });
+  connectionOptions(
+    tmux.command("status").description("Which tmux window shows which session"),
+  ).action(async (o) => {
+    await tmuxStatus(ctx, connFlags(o));
+  });
+  tmux
+    .command("pair")
+    .description("Pair a tmux session (default: switchyard) with Switchyard")
+    .option("--session <name>", "tmux session name (default: switchyard)")
+    .option("--view <name>", "view to mirror (default: every session)")
+    .option("--cli <command>", "how to run switchyard")
+    .option("--client-config <path>", "client.json to use")
+    .option("--force", "replace an existing pairing")
+    .action(async (o) => {
+      await tmuxPair(ctx, {
         session: o.session,
         view: o.view,
         cli: o.cli,
