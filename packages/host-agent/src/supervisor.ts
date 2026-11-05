@@ -61,6 +61,9 @@ export const RESTART_NOTICE = "Host agent restarted while Pi was working; resume
 export const RESTART_DETAIL = "Host agent restarted";
 export const RESTART_TERMINAL_LOST_DETAIL =
   "Host agent restarted and the terminal session had ended";
+/** The notice for a terminal session whose holder was gone (or unusable) when the agent came back. */
+export const terminalLostNotice = (reason: string): string =>
+  `Host agent restarted and the terminal session had ended (${reason}); resume to continue`;
 export const QUEUED_ANSWER_SUMMARY = "Answered from your earlier form";
 export const PI_CLOSED_SUMMARY = "Pi closed this question (timeout or abort)";
 export const UNSUPPORTED_TITLE = "Terminal-only interface requested";
@@ -332,11 +335,11 @@ export class SessionSupervisor {
           this.reattachCandidates.push(rec.id);
           continue;
         }
-        const next = this.markLost(
-          rec,
-          RESTART_DETAIL,
-          "Host agent restarted before this question was answered",
-        );
+        const next = this.markLost(rec, {
+          detail: RESTART_DETAIL,
+          notice: RESTART_NOTICE,
+          expireSummary: "Host agent restarted before this question was answered",
+        });
         (next === "interrupted" ? interrupted : stopped).push(rec.id);
       }
     });
@@ -348,22 +351,22 @@ export class SessionSupervisor {
 
   /**
    * Lost with the previous agent: never auto-resume; expire questions. Working sessions become
-   * interrupted with `reason` and a notice; idle ones quietly become stopped. `was` is the state
+   * interrupted with `lost.detail` and the notice `lost.notice`; idle ones quietly become
+   * stopped. `was` is the state
    * the previous agent recorded (default: the record as it is now). Call in a tx.
    */
   private markLost(
     rec: HostSessionRecord,
-    reason: string,
-    expireSummary: string,
+    lost: { detail: string; notice: string; expireSummary: string },
     was: Pick<HostSessionRecord, "runtime" | "compacting"> = rec,
   ): "interrupted" | "stopped" {
     const next = lostRuntime(was);
     rec.runtime = next;
-    rec.runtimeDetail = next === "interrupted" ? reason : null;
+    rec.runtimeDetail = next === "interrupted" ? lost.detail : null;
     rec.compacting = false;
     rec.queue = { steering: [], followUp: [] };
     rec.terminal = null;
-    this.expirePending(rec.id, expireSummary);
+    this.expirePending(rec.id, lost.expireSummary);
     if (next === "interrupted") {
       const item: TranscriptItem = {
         id: newId("itm"),
@@ -371,7 +374,7 @@ export class SessionSupervisor {
         order: rec.nextOrder++,
         at: nowIso(),
         kind: "notice",
-        data: { level: "warning", text: RESTART_NOTICE },
+        data: { level: "warning", text: lost.notice },
       };
       this.link.emit({ type: "transcript.item", sessionId: rec.id, data: item });
     }
@@ -475,16 +478,20 @@ export class SessionSupervisor {
         this.teardown(l);
         return "detached";
       }
+      const reason = errorMessage(err);
       this.opts.log.warn(
-        { sessionId: rec.id, err: errorMessage(err) },
+        { sessionId: rec.id, err: reason },
         "terminal session could not be reattached",
       );
       this.teardown(l);
       return this.db.tx(() =>
         this.markLost(
           rec,
-          RESTART_TERMINAL_LOST_DETAIL,
-          "Host agent restarted before this question was answered",
+          {
+            detail: `${RESTART_TERMINAL_LOST_DETAIL} (${reason})`,
+            notice: terminalLostNotice(reason),
+            expireSummary: "Host agent restarted before this question was answered",
+          },
           was,
         ),
       );

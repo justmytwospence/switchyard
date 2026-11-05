@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { makeRepo, type TempRepo } from "@switchyard/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type HostHarness, sleep, startHarness, waitFor } from "./helpers.js";
+import { RESTART_TERMINAL_LOST_DETAIL, terminalLostNotice } from "../src/index.js";
+import { type HostHarness, seedSession, sleep, startHarness, waitFor } from "./helpers.js";
 
 function diag(h: HostHarness, message: string): void {
   h.agent.db.tx(() =>
@@ -285,5 +286,40 @@ describe("command router", () => {
     expect(await h.coord.ok({ type: "dispatch.reconcile", dispatchKey: "run_nope" })).toEqual({
       known: false,
     });
+  });
+});
+
+describe("a terminal session whose holder is gone after a restart", () => {
+  it("says why it was lost", async () => {
+    const h = await startHarness({ withPi: false });
+    try {
+      seedSession(h, "ses_lost", {
+        runtime: "running",
+        terminal: { socketPath: "/nonexistent/term-gone.sock" },
+      });
+      await h.agent.stop();
+      const mark = h.coord.events.length;
+      const agent2 = await h.restartAgent();
+      expect(agent2.interruptedOnStart).toEqual(["ses_lost"]);
+      const reason = "Terminal holder not running";
+      expect(agent2.supervisor.record("ses_lost")).toMatchObject({
+        runtime: "interrupted",
+        runtimeDetail: `${RESTART_TERMINAL_LOST_DETAIL} (${reason})`,
+        terminal: null,
+      });
+      const notices = () =>
+        h.coord.events
+          .slice(mark)
+          .map((e) => e.event)
+          .filter((e) => e.type === "transcript.item" && e.sessionId === "ses_lost")
+          .map((e) => (e.data as any).data?.text);
+      await h.coord.waitUntil(
+        () => notices().includes(terminalLostNotice(reason)),
+        10000,
+        "lost notice",
+      );
+    } finally {
+      await h.dispose();
+    }
   });
 });

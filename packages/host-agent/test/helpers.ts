@@ -27,6 +27,7 @@ import {
 import { WebSocket, WebSocketServer } from "ws";
 import {
   type HostAgentHandle,
+  type HostSessionRecord,
   type HostTestHooks,
   runHostAgent,
   silentLogger,
@@ -314,6 +315,43 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarne
       state.cleanup();
     },
   };
+}
+
+/** Write a session record into the agent's database, as an earlier agent would have left it. */
+export function seedSession(
+  h: HostHarness,
+  id: string,
+  overrides: Partial<HostSessionRecord> = {},
+): void {
+  const now = new Date().toISOString();
+  const rec: HostSessionRecord = {
+    id,
+    title: "Seeded",
+    subtitle: null,
+    cwd: tmpdir(),
+    projectId: null,
+    workspaceId: null,
+    runId: null,
+    taskId: null,
+    dispatchKey: null,
+    profile: mockProfile,
+    nativeHandle: null,
+    runtime: "stopped",
+    runtimeDetail: null,
+    controlRevision: 1,
+    controlMode: "human",
+    origin: "human",
+    readOnly: false,
+    provenance: "created",
+    nextOrder: 0,
+    queue: { steering: [], followUp: [] },
+    stats: null,
+    lastAssistantText: null,
+    lastActivityAt: now,
+    createdAt: now,
+    ...overrides,
+  };
+  h.agent.db.run("INSERT INTO sessions (id, json) VALUES (?, ?)", [id, JSON.stringify(rec)]);
 }
 
 export function startCommand(
