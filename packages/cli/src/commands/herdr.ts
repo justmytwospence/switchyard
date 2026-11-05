@@ -81,6 +81,10 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
         api: client.api,
         state,
         onStateChange: () => () => {},
+        view: () => {
+          const r = resolveBoundView(state(), env.SWITCHYARD_VIEW);
+          return r.missing ? "missing" : r.view;
+        },
         stateDir: dir,
         launcherPath,
         log: () => {},
