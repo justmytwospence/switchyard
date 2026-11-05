@@ -10,7 +10,7 @@ import {
   Timer,
   Workflow,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { CountBadge } from "../components/ui/Badge";
 import { Spinner } from "../components/ui/Spinner";
@@ -276,12 +276,6 @@ function BottomNav() {
   const composing = useComposingWithKeyboard();
   const hiddenByView = useChrome((s) => s.hideBottomNav > 0);
   const hidden = composing || hiddenByView;
-  useEffect(() => {
-    document.documentElement.style.setProperty(
-      "--toast-offset",
-      hidden ? "16px" : "calc(var(--bottom-nav-height) + 12px)",
-    );
-  }, [hidden]);
   if (hidden) return null;
   return (
     <nav

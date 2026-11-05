@@ -200,6 +200,14 @@ test.describe("shared behavior", () => {
     await page.getByLabel("Device name").fill("Renamed browser");
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText("Renamed browser").first()).toBeVisible();
+
+    // Toasts sit bottom-right on desktop, clear of the content.
+    const toast = page.getByRole("status").filter({ hasText: "Renamed to Renamed browser" });
+    await expect(toast).toBeVisible();
+    const box = (await toast.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(box.x + box.width).toBeGreaterThan(viewport.width - 40);
+    expect(box.y + box.height).toBeGreaterThan(viewport.height - 40);
   });
 
   test("focus returns to the trigger after a drawer or sheet closes", async ({

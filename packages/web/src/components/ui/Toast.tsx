@@ -52,8 +52,7 @@ export function Toaster() {
     <section
       aria-label="Notifications"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 z-[60] flex flex-col items-center gap-2 px-3"
-      style={{ bottom: "calc(var(--toast-offset, 16px) + var(--safe-bottom))" }}
+      className="pointer-events-none fixed inset-x-0 top-[calc(var(--safe-top)+0.5rem)] z-[60] flex flex-col items-center gap-2 px-3 md:top-auto md:bottom-[calc(var(--safe-bottom)+1rem)] md:items-end md:px-4"
     >
       {toasts.map((t) => {
         const Icon = ICONS[t.tone];
