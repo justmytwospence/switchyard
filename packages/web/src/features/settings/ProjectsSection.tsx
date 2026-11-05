@@ -1,5 +1,5 @@
 import type { Project } from "@switchyard/protocol";
-import { ChevronRight, FolderGit2, FolderPlus, Plus } from "lucide-react";
+import { ChevronRight, FolderGit2, FolderPlus, Plus, Search } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
@@ -18,6 +18,7 @@ import {
 import { TextInput } from "../../components/ui/TextArea";
 import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
+import { matchesProject, repoLabel } from "../../lib/repo";
 import { apiPost } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { SectionPage, settingsPath, useHydrated, validateAbsolutePath } from "./shared";
@@ -29,6 +30,8 @@ export const projectPath = (id: string) => settingsPath(`projects/${encodeURICom
 export function ProjectsSection() {
   const hydrated = useHydrated();
   const projects = useProjects();
+  const [query, setQuery] = useState("");
+  const shown = projects.filter((p) => matchesProject(p, query));
   const checkouts = useSyncStore((s) => s.checkouts);
   const workspaces = useSyncStore((s) => s.workspaces);
   const counts = useMemo(() => {
@@ -69,13 +72,38 @@ export function ProjectsSection() {
           action={{ label: "New project", to: settingsPath("projects/new") }}
         />
       ) : (
-        <ul className="overflow-hidden rounded-lg border border-border bg-surface">
-          {projects.map((p) => (
-            <li key={p.id} className="border-b border-border last:border-b-0">
-              <ProjectRow project={p} counts={counts[p.id]} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="relative max-w-md">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-subtle"
+            />
+            <TextInput
+              type="search"
+              aria-label="Search projects"
+              placeholder="Search projects by name or remote"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+          {shown.length === 0 ? (
+            <EmptyState
+              className="py-4"
+              title="No matches"
+              description={`No project matches "${query.trim()}".`}
+              action={{ label: "Clear search", onClick: () => setQuery("") }}
+            />
+          ) : (
+            <ul className="overflow-hidden rounded-lg border border-border bg-surface">
+              {shown.map((p) => (
+                <li key={p.id} className="border-b border-border last:border-b-0">
+                  <ProjectRow project={p} counts={counts[p.id]} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </SectionPage>
   );
@@ -93,13 +121,15 @@ function ProjectRow({
     <Link
       to={projectPath(p.id)}
       state={BACK_STATE}
-      className="tap flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-surface-2"
+      className="tap flex min-w-0 items-center gap-3 px-4 py-2 hover:bg-surface-2"
     >
-      <FolderGit2 aria-hidden className="size-5 shrink-0 text-muted" />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="break-words font-medium">{p.name}</span>
-        <span className="break-all text-xs text-muted">{p.repoIdentity}</span>
-        <span className="flex flex-wrap gap-x-3 text-xs text-muted">
+      <FolderGit2 aria-hidden className="size-4 shrink-0 text-muted" />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-sm font-medium">{p.name}</span>
+        <span className="truncate text-xs text-muted" title={p.repoIdentity}>
+          {repoLabel(p.repoIdentity)}
+        </span>
+        <span className="flex flex-wrap gap-x-2 text-xs text-subtle">
           <span>
             {c.checkouts} checkout{c.checkouts === 1 ? "" : "s"}
           </span>

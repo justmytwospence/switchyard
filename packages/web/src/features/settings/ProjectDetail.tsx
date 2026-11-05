@@ -11,6 +11,7 @@ import { SwitchRow } from "../../components/ui/Switch";
 import { EmptyState, InlineError, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
+import { repoLabel } from "../../lib/repo";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useHosts, useSyncStore } from "../../sync/store";
 import { SectionPage, settingsPath, splitLines, useHydrated, validateAbsolutePath } from "./shared";
@@ -75,7 +76,11 @@ export function ProjectDetail() {
   return (
     <SectionPage
       title={project.name}
-      description={<span className="break-all">{project.repoIdentity}</span>}
+      description={
+        <span className="break-all" title={project.repoIdentity}>
+          {repoLabel(project.repoIdentity)}
+        </span>
+      }
       back={back}
       actions={
         <Button busy={refreshing} icon={<RefreshCw className="size-4" />} onClick={refresh}>
