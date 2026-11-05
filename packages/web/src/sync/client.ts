@@ -13,6 +13,8 @@ import { syncStore } from "./store";
  * - Then applies `event` and `stream` frames to the store.
  * - Reconnects with exponential backoff and jitter; `offline` while the
  *   browser reports no network.
+ * - Probes the link when the page returns to the foreground (a backgrounded phone often
+ *   holds a dead socket) and gives up on a socket that opens but never syncs.
  * - Persists `{seq, state}` (throttled) so last-known data shows on reload
  *   and while reconnecting.
  */
@@ -22,6 +24,11 @@ const PONG_TIMEOUT_MS = 10_000;
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 const PERSIST_DELAY_MS = 1_500;
+/** open -> live; scaled by attempts (1x, 2x, 3x) so a large snapshot gets longer on retries. */
+export const CONNECT_TIMEOUT_MS = 10_000;
+export const RESUME_PONG_TIMEOUT_MS = 5_000;
+/** Skip the resume ping if a frame arrived this recently. */
+export const RESUME_FRESH_MS = 5_000;
 
 type Listener = () => void;
 
@@ -34,6 +41,8 @@ export class SyncClient {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastFrameAt = 0;
   private unsubscribeStore: (() => void) | null = null;
   private liveListeners = new Set<Listener>();
   private logoutListeners = new Set<(reason: string) => void>();
@@ -47,6 +56,9 @@ export class SyncClient {
     this.stopped = false;
     window.addEventListener("online", this.onOnline);
     window.addEventListener("offline", this.onOffline);
+    document.addEventListener("visibilitychange", this.onVisibility);
+    window.addEventListener("pageshow", this.onForeground);
+    window.addEventListener("focus", this.onForeground);
     this.unsubscribeStore = syncStore.subscribe((s, prev) => {
       if (s.synced && s.seq !== prev.seq) this.schedulePersist();
     });
@@ -62,6 +74,9 @@ export class SyncClient {
     this.stopped = true;
     window.removeEventListener("online", this.onOnline);
     window.removeEventListener("offline", this.onOffline);
+    document.removeEventListener("visibilitychange", this.onVisibility);
+    window.removeEventListener("pageshow", this.onForeground);
+    window.removeEventListener("focus", this.onForeground);
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
     this.clearTimers();
@@ -117,6 +132,12 @@ export class SyncClient {
       return;
     }
     this.ws = ws;
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    const timeoutMs = CONNECT_TIMEOUT_MS * Math.min(1 + this.attempts, 3);
+    this.connectTimer = setTimeout(() => {
+      this.connectTimer = null;
+      if (this.ws === ws) this.dropSocket(4000, "connect timeout");
+    }, timeoutMs);
     let opened = false;
     ws.onopen = () => {
       if (this.ws !== ws) return;
@@ -126,6 +147,7 @@ export class SyncClient {
     };
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return;
+      this.lastFrameAt = Date.now();
       let msg: ServerToClient;
       try {
         msg = JSON.parse(typeof ev.data === "string" ? ev.data : "") as ServerToClient;
@@ -196,6 +218,8 @@ export class SyncClient {
   }
 
   private becomeLive(): void {
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
     this.everLive = true;
     this.attempts = 0;
     syncStore.getState().setConnection({ state: "live", attempts: 0 });
@@ -215,13 +239,31 @@ export class SyncClient {
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = setInterval(() => {
       if (!this.send({ type: "ping" })) return;
-      if (this.pongTimer) return;
-      this.pongTimer = setTimeout(() => {
-        this.pongTimer = null;
-        // No pong: assume a dead socket and reconnect.
-        this.ws?.close(4000, "pong timeout");
-      }, PONG_TIMEOUT_MS);
+      if (!this.pongTimer) this.armPongTimeout(PONG_TIMEOUT_MS);
     }, PING_INTERVAL_MS);
+  }
+
+  private armPongTimeout(ms: number): void {
+    if (this.pongTimer) clearTimeout(this.pongTimer);
+    this.pongTimer = setTimeout(() => {
+      this.pongTimer = null;
+      // No pong: assume a dead socket and reconnect.
+      this.dropSocket(4000, "pong timeout");
+    }, ms);
+  }
+
+  /** Detach and close a socket we consider dead, then reconnect without waiting for onclose. */
+  private dropSocket(code: number, reason: string): void {
+    const ws = this.ws;
+    if (!ws) return;
+    this.ws = null; // its late onclose hits the `this.ws !== ws` guard
+    this.clearTimers();
+    try {
+      ws.close(code, reason);
+    } catch {
+      // already closing
+    }
+    this.scheduleReconnect();
   }
 
   private scheduleReconnect(): void {
@@ -258,12 +300,30 @@ export class SyncClient {
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.pingTimer) clearInterval(this.pingTimer);
     if (this.pongTimer) clearTimeout(this.pongTimer);
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
     this.retryTimer = null;
     this.pingTimer = null;
     this.pongTimer = null;
   }
 
   private onOnline = () => {
+    this.attempts = 0;
+    this.reconnectNow();
+  };
+
+  private onVisibility = () => {
+    if (document.visibilityState === "visible") this.onForeground();
+  };
+
+  /** Back in the foreground (resume, bfcache restore, focus): check the link now. */
+  private onForeground = () => {
+    if (this.stopped || document.visibilityState === "hidden") return;
+    if (this.isLive) {
+      if (Date.now() - this.lastFrameAt < RESUME_FRESH_MS) return;
+      if (this.send({ type: "ping" })) this.armPongTimeout(RESUME_PONG_TIMEOUT_MS);
+      return;
+    }
     this.attempts = 0;
     this.reconnectNow();
   };
