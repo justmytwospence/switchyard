@@ -37,7 +37,7 @@ await agent.stop(); // every Pi stopped gracefully (runtime `stopped`), link and
 
 ## Delivery guarantees
 
-- **Durable events** (`session.updated`, `transcript.item`, `interaction.updated`, `panel.updated`, `adapters.updated`, `diagnostic`, `workspace.updated`, `workspace.removed`) are inserted into `outbox` inside the same transaction as the state change that caused them, and sent after commit in `hostSeq` order. `hostSeq` is an AUTOINCREMENT key and never reused.
+- **Durable events** (`session.updated`, `transcript.item`, `interaction.updated`, `panel.updated`, `adapters.updated`, `diagnostic`, `workspace.updated`, `workspace.deleted`) are inserted into `outbox` inside the same transaction as the state change that caused them, and sent after commit in `hostSeq` order. `hostSeq` is an AUTOINCREMENT key and never reused.
 - On `welcome {ackedHostSeq}` every row above the coordinator's ack is replayed in order. `ack {hostSeq}` is cumulative; acked rows are kept 24 h for diagnostics, then pruned. The coordinator also dedupes by `eventId`.
 - **Streams** (text, thinking, tool argument and tool output deltas) are ephemeral and only sent while connected.
 - **Receipts** are stored by `commandId` before they are sent. A duplicate command (the coordinator re-sends after reconnecting) gets the stored receipt and never runs twice; a duplicate that arrives while the original is still running waits for it.
@@ -95,7 +95,7 @@ When a run settles (`agent_settled`), the single `session.updated` that moves th
 | `workspace.discover` | `{worktrees: DiscoveredWorktree[]}` |
 | `workspace.create` | `{path, branch, baseBranch, provenance, git, setup}`; setup output streams as `workspace.updated {path, setup}` |
 | `workspace.status` | `{path, git}` |
-| `workspace.remove` | `{ok: true, path}` and a `workspace.removed {id: path, path}` event |
+| `workspace.remove` | `{ok: true, path}` and a `workspace.deleted {id: path, path}` event |
 | `workspace.diff` | `DiffResult` |
 | `workspace.files` | `{dir, entries: FileEntry[]}` |
 | `workspace.readFile` | `{path, size, encoding: "utf8" \| "base64", content, binary}` |

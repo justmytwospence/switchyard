@@ -24,6 +24,14 @@ describe("store reducer", () => {
     expect(s.seq).toBe(11);
   });
 
+  it.each(["workspace.deleted", "workspace.removed"])("%s drops the workspace", (type) => {
+    let s = applySnapshot(emptyState(), 0, syncState());
+    s = applyEvent(s, event(1, "workspace.updated", { id: "wsp_1", archivedAt: null }));
+    expect(s.workspaces.wsp_1).toBeDefined();
+    s = applyEvent(s, event(2, type as never, { id: "wsp_1" }));
+    expect(s.workspaces.wsp_1).toBeUndefined();
+  });
+
   it("replays events in seq order", () => {
     const s = applyReplay(applySnapshot(emptyState(), 1, syncState()), 3, [
       event(3, "session.updated", session({ title: "three" })),

@@ -39,11 +39,19 @@ describe("host-reported attention and workspace removal", () => {
     expect(diag.data).not.toHaveProperty("attention");
   });
 
-  it("matches workspace.removed by path", async () => {
+  it("accepts the legacy workspace.removed name", async () => {
     h = await setupHarness();
     const main = h.t.c.store.workspaceByPath(h.creds.hostId, ROOT)!;
     expect(main).toBeDefined();
-    await h.host.event("workspace.removed", { id: ROOT, path: ROOT });
+    await h.host.event("workspace.removed" as never, { id: ROOT, path: ROOT });
+    expect(h.t.c.store.workspaces.get(main.id)).toBeUndefined();
+  });
+
+  it("matches workspace.deleted by path", async () => {
+    h = await setupHarness();
+    const main = h.t.c.store.workspaceByPath(h.creds.hostId, ROOT)!;
+    expect(main).toBeDefined();
+    await h.host.event("workspace.deleted", { id: ROOT, path: ROOT });
     expect(h.t.c.store.workspaces.get(main.id)).toBeUndefined();
   });
 });

@@ -28,7 +28,7 @@ export interface WorkspaceServiceOptions {
 
 /**
  * Workspace mutations that produce host events: managed worktree creation with streamed setup
- * output (`workspace.updated`), and removal (`workspace.removed`).
+ * output (`workspace.updated`), and removal (`workspace.deleted`).
  */
 export class WorkspaceService {
   constructor(private readonly opts: WorkspaceServiceOptions) {}
@@ -94,7 +94,7 @@ export class WorkspaceService {
       hasActiveSession: this.opts.hasActiveSession,
     });
     this.opts.db.tx(() =>
-      this.opts.link.emit({ type: "workspace.removed", data: { id: path, path } }),
+      this.opts.link.emit({ type: "workspace.deleted", data: { id: path, path } }),
     );
     return { ok: true, path };
   }

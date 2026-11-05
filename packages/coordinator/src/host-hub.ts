@@ -628,7 +628,7 @@ export class HostHub {
       case "workspace.updated":
         this.projectWorkspace(hostId, raw);
         return;
-      case "workspace.removed": {
+      case "workspace.deleted": {
         // Hosts send `{id: <path>, path}`: match by path first, then by workspace id.
         const path = typeof raw.path === "string" ? raw.path : null;
         const key = String(raw.id ?? "");

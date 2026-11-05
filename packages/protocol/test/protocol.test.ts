@@ -5,6 +5,7 @@ import {
   CoordinatorToHost,
   DEFAULT_WORKTREE_DIR,
   DeviceKind,
+  EventEnvelope,
   HostCommand,
   InteractionState,
   isFieldVisible,
@@ -299,5 +300,18 @@ describe("interaction state", () => {
     expect(InteractionState.parse("canceled")).toBe("canceled");
     expect(InteractionState.parse("cancelled")).toBe("canceled");
     expect(InteractionState.safeParse("bogus").success).toBe(false);
+  });
+});
+
+describe("event types", () => {
+  it("accepts the legacy workspace.removed name as workspace.deleted", () => {
+    const base = { seq: 1, id: "evt_1", at: "now", data: { id: "wsp_1" } };
+    expect(EventEnvelope.parse({ ...base, type: "workspace.removed" }).type).toBe(
+      "workspace.deleted",
+    );
+    expect(EventEnvelope.parse({ ...base, type: "workspace.deleted" }).type).toBe(
+      "workspace.deleted",
+    );
+    expect(EventEnvelope.safeParse({ ...base, type: "bogus" }).success).toBe(false);
   });
 });

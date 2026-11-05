@@ -40,4 +40,17 @@ describe("coordinator migrations", () => {
     const ev = db.prepare("SELECT json FROM events WHERE id = 'evt_1'").get() as { json: string };
     expect(JSON.parse(ev.json).state).toBe("canceled");
   });
+
+  it("005 renames the workspace.removed event", () => {
+    const db = dbAt(4);
+    db.prepare("INSERT INTO events (id, type, json, at) VALUES (?, ?, ?, ?)").run(
+      "evt_2",
+      "workspace.removed",
+      '{"id":"wsp_1"}',
+      "2026-01-01",
+    );
+    expect(migrate(db)).toBe(5);
+    const ev = db.prepare("SELECT type FROM events WHERE id = 'evt_2'").get() as { type: string };
+    expect(ev.type).toBe("workspace.deleted");
+  });
 });

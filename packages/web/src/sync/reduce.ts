@@ -22,6 +22,7 @@ import type {
   TranscriptItem,
   Workspace,
 } from "@switchyard/protocol";
+import { canonicalEventType } from "@switchyard/protocol";
 import { isOpenAttention, isStreamingRuntime } from "./selectors";
 
 /**
@@ -264,7 +265,7 @@ function upsertTranscriptItem<S extends SyncData>(state: S, item: TranscriptItem
  */
 export function applyEvent<S extends SyncData>(state: S, event: EventEnvelope): S {
   if (state.seq !== null && event.seq <= state.seq) return state;
-  const next = reduceEvent(state, event.type, event.data as never);
+  const next = reduceEvent(state, canonicalEventType(event.type) as EventType, event.data as never);
   return { ...next, seq: event.seq };
 }
 
@@ -303,8 +304,8 @@ function reduceEvent<S extends SyncData, T extends EventType>(
         workspaces: d.archivedAt ? drop(state.workspaces, d.id) : put(state.workspaces, d.id, d),
       };
     }
-    case "workspace.removed": {
-      const d = data as EventData<"workspace.removed">;
+    case "workspace.deleted": {
+      const d = data as EventData<"workspace.deleted">;
       return { ...state, workspaces: drop(state.workspaces, d.id) };
     }
     case "profile.updated": {

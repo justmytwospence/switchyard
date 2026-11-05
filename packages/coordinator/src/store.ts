@@ -530,7 +530,7 @@ export class Store {
     this.tx(() => {
       this.workspaces.delete(w.id);
       this.appendEvent(
-        "workspace.removed",
+        "workspace.deleted",
         { projectId: w.projectId, hostId: w.hostId },
         {
           id: w.id,

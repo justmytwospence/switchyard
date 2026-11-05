@@ -59,6 +59,14 @@ describe("events", () => {
     expect(s.tasks.tsk_a).toBeUndefined();
   });
 
+  it.each(["workspace.deleted", "workspace.removed"])("%s drops the workspace", (type) => {
+    let s = applySnapshot(emptySyncData(), 0, snapshot());
+    s = applyEvent(s, ev("workspace.updated", { id: "wsp_1", archivedAt: null }, 1));
+    expect(s.workspaces.wsp_1).toBeDefined();
+    s = applyEvent(s, ev(type as never, { id: "wsp_1" }, 2));
+    expect(s.workspaces.wsp_1).toBeUndefined();
+  });
+
   it("applies replay batches in seq order", () => {
     const s = applyEvents(applySnapshot(emptySyncData(), 0, snapshot()), [
       ev("session.updated", session("ses_1", { title: "second" }), 3),

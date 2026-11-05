@@ -3,6 +3,7 @@ import { sql as init } from "./migrations/001_init.js";
 import { sql as ownerAuth } from "./migrations/002_owner_auth.js";
 import { sql as terminalLogin } from "./migrations/003_terminal_login.js";
 import { sql as interactionCanceled } from "./migrations/004_interaction_canceled.js";
+import { sql as workspaceDeletedEvent } from "./migrations/005_workspace_deleted_event.js";
 
 export interface Migration {
   version: number;
@@ -16,6 +17,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 2, name: "002_owner_auth", sql: ownerAuth },
   { version: 3, name: "003_terminal_login", sql: terminalLogin },
   { version: 4, name: "004_interaction_canceled", sql: interactionCanceled },
+  { version: 5, name: "005_workspace_deleted_event", sql: workspaceDeletedEvent },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

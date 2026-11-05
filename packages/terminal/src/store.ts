@@ -19,6 +19,7 @@ import type {
   TranscriptItem,
   Workspace,
 } from "@switchyard/protocol";
+import { canonicalEventType } from "@switchyard/protocol";
 
 /**
  * Normalized client state and its pure reducers. Same semantics as the web store
@@ -236,7 +237,7 @@ export function applySessionSnapshot(
 /** Apply one durable event; events at or below the cursor are ignored. */
 export function applyEvent(state: ClientState, event: EventEnvelope): ClientState {
   if (state.seq !== null && event.seq <= state.seq) return state;
-  const next = reduceEvent(state, event.type, event.data as never);
+  const next = reduceEvent(state, canonicalEventType(event.type) as EventType, event.data as never);
   return { ...next, seq: event.seq };
 }
 
@@ -276,8 +277,8 @@ function reduceEvent<T extends EventType>(
         workspaces: d.archivedAt ? drop(state.workspaces, d.id) : put(state.workspaces, d.id, d),
       };
     }
-    case "workspace.removed": {
-      const d = data as EventData<"workspace.removed">;
+    case "workspace.deleted": {
+      const d = data as EventData<"workspace.deleted">;
       return { ...state, workspaces: drop(state.workspaces, d.id) };
     }
     case "profile.updated": {

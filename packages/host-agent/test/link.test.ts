@@ -261,7 +261,7 @@ describe("command router", () => {
     });
     expect(removed).toMatchObject({ ok: true });
     expect(existsSync(created.path)).toBe(false);
-    await h.coord.waitEvent((e) => e.type === "workspace.removed", 5000, "workspace.removed");
+    await h.coord.waitEvent((e) => e.type === "workspace.deleted", 5000, "workspace.deleted");
   });
 
   it("runs owner-configured checks with exit codes and tails", async () => {
