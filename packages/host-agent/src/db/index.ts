@@ -4,6 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { MIGRATIONS, type Migration } from "./migrations.js";
 
 export { MIGRATIONS, type Migration } from "./migrations.js";
+export * from "./prune.js";
 
 type Row = Record<string, SQLInputValue>;
 

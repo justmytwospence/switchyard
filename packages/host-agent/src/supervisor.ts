@@ -135,6 +135,8 @@ export interface HostSessionRecord {
   terminal?: { socketPath: string } | null;
   /** Dispatch whose launch prompt this session was sent; a retry dispatch with another key sends its own. */
   promptedDispatchKey?: string | null;
+  /** When the session last left a live runtime (pruning age). */
+  endedAt?: string | null;
 }
 
 export interface StartParams {
@@ -321,9 +323,23 @@ export class SessionSupervisor {
     this.opts = opts;
     this.db = opts.db;
     this.link = opts.link;
-    for (const rec of this.db.allJson<HostSessionRecord>("SELECT json FROM sessions")) {
+    // Only live sessions load now (recovery needs them); the rest load on first use.
+    for (const rec of this.db.allJson<HostSessionRecord>(
+      "SELECT json FROM sessions WHERE json_extract(json, '$.runtime') IN (?, ?, ?, ?)",
+      LIVE_RUNTIMES,
+    )) {
       this.records.set(rec.id, rec);
     }
+  }
+
+  /** A session's record; startup loads only live ones, the rest load on first use. */
+  private getRecord(id: string): HostSessionRecord | undefined {
+    let rec = this.records.get(id);
+    if (!rec) {
+      rec = this.db.getJson<HostSessionRecord>("SELECT json FROM sessions WHERE id = ?", [id]);
+      if (rec) this.records.set(id, rec);
+    }
+    return rec;
   }
 
   /** Pi processes spawned since this supervisor started. */
@@ -404,6 +420,12 @@ export class SessionSupervisor {
   async sweepOrphanHolders(): Promise<HolderSweep> {
     const keep = new Set<string>();
     for (const rec of this.records.values()) if (rec.terminal) keep.add(rec.terminal.socketPath);
+    // Records not loaded yet (startup loads only live ones) may still name a holder.
+    for (const rec of this.db.allJson<HostSessionRecord>(
+      "SELECT json FROM sessions WHERE json_extract(json, '$.terminal.socketPath') IS NOT NULL",
+    )) {
+      if (!this.records.has(rec.id) && rec.terminal) keep.add(rec.terminal.socketPath);
+    }
     return sweepHolders({
       dirs: socketDirs(this.opts.runtimeDir ?? join(tmpdir(), "switchyard")),
       keep,
@@ -426,7 +448,7 @@ export class SessionSupervisor {
     const stopped: string[] = [];
     const starting: string[] = [];
     for (const id of this.reattachCandidates.splice(0)) {
-      const rec = this.records.get(id);
+      const rec = this.getRecord(id);
       if (!rec?.terminal) continue;
       const was = { runtime: rec.runtime, compacting: rec.compacting };
       if (was.runtime === "starting") {
@@ -548,7 +570,7 @@ export class SessionSupervisor {
   }
 
   record(sessionId: string): HostSessionRecord | undefined {
-    return this.records.get(sessionId);
+    return this.getRecord(sessionId);
   }
 
   isLive(sessionId: string): boolean {
@@ -610,7 +632,7 @@ export class SessionSupervisor {
   controlOf(
     sessionId: string,
   ): { controlRevision: number; controlMode: "automation" | "human" } | null {
-    const rec = this.records.get(sessionId);
+    const rec = this.getRecord(sessionId);
     return rec ? { controlRevision: rec.controlRevision, controlMode: rec.controlMode } : null;
   }
 
@@ -622,7 +644,7 @@ export class SessionSupervisor {
    */
   setControl(sessionId: string, controlRevision: number, mode: "automation" | "human") {
     const next: ControlState = { controlRevision, controlMode: mode };
-    const rec = this.records.get(sessionId);
+    const rec = this.getRecord(sessionId);
     if (!rec) {
       const pending = this.pendingControl.get(sessionId);
       if (!pending || supersedes(next, pending)) this.pendingControl.set(sessionId, next);
@@ -642,7 +664,7 @@ export class SessionSupervisor {
    * missed `setControl` must not stall later continuations).
    */
   noteRevision(sessionId: string, controlRevision: number): void {
-    const rec = this.records.get(sessionId);
+    const rec = this.getRecord(sessionId);
     if (rec && controlRevision > rec.controlRevision) {
       rec.controlRevision = controlRevision;
       rec.controlMode = "automation";
@@ -700,7 +722,7 @@ export class SessionSupervisor {
     if (!existsSync(p.workspacePath) || !statSync(p.workspacePath).isDirectory()) {
       throw new SwitchyardError("not_found", `Workspace ${p.workspacePath} does not exist`);
     }
-    const prev = this.records.get(p.sessionId);
+    const prev = this.getRecord(p.sessionId);
     const nativeHandle = p.nativeHandle ?? prev?.nativeHandle ?? null;
     if (nativeHandle) {
       const file = realpathOr(nativeHandle.sessionFile);
@@ -936,7 +958,7 @@ export class SessionSupervisor {
 
   /** A session still named by its placeholder takes its name from the first prompt that starts a turn. */
   private async autoTitle(sessionId: string, text: string): Promise<void> {
-    const rec = this.records.get(sessionId);
+    const rec = this.getRecord(sessionId);
     if (!rec || !isPlaceholderTitle(rec.title)) return;
     const first = text.trim().split("\n")[0]?.trim() ?? "";
     // Commands and bash lines do not describe the session: wait for a real prompt.
@@ -1944,6 +1966,8 @@ export class SessionSupervisor {
   }
 
   private saveRecord(rec: HostSessionRecord): void {
+    if (LIVE_RUNTIMES.includes(rec.runtime)) rec.endedAt = null;
+    else rec.endedAt ??= nowIso();
     this.db.run(
       "INSERT INTO sessions (id, json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json",
       [rec.id, JSON.stringify(rec)],
@@ -1963,7 +1987,7 @@ export class SessionSupervisor {
   }
 
   private requireRecord(sessionId: string): HostSessionRecord {
-    const rec = this.records.get(sessionId);
+    const rec = this.getRecord(sessionId);
     if (!rec)
       throw new SwitchyardError("not_found", `Session ${sessionId} is not known on this host`);
     return rec;
@@ -1972,7 +1996,7 @@ export class SessionSupervisor {
   private requireLive(sessionId: string, action: keyof typeof NOT_LIVE): ManagedSession {
     const ms = this.live.get(sessionId)?.ms;
     if (!ms?.isAlive) {
-      const rec = this.records.get(sessionId);
+      const rec = this.getRecord(sessionId);
       throw new SwitchyardError(
         rec ? "invalid_request" : "not_found",
         rec

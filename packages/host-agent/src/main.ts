@@ -13,7 +13,7 @@ import {
   type WaitTiming,
   waitForConfig,
 } from "./config.js";
-import { type HostDb, openHostDb } from "./db/index.js";
+import { type HostDb, openHostDb, PRUNE_INTERVAL_MS, pruneHostDb } from "./db/index.js";
 import { Dispatcher } from "./dispatch.js";
 import { CoordinatorLink } from "./link.js";
 import { createLogger, type Logger } from "./logger.js";
@@ -142,6 +142,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   const piBin = opts.piBin ?? mergedEnv.SWITCHYARD_PI_BIN ?? "pi";
 
   const db = openHostDb(paths.db);
+  pruneHostDb(db);
   const pi = await detectPi(piBin, env);
   if (!pi.compatible) log.warn({ reason: pi.reason }, "Pi is not usable; sessions will be refused");
   else log.info({ version: pi.version }, "Pi detected");
@@ -290,6 +291,18 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     );
   }
   router.pruneReceipts();
+  const pruneTimer = setInterval(() => {
+    try {
+      const counts = pruneHostDb(db);
+      const receipts = router.pruneReceipts();
+      if (receipts > 0 || Object.values(counts).some((n) => n > 0)) {
+        log.info({ ...counts, receipts }, "pruned host database");
+      }
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, "host database prune failed");
+    }
+  }, PRUNE_INTERVAL_MS);
+  pruneTimer.unref();
   try {
     await catalog.init();
   } catch (err) {
@@ -377,6 +390,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         // Let the final session.updated events go out before closing the socket.
         await new Promise((r) => setTimeout(r, 50));
         await link.stop();
+        clearInterval(pruneTimer);
         db.close();
       })();
       return stopping;
