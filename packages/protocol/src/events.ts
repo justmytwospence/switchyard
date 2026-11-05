@@ -41,6 +41,7 @@ export const EventDataSchemas = {
   "automation.updated": Automation,
   "automation.deleted": z.object({ id: z.string() }),
   "occurrence.created": Occurrence,
+  "occurrence.updated": Occurrence,
   "attention.updated": AttentionItem,
   "device.updated": Device,
   "settings.updated": z.object({ dispatchPaused: z.boolean() }),

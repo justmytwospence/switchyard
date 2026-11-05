@@ -216,6 +216,11 @@ describe("overlap and modes", () => {
     expect(tasks[1]!.state).toBe("ready");
     const occ = h.t.c.store.occurrences.require(r2.body.occurrence.id);
     expect(occ).toMatchObject({ state: "fired", taskId: tasks[1]!.id });
+    const events = h.t.c.store
+      .eventsAfter(0, 100_000)
+      .filter((e) => (e.data as { id?: string }).id === r2.body.occurrence.id);
+    expect(events.map((e) => e.type)).toEqual(["occurrence.created", "occurrence.updated"]);
+    expect(events[1]!.data).toMatchObject({ state: "fired" });
   });
 
   it("queue_one keeps waiting while the tracked task is in Review, then fires once it is Done", async () => {

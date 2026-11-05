@@ -374,6 +374,16 @@ function reduceEvent<S extends SyncData, T extends EventType>(
         },
       };
     }
+    case "occurrence.updated": {
+      const d = data as EventData<"occurrence.updated">;
+      const list = state.occurrences[d.automationId] ?? [];
+      const next = list.some((o) => o.id === d.id)
+        ? list.map((o) => (o.id === d.id ? d : o))
+        : [d, ...list]
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+            .slice(0, MAX_OCCURRENCES_PER_AUTOMATION);
+      return { ...state, occurrences: { ...state.occurrences, [d.automationId]: next } };
+    }
     case "attention.updated": {
       const d = data as EventData<"attention.updated">;
       return {

@@ -621,6 +621,15 @@ export class Store {
     });
   }
 
+  /** Update an existing occurrence (state, task, reason, outcome) with an `occurrence.updated` event. */
+  putOccurrence(o: Occurrence, projectId?: string): Occurrence {
+    return this.tx(() => {
+      this.occurrences.upsert(o);
+      this.appendEvent("occurrence.updated", { projectId }, o);
+      return o;
+    });
+  }
+
   /** Insert an occurrence unless `(automationId, key)` exists. Returns false on duplicate. */
   insertOccurrence(o: Occurrence): boolean {
     return this.tx(() => {

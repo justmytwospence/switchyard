@@ -558,8 +558,7 @@ export class AutomationService {
       // Overlap no longer applies: the tracked work finished (or left the queue).
       const fired = this.executeWithoutOverlap(a, occ.id, vars);
       const next: Occurrence = { ...cur, state: "fired", taskId: fired.id, reason: null };
-      store.occurrences.upsert(next);
-      store.appendEvent("occurrence.created", { projectId: a.projectId }, next);
+      store.putOccurrence(next, a.projectId);
       store.st.get("DELETE FROM settings WHERE key = ?").run(OCC_VARS + occ.id);
     });
     getService(this.ctx, "dispatcher")?.schedule();
@@ -590,7 +589,7 @@ export class AutomationService {
     const { automationId, occurrenceId } = task.origin;
     store.tx(() => {
       const occ = store.occurrences.get(occurrenceId);
-      if (occ) store.occurrences.upsert({ ...occ, outcome });
+      if (occ && occ.outcome !== outcome) store.putOccurrence({ ...occ, outcome }, task.projectId);
       const a = store.automations.get(automationId);
       if (!a) return;
       store.putAutomation({

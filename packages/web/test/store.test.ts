@@ -122,18 +122,21 @@ describe("events", () => {
     s = applyEvent(s, ev("occurrence.created", occ, 8));
     s = applyEvent(s, ev("occurrence.created", { ...occ, id: "occ_2" }, 9));
     expect(s.occurrences.aut_1!.map((o) => o.id)).toEqual(["occ_2", "occ_1"]);
+    s = applyEvent(s, ev("occurrence.updated", { ...occ, outcome: "Done" }, 10));
+    expect(s.occurrences.aut_1!.map((o) => o.id)).toEqual(["occ_2", "occ_1"]);
+    expect(s.occurrences.aut_1!.find((o) => o.id === "occ_1")!.outcome).toBe("Done");
 
     s = applyEvent(
       s,
       ev(
         "diagnostic",
         { sessionId: null, adapterId: "a", level: "warning", message: "m", at: "x" },
-        10,
+        11,
       ),
     );
     expect(s.diagnostics).toHaveLength(1);
 
-    s = applyEvent(s, ev("adapters.updated", { hostId: "hst_1", adapters: [] }, 11));
+    s = applyEvent(s, ev("adapters.updated", { hostId: "hst_1", adapters: [] }, 12));
     expect(s.adapters.hst_1).toEqual([]);
   });
 
