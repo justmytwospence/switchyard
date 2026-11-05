@@ -1,10 +1,10 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, type Stats } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JsonlReader, writeJsonl } from "./jsonl.js";
 import type { BridgeEvent, PiEvent, PiUiRequest, PiUiResponseBody } from "./types.js";
@@ -57,15 +57,64 @@ interface PendingRequest {
 
 const MAX_SOCKET_PATH = 100;
 
-/** A fresh Unix socket path in `runtimeDir`, or in a short `/tmp` directory when that is too long. */
+/** Short fallback for long runtime dirs: one private subdirectory per runtime dir, so agents never share it. */
+export function fallbackSocketDir(runtimeDir: string): string {
+  const hash = createHash("sha256").update(resolve(runtimeDir)).digest("hex").slice(0, 8);
+  return join("/tmp", `switchyard-${process.getuid?.() ?? "u"}`, hash);
+}
+
+/** Directories a runtime dir's sockets can live in (for sweeps). */
+export function socketDirs(runtimeDir: string): string[] {
+  return [runtimeDir, fallbackSocketDir(runtimeDir)];
+}
+
+/** Pure check: "ok", "chmod" (ours but looser than 0700), or throws. */
+export function checkPrivateDir(
+  dir: string,
+  st: Pick<Stats, "uid" | "mode" | "isDirectory" | "isSymbolicLink">,
+  uid: number | undefined,
+): "ok" | "chmod" {
+  if (st.isSymbolicLink())
+    throw new Error(
+      `Socket directory ${dir} is a symlink; remove it so Switchyard can create a private directory`,
+    );
+  if (!st.isDirectory())
+    throw new Error(
+      `Socket directory ${dir} is not a directory; remove it so Switchyard can create a private directory`,
+    );
+  if (uid !== undefined && st.uid !== uid)
+    throw new Error(
+      `Socket directory ${dir} belongs to uid ${st.uid}, not ${uid}; remove it or use a shorter SWITCHYARD_STATE_DIR`,
+    );
+  return (st.mode & 0o077) !== 0 ? "chmod" : "ok";
+}
+
+/** Create `dir` (0700) if missing, then require: not a symlink, a directory, ours, mode 0700 (tightened if looser). */
+export function ensurePrivateDir(dir: string): void {
+  let st: Stats | null = null;
+  try {
+    st = lstatSync(dir);
+  } catch {
+    /* missing */
+  }
+  if (!st) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    st = lstatSync(dir);
+  }
+  if (checkPrivateDir(dir, st, process.getuid?.()) === "chmod") chmodSync(dir, 0o700);
+}
+
+/** A fresh Unix socket path in `runtimeDir`, or in a short private `/tmp` directory when that is too long. */
 export function shortSocketPath(runtimeDir: string, prefix: string): string {
   const name = `${prefix}-${randomUUID().slice(0, 8)}.sock`;
-  let dir = runtimeDir;
-  if (join(dir, name).length > MAX_SOCKET_PATH) {
-    // Unix socket paths are limited (104 bytes on macOS); fall back to a short directory.
-    dir = join("/tmp", `switchyard-${process.getuid?.() ?? "u"}`);
+  if (join(runtimeDir, name).length <= MAX_SOCKET_PATH) {
+    ensurePrivateDir(runtimeDir);
+    return join(runtimeDir, name);
   }
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Unix socket paths are limited (104 bytes on macOS); fall back to a short directory.
+  const dir = fallbackSocketDir(runtimeDir);
+  ensurePrivateDir(dirname(dir)); // /tmp/switchyard-<uid>
+  ensurePrivateDir(dir);
   return join(dir, name);
 }
 

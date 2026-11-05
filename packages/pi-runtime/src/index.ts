@@ -28,11 +28,14 @@ export { JsonlReader, serializeJsonl, writeJsonl } from "./jsonl.js";
 export { branchSession, loadPiSessionManager, treeRows } from "./pi-session-manager.js";
 export {
   bridgeExtensionPath,
+  ensurePrivateDir,
+  fallbackSocketDir,
   type PiExit,
   PiRpcError,
   PiRpcProcess,
   type PiRpcStartOptions,
   shortSocketPath,
+  socketDirs,
 } from "./rpc-process.js";
 export {
   GAP_NOTICE,
