@@ -2,6 +2,7 @@ import type { Session } from "@switchyard/protocol";
 import { MousePointerClick, SearchX } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { BACK_STATE } from "../../app/useBackTo";
 import { Drawer } from "../../components/ui/Overlay";
 import { Splitter } from "../../components/ui/Splitter";
 import { EmptyState, LoadingState } from "../../components/ui/states";
@@ -272,7 +273,7 @@ export function CodeMobile(props: LayoutProps) {
   const onCreated = useCallback(
     (id: string) => {
       setNewOpen(false);
-      navigate(`/code/${encodeURIComponent(id)}`);
+      navigate(`/code/${encodeURIComponent(id)}`, { state: BACK_STATE });
     },
     [navigate],
   );

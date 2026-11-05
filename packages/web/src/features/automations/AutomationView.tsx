@@ -12,7 +12,8 @@ import {
   X,
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
@@ -194,6 +195,8 @@ function serverFieldErrors(e: unknown): DraftErrors {
 
 function Editor({ automation }: { automation: Automation | null }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const back = useBackTo(LIST_PATH);
   const bp = useBreakpoint();
   const desktop = bp === "desktop";
   const projects = useProjects();
@@ -306,7 +309,7 @@ function Editor({ automation }: { automation: Automation | null }) {
         useLocalAutomations.getState().put(created);
         saveNewDraft(null);
         toast.success(`Created ${created.name}`);
-        navigate(editPath(created.id), { replace: true });
+        navigate(editPath(created.id), { replace: true, state: location.state });
         return;
       }
       const saved = await apiPatch<Automation>(automationPath(automation.id), input);
@@ -339,7 +342,7 @@ function Editor({ automation }: { automation: Automation | null }) {
       await apiDelete(automationPath(automation.id));
       setConfirmDelete(false);
       toast.success(`Deleted ${automation.name}`);
-      navigate(LIST_PATH, { replace: true });
+      back();
       useLocalAutomations.getState().remove(automation.id);
     } catch (e) {
       toast.error(`Could not delete: ${errorMessage(e)}`);
@@ -433,6 +436,7 @@ function Editor({ automation }: { automation: Automation | null }) {
       <header className="flex min-w-0 flex-col gap-2">
         <Link
           to={LIST_PATH}
+          onClick={backLinkClick(back)}
           className="tap inline-flex items-center gap-1 self-start rounded text-sm text-muted hover:text-text"
         >
           <ArrowLeft aria-hidden className="size-4" />

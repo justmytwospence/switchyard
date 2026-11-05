@@ -2,6 +2,7 @@ import { CAPABILITY_KEYS, type CapabilityKey, type Host } from "@switchyard/prot
 import { ChevronRight, CircleCheck, CircleSlash, Plus, Server, ShieldOff } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { BACK_STATE } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
@@ -112,6 +113,7 @@ function HostRow({ host }: { host: Host }) {
   return (
     <Link
       to={settingsPath(`hosts/${encodeURIComponent(host.id)}`)}
+      state={BACK_STATE}
       className="tap flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-surface-2"
     >
       <Server aria-hidden className="size-5 shrink-0 text-muted" />

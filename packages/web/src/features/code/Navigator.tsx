@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { type CSSProperties, type ReactNode, useMemo } from "react";
 import { Link } from "react-router";
+import { BACK_STATE } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
@@ -453,6 +454,7 @@ function SessionRow({
       <Link
         data-testid="session-row"
         to={`/code/${encodeURIComponent(session.id)}`}
+        state={BACK_STATE}
         aria-current={selected ? "page" : undefined}
         className={cn(
           "tap flex min-w-0 flex-col gap-0.5 rounded-md py-1.5 pr-2 hover:bg-surface-2",

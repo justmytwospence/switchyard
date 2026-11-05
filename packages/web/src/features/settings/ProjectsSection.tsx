@@ -2,6 +2,7 @@ import type { Project } from "@switchyard/protocol";
 import { ChevronRight, FolderGit2, FolderPlus, Plus } from "lucide-react";
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { BACK_STATE } from "../../app/useBackTo";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { EmptyState, LoadingState, UnsupportedCapability } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
@@ -48,7 +49,11 @@ export function ProjectsSection() {
       title="Projects"
       description="A project is one repository. It can have checkouts on several hosts. Repositories in a host's project folders are added automatically."
       actions={
-        <Link to={settingsPath("projects/new")} className={buttonClasses("primary")}>
+        <Link
+          to={settingsPath("projects/new")}
+          state={BACK_STATE}
+          className={buttonClasses("primary")}
+        >
           <Plus aria-hidden className="size-4" />
           New project
         </Link>
@@ -88,6 +93,7 @@ function ProjectRow({
   return (
     <Link
       to={projectPath(p.id)}
+      state={BACK_STATE}
       className="tap flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-surface-2"
     >
       <FolderGit2 aria-hidden className="size-5 shrink-0 text-muted" />
@@ -151,7 +157,7 @@ export function ProjectCreate() {
         worktreeDir: worktreeDir.trim(),
       });
       toast.success(`Project ${name.trim()} created`);
-      navigate(res?.id ? projectPath(res.id) : settingsPath("projects"));
+      navigate(res?.id ? projectPath(res.id) : settingsPath("projects"), { replace: true });
     } catch (err) {
       setError(err);
     } finally {

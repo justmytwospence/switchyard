@@ -18,8 +18,9 @@ import {
 import type { Task, TaskState } from "@switchyard/protocol";
 import { Plus, SquareKanban } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
+import { BACK_STATE, useBackTo } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
 import { Dialog, Drawer } from "../../components/ui/Overlay";
 import { TASK_STATUS } from "../../components/ui/StatusChip";
@@ -102,7 +103,7 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
   const tasks = useSyncStore((s) => s.tasks);
   const mover = useTaskMover();
   const navigate = useNavigate();
-  const location = useLocation();
+  const back = useBackTo(ROUTES.board);
   const colWidth = usePrefs((s) => s.paneSizes.boardColumn);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
@@ -133,12 +134,11 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
 
   const open = (t: Task) => {
     boardMemory.focusTaskId = t.id;
-    navigate(ROUTES.task(t.id), { state: { fromBoard: true } });
+    navigate(ROUTES.task(t.id), { state: BACK_STATE });
   };
   const close = () => {
     if (taskId) boardMemory.focusTaskId = taskId;
-    if ((location.state as { fromBoard?: boolean } | null)?.fromBoard) navigate(-1);
-    else navigate(ROUTES.board);
+    back();
   };
 
   const onDragStart = (e: DragStartEvent) =>

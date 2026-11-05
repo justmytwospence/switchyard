@@ -278,4 +278,27 @@ test.describe("mobile coding view", () => {
     await page.touchscreen.tap(cb.x + cb.width / 2, cb.y - 10);
     await expect(page.getByRole("menu", { name: "Context" })).toBeVisible();
   });
+
+  test("Back from a deep-linked session replaces history instead of looping", async ({
+    page,
+    state,
+  }) => {
+    await page.goto("/attention");
+    await expect(page.locator("#main")).toBeVisible();
+    await page.goto(`/code/${state.sessions.long}`);
+    await page.getByRole("link", { name: "Back to sessions" }).tap();
+    await expect(page).toHaveURL(/\/code$/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/attention$/);
+  });
+
+  test("Back from a session opened from the navigator pops history", async ({ page }) => {
+    await page.goto("/code");
+    await page.getByTestId("session-row").first().tap();
+    await expect(page).toHaveURL(/\/code\/[^/]+$/);
+    await page.getByRole("link", { name: "Back to sessions" }).tap();
+    await expect(page).toHaveURL(/\/code$/);
+    await page.goForward();
+    await expect(page).toHaveURL(/\/code\//);
+  });
 });

@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 import { Link, Route, Routes, useLocation } from "react-router";
+import { BACK_STATE } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { EmptyState } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
@@ -144,6 +145,7 @@ function Overview() {
           <li key={path} className="min-w-0">
             <Link
               to={settingsPath(path)}
+              state={BACK_STATE}
               className="tap flex h-full min-w-0 items-start gap-3 rounded-lg border border-border bg-surface p-4 hover:bg-surface-2"
             >
               <Icon aria-hidden className="mt-0.5 size-5 shrink-0 text-muted" />
@@ -176,6 +178,7 @@ function MobileIndex() {
             <li key={path} className="border-b border-border last:border-b-0">
               <Link
                 to={settingsPath(path)}
+                state={BACK_STATE}
                 className="tap flex min-h-14 items-center gap-3 px-4 py-2 hover:bg-surface-2"
               >
                 <Icon aria-hidden className="size-5 shrink-0 text-muted" />

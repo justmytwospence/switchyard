@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
@@ -174,6 +175,7 @@ export function MobileSession({
   /** `?tab=` from the URL (e.g. Board "Review changes" opens Changes). */
   tabRequest?: { tab: InspectorTab; key: string } | null;
 }) {
+  const back = useBackTo("/code");
   const { session, project, workspace, task } = ctx;
   const navigate = useNavigate();
   const [tab, setTab] = useState<MobileTab>(() => mobileTabFor(tabRequest?.tab));
@@ -221,6 +223,7 @@ export function MobileSession({
         <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-border bg-surface px-1.5 py-1 safe-pt">
           <Link
             to="/code"
+            onClick={backLinkClick(back)}
             aria-label="Back to sessions"
             title="Back to sessions"
             className={buttonClasses("ghost", "md", "size-11 px-0")}

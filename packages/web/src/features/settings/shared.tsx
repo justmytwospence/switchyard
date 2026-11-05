@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router";
+import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { TONE_CLASSES, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -134,11 +135,13 @@ export function SectionPage({
 }) {
   const bp = useBreakpoint();
   const backLink = back ?? (bp === "mobile" ? { to: "/settings", label: "Settings" } : null);
+  const goBack = useBackTo(backLink?.to ?? settingsPath());
   return (
     <section data-testid={testId} className="flex w-full min-w-0 flex-col gap-4 px-4 py-4 md:px-6">
       {backLink && (
         <Link
           to={backLink.to}
+          onClick={backLinkClick(goBack)}
           className="tap -ml-2 inline-flex w-fit items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-accent hover:bg-surface-2"
         >
           <ChevronLeft aria-hidden className="size-4" />

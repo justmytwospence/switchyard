@@ -1,9 +1,10 @@
 import type { Task, TaskState } from "@switchyard/protocol";
 import { ArrowLeft, ArrowRightLeft, Columns3, List, Plus, SquareKanban } from "lucide-react";
 import { useLayoutEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { useHideBottomNav } from "../../app/chrome";
 import { ROUTES } from "../../app/routes";
+import { BACK_STATE, useBackTo } from "../../app/useBackTo";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
@@ -76,7 +77,7 @@ export function BoardMobile() {
   const open = (t: Task) => {
     boardMemory.mainScrollTop = mainEl()?.scrollTop ?? 0;
     boardMemory.focusTaskId = t.id;
-    navigate(ROUTES.task(t.id), { state: { fromBoard: true } });
+    navigate(ROUTES.task(t.id), { state: BACK_STATE });
   };
 
   const noProjects = hydrated && Object.keys(projects).length === 0;
@@ -251,14 +252,9 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   useHideBottomNav();
   const task = useTask(taskId);
   const hydrated = useSyncStore((s) => s.hydrated);
-  const navigate = useNavigate();
-  const location = useLocation();
   const [moveOpen, setMoveOpen] = useState(false);
   const { eligibility } = useEligibility(task);
-  const back = () => {
-    if ((location.state as { fromBoard?: boolean } | null)?.fromBoard) navigate(-1);
-    else navigate(ROUTES.board);
-  };
+  const back = useBackTo(ROUTES.board);
 
   useLayoutEffect(() => {
     const el = mainEl();
@@ -295,7 +291,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           <div>
             <PrimaryAction task={task} eligibility={eligibility} block />
           </div>
-          <TaskDetailBody task={task} onDeleted={() => navigate(ROUTES.board, { replace: true })} />
+          <TaskDetailBody task={task} onDeleted={back} />
           <MoveSheet task={task} open={moveOpen} onClose={() => setMoveOpen(false)} />
         </div>
       )}

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+import { BACK_STATE } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { EmptyState, ErrorState, FatalError, LoadingState } from "../../components/ui/states";
@@ -137,7 +138,7 @@ export default function AutomationsView() {
             automation's history.
           </p>
         </div>
-        <Link to={NEW_PATH} className={buttonClasses("primary")}>
+        <Link to={NEW_PATH} state={BACK_STATE} className={buttonClasses("primary")}>
           <Plus aria-hidden className="size-4" />
           New automation
         </Link>
@@ -300,6 +301,7 @@ function TableRow(p: RowProps) {
       <div className="flex min-w-0 flex-col gap-0.5">
         <Link
           to={editPath(a.id)}
+          state={BACK_STATE}
           className="truncate font-medium text-text hover:underline focus-visible:underline"
         >
           {a.name}
@@ -336,6 +338,7 @@ function TableRow(p: RowProps) {
         <RunButton running={p.running} onRun={p.onRun} name={a.name} />
         <Link
           to={editPath(a.id)}
+          state={BACK_STATE}
           aria-label={`Edit ${a.name}`}
           title="Edit"
           className="tap inline-flex size-9 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
@@ -355,6 +358,7 @@ function CardRow(p: RowProps) {
         <div className="flex min-w-0 flex-col gap-0.5">
           <Link
             to={editPath(a.id)}
+            state={BACK_STATE}
             className="font-medium break-words text-text hover:underline focus-visible:underline"
           >
             {a.name}
@@ -393,7 +397,7 @@ function CardRow(p: RowProps) {
       </dl>
       <div className="flex flex-wrap gap-2">
         <RunButton running={p.running} onRun={p.onRun} name={a.name} />
-        <Link to={editPath(a.id)} className={buttonClasses("ghost", "sm")}>
+        <Link to={editPath(a.id)} state={BACK_STATE} className={buttonClasses("ghost", "sm")}>
           Edit
           <ChevronRight aria-hidden className="size-3.5" />
         </Link>
