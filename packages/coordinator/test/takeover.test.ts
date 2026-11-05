@@ -300,6 +300,38 @@ describe("takeover", () => {
     expect(commandsOf(h.host, "session.abort")).toHaveLength(0);
   });
 
+  it("stop keeps run data written while the abort was in flight", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h);
+    const cwd = h.t.c.store.sessions.require(run.sessionId!).cwd;
+    await h.host.event("session.updated", hostSession(run.sessionId!, { cwd, runtime: "running" }));
+    h.override = (cmd) => {
+      if (cmd.type !== "session.abort") return undefined;
+      h!.t.c.store.putRun({ ...runOf(h!, tk.id), continuationsUsed: 1 });
+      return null;
+    };
+    const r = await h.t.admin("POST", `/api/sessions/${run.sessionId}/stop`);
+    expect(r.status).toBe(200);
+    expect(runOf(h, tk.id)).toMatchObject({ state: "interrupted", continuationsUsed: 1 });
+  });
+
+  it("stop does not reopen a run that finished while the abort was in flight", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h);
+    const cwd = h.t.c.store.sessions.require(run.sessionId!).cwd;
+    await h.host.event("session.updated", hostSession(run.sessionId!, { cwd, runtime: "running" }));
+    h.override = (cmd) => {
+      if (cmd.type !== "session.abort") return undefined;
+      const now = new Date().toISOString();
+      h!.t.c.store.putRun({ ...runOf(h!, tk.id), state: "succeeded", endedAt: now });
+      return null;
+    };
+    const r = await h.t.admin("POST", `/api/sessions/${run.sessionId}/stop`);
+    expect(r.status).toBe(200);
+    expect(runOf(h, tk.id).state).toBe("succeeded");
+    expect(task(h, tk.id).blocked).toBeNull();
+  });
+
   it("stop aborts with a cleared queue and blocks the task", async () => {
     h = await setupHarness();
     const { task: tk, run } = await startRun(h);

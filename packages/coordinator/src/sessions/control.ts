@@ -2,6 +2,7 @@ import { type Run, type Session, SwitchyardError } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
 import { getService } from "../services.js";
 import { isRunAutomationCommand } from "../tasks/runs.js";
+import { TERMINAL_RUN_STATES } from "../tasks/state.js";
 
 /**
  * Session control routes. The tasks/runs worker extends these (continuation checks,
@@ -137,24 +138,23 @@ export async function stopSession(ctx: CoordinatorContext, sessionId: string): P
     sessionId,
     clearQueue: true,
   });
-  const run = ctx.store.runForSession(session);
-  if (run && !["succeeded", "failed", "canceled", "interrupted"].includes(run.state)) {
-    ctx.store.tx(() => {
-      const now = ctx.store.nowIso();
-      ctx.store.putRun(
-        { ...run, state: "interrupted", updatedAt: now },
-        session.projectId ?? undefined,
-      );
-      const task = ctx.store.tasks.get(run.taskId);
-      if (task && task.currentRunId === run.id) {
-        ctx.store.putTask({
-          ...task,
-          blocked: { reason: "Stopped by user" },
-          updatedAt: now,
-          lastActivityAt: now,
-        });
-      }
-    });
-  }
+  // Re-read inside the transaction: the abort was awaited, and only the run that was current
+  // when Stop was pressed is interrupted (never a newer attempt, never a finished run).
+  ctx.store.tx(() => {
+    const cur = ctx.store.sessions.require(sessionId);
+    const run = pre ? ctx.store.runs.get(pre.id) : ctx.store.runForSession(cur);
+    if (!run || TERMINAL_RUN_STATES.includes(run.state)) return;
+    const now = ctx.store.nowIso();
+    ctx.store.putRun({ ...run, state: "interrupted", updatedAt: now }, cur.projectId ?? undefined);
+    const task = ctx.store.tasks.get(run.taskId);
+    if (task && task.currentRunId === run.id) {
+      ctx.store.putTask({
+        ...task,
+        blocked: { reason: "Stopped by user" },
+        updatedAt: now,
+        lastActivityAt: now,
+      });
+    }
+  });
   return ctx.store.sessions.require(sessionId);
 }
