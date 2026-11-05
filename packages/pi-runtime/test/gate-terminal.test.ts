@@ -129,6 +129,21 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("gate: terminal transport",
     await again.start();
     expect(again.runtime).toBe("idle");
     expect(again.nativeHandle?.sessionId).toBe(s.nativeHandle?.sessionId);
+    // The extension announced itself again on reattach: dialogs stay remote-backed.
+    expect(again.remoteDialogs).toBe(true);
+
+    // A dialog delivered twice (holder replay and extension re-send) is pending once.
+    const againRec = record(again, ["ui_request"]);
+    request = waitFor<PiUiRequest>(again, "ui_request", (r) => r.method === "select");
+    settled = waitFor(again, "settled");
+    await again.prompt("please pick a fruit");
+    req = await request;
+    (again as any).proc.emit("ui_request", req);
+    expect(again.pendingUi).toHaveLength(1);
+    expect(againRec.of("ui_request")).toHaveLength(1);
+    await again.respondUi(req.id, { value: "Banana" });
+    await settled;
+
     settled = waitFor(again, "settled");
     await again.prompt("hello again");
     expect((await settled).lastAssistantText).toBe("hi from the terminal");

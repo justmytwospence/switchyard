@@ -795,6 +795,8 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     });
     proc.on("ui_request", (req: PiUiRequest) => {
       if (isDialogRequest(req)) {
+        // Re-sent after a control re-attached: the holder's replay and the extension both send it.
+        if (this.pending.has(req.id)) return;
         this.pending.set(req.id, req);
         this.setRuntime();
       }

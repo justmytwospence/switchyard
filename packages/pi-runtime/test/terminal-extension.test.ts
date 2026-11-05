@@ -179,6 +179,33 @@ describe("switchyard terminal extension", () => {
     expect(holder.lines.some((l) => l.type === "extension_ui_closed")).toBe(false);
   });
 
+  it("announces itself again before re-sending pending dialogs when a control attaches", async () => {
+    const { ui } = fakeUi();
+    await load(ui);
+    void ui.input("Name?");
+    const requests = () => holder.lines.filter((l) => l.type === "extension_ui_request");
+    await until(() => requests().length === 1);
+    const mark = holder.lines.length;
+    holder.send({ type: "control_attached" });
+    await until(() => requests().length === 2);
+    const after = holder.lines.slice(mark);
+    const helloAt = after.findIndex((l) => l.type === "extension_hello");
+    const modelAt = after.findIndex((l) => l.type === "model_state");
+    const requestAt = after.findIndex((l) => l.type === "extension_ui_request");
+    expect(helloAt).toBeGreaterThanOrEqual(0);
+    expect(after[helloAt]).toMatchObject({ remoteDialogs: true, sessionId: expect.any(String) });
+    expect(helloAt).toBeLessThan(modelAt);
+    expect(modelAt).toBeLessThan(requestAt);
+  });
+
+  it("control_attached before session_start sends no hello", async () => {
+    switchyardTerminal(fakePi());
+    await until(() => holder.lines.some((l) => l.role === "extension"));
+    holder.send({ type: "control_attached" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(holder.lines.some((l) => l.type === "extension_hello")).toBe(false);
+  });
+
   it("answers argument completions from Pi's autocomplete provider", async () => {
     const { ui } = fakeUi();
     const provider = {

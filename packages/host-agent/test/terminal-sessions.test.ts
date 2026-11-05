@@ -91,6 +91,8 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions on the h
     expect(agent2.interruptedOnStart).toEqual([]);
     expect(agent2.supervisor.isLive(id)).toBe(true);
     expect(agent2.supervisor.record(id)?.runtime).toBe("idle");
+    // The reattached extension announced itself again: dialogs stay answerable remotely.
+    expect(agent2.supervisor.managedSession(id)?.remoteDialogs).toBe(true);
     await waitFor(() => h.coord.hellos.length > hellos, 10000, "second hello");
     const t0 = Date.now();
     await h.coord.ok({

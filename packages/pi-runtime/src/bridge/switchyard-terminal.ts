@@ -137,6 +137,22 @@ export default function switchyardTerminal(pi: any): void {
 
   const sendQueue = () => send({ type: "queue_update", ...queue });
 
+  /** Announce this session (and whether dialogs are remote-backed) to the host. */
+  const hello = (): void => {
+    if (!ctx) return;
+    try {
+      send({
+        type: "extension_hello",
+        pid: process.pid,
+        remoteDialogs,
+        sessionId: ctx.sessionManager.getSessionId(),
+        sessionFile: ctx.sessionManager.getSessionFile() ?? null,
+      });
+    } catch {
+      // never throw into Pi
+    }
+  };
+
   const flushEntries = () => {
     try {
       const entries = ctx?.sessionManager?.getEntries?.() ?? [];
@@ -645,6 +661,13 @@ export default function switchyardTerminal(pi: any): void {
       return;
     }
     if (msg.type === "control_attached") {
+      // A controller re-attached (host agent restart): it starts from scratch, so announce the
+      // session again before re-sending the dialogs it has not answered.
+      if (ctx) {
+        hello();
+        sendModelState();
+        sendQueue();
+      }
       for (const p of pending.values()) send(p.request);
       return;
     }
@@ -722,7 +745,7 @@ export default function switchyardTerminal(pi: any): void {
     entryCount = c.sessionManager.getEntries().length;
     const sessionId = c.sessionManager.getSessionId();
     const sessionFile = c.sessionManager.getSessionFile() ?? null;
-    send({ type: "extension_hello", pid: process.pid, remoteDialogs, sessionId, sessionFile });
+    hello();
     sendModelState();
     if (event?.reason && event.reason !== "startup") {
       send({ type: "switchyard_native", sessionId, sessionFile });
