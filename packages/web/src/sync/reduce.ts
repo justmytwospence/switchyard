@@ -148,13 +148,27 @@ function drop<T>(map: ById<T>, id: string): ById<T> {
   return next;
 }
 
+/** Drop transcript load errors so views retry after a resync. Keeps identity when none. */
+export function clearTranscriptErrors(
+  ts: Record<string, TranscriptState>,
+): Record<string, TranscriptState> {
+  let out = ts;
+  for (const [id, t] of Object.entries(ts)) {
+    if (t.error === null) continue;
+    if (out === ts) out = { ...ts };
+    out[id] = { ...t, error: null };
+  }
+  return out;
+}
+
 /** Replace every entity with a server snapshot. Loaded transcripts are kept but marked stale. */
 export function applySnapshot<S extends SyncData>(state: S, seq: number, snap: SyncState): S {
   const panels: ById<Panel> = {};
   for (const p of snap.panels)
     if (keepPanel(p)) panels[panelKey(p.sessionId, p.adapterId, p.slot)] = p;
   const transcripts: Record<string, TranscriptState> = {};
-  for (const [id, t] of Object.entries(state.transcripts)) transcripts[id] = { ...t, stale: true };
+  for (const [id, t] of Object.entries(state.transcripts))
+    transcripts[id] = { ...t, stale: true, error: null };
   return {
     ...state,
     seq,

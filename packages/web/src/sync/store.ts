@@ -20,6 +20,7 @@ import {
   applySnapshot,
   applyStream,
   applyTranscriptPage,
+  clearTranscriptErrors,
   emptySyncData,
   emptyTranscript,
   type StreamBuffer,
@@ -116,6 +117,7 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
       const next = applyEvents({ ...s, streaming: {} }, events);
       return {
         ...next,
+        transcripts: clearTranscriptErrors(next.transcripts),
         seq: Math.max(next.seq ?? 0, seq),
         hydrated: true,
         synced: true,

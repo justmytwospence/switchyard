@@ -5,6 +5,7 @@ import {
   applySnapshot,
   applyStream,
   applyTranscriptPage,
+  clearTranscriptErrors,
   emptySyncData,
   mergeTranscriptItems,
   toSyncState,
@@ -247,5 +248,42 @@ describe("applyReplay", () => {
     expect(store.getState().streaming.i9).toBeDefined();
     store.getState().applyReplay(2, []);
     expect(store.getState().streaming).toEqual({});
+  });
+});
+
+describe("transcript load errors", () => {
+  const failed = (id: string) => ({
+    ...applyTranscriptPage(emptySyncData(), id, [], { hasMore: false, older: false }).transcripts[
+      id
+    ]!,
+    error: "boom",
+  });
+
+  it("applySnapshot marks a failed transcript stale with no error", () => {
+    const base = { ...emptySyncData(), transcripts: { ses_1: failed("ses_1") } };
+    const s = applySnapshot(base, 5, snapshot());
+    expect(s.transcripts.ses_1).toMatchObject({ stale: true, error: null });
+  });
+
+  it("applyReplay clears transcript errors so views retry", () => {
+    const store = useSyncStore;
+    store.getState().reset();
+    store.getState().applySnapshot(1, snapshot());
+    useSyncStore.setState({ transcripts: { ses_1: failed("ses_1") } });
+    store.getState().applyReplay(2, []);
+    expect(store.getState().transcripts.ses_1!.error).toBeNull();
+  });
+
+  it("clearTranscriptErrors keeps identity when there are none", () => {
+    const clean = applyTranscriptPage(emptySyncData(), "ses_1", [], {
+      hasMore: false,
+      older: false,
+    }).transcripts;
+    expect(clearTranscriptErrors(clean)).toBe(clean);
+    const dirty = { ses_1: failed("ses_1") };
+    const out = clearTranscriptErrors(dirty);
+    expect(out).not.toBe(dirty);
+    expect(out.ses_1!.error).toBeNull();
+    expect(dirty.ses_1.error).toBe("boom");
   });
 });
