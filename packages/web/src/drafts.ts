@@ -67,10 +67,13 @@ export function clearDraft(sessionId: string): void {
   write(DRAFT_PREFIX + sessionId, null);
 }
 
+/** Write every debounced draft now (before a page reload or unload). */
+export function flushAllDrafts(): void {
+  for (const id of [...pending.keys()]) flushDraft(id);
+}
+
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", () => {
-    for (const id of [...pending.keys()]) flushDraft(id);
-  });
+  window.addEventListener("pagehide", flushAllDrafts);
 }
 
 /**

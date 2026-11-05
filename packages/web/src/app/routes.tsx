@@ -1,20 +1,21 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { ErrorBoundary } from "../components/ui/ErrorBoundary";
 import { EmptyState, LoadingState } from "../components/ui/states";
 import { AppShell } from "./AppShell";
 import { AuthGate } from "./AuthGate";
+import { lazyWithReload } from "./lazyWithReload";
 
-const CodeView = lazy(() => import("../features/code"));
-const BoardView = lazy(() => import("../features/board"));
-const AttentionView = lazy(() => import("../features/attention"));
-const NowView = lazy(() => import("../features/now"));
-const AutomationsView = lazy(() => import("../features/automations"));
-const AutomationView = lazy(() => import("../features/automations/AutomationView"));
-const SettingsView = lazy(() => import("../features/settings"));
-const MoreView = lazy(() => import("../features/more"));
-const EnrollView = lazy(() => import("../features/enroll"));
-const TerminalLoginView = lazy(() => import("../features/terminal-login"));
+const CodeView = lazyWithReload(() => import("../features/code"));
+const BoardView = lazyWithReload(() => import("../features/board"));
+const AttentionView = lazyWithReload(() => import("../features/attention"));
+const NowView = lazyWithReload(() => import("../features/now"));
+const AutomationsView = lazyWithReload(() => import("../features/automations"));
+const AutomationView = lazyWithReload(() => import("../features/automations/AutomationView"));
+const SettingsView = lazyWithReload(() => import("../features/settings"));
+const MoreView = lazyWithReload(() => import("../features/more"));
+const EnrollView = lazyWithReload(() => import("../features/enroll"));
+const TerminalLoginView = lazyWithReload(() => import("../features/terminal-login"));
 
 /** Route paths (spec 10 canonical routes plus /sign-in, /settings/*, /more). */
 export const ROUTES = {

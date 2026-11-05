@@ -89,6 +89,28 @@ test.describe("shared behavior", () => {
     await expect.poll(mainX).toBe(before);
   });
 
+  test("a failed route chunk reloads the page once", async ({ page, signIn }, info) => {
+    test.skip(info.project.name !== "desktop-1440x900", "desktop project only");
+    await signIn();
+    await page.goto("/code");
+    await settled(page);
+    await page.evaluate(() => {
+      (window as unknown as { __m: number }).__m = 1;
+    });
+    let aborted = false;
+    await page.route(/\/assets\/.*\.js$/, (route) => {
+      if (aborted) return route.continue();
+      aborted = true;
+      return route.abort();
+    });
+    await page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: "Now" })
+      .click();
+    await expect(page.getByRole("heading", { name: "Now" })).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { __m?: number }).__m)).toBeUndefined();
+  });
+
   test("drafts survive navigation and reload", async ({ page, signIn, state }, info) => {
     await signIn();
     await page.goto(`/code/${state.sessions.long}`);
