@@ -163,7 +163,8 @@ const ACTIVE_RUN_STATES = [
 
 /**
  * Repository layer over SQLite. All writes that should be observable go through `tx()` and
- * `appendEvent()`; events are published to the hub only after the outermost transaction commits.
+ * `appendEvent()`; events are published to the hub only after the outermost transaction commits,
+ * in global seq order, including writes made by listeners.
  */
 export class Store {
   readonly st: Statements;
@@ -184,6 +185,9 @@ export class Store {
   private depth = 0;
   private pending: EventEnvelope[] = [];
   private afterCommitFns: (() => void)[] = [];
+  /** Committed batches waiting to be published, in commit order. */
+  private outbox: { events: EventEnvelope[]; fns: (() => void)[] }[] = [];
+  private publishing = false;
 
   constructor(
     readonly db: Db,
@@ -337,7 +341,8 @@ export class Store {
 
   /**
    * Run `fn` in a `BEGIN IMMEDIATE` transaction (nested calls join the outer one). After the
-   * outermost commit, queued events are published in order and `afterCommit` callbacks run.
+   * outermost commit, queued events are published and `afterCommit` callbacks run, in global seq
+   * order, including writes made by listeners while a batch is being published.
    * `fn` must be synchronous.
    */
   tx<T>(fn: () => T): T {
@@ -370,19 +375,34 @@ export class Store {
       throw err;
     }
     this.depth = 0;
-    const events = this.pending;
-    const fns = this.afterCommitFns;
+    this.outbox.push({ events: this.pending, fns: this.afterCommitFns });
     this.pending = [];
     this.afterCommitFns = [];
-    for (const e of events) this.publish(e);
-    for (const f of fns) {
-      try {
-        f();
-      } catch (err) {
-        this.hub.onListenerError("afterCommit", err);
-      }
-    }
+    this.drain();
     return result;
+  }
+
+  /**
+   * Publish committed batches in FIFO order. Only the outermost caller drains; a listener that
+   * commits while we publish appends its batch, which goes out after the current one.
+   */
+  private drain(): void {
+    if (this.publishing) return;
+    this.publishing = true;
+    try {
+      for (let b = this.outbox.shift(); b; b = this.outbox.shift()) {
+        for (const e of b.events) this.publish(e);
+        for (const f of b.fns) {
+          try {
+            f();
+          } catch (err) {
+            this.hub.onListenerError("afterCommit", err);
+          }
+        }
+      }
+    } finally {
+      this.publishing = false;
+    }
   }
 
   /**
@@ -407,10 +427,14 @@ export class Store {
     }
   }
 
-  /** Run `fn` after the current transaction commits (immediately when not in one). */
+  /**
+   * Run `fn` after the current transaction commits (immediately when not in one). While batches
+   * are being published, it is queued behind them so it still runs in commit order.
+   */
   afterCommit(fn: () => void): void {
-    if (this.depth === 0) fn();
-    else this.afterCommitFns.push(fn);
+    if (this.depth > 0) this.afterCommitFns.push(fn);
+    else if (this.publishing) this.outbox.push({ events: [], fns: [fn] });
+    else fn();
   }
 
   private publish(e: EventEnvelope): void {
