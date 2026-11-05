@@ -271,10 +271,7 @@ export class Dispatcher {
     if (!opts.manual) {
       if (store.dispatchPaused) return wait("dispatch_paused", "Dispatch is paused");
       if (!project.automationEnabled) {
-        return wait(
-          "project_automation_disabled",
-          `Automation is disabled for project ${project.name}`,
-        );
+        return wait("project_automation_disabled", `Auto-start is off for project ${project.name}`);
       }
       if (task.notBefore && Date.parse(task.notBefore) > now) {
         return wait("scheduled_time", `Scheduled for ${task.notBefore}`);
