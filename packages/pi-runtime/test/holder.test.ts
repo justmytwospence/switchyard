@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { HOLDER_QUEUE_FULL } from "../src/terminal/holder.js";
 import { holderScriptPath, terminalSupport } from "../src/terminal-process.js";
 
 const dirs: string[] = [];
@@ -149,6 +150,37 @@ describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
       code: 3,
       screen: expect.arrayContaining(["boom"]),
     });
+    await h.done;
+  });
+
+  it("keeps Pi's exit on disk until a control collects it", async () => {
+    const h = startHolder("printf 'bye\\n'; exit 2");
+    const exitFile = `${h.socketPath}.exit.json`;
+    await until(() => existsSync(exitFile));
+    expect(JSON.parse(readFileSync(exitFile, "utf8"))).toMatchObject({
+      code: 2,
+      screen: expect.arrayContaining(["bye"]),
+    });
+    const c = await connect(h.socketPath, { role: "control" });
+    await until(() => c.lines.some((l) => l.type === "holder_exit"));
+    expect(c.lines.find((l) => l.type === "holder_exit")).toMatchObject({ code: 2 });
+    await h.done;
+    expect(existsSync(exitFile)).toBe(false);
+  });
+
+  it("fails commands beyond its queue", async () => {
+    const h = startHolder("exec cat");
+    const c = await connect(h.socketPath, { role: "control" });
+    for (let i = 1; i <= 1001; i++) c.send({ type: "get_state", id: `q${i}` });
+    await until(() => c.lines.some((l) => l.id === "q1001"));
+    expect(c.lines.find((l) => l.id === "q1001")).toMatchObject({
+      type: "response",
+      success: false,
+      error: HOLDER_QUEUE_FULL,
+    });
+    expect(c.lines.some((l) => l.id === "q1000")).toBe(false);
+    c.send({ type: "holder_kill", signal: "SIGKILL" });
+    await until(() => c.lines.some((l) => l.type === "holder_exit"));
     await h.done;
   });
 });

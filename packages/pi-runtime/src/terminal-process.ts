@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -77,6 +77,30 @@ function connectOnce(path: string, timeoutMs: number): Promise<Socket> {
       reject(err);
     });
   });
+}
+
+/** Where a holder leaves Pi's exit when no host agent was there to hear it. */
+export function holderExitPath(socketPath: string): string {
+  return `${socketPath}.exit.json`;
+}
+
+/** Pi's exit as a holder saved it, or null. Does not delete the file. */
+export function readHolderExit(
+  socketPath: string,
+): { code: number | null; signal: NodeJS.Signals | null; screen: string[] } | null {
+  try {
+    const rec = JSON.parse(readFileSync(holderExitPath(socketPath), "utf8"));
+    if (!rec || typeof rec !== "object") return null;
+    return {
+      code: typeof rec.code === "number" ? rec.code : null,
+      signal: typeof rec.signal === "string" ? (rec.signal as NodeJS.Signals) : null,
+      screen: Array.isArray(rec.screen)
+        ? rec.screen.filter((l: unknown) => typeof l === "string")
+        : [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 function logTail(path: string): string {
@@ -199,12 +223,18 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       socket = await connectOnce(socketPath, timeoutMs);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
-      throw new PiRpcError(
-        "attach",
-        code === "ENOENT" || code === "ECONNREFUSED"
-          ? "Terminal holder not running"
-          : `Cannot reach the terminal holder: ${(err as Error).message}`,
-      );
+      if (code === "ENOENT" || code === "ECONNREFUSED") {
+        const saved = readHolderExit(socketPath);
+        if (saved) {
+          rmSync(holderExitPath(socketPath), { force: true });
+          throw new PiRpcError(
+            "attach",
+            `Pi exited while the host agent was away (code ${saved.code}, signal ${saved.signal})${screenTail(saved.screen)}`,
+          );
+        }
+        throw new PiRpcError("attach", "Terminal holder not running");
+      }
+      throw new PiRpcError("attach", `Cannot reach the terminal holder: ${(err as Error).message}`);
     }
     return new PiTerminalProcess(socketPath, socket);
   }

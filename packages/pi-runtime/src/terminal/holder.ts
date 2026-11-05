@@ -12,7 +12,7 @@
  * Config comes from `SWITCHYARD_HOLDER_CONFIG` (JSON). Spawned detached by `PiTerminalProcess`,
  * so it outlives the host agent.
  */
-import { chmodSync, existsSync, realpathSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer, type Socket } from "node:net";
 import { constants } from "node:os";
@@ -60,6 +60,9 @@ interface PtyModule {
 const MAX_BUFFER = 20_000;
 const MAX_TO_EXTENSION = 1000;
 const EXIT_WAIT_MS = 5 * 60_000;
+
+export const HOLDER_QUEUE_FULL =
+  "Pi's Switchyard extension is not connected and too many commands are waiting";
 
 /** node-pty's prebuilt `spawn-helper` must be executable; some installs drop the mode bits. */
 export function ensureSpawnHelper(req: NodeJS.Require = require): void {
@@ -145,6 +148,9 @@ export function runHolder(cfg: HolderConfig): void {
   /** The `holder_exit` line, with Pi's last screen lines, once Pi has exited. */
   let exitRecord: string | null = null;
   let shuttingDown = false;
+  const exitPath = `${cfg.socketPath}.exit.json`;
+  /** True once a control has been sent the exit record; until then it stays on disk. */
+  let exitDelivered = false;
 
   const term = new Terminal({
     cols: cfg.cols,
@@ -181,13 +187,34 @@ export function runHolder(cfg: HolderConfig): void {
     }
   };
 
-  const sendExtension = (line: string) => {
+  const sendExtension = (line: string, rec: any) => {
     if (extension && !extension.destroyed) {
       write(extension, line);
       return;
     }
+    if (toExtension.length >= MAX_TO_EXTENSION) {
+      // Reject the newest; the commands already accepted keep their FIFO order.
+      if (
+        rec &&
+        typeof rec.id === "string" &&
+        typeof rec.type === "string" &&
+        rec.type !== "extension_ui_response"
+      ) {
+        write(
+          control,
+          JSON.stringify({
+            type: "response",
+            id: rec.id,
+            command: rec.type,
+            success: false,
+            error: HOLDER_QUEUE_FULL,
+            holder: true,
+          }),
+        );
+      }
+      return;
+    }
     toExtension.push(line);
-    if (toExtension.length > MAX_TO_EXTENSION) toExtension.shift();
   };
 
   const shutdown = () => {
@@ -200,6 +227,7 @@ export function runHolder(cfg: HolderConfig): void {
       // ignore
     }
     rmSync(cfg.socketPath, { force: true });
+    if (exitDelivered) rmSync(exitPath, { force: true });
     setTimeout(() => process.exit(0), 100).unref();
   };
 
@@ -212,6 +240,17 @@ export function runHolder(cfg: HolderConfig): void {
     term.write("", () => {
       const screen = extra ?? lastScreenLines(term);
       exitRecord = JSON.stringify({ type: "holder_exit", ...exitInfo, screen });
+      try {
+        writeFileSync(
+          exitPath,
+          JSON.stringify({ ...exitInfo, screen, at: new Date().toISOString() }),
+          {
+            mode: 0o600,
+          },
+        );
+      } catch {
+        // best effort
+      }
       const closed = JSON.stringify({ t: "closed", reason: "Pi exited" });
       for (const v of viewers) {
         write(v, closed);
@@ -220,6 +259,7 @@ export function runHolder(cfg: HolderConfig): void {
       viewers.clear();
       if (control && !control.destroyed) {
         write(control, exitRecord);
+        exitDelivered = true;
         setTimeout(shutdown, 1000).unref();
       } else {
         setTimeout(shutdown, killRequested ? 1000 : EXIT_WAIT_MS).unref();
@@ -288,6 +328,7 @@ export function runHolder(cfg: HolderConfig): void {
           for (const l of buffer.splice(0)) write(socket, l);
           if (exitRecord) {
             write(socket, exitRecord);
+            exitDelivered = true;
             setTimeout(shutdown, 1000).unref();
           }
           if (extension && !extension.destroyed) {
@@ -348,7 +389,7 @@ export function runHolder(cfg: HolderConfig): void {
           }
           return;
         }
-        sendExtension(line);
+        sendExtension(line, rec);
         return;
       }
       // viewer
