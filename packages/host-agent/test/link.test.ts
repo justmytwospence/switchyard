@@ -148,6 +148,27 @@ describe("command router", () => {
     ).toEqual(["ok", "duplicate"]);
   });
 
+  it("not-live errors name what a person can do about it", async () => {
+    seedSession(h, "ses_idle", { runtime: "stopped" });
+    await h.agent.stop();
+    const hellos = h.coord.hellos.length;
+    await h.restartAgent();
+    await waitFor(() => h.coord.hellos.length > hellos, 10000, "second hello");
+    const cases = [
+      [{ type: "session.models", sessionId: "ses_idle" }, "resume to list models"],
+      [{ type: "session.commands", sessionId: "ses_idle" }, "resume to list commands"],
+      [{ type: "session.compact", sessionId: "ses_idle", instructions: null }, "resume to compact"],
+      [{ type: "session.abort", sessionId: "ses_idle", clearQueue: false }, "nothing to abort"],
+    ] as const;
+    for (const [cmd, hint] of cases) {
+      const r = await h.coord.command(cmd as any);
+      expect(r).toMatchObject({
+        ok: false,
+        error: { code: "invalid_request", message: `Session stopped (stopped): ${hint}` },
+      });
+    }
+  });
+
   it("rejects malformed commands with invalid_request", async () => {
     const r = await h.coord.command({ type: "workspace.status" } as any);
     expect(r).toMatchObject({ ok: false, error: { code: "invalid_request" } });

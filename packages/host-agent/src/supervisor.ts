@@ -71,6 +71,19 @@ export const UNSUPPORTED_TEXT =
   "An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one.";
 export const PROMPT_NOT_SENT = "The launch prompt was not sent to Pi";
 export const PROMPT_NOT_SENT_LIVE = "Session was already live; the initial prompt was not sent";
+/** What a person can do about a command that needs a live session, by command. */
+const NOT_LIVE = {
+  prompt: "resume to send",
+  abort: "nothing to abort",
+  models: "resume to list models",
+  commands: "resume to list commands",
+  complete: "resume for completions",
+  reload: "resume to reload",
+  setModel: "resume to change the model",
+  setThinking: "resume to change the thinking level",
+  compact: "resume to compact",
+} as const;
+
 export const SESSION_LIVE_CONFLICT = "Session already live on this host";
 
 /** What a session the previous agent lost becomes: mid-turn work is interrupted, idle is stopped. */
@@ -915,7 +928,7 @@ export class SessionSupervisor {
     images: { mimeType: string; data: string }[],
     mode: "prompt" | "steer" | "followUp",
   ) {
-    const ms = this.requireLive(sessionId);
+    const ms = this.requireLive(sessionId, "prompt");
     const { disposition, view } = await ms.prompt(text, images, mode);
     if (mode === "prompt" && disposition === "started") await this.autoTitle(sessionId, text);
     return { disposition, view };
@@ -936,7 +949,7 @@ export class SessionSupervisor {
   }
 
   async abort(sessionId: string, clearQueue: boolean) {
-    const ms = this.requireLive(sessionId);
+    const ms = this.requireLive(sessionId, "abort");
     const { cleared } = await ms.abort(clearQueue);
     return { cleared };
   }
@@ -972,19 +985,19 @@ export class SessionSupervisor {
   }
 
   async models(sessionId: string) {
-    return { models: await this.requireLive(sessionId).models() };
+    return { models: await this.requireLive(sessionId, "models").models() };
   }
 
   async commands(sessionId: string) {
-    return { commands: await this.requireLive(sessionId).commands() };
+    return { commands: await this.requireLive(sessionId, "commands").commands() };
   }
 
   async complete(sessionId: string, text: string) {
-    return this.requireLive(sessionId).complete(text);
+    return this.requireLive(sessionId, "complete").complete(text);
   }
 
   async reload(sessionId: string) {
-    await this.requireLive(sessionId).reload();
+    await this.requireLive(sessionId, "reload").reload();
     return { ok: true };
   }
 
@@ -1026,15 +1039,15 @@ export class SessionSupervisor {
   }
 
   async setModel(sessionId: string, provider: string, modelId: string) {
-    return this.requireLive(sessionId).setModel(provider, modelId);
+    return this.requireLive(sessionId, "setModel").setModel(provider, modelId);
   }
 
   async setThinking(sessionId: string, level: ThinkingLevel) {
-    return this.requireLive(sessionId).setThinking(level);
+    return this.requireLive(sessionId, "setThinking").setThinking(level);
   }
 
   async compact(sessionId: string, instructions: string | null) {
-    const ms = this.requireLive(sessionId);
+    const ms = this.requireLive(sessionId, "compact");
     if (ms.compacting) throw new SwitchyardError("conflict", "Compaction is already running");
     if (ms.runtime !== "idle") {
       throw new SwitchyardError("conflict", "Wait for the run to finish before compacting");
@@ -1966,14 +1979,14 @@ export class SessionSupervisor {
     return rec;
   }
 
-  private requireLive(sessionId: string): ManagedSession {
+  private requireLive(sessionId: string, action: keyof typeof NOT_LIVE): ManagedSession {
     const ms = this.live.get(sessionId)?.ms;
     if (!ms?.isAlive) {
       const rec = this.records.get(sessionId);
       throw new SwitchyardError(
         rec ? "invalid_request" : "not_found",
         rec
-          ? `Session stopped (${rec.runtime}): resume to send`
+          ? `Session stopped (${rec.runtime}): ${NOT_LIVE[action]}`
           : `Session ${sessionId} is not known on this host`,
       );
     }
