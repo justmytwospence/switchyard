@@ -32,6 +32,7 @@ import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatRelative, formatTime } from "../../lib/time";
+import { useResource } from "../../lib/useResource";
 import { errorMessage, isApiError } from "../../sync/api";
 import { countPendingInteractions } from "../../sync/selectors";
 import { runsForTask, useSyncStore } from "../../sync/store";
@@ -46,7 +47,6 @@ import {
 import { eligibilityText, isRunActive, previewEligibility, STATE_LABELS } from "./logic";
 import { useTaskMover } from "./MoveProvider";
 import { executionLine, useTaskInfo } from "./taskInfo";
-import { useResource } from "./useResource";
 
 const ACCEPT_NOTE = "Accepting marks the task Done. It does not merge or push.";
 

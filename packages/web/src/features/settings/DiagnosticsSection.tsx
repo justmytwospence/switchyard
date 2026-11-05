@@ -6,6 +6,7 @@ import { copyText } from "../../components/ui/Copy";
 import { InlineStatus, StatusChip } from "../../components/ui/StatusChip";
 import { ErrorState, FatalError, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { formatRelative, formatTime } from "../../lib/time";
+import { useApiResource } from "../../lib/useResource";
 import { useSyncStore } from "../../sync/store";
 import { DiagnosticLevel, useAllDiagnostics } from "./AdaptersSection";
 import {
@@ -14,13 +15,12 @@ import {
   isDiagnosticsResponse,
 } from "./diagnosticsApi";
 import { KeyValues, PiCompat, SectionPage } from "./shared";
-import { useResource } from "./useResource";
 
 const show = (v: unknown) => (v === null || v === undefined || v === "" ? "Unknown" : String(v));
 
 /** Settings › Diagnostics: GET /api/diagnostics rendered readably. */
 export function DiagnosticsSection() {
-  const res = useResource<DiagnosticsResponse>(DIAGNOSTICS_PATH, isDiagnosticsResponse);
+  const res = useApiResource<DiagnosticsResponse>(DIAGNOSTICS_PATH, isDiagnosticsResponse);
   const d = res.data;
   const diagnostics = useAllDiagnostics(Array.isArray(d?.diagnostics) ? d.diagnostics : undefined);
   const hostsById = useSyncStore((s) => s.hosts);
@@ -46,7 +46,7 @@ export function DiagnosticsSection() {
 
   let body: React.ReactNode;
   if (res.fatal) body = <FatalError error={res.error} diagnosticsHref="/settings/diagnostics" />;
-  else if (res.error && !d)
+  else if (res.error && !res.loading && !d)
     body = <ErrorState title="Could not load diagnostics" error={res.error} onRetry={res.reload} />;
   else if (!d) body = <LoadingState label="Loading diagnostics…" />;
   else {
@@ -57,7 +57,7 @@ export function DiagnosticsSection() {
     const hosts = (d.hosts ?? []).filter((h) => !h.revokedAt);
     body = (
       <>
-        {res.error ? (
+        {res.error && !res.loading ? (
           <ErrorState compact title="Refresh failed" error={res.error} onRetry={res.reload} />
         ) : null}
         <Card title="Versions">

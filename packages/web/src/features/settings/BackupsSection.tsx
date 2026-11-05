@@ -2,13 +2,13 @@ import { Card } from "../../components/ui/Card";
 import { CopyBlock } from "../../components/ui/Copy";
 import { ErrorState, FatalError, LoadingState } from "../../components/ui/states";
 import { formatTime } from "../../lib/time";
+import { isObject, useApiResource } from "../../lib/useResource";
 import {
   DIAGNOSTICS_PATH,
   type DiagnosticsResponse,
   isDiagnosticsResponse,
 } from "./diagnosticsApi";
 import { KeyValues, SectionPage } from "./shared";
-import { isObject, useResource } from "./useResource";
 
 const BACKUP = "switchyard coordinator backup <file>";
 const RESTORE = "switchyard coordinator restore <file>";
@@ -27,7 +27,7 @@ function formatValue(k: string, v: unknown): string {
 
 /** Settings › Backups: CLI backup/restore plus any backup info the coordinator records. */
 export function BackupsSection() {
-  const res = useResource<DiagnosticsResponse>(DIAGNOSTICS_PATH, isDiagnosticsResponse);
+  const res = useApiResource<DiagnosticsResponse>(DIAGNOSTICS_PATH, isDiagnosticsResponse);
   const backup = res.data && isObject(res.data.backup) ? res.data.backup : null;
 
   return (
@@ -56,7 +56,7 @@ export function BackupsSection() {
       <Card title="Last backup">
         {res.fatal ? (
           <FatalError error={res.error} />
-        ) : res.error && !res.data ? (
+        ) : res.error && !res.loading && !res.data ? (
           <ErrorState
             compact
             title="Could not load backup info"

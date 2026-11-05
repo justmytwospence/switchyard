@@ -1,5 +1,5 @@
 import type { AdapterInfo, Connectivity, Diagnostic } from "@switchyard/protocol";
-import { isObject } from "./useResource";
+import { isObject } from "../../lib/useResource";
 
 /** Response of GET /api/diagnostics (coordinator routes/ops.ts). Fields are read defensively. */
 export interface DiagnosticsResponse {

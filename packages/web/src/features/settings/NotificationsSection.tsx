@@ -26,6 +26,7 @@ import {
 } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
+import { isObject, useApiResource } from "../../lib/useResource";
 import {
   currentSubscription,
   isIos,
@@ -39,7 +40,6 @@ import {
 import { ApiClientError, apiPatch, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 import { SectionPage } from "./shared";
-import { isObject, useResource } from "./useResource";
 
 const PERMISSION: Record<
   PushPermission,
@@ -260,7 +260,10 @@ export function NotificationsSection() {
 }
 
 function PreferencesCard() {
-  const res = useResource<unknown>("/api/me/notification-settings", (v) => !!normalizeSettings(v));
+  const res = useApiResource<unknown>(
+    "/api/me/notification-settings",
+    (v) => !!normalizeSettings(v),
+  );
   const settings = useMemo(() => (res.data ? normalizeSettings(res.data) : null), [res.data]);
   const notFound = res.error instanceof ApiClientError && res.error.status === 404;
 
@@ -276,7 +279,7 @@ function PreferencesCard() {
         />
       ) : res.fatal ? (
         <FatalError error={res.error} />
-      ) : res.error && !settings ? (
+      ) : res.error && !res.loading && !settings ? (
         <ErrorState
           compact
           title="Could not load notification settings"

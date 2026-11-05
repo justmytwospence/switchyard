@@ -6,9 +6,9 @@ import { Card } from "../../components/ui/Card";
 import { InlineStatus } from "../../components/ui/StatusChip";
 import { EmptyState, ErrorState, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { formatTime } from "../../lib/time";
+import { isObject, useApiResource } from "../../lib/useResource";
 import { useSyncStore } from "../../sync/store";
 import { KeyValues, SectionPage, settingsPath, useHydrated } from "./shared";
-import { isObject, useResource } from "./useResource";
 
 const ADAPTER_STATUS = {
   active: { icon: CircleCheck, label: "Active", tone: "success" },
@@ -64,7 +64,7 @@ export function AdaptersSection() {
   const hydrated = useHydrated();
   const adapters = useSyncStore((s) => s.adapters);
   const hosts = useSyncStore((s) => s.hosts);
-  const diag = useResource<DiagnosticsLike>("/api/diagnostics", isObject);
+  const diag = useApiResource<DiagnosticsLike>("/api/diagnostics", isObject);
   const diagnostics = useAllDiagnostics(
     Array.isArray(diag.data?.diagnostics) ? diag.data.diagnostics : undefined,
   );
@@ -88,7 +88,7 @@ export function AdaptersSection() {
       description="Adapters translate Pi extensions into Switchyard cards, panels and interactions. Each host reports its own."
     >
       <LastKnownNote />
-      {diag.error !== null && !diag.fatal && (
+      {diag.error !== null && !diag.loading && !diag.fatal && (
         <ErrorState
           compact
           title="Could not load adapter diagnostics history"

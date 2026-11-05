@@ -14,14 +14,14 @@ import { ErrorState, InlineError, LastKnownNote, LoadingState } from "../../comp
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
+import { useApiResource } from "../../lib/useResource";
 import { apiDelete, apiPost, errorMessage } from "../../sync/api";
 import { defaultDeviceName } from "../enroll/logic";
 import { isAuthMethods, KeyValues, SectionPage } from "./shared";
-import { useResource } from "./useResource";
 
 /** Settings › Sign-in: passkeys, single sign-on status and signing out of this device. */
 export function SignInSection() {
-  const methods = useResource<AuthMethods>("/api/auth/methods", isAuthMethods);
+  const methods = useApiResource<AuthMethods>("/api/auth/methods", isAuthMethods);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<Passkey | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);

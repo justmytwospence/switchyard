@@ -1,8 +1,8 @@
 import type { NowResponse } from "@switchyard/protocol";
 import { useEffect, useRef } from "react";
+import { type Resource, useResource } from "../../lib/useResource";
 import { apiGet } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { type Resource, useResource } from "../board/useResource";
 
 /**
  * GET /api/now: running runs, queued Ready tasks with their wait reason and
