@@ -1,12 +1,22 @@
 import { basename } from "node:path";
-import type { Checkout, Host, Project, Session, Workspace } from "@switchyard/protocol";
+import type { Session, View } from "@switchyard/protocol";
+
+import {
+  type AgentState,
+  agentState,
+  LIVE_RUNTIMES,
+  type MirrorState,
+  mirroredSessions,
+  NEW_SESSION_GRACE_MS,
+  PENDING_MS,
+  viewedSessions,
+} from "../mirror/state.js";
+
+export type { AgentState, MirrorState };
+export { agentState, LIVE_RUNTIMES, mirroredSessions, NEW_SESSION_GRACE_MS, PENDING_MS };
 
 /** The herdr source (and agent name) this integration reports as. */
 export const SOURCE = "switchyard";
-/** How long a typed pane command may take to claim its pane before we try again. */
-export const PENDING_MS = 15_000;
-/** A new session gets this long to be claimed by the tab that created it (the picker). */
-export const NEW_SESSION_GRACE_MS = 5_000;
 /** The pane token naming the session a pane shows (herdr keeps session refs only for its own integrations). */
 export const SESSION_TOKEN = "switchyard_session";
 const LABEL_MAX = 40;
@@ -40,14 +50,6 @@ export interface HerdrSnapshot {
   panes: HerdrPane[];
 }
 
-export interface MirrorState {
-  sessions: Session[];
-  workspaces: Workspace[];
-  projects: Project[];
-  hosts: Host[];
-  checkouts: Checkout[];
-}
-
 export interface SpaceRecord {
   key: string;
   label: string;
@@ -65,8 +67,6 @@ export interface MirrorMemory {
   /** session id -> title just requested from a tab rename. */
   titleOverrides: Record<string, string>;
 }
-
-export type AgentState = "idle" | "working" | "blocked";
 
 export interface MirrorPlan {
   closeTabs: { tabId: string; sessionId: string }[];
@@ -108,25 +108,6 @@ export function spaceKey(s: Session): string {
   return s.workspaceId ?? `cwd:${s.hostId}:${s.cwd}`;
 }
 
-export const LIVE_RUNTIMES: Session["runtime"][] = ["starting", "idle", "running", "waiting_input"];
-
-/**
- * Sessions with a tab: not archived, not read-only subagent views, and with a Pi terminal now or
- * when resumed (their host runs terminal sessions, and they are not running headless); oldest
- * first. A starting session counts: its terminal flag is set once it has started.
- */
-export function mirroredSessions(st: MirrorState): Session[] {
-  const terminalHosts = new Set(
-    st.hosts.filter((h) => h.capabilities?.terminal === true).map((h) => h.id),
-  );
-  return st.sessions
-    .filter((s) => s.archivedAt === null && !s.readOnly && terminalHosts.has(s.hostId))
-    .filter(
-      (s) => s.runtime === "starting" || !LIVE_RUNTIMES.includes(s.runtime) || s.terminal === true,
-    )
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-}
-
 function hostName(st: MirrorState, hostId: string): string {
   return st.hosts.find((h) => h.id === hostId)?.name ?? hostId;
 }
@@ -161,12 +142,6 @@ export function tabLabel(s: Session, overrides: Record<string, string> = {}): st
   return cap(overrides[s.id] ?? s.title);
 }
 
-export function agentState(runtime: Session["runtime"]): AgentState {
-  if (runtime === "running" || runtime === "starting") return "working";
-  if (runtime === "waiting_input") return "blocked";
-  return "idle";
-}
-
 export function claimedSession(p: HerdrPane): string | null {
   const token = p.tokens?.[SESSION_TOKEN];
   if (token) return token;
@@ -179,6 +154,7 @@ export function planMirror(
   h: HerdrSnapshot,
   mem: MirrorMemory,
   now: number,
+  view: View | null = null,
 ): MirrorPlan {
   const plan: MirrorPlan = {
     closeTabs: [],
@@ -193,7 +169,7 @@ export function planMirror(
     offers: [],
     spaces: {},
   };
-  const M = new Map(mirroredSessions(st).map((s) => [s.id, s]));
+  const M = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
   const workspaces = [...h.workspaces].sort((a, b) => a.number - b.number);
   const present = new Set(workspaces.map((w) => w.workspace_id));
   const tabsPresent = new Set(h.tabs.map((t) => t.tab_id));
@@ -389,7 +365,9 @@ export function planMirror(
     if (panes.length !== 1) continue;
     if (claimedSession(panes[0]!) !== null) continue;
     if (mem.ownTabs[t.tab_id] !== undefined || mem.offered.has(t.tab_id)) continue;
-    const key = keyOfSpace.get(t.workspace_id) ?? null;
+    const key = keyOfSpace.get(t.workspace_id);
+    // Only spaces the mirror owns: in a mixed session, your own spaces stay plain shells.
+    if (key === undefined) continue;
     plan.offers.push({
       tabId: t.tab_id,
       paneId: panes[0]!.pane_id,

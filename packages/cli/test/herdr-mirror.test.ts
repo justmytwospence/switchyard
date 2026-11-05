@@ -57,6 +57,7 @@ function state(over: Partial<MirrorState> = {}): MirrorState {
       { id: "chk_mac", projectId: "prj_sy", hostId: "hst_mac" },
       { id: "chk_29", projectId: "prj_29", hostId: "hst_mac" },
     ] as Checkout[],
+    views: [],
     ...over,
   };
 }
@@ -279,6 +280,47 @@ describe("planMirror", () => {
         displayAgent: "pi · mac",
       },
     ]);
+  });
+});
+
+describe("views and ownership", () => {
+  it("does not offer the picker in a space the mirror does not own", () => {
+    const h = herdr({
+      workspaces: [{ workspace_id: "mine", label: "my stuff", number: 1 }],
+      tabs: [{ tab_id: "mine:t1", workspace_id: "mine", label: "1" }],
+      panes: [{ pane_id: "mine:p1", tab_id: "mine:t1", workspace_id: "mine" }],
+    });
+    expect(planMirror(state(), h, emptyMemory(), NOW).offers).toEqual([]);
+  });
+
+  it("only mirrors sessions in the bound view and closes tabs of the rest", () => {
+    const st = state({ sessions: [session("ses_1"), session("ses_2")] });
+    const view = {
+      id: "viw_1",
+      name: "v",
+      mode: "pinned",
+      projectIds: null,
+      hostIds: null,
+      sessionIds: ["ses_1"],
+      clients: [],
+      createdAt: "",
+      updatedAt: "",
+    } as const;
+    const mem = emptyMemory();
+    mem.spaces.w1 = { key: "wsp_main", label: "switchyard" };
+    const h = herdr({
+      workspaces: [{ workspace_id: "w1", label: "switchyard", number: 1 }],
+      tabs: [
+        { tab_id: "w1:t1", workspace_id: "w1", label: "a" },
+        { tab_id: "w1:t2", workspace_id: "w1", label: "b" },
+      ],
+      panes: [
+        { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", agent_session: claim("ses_1") },
+        { pane_id: "w1:p2", tab_id: "w1:t2", workspace_id: "w1", agent_session: claim("ses_2") },
+      ],
+    });
+    const plan = planMirror(st, h, mem, NOW, view as any);
+    expect(plan.closeTabs).toEqual([{ tabId: "w1:t2", sessionId: "ses_2" }]);
   });
 });
 

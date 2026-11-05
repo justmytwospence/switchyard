@@ -150,6 +150,7 @@ function setup(sessions: Session[]) {
     projects: [{ id: "prj_sy", name: "switchyard" }] as any,
     hosts: [{ id: "hst_mac", name: "mac", capabilities: { terminal: true } }] as any,
     checkouts: [],
+    views: [],
   };
   const api: { path: string; body: unknown }[] = [];
   const responses = new Map<string, { status: number; body: unknown }>();
@@ -163,6 +164,8 @@ function setup(sessions: Session[]) {
       return new Response(JSON.stringify(r.body), { status: r.status });
     },
   });
+  const logs: string[] = [];
+  const bound: { value: any } = { value: null };
   const daemon = new MirrorDaemon({
     call: herdr.call,
     subscribe: (_types, onEvent) => {
@@ -174,15 +177,25 @@ function setup(sessions: Session[]) {
     onStateChange: () => () => {},
     stateDir: dir,
     launcherPath: "/state/switchyard-herdr",
-    log: () => {},
+    log: (l) => logs.push(l),
+    view: () => bound.value,
     exists: () => true,
     debounceMs: 0,
     intervalMs: 0,
   });
-  return { herdr, st, api, responses, daemon };
+  return { herdr, st, api, responses, daemon, logs, bound };
 }
 
 describe("MirrorDaemon", () => {
+  it("skips reconciles while the bound view is missing", async () => {
+    const { herdr, daemon, logs, bound } = setup([session("ses_1")]);
+    bound.value = "missing";
+    await daemon.reconcile();
+    await daemon.reconcile();
+    expect(herdr.requests).toEqual([]);
+    expect(logs.filter((l) => l.includes("bound view not found"))).toHaveLength(1);
+  });
+
   it("opens a space and tabs, types pane commands, and reports claimed panes", async () => {
     const { herdr, daemon } = setup([session("ses_1"), session("ses_2")]);
     await daemon.reconcile();

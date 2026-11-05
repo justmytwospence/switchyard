@@ -1,6 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ApiClient, ApiRequestError } from "@switchyard/terminal";
+import type { View } from "@switchyard/protocol";
+import type { ApiClient } from "@switchyard/terminal";
+import { archiveSession, renameSession } from "../mirror/actions.js";
+import { viewedSessions } from "../mirror/state.js";
 import { type HerdrCall, type HerdrSubscription, type herdrSubscribe, nextSeq } from "./client.js";
 import {
   claimedSession,
@@ -8,7 +11,6 @@ import {
   type HerdrSnapshot,
   type MirrorMemory,
   type MirrorState,
-  mirroredSessions,
   PENDING_MS,
   planMirror,
   SOURCE,
@@ -32,6 +34,8 @@ export interface DaemonDeps {
   /** Switchyard's state, null until the first sync. */
   state: () => MirrorState | null;
   onStateChange: (fn: () => void) => () => void;
+  /** The bound view: null when unbound, "missing" when it names a view that does not exist. */
+  view?: () => View | null | "missing";
   /** `<state>/<herdr session>`: spaces.json and the fallback space directory. */
   stateDir: string;
   /** Stable launcher for typed commands and resume commands. */
@@ -69,6 +73,7 @@ export class MirrorDaemon {
   private readonly overrideAt = new Map<string, number>();
   private readonly lastReport = new Map<string, string>();
   private readonly metadataSent = new Set<string>();
+  private viewMissingLogged = false;
 
   constructor(private readonly deps: DaemonDeps) {}
 
@@ -188,6 +193,13 @@ export class MirrorDaemon {
     const st = this.deps.state();
     if (!st) return [];
     const { call, log } = this.deps;
+    const bound = this.deps.view?.() ?? null;
+    if (bound === "missing") {
+      if (!this.viewMissingLogged) log("bound view not found; not mirroring");
+      this.viewMissingLogged = true;
+      return [];
+    }
+    this.viewMissingLogged = false;
     const done: string[] = [];
     const note = (line: string) => {
       done.push(line);
@@ -205,7 +217,7 @@ export class MirrorDaemon {
     }
     const h = await this.snapshot();
     this.remember(h);
-    const plan = planMirror(st, h, this.mem, this.now());
+    const plan = planMirror(st, h, this.mem, this.now(), bound);
     const titleOf = (sid: string) => st.sessions.find((s) => s.id === sid)?.title ?? sid;
     const launcher = this.deps.launcherPath;
     const paneCmd = (sid: string) => launcherCommand(launcher, ["pane", sid]);
@@ -376,7 +388,9 @@ export class MirrorDaemon {
   private async onEvent(data: { type: string; [k: string]: unknown }): Promise<void> {
     const st = this.deps.state();
     if (!st) return;
-    const mirrored = new Map(mirroredSessions(st).map((s) => [s.id, s]));
+    const bound = this.deps.view?.() ?? null;
+    if (bound === "missing") return;
+    const mirrored = new Map(viewedSessions(st, bound).map((s) => [s.id, s]));
     switch (data.type) {
       case "tab_closed": {
         const tabId = String(data.tab_id);
@@ -411,9 +425,7 @@ export class MirrorDaemon {
         this.mem.titleOverrides[s.id] = label;
         this.overrideAt.set(s.id, this.now());
         try {
-          await this.deps.api.post(`/api/sessions/${encodeURIComponent(s.id)}/rename`, {
-            title: label,
-          });
+          await renameSession(this.deps.api, s.id, label);
           this.deps.log(`renamed ${s.id} to ${label}`);
         } catch (err) {
           delete this.mem.titleOverrides[s.id];
@@ -429,21 +441,18 @@ export class MirrorDaemon {
 
   private async archive(sessionId: string, title: string): Promise<void> {
     try {
-      await this.deps.api.post(`/api/sessions/${encodeURIComponent(sessionId)}/archive`);
-      this.deps.log(`archived ${sessionId} (its tab was closed)`);
-    } catch (err) {
-      const code = err instanceof ApiRequestError ? err.code : null;
-      if (code === "conflict" || code === "host_unreachable") {
-        const body =
-          code === "conflict"
-            ? `${title} is still running: stop it before closing its tab`
-            : `${title}'s host is offline: it was not archived`;
-        await this.deps
-          .call("notification.show", { title: "Switchyard", body, sound: "none" })
-          .catch(() => {});
-        this.deps.log(`kept ${sessionId}: ${body}`);
+      const r = await archiveSession(this.deps.api, sessionId, title);
+      if (r.ok) {
+        this.deps.log(`archived ${sessionId} (its tab was closed)`);
         return;
       }
+      if (r.notice) {
+        await this.deps
+          .call("notification.show", { title: "Switchyard", body: r.notice, sound: "none" })
+          .catch(() => {});
+        this.deps.log(`kept ${sessionId}: ${r.notice}`);
+      }
+    } catch (err) {
       this.deps.log(`archive of ${sessionId} failed: ${(err as Error).message}`);
     }
   }

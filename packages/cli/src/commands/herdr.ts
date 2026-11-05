@@ -13,7 +13,6 @@ import {
 } from "../herdr/client.js";
 import { MirrorDaemon } from "../herdr/daemon.js";
 import { claimedSession } from "../herdr/mirror.js";
-import { loadMirrorState, mirrorStateOf } from "../herdr/new-session.js";
 import {
   herdrStateDir,
   launcherExists,
@@ -21,6 +20,7 @@ import {
   stableLauncherPath,
   writeStableLauncher,
 } from "../herdr/util.js";
+import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
 import type { Env } from "../paths.js";
 
 export { herdrNew } from "../herdr/new-session.js";

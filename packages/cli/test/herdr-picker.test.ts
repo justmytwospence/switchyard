@@ -1,7 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { Checkout, Host, Project, Workspace } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
-import type { MirrorState } from "../src/herdr/mirror.js";
 import {
   branchSlug,
   chooseSession,
@@ -9,7 +8,7 @@ import {
   projectItems,
   tildePath,
   workspaceItems,
-} from "../src/herdr/new-session.js";
+} from "../src/mirror/choose.js";
 import {
   filterItems,
   fuzzyMatch,
@@ -17,7 +16,8 @@ import {
   renderPicker,
   Screen,
   type TerminalIO,
-} from "../src/herdr/picker.js";
+} from "../src/mirror/picker.js";
+import type { MirrorState } from "../src/mirror/state.js";
 import { session } from "./herdr-fixtures.js";
 
 const ESC_CHAR = String.fromCharCode(27);
