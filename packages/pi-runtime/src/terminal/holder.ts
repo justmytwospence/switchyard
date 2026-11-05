@@ -30,6 +30,8 @@ export interface HolderConfig {
   env: Record<string, string>;
   cols: number;
   rows: number;
+  /** Several viewers: the smallest one sizes the pty (default), or the latest to report. */
+  sizing?: "smallest" | "latest";
 }
 
 /**
@@ -165,6 +167,29 @@ export function runHolder(cfg: HolderConfig): void {
     } catch {
       // the pty may be closing
     }
+  };
+
+  const sizes = new Map<Socket, { cols: number; rows: number }>();
+  /** Size the pty for the attached viewers; `from` is the viewer that just reported. */
+  const apply = (from?: Socket) => {
+    if (cfg.sizing === "latest") {
+      const z = from ? sizes.get(from) : undefined;
+      if (z) resize(z.cols, z.rows);
+      return;
+    }
+    if (sizes.size === 0) return;
+    let cols = Number.POSITIVE_INFINITY;
+    let rows = Number.POSITIVE_INFINITY;
+    for (const z of sizes.values()) {
+      cols = Math.min(cols, z.cols);
+      rows = Math.min(rows, z.rows);
+    }
+    resize(cols, rows);
+  };
+  const report = (socket: Socket, cols: number, rows: number) => {
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 2) return;
+    sizes.set(socket, { cols, rows });
+    apply(socket);
   };
 
   const toControl = (line: string) => {
@@ -334,7 +359,7 @@ export function runHolder(cfg: HolderConfig): void {
             return;
           }
           viewers.add(socket);
-          resize(Number(hello.cols), Number(hello.rows));
+          report(socket, Number(hello.cols), Number(hello.rows));
           // Paint the current screen once the resize has been applied.
           setImmediate(() => {
             try {
@@ -394,12 +419,14 @@ export function runHolder(cfg: HolderConfig): void {
       if (msg?.t === "in" && typeof msg.d === "string") {
         if (!exitInfo && proc) proc.write(Buffer.from(msg.d, "base64").toString("utf8"));
       } else if (msg?.t === "resize") {
-        resize(Number(msg.cols), Number(msg.rows));
+        report(socket, Number(msg.cols), Number(msg.rows));
       }
     });
     socket.on("close", () => {
-      if (role === "viewer") viewers.delete(socket);
-      else if (role === "control" && control === socket) control = null;
+      if (role === "viewer") {
+        viewers.delete(socket);
+        if (sizes.delete(socket)) apply();
+      } else if (role === "control" && control === socket) control = null;
       else if (role === "extension" && extension === socket) extension = null;
     });
   });

@@ -22,6 +22,7 @@ function startHolder(
   script: string,
   extraEnv: Record<string, string> = {},
   socketFile?: string,
+  sizing?: "smallest" | "latest",
 ): { socketPath: string; pid: number; done: Promise<number | null> } {
   const dir = mkdtempSync(join(tmpdir(), "sy-holder-"));
   dirs.push(dir);
@@ -39,6 +40,7 @@ function startHolder(
     },
     cols: 80,
     rows: 24,
+    ...(sizing ? { sizing } : {}),
   };
   const child = spawn(process.execPath, [holderScriptPath()], {
     stdio: ["ignore", "ignore", "inherit"],
@@ -114,6 +116,36 @@ describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
     expect(c.lines.find((l) => l.type === "holder_exit")).toMatchObject({ signal: "SIGTERM" });
     await h.done;
     expect(existsSync(h.socketPath)).toBe(false);
+  });
+
+  const SIZE_SCRIPT = `trap 'echo SIZE:$(stty size)' WINCH; echo ready; while :; do sleep 0.05; done`;
+  const sizes = (lines: any[]) =>
+    [...decoded(lines).matchAll(/SIZE:(\d+) (\d+)/g)].map((m) => `${m[2]}x${m[1]}`);
+
+  it("smallest sizing uses the minimum over viewers", async () => {
+    const h = startHolder(SIZE_SCRIPT);
+    await new Promise((r) => setTimeout(r, 300));
+    const a = await connect(h.socketPath, { role: "viewer", cols: 120, rows: 40 });
+    await until(() => decoded(a.lines).includes("ready"));
+    const b = await connect(h.socketPath, { role: "viewer", cols: 80, rows: 50 });
+    await until(() => sizes(a.lines).at(-1) === "80x40");
+    b.s.destroy();
+    await until(() => sizes(a.lines).at(-1) === "120x40");
+    const c = await connect(h.socketPath, { role: "control" });
+    c.send({ type: "holder_kill", signal: "SIGKILL" });
+    await h.done;
+  });
+
+  it("latest sizing follows the last resize", async () => {
+    const h = startHolder(SIZE_SCRIPT, {}, undefined, "latest");
+    await new Promise((r) => setTimeout(r, 300));
+    const a = await connect(h.socketPath, { role: "viewer", cols: 120, rows: 40 });
+    await until(() => decoded(a.lines).includes("ready"));
+    await connect(h.socketPath, { role: "viewer", cols: 80, rows: 50 });
+    await until(() => sizes(a.lines).at(-1) === "80x50");
+    const c = await connect(h.socketPath, { role: "control" });
+    c.send({ type: "holder_kill", signal: "SIGKILL" });
+    await h.done;
   });
 
   it("buffers extension records until a control attaches, reporting a gap on overflow", async () => {
