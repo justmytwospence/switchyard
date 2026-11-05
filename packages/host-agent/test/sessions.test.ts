@@ -56,6 +56,7 @@ const script: MockScript = [
   { when: when.userSays("pick"), reply: callTool("fixture_select") },
   { when: when.userSays("custom"), reply: callTool("fixture_custom") },
   { when: when.userSays("status"), reply: callTool("fixture_status") },
+  { when: when.userSays("work slowly"), reply: callTool("fixture_slow") },
   { when: when.toolResult(), reply: (r) => ({ text: `tool said: ${r.lastText}` }) },
 ];
 
@@ -699,7 +700,7 @@ describe("host agent restart", () => {
     await h?.dispose();
   });
 
-  it("marks sessions that were live as interrupted, never resumes them, and resume keeps identity", async () => {
+  it("an idle session the agent lost becomes stopped without a notice; resume keeps identity", async () => {
     const id = sid();
     const started = await startSession(h, id, h.pi!.cwd, { initialPrompt: "hello" });
     await h.coord.waitEvent(isSettled(id), 30000, "settled");
@@ -715,7 +716,8 @@ describe("host agent restart", () => {
     const hellos = h.coord.hellos.length;
     const mark = h.coord.events.length;
     const agent2 = await h.restartAgent();
-    expect(agent2.interruptedOnStart).toEqual([id]);
+    expect(agent2.interruptedOnStart).toEqual([]);
+    expect(agent2.stoppedOnStart).toEqual([id]);
     await waitFor(() => h.coord.hellos.length > hellos, 10000, "second hello");
     await h.coord.waitUntil(
       () =>
@@ -723,31 +725,24 @@ describe("host agent restart", () => {
           .slice(mark)
           .some(
             (e) =>
-              e.event.type === "session.updated" && (e.event.data as any).runtime === "interrupted",
+              e.event.type === "session.updated" && (e.event.data as any).runtime === "stopped",
           ),
       10000,
-      "interrupted",
+      "stopped",
     );
     const after = h.coord.events.slice(mark).map((e) => e.event);
     const updated = after.find(
-      (e) => e.type === "session.updated" && (e.data as any).runtime === "interrupted",
+      (e) => e.type === "session.updated" && (e.data as any).runtime === "stopped",
     )!.data as any;
     expect(updated).toMatchObject({
       id,
-      runtime: "interrupted",
+      runtime: "stopped",
+      runtimeDetail: null,
       nativeHandle: started.nativeHandle,
     });
-    const notice = after.find(
-      (e) => e.type === "transcript.item" && (e.data as any).kind === "notice",
-    )!.data as TranscriptItem;
-    expect(notice).toMatchObject({
-      kind: "notice",
-      data: { level: "warning", text: RESTART_NOTICE },
-    });
-    const prevOrders = items(h, id)
-      .filter((i) => i.id !== notice.id)
-      .map((i) => i.order);
-    expect(notice.order).toBeGreaterThan(Math.max(...prevOrders));
+    expect(
+      after.some((e) => e.type === "transcript.item" && (e.data as any).kind === "notice"),
+    ).toBe(false);
     expect(agent2.spawnedPiProcesses).toBe(0);
 
     // Resume with the same native session.
@@ -764,5 +759,62 @@ describe("host agent restart", () => {
     );
     await agent2.stop();
     expect(agent2.supervisor.record(id)?.runtime).toBe("stopped");
+  });
+
+  describe("while Pi was working", () => {
+    let w: HostHarness;
+    beforeAll(async () => {
+      w = await startHarness({ script });
+    });
+    afterAll(async () => {
+      await w?.dispose();
+    });
+
+    it("a session working when the agent died becomes interrupted with the working notice", async () => {
+      const id = sid();
+      await startSession(w, id, w.pi!.cwd);
+      await w.coord.ok({
+        type: "session.prompt",
+        sessionId: id,
+        text: "work slowly",
+        images: [],
+        mode: "prompt",
+        origin: "human",
+        controlRevision: 1,
+      });
+      await waitFor(() => w.agent.supervisor.record(id)?.runtime === "running", 30000, "running");
+
+      const ms = w.agent.supervisor.managedSession(id)!;
+      ms.removeAllListeners();
+      await w.agent.link.stop();
+      await ms.stop({ graceMs: 500, termMs: 500 });
+      w.agent.db.close();
+
+      const mark = w.coord.events.length;
+      const agent2 = await w.restartAgent();
+      expect(agent2.interruptedOnStart).toEqual([id]);
+      expect(agent2.stoppedOnStart).toEqual([]);
+      expect(agent2.supervisor.record(id)).toMatchObject({
+        runtime: "interrupted",
+        runtimeDetail: "Host agent restarted",
+      });
+      await w.coord.waitUntil(
+        () =>
+          w.coord.events
+            .slice(mark)
+            .some(
+              (e) => e.event.type === "transcript.item" && (e.event.data as any).kind === "notice",
+            ),
+        10000,
+        "notice",
+      );
+      const notice = w.coord.events
+        .slice(mark)
+        .map((e) => e.event)
+        .find((e) => e.type === "transcript.item" && (e.data as any).kind === "notice")!
+        .data as TranscriptItem;
+      expect(notice).toMatchObject({ data: { level: "warning", text: RESTART_NOTICE } });
+      await agent2.stop();
+    });
   });
 });

@@ -71,8 +71,10 @@ export interface HostAgentHandle {
   router: CommandRouter;
   dispatcher: Dispatcher;
   pi: PiDetection;
-  /** Sessions marked interrupted because the previous agent died. */
+  /** Sessions marked interrupted because the previous agent died while they were working. */
   interruptedOnStart: string[];
+  /** Idle sessions the previous agent left behind, quietly marked stopped (resumable). */
+  stoppedOnStart: string[];
   /** Number of Pi processes spawned by this agent. */
   readonly spawnedPiProcesses: number;
   /** Whether sessions run in terminal holders. */
@@ -221,11 +223,17 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   });
 
   // Previous agent died with its children: never resume or replay, just record it.
-  const interruptedOnStart = supervisor.recoverAfterRestart();
+  const recovered = supervisor.recoverAfterRestart();
+  const interruptedOnStart = recovered.interrupted;
+  const stoppedOnStart = recovered.stopped;
   const failedDispatches = dispatcher.recoverAfterRestart();
-  if (interruptedOnStart.length > 0 || failedDispatches > 0) {
+  if (interruptedOnStart.length > 0 || stoppedOnStart.length > 0 || failedDispatches > 0) {
     log.warn(
-      { sessions: interruptedOnStart.length, dispatches: failedDispatches },
+      {
+        sessions: interruptedOnStart.length,
+        stopped: stoppedOnStart.length,
+        dispatches: failedDispatches,
+      },
       "recovered after restart",
     );
   }
@@ -242,9 +250,14 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   // claimed by them (a plan, a question form), not shown as the generic fallback.
   const reattach = await supervisor.reattachTerminals();
   interruptedOnStart.push(...reattach.lost);
-  if (reattach.reattached.length > 0 || reattach.lost.length > 0) {
+  stoppedOnStart.push(...reattach.stopped);
+  if (reattach.reattached.length > 0 || reattach.lost.length > 0 || reattach.stopped.length > 0) {
     log.info(
-      { reattached: reattach.reattached.length, lost: reattach.lost.length },
+      {
+        reattached: reattach.reattached.length,
+        lost: reattach.lost.length,
+        stopped: reattach.stopped.length,
+      },
       "terminal sessions after restart",
     );
   }
@@ -272,6 +285,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     dispatcher,
     pi,
     interruptedOnStart,
+    stoppedOnStart,
     terminalSessions: terminalEnabled,
     get spawnedPiProcesses() {
       return supervisor.spawnedProcesses;

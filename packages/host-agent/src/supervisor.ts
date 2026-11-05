@@ -51,13 +51,23 @@ import type { HostDb } from "./db/index.js";
 import type { CoordinatorLink } from "./link.js";
 import type { Logger } from "./logger.js";
 
-export const RESTART_NOTICE = "Host agent restarted; resume to continue";
+export const RESTART_NOTICE = "Host agent restarted while Pi was working; resume to continue";
+export const RESTART_DETAIL = "Host agent restarted";
+export const RESTART_TERMINAL_LOST_DETAIL =
+  "Host agent restarted and the terminal session had ended";
 export const QUEUED_ANSWER_SUMMARY = "Answered from your earlier form";
 export const PI_CLOSED_SUMMARY = "Pi closed this question (timeout or abort)";
 export const UNSUPPORTED_TITLE = "Terminal-only interface requested";
 export const UNSUPPORTED_TEXT =
   "An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one.";
 export const SESSION_LIVE_CONFLICT = "Session already live on this host";
+
+/** What a session the previous agent lost becomes: mid-turn work is interrupted, idle is stopped. */
+export function lostRuntime(
+  rec: Pick<HostSessionRecord, "runtime" | "compacting">,
+): "interrupted" | "stopped" {
+  return rec.runtime === "idle" && !rec.compacting ? "stopped" : "interrupted";
+}
 export const TERMINAL_PROMPT_TITLE = "Waiting in the terminal";
 export const TERMINAL_PROMPT_TEXT =
   "An extension is showing its own interface in this session's terminal. Open the terminal (switchyard tui) to answer it.";
@@ -295,10 +305,12 @@ export class SessionSupervisor {
 
   /**
    * Host-agent restart: sessions recorded as live lost their Pi process with the previous agent.
-   * Mark them interrupted (never auto-resume), expire their pending interactions, add a notice.
+   * Never auto-resume; expire their pending interactions. Sessions that were working become
+   * interrupted with a notice; idle ones quietly become stopped (they resume when sent to).
    */
-  recoverAfterRestart(): string[] {
-    const affected: string[] = [];
+  recoverAfterRestart(): { interrupted: string[]; stopped: string[] } {
+    const interrupted: string[] = [];
+    const stopped: string[] = [];
     this.db.tx(() => {
       for (const rec of this.records.values()) {
         if (!LIVE_RUNTIMES.includes(rec.runtime)) continue;
@@ -308,46 +320,66 @@ export class SessionSupervisor {
           this.reattachCandidates.push(rec.id);
           continue;
         }
-        affected.push(rec.id);
-        this.markLost(rec, "Host agent restarted before this question was answered");
+        const next = this.markLost(
+          rec,
+          RESTART_DETAIL,
+          "Host agent restarted before this question was answered",
+        );
+        (next === "interrupted" ? interrupted : stopped).push(rec.id);
       }
     });
-    return affected;
+    return { interrupted, stopped };
   }
 
   /** Sessions whose terminal holders may still run after a host-agent restart. */
   private readonly reattachCandidates: string[] = [];
 
-  /** Interrupted after a restart: never auto-resume; expire questions; add a notice. Call in a tx. */
-  private markLost(rec: HostSessionRecord, expireSummary: string): void {
-    rec.runtime = "interrupted";
-    rec.runtimeDetail = "Host agent restarted";
+  /**
+   * Lost with the previous agent: never auto-resume; expire questions. Working sessions become
+   * interrupted with `reason` and a notice; idle ones quietly become stopped. `was` is the state
+   * the previous agent recorded (default: the record as it is now). Call in a tx.
+   */
+  private markLost(
+    rec: HostSessionRecord,
+    reason: string,
+    expireSummary: string,
+    was: Pick<HostSessionRecord, "runtime" | "compacting"> = rec,
+  ): "interrupted" | "stopped" {
+    const next = lostRuntime(was);
+    rec.runtime = next;
+    rec.runtimeDetail = next === "interrupted" ? reason : null;
     rec.compacting = false;
     rec.queue = { steering: [], followUp: [] };
     rec.terminal = null;
     this.expirePending(rec.id, expireSummary);
-    const item: TranscriptItem = {
-      id: newId("itm"),
-      sessionId: rec.id,
-      order: rec.nextOrder++,
-      at: nowIso(),
-      kind: "notice",
-      data: { level: "warning", text: RESTART_NOTICE },
-    };
-    this.link.emit({ type: "transcript.item", sessionId: rec.id, data: item });
+    if (next === "interrupted") {
+      const item: TranscriptItem = {
+        id: newId("itm"),
+        sessionId: rec.id,
+        order: rec.nextOrder++,
+        at: nowIso(),
+        kind: "notice",
+        data: { level: "warning", text: RESTART_NOTICE },
+      };
+      this.link.emit({ type: "transcript.item", sessionId: rec.id, data: item });
+    }
     this.saveAndEmit(rec);
+    return next;
   }
 
   /**
    * After `recoverAfterRestart()`: reattach to the terminal holders of sessions that were live.
-   * A holder that is gone makes its session interrupted, like an RPC session.
+   * A holder that is gone loses its session like an RPC one: `lost` (interrupted) if it was
+   * working, `stopped` if it was idle.
    */
-  async reattachTerminals(): Promise<{ reattached: string[]; lost: string[] }> {
+  async reattachTerminals(): Promise<{ reattached: string[]; lost: string[]; stopped: string[] }> {
     const reattached: string[] = [];
     const lost: string[] = [];
+    const stopped: string[] = [];
     for (const id of this.reattachCandidates.splice(0)) {
       const rec = this.records.get(id);
       if (!rec?.terminal) continue;
+      const was = { runtime: rec.runtime, compacting: rec.compacting };
       const l = this.newLive(rec);
       this.live.set(rec.id, l);
       await this.openAdapters(l, rec.cwd);
@@ -375,13 +407,18 @@ export class SessionSupervisor {
           "terminal session could not be reattached",
         );
         this.teardown(l);
-        this.db.tx(() =>
-          this.markLost(rec, "Host agent restarted before this question was answered"),
+        const next = this.db.tx(() =>
+          this.markLost(
+            rec,
+            RESTART_TERMINAL_LOST_DETAIL,
+            "Host agent restarted before this question was answered",
+            was,
+          ),
         );
-        lost.push(rec.id);
+        (next === "interrupted" ? lost : stopped).push(rec.id);
       }
     }
-    return { reattached, lost };
+    return { reattached, lost, stopped };
   }
 
   private newLive(rec: HostSessionRecord): Live {
