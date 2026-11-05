@@ -157,6 +157,7 @@ export function syncState(over: Partial<SyncState> = {}): SyncState {
     checkouts: [],
     workspaces: [],
     profiles: [],
+    views: [],
     sessions: [session()],
     tasks: [],
     runs: [],

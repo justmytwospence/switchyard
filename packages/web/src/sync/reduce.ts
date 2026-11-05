@@ -20,6 +20,7 @@ import type {
   SyncState,
   Task,
   TranscriptItem,
+  View,
   Workspace,
 } from "@switchyard/protocol";
 import { canonicalEventType } from "@switchyard/protocol";
@@ -40,6 +41,7 @@ export interface EntityState {
   checkouts: ById<Checkout>;
   workspaces: ById<Workspace>;
   profiles: ById<Profile>;
+  views: ById<View>;
   sessions: ById<Session>;
   tasks: ById<Task>;
   runs: ById<Run>;
@@ -109,6 +111,7 @@ export function emptyEntities(): EntityState {
     checkouts: {},
     workspaces: {},
     profiles: {},
+    views: {},
     sessions: {},
     tasks: {},
     runs: {},
@@ -178,6 +181,7 @@ export function applySnapshot<S extends SyncData>(state: S, seq: number, snap: S
     checkouts: byId(snap.checkouts),
     workspaces: byId(snap.workspaces),
     profiles: byId(snap.profiles),
+    views: byId(snap.views),
     sessions: byId(snap.sessions),
     tasks: byId(snap.tasks),
     runs: byId(snap.runs),
@@ -201,6 +205,7 @@ export function toSyncState(state: EntityState): SyncState {
     checkouts: Object.values(state.checkouts),
     workspaces: Object.values(state.workspaces),
     profiles: Object.values(state.profiles),
+    views: Object.values(state.views),
     sessions: Object.values(state.sessions),
     tasks: Object.values(state.tasks),
     runs: Object.values(state.runs),
@@ -307,6 +312,14 @@ function reduceEvent<S extends SyncData, T extends EventType>(
     case "workspace.deleted": {
       const d = data as EventData<"workspace.deleted">;
       return { ...state, workspaces: drop(state.workspaces, d.id) };
+    }
+    case "view.updated": {
+      const d = data as EventData<"view.updated">;
+      return { ...state, views: put(state.views, d.id, d) };
+    }
+    case "view.deleted": {
+      const d = data as EventData<"view.deleted">;
+      return { ...state, views: drop(state.views, d.id) };
     }
     case "profile.updated": {
       const d = data as EventData<"profile.updated">;

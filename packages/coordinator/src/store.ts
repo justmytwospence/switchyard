@@ -23,6 +23,7 @@ import {
   type SyncState,
   type Task,
   type TranscriptItem,
+  type View,
   type Workspace,
 } from "@switchyard/protocol";
 import type { Db, SqlValue } from "./db/index.js";
@@ -174,6 +175,7 @@ export class Store {
   readonly checkouts: JsonRepo<Checkout>;
   readonly workspaces: JsonRepo<Workspace>;
   readonly profiles: JsonRepo<Profile>;
+  readonly views: JsonRepo<View>;
   readonly sessions: JsonRepo<Session>;
   readonly interactions: JsonRepo<Interaction>;
   readonly tasks: JsonRepo<Task>;
@@ -240,6 +242,13 @@ export class Store {
       "profiles",
       "Profile",
       { name: (p) => p.name },
+      { created_at: () => now() },
+    );
+    this.views = new JsonRepo<View>(
+      st,
+      "views",
+      "View",
+      { name: (v) => v.name },
       { created_at: () => now() },
     );
     this.sessions = new JsonRepo<Session>(st, "sessions", "Session", {
@@ -539,6 +548,21 @@ export class Store {
       this.profiles.upsert(p);
       this.appendEvent("profile.updated", {}, p);
       return p;
+    });
+  }
+
+  putView(v: View): View {
+    return this.tx(() => {
+      this.views.upsert(v);
+      this.appendEvent("view.updated", {}, v);
+      return v;
+    });
+  }
+
+  deleteView(id: string): void {
+    this.tx(() => {
+      this.views.delete(id);
+      this.appendEvent("view.deleted", {}, { id });
     });
   }
 
@@ -1099,6 +1123,7 @@ export class Store {
       checkouts: this.checkouts.list(),
       workspaces: this.workspaces.list("archived_at IS NULL"),
       profiles: this.profiles.list(undefined, [], "created_at, rowid"),
+      views: this.views.list(undefined, [], "created_at, rowid"),
       sessions,
       tasks,
       runs,

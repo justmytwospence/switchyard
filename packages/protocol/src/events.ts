@@ -16,6 +16,7 @@ import {
   Session,
   Task,
   TranscriptItem,
+  View,
   Workspace,
 } from "./entities.js";
 
@@ -29,6 +30,8 @@ export const EventDataSchemas = {
   "workspace.deleted": z.object({ id: z.string() }),
   "profile.updated": Profile,
   "profile.deleted": z.object({ id: z.string() }),
+  "view.updated": View,
+  "view.deleted": z.object({ id: z.string() }),
   "session.updated": Session,
   "transcript.item": TranscriptItem,
   "interaction.updated": Interaction,

@@ -13,6 +13,7 @@ import {
   Run,
   Session,
   Task,
+  View,
   Workspace,
 } from "./entities.js";
 import { EventEnvelope, StreamDelta } from "./events.js";
@@ -23,6 +24,7 @@ export const SyncState = z.object({
   checkouts: z.array(Checkout),
   workspaces: z.array(Workspace),
   profiles: z.array(Profile),
+  views: z.array(View),
   sessions: z.array(Session),
   tasks: z.array(Task),
   runs: z.array(Run),

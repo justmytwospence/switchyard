@@ -201,6 +201,31 @@ export const Profile = z.object({
 });
 export type Profile = z.infer<typeof Profile>;
 
+/** A TUI client (herdr or tmux session) bound to a view. */
+export const ViewClient = z.object({
+  /** `${kind}:${name}@${machine}` */
+  id: z.string().min(1),
+  kind: z.enum(["herdr", "tmux"]),
+  name: z.string().min(1),
+  machine: z.string().min(1),
+  lastSeenAt: Iso,
+});
+export type ViewClient = z.infer<typeof ViewClient>;
+
+/** A named filter over sessions, plus pins. TUI clients bind to one. */
+export const View = z.object({
+  id: Id,
+  name: z.string().min(1).max(60),
+  mode: z.enum(["all", "pinned"]),
+  projectIds: z.array(z.string()).nullable(),
+  hostIds: z.array(z.string()).nullable(),
+  sessionIds: z.array(z.string()),
+  clients: z.array(ViewClient),
+  createdAt: Iso,
+  updatedAt: Iso,
+});
+export type View = z.infer<typeof View>;
+
 export const RuntimeState = z.enum([
   "starting",
   "idle",

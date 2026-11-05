@@ -21,6 +21,7 @@ import {
   SetModelRequest,
   SetThinkingRequest,
   SwitchyardError,
+  sessionInView,
   TranscriptItem,
 } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
@@ -217,7 +218,24 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
 
   app.post("/api/sessions", async (req, reply) => {
     const body = parse(CreateSessionRequest, req.body);
+    // Validate the view first so nothing is created on error.
+    const view = body.viewId ? ctx.store.views.require(body.viewId) : null;
     const { session } = createSession(ctx, body);
+    if (view) {
+      ctx.store.tx(() => {
+        const cur = ctx.store.views.require(view.id);
+        const workspaces = Object.fromEntries(ctx.store.workspaces.list().map((w) => [w.id, w]));
+        const fresh = ctx.store.sessions.get(session.id) ?? session;
+        if (cur.sessionIds.includes(fresh.id)) return;
+        if (cur.mode === "pinned" || !sessionInView(cur, fresh, workspaces)) {
+          ctx.store.putView({
+            ...cur,
+            sessionIds: [...cur.sessionIds, fresh.id],
+            updatedAt: ctx.store.nowIso(),
+          });
+        }
+      });
+    }
     return reply.code(202).send(session);
   });
 

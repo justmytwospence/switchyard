@@ -18,6 +18,8 @@ import {
   TaskTemplate,
   ThinkingLevel,
   Trigger,
+  View,
+  ViewClient,
   WorktreeDir,
 } from "./entities.js";
 import { InteractionResponseSchema, UINodeSchema } from "./ui.js";
@@ -138,6 +140,7 @@ export const CreateSessionRequest = z.object({
   profileId: z.string().nullable().optional(),
   prompt: z.string().default(""),
   title: z.string().optional(),
+  viewId: z.string().optional(),
 });
 
 export const PromptRequest = z.object({
@@ -492,3 +495,16 @@ export const MeResponse = z.object({
   publicUrl: z.string(),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
+
+export const ViewInput = View.pick({
+  name: true,
+  mode: true,
+  projectIds: true,
+  hostIds: true,
+}).partial({
+  mode: true,
+  projectIds: true,
+  hostIds: true,
+});
+export const ViewPatch = ViewInput.partial();
+export const ViewClientReport = ViewClient.omit({ lastSeenAt: true });

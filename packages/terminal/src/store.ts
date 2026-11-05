@@ -15,6 +15,7 @@ import type {
   Session,
   SyncState,
   Task,
+  View,
   Workspace,
 } from "@switchyard/protocol";
 import { canonicalEventType } from "@switchyard/protocol";
@@ -38,6 +39,7 @@ export interface ClientState {
   checkouts: ById<Checkout>;
   workspaces: ById<Workspace>;
   profiles: ById<Profile>;
+  views: ById<View>;
   sessions: ById<Session>;
   tasks: ById<Task>;
   runs: ById<Run>;
@@ -61,6 +63,7 @@ export function emptyState(): ClientState {
     checkouts: {},
     workspaces: {},
     profiles: {},
+    views: {},
     sessions: {},
     tasks: {},
     runs: {},
@@ -113,6 +116,7 @@ export function applySnapshot(state: ClientState, seq: number, snap: SyncState):
     checkouts: byId(snap.checkouts),
     workspaces: byId(snap.workspaces),
     profiles: byId(snap.profiles),
+    views: byId(snap.views),
     sessions: byId(snap.sessions),
     tasks: byId(snap.tasks),
     runs: byId(snap.runs),
@@ -182,6 +186,14 @@ function reduceEvent<T extends EventType>(
     case "profile.updated": {
       const d = data as EventData<"profile.updated">;
       return { ...state, profiles: put(state.profiles, d.id, d) };
+    }
+    case "view.updated": {
+      const d = data as EventData<"view.updated">;
+      return { ...state, views: put(state.views, d.id, d) };
+    }
+    case "view.deleted": {
+      const d = data as EventData<"view.deleted">;
+      return { ...state, views: drop(state.views, d.id) };
     }
     case "profile.deleted": {
       const d = data as EventData<"profile.deleted">;

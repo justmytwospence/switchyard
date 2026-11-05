@@ -125,6 +125,7 @@ export function snapshot(patch: Partial<SyncState> = {}): SyncState {
     checkouts: [],
     workspaces: [],
     profiles: [],
+    views: [],
     sessions: [],
     tasks: [],
     runs: [],

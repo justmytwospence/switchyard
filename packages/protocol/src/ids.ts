@@ -21,6 +21,7 @@ export const ID_PREFIXES = [
   "evt",
   "prf",
   "itm",
+  "viw",
 ] as const;
 
 export type IdPrefix = (typeof ID_PREFIXES)[number];
