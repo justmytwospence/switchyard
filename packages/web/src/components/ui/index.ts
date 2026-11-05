@@ -34,6 +34,6 @@ export {
   UnsupportedCapability,
 } from "./states";
 export { type TabItem, TabPanel, Tabs } from "./Tabs";
-export { TextArea, TextInput } from "./TextArea";
+export { CONTROL_CLASSES, TextArea, TextInput } from "./TextArea";
 export { Toaster, toast, useToasts } from "./Toast";
 export { focusableWithin, useFocusTrap, useScrollLock } from "./useFocusTrap";

@@ -7,6 +7,14 @@ import {
 } from "react";
 import { cn } from "../../lib/cn";
 
+/** Shared look of text controls: border, focus ring, invalid and disabled states. */
+export const CONTROL_CLASSES = cn(
+  "rounded-md border border-border bg-surface text-base text-text placeholder:text-subtle md:text-sm",
+  "outline-none focus:border-accent focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-0 focus-visible:outline-[var(--sy-focus)]",
+  "aria-[invalid=true]:border-danger aria-[invalid=true]:focus:border-danger",
+  "disabled:cursor-not-allowed disabled:opacity-55",
+);
+
 export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   /** Max height before scrolling internally (CSS length; default "33vh"). */
   maxHeight?: string;
@@ -42,8 +50,8 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
       value={value}
       style={{ maxHeight, ...style }}
       className={cn(
-        "block w-full resize-none overflow-y-auto rounded-md border border-border bg-surface px-3 py-2 text-base text-text placeholder:text-subtle md:text-sm",
-        "focus:border-accent focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-0",
+        "block w-full resize-none overflow-y-auto px-3 py-2",
+        CONTROL_CLASSES,
         className,
       )}
       {...rest}
@@ -57,11 +65,7 @@ export const TextInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<
     return (
       <input
         ref={ref}
-        className={cn(
-          "tap block h-9 w-full rounded-md border border-border bg-surface px-3 text-base text-text placeholder:text-subtle md:text-sm",
-          "focus:border-accent focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-0",
-          className,
-        )}
+        className={cn("tap block h-9 w-full px-3", CONTROL_CLASSES, className)}
         {...rest}
       />
     );
