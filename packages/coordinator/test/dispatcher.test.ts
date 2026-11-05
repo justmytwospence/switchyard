@@ -308,6 +308,27 @@ describe("dispatcher", () => {
     expect(runOf(h, tk.id).state).toBe("failed");
   });
 
+  it("a launch whose prompt was not delivered blocks the task without retrying", async () => {
+    h = await setupHarness();
+    h.override = (cmd) =>
+      cmd.type === "dispatch.start"
+        ? {
+            sessionId: cmd.sessionId,
+            workspacePath: "/w",
+            nativeHandle: null,
+            reused: false,
+            promptError: "Pi did not answer prompt",
+          }
+        : undefined;
+    const tk = await createTask(h, { state: "ready" });
+    await until(() => task(h!, tk.id).blocked !== null);
+    await sleep(30);
+    expect(task(h, tk.id).blocked?.reason).toMatch(/Launch prompt was not delivered/);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
+    expect(runOf(h, tk.id)).toMatchObject({ state: "failed" });
+    expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(1);
+  });
+
   it("a host restart after Pi may have started never replays the prompt (receipt)", async () => {
     h = await setupHarness();
     const handle = { sessionId: "native-x", sessionFile: "/s/native-x.jsonl" };

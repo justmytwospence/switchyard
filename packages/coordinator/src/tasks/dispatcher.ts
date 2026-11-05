@@ -798,8 +798,10 @@ export class Dispatcher {
         else this.interruptForHuman(runId);
         return;
       }
-      if (receipt.ok) this.applyStarted(runId, receipt.result);
-      else if (stillLaunching(receipt.error)) this.markUncertain(runId);
+      if (receipt.ok) {
+        this.applyStarted(runId, receipt.result);
+        this.applyPromptLost(runId, receipt.result);
+      } else if (stillLaunching(receipt.error)) this.markUncertain(runId);
       else this.applyFailure(runId, receipt.error, true);
     } catch (err) {
       if (this.stopped) return;
@@ -1025,6 +1027,31 @@ export class Dispatcher {
       if (!(run.state === "dispatching" || run.state === "uncertain")) return;
       const state = session?.runtime === "waiting_input" ? "waiting_input" : "running";
       saveRun(this.ctx, run, { state, startedAt: run.startedAt ?? now });
+    });
+  }
+
+  /**
+   * The host started Pi but could not deliver the launch prompt. The run fails and the task is
+   * blocked, without a retry (Pi started, and the host already put a notice in the transcript).
+   */
+  private applyPromptLost(runId: string, raw: unknown): void {
+    const parsed = DispatchStartResult.partial().safeParse(raw ?? {});
+    const promptError = parsed.success ? parsed.data.promptError : undefined;
+    if (!promptError) return;
+    const { store } = this.ctx;
+    store.tx(() => {
+      const run = store.runs.get(runId);
+      if (!run || !(run.state === "running" || run.state === "waiting_input")) return;
+      const reason = `Launch prompt was not delivered: ${promptError}`;
+      saveRun(this.ctx, run, {
+        state: "failed",
+        endedAt: store.nowIso(),
+        outcome: { kind: "failed", summary: reason },
+      });
+      const task = store.tasks.get(run.taskId);
+      if (!task || task.currentRunId !== run.id) return;
+      const blocked = putTaskState(this.ctx, task, task.state, { blocked: { reason } });
+      raiseFailed(this.ctx, blocked, reason);
     });
   }
 
