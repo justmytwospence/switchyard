@@ -181,6 +181,15 @@ describe("runs", () => {
     expect(board.body.map((t: { id: string }) => t.id)).not.toContain(tk.id);
   });
 
+  it("an aborted turn under automation is evaluated and continued like any settle", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h, { policy: continuation() });
+    await settle(h, run.sessionId!, "partial", { runtimeDetail: "aborted" });
+    await until(() => commandsOf(h!.host, "session.prompt").length === 1);
+    expect(commandsOf(h.host, "session.prompt")[0]!.text).toContain("Continuation 1 of 2");
+    expect(runOf(h, tk.id)).toMatchObject({ continuationsUsed: 1, state: "running" });
+  });
+
   it("continues within the limit, then blocks when continuations run out", async () => {
     h = await setupHarness();
     const { task: tk, run } = await startRun(h, { policy: continuation() });

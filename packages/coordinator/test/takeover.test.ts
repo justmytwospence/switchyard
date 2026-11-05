@@ -389,6 +389,33 @@ describe("takeover", () => {
     expect(task(h, tk.id).blocked).toBeNull();
   });
 
+  it("Stop's own aborted settle never continues the run", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h, { policy });
+    const sid = run.sessionId!;
+    const cwd = h.t.c.store.sessions.require(sid).cwd;
+    await h.host.event("session.updated", hostSession(sid, { cwd, runtime: "running" }));
+    h.override = async (cmd) => {
+      if (cmd.type !== "session.abort") return undefined;
+      await h!.host.event(
+        "session.updated",
+        hostSession(sid, {
+          cwd,
+          runtime: "idle",
+          runtimeDetail: "aborted",
+          lastAssistantText: "partial",
+        }),
+      );
+      return null;
+    };
+    const r = await h.t.admin("POST", `/api/sessions/${sid}/stop`);
+    expect(r.status).toBe(200);
+    await sleep(50);
+    expect(automationPrompts(h)).toHaveLength(0);
+    expect(runOf(h, tk.id).state).toBe("interrupted");
+    expect(task(h, tk.id).blocked).toMatchObject({ reason: "Stopped by user" });
+  });
+
   it("stop aborts with a cleared queue and blocks the task", async () => {
     h = await setupHarness();
     const { task: tk, run } = await startRun(h);

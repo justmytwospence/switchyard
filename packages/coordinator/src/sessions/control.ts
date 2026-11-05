@@ -128,28 +128,36 @@ export async function stopSession(ctx: CoordinatorContext, sessionId: string): P
       "The launch is not confirmed yet; wait for the host or pause automation instead",
     );
   }
-  await ctx.hostHub.request(session.hostId, {
-    type: "session.abort",
-    sessionId,
-    clearQueue: true,
-  });
-  // Re-read inside the transaction: the abort was awaited, and only the run that was current
-  // when Stop was pressed is interrupted (never a newer attempt, never a finished run).
-  ctx.store.tx(() => {
-    const cur = ctx.store.sessions.require(sessionId);
-    const run = pre ? ctx.store.runs.get(pre.id) : ctx.store.runForSession(cur);
-    if (!run || TERMINAL_RUN_STATES.includes(run.state)) return;
-    const now = ctx.store.nowIso();
-    ctx.store.putRun({ ...run, state: "interrupted", updatedAt: now }, cur.projectId ?? undefined);
-    const task = ctx.store.tasks.get(run.taskId);
-    if (task && task.currentRunId === run.id) {
-      ctx.store.putTask({
-        ...task,
-        blocked: { reason: "Stopped by user" },
-        updatedAt: now,
-        lastActivityAt: now,
-      });
-    }
-  });
+  const release = pre ? getService(ctx, "runs")?.beginStop(pre.id) : undefined;
+  try {
+    await ctx.hostHub.request(session.hostId, {
+      type: "session.abort",
+      sessionId,
+      clearQueue: true,
+    });
+    // Re-read inside the transaction: the abort was awaited, and only the run that was current
+    // when Stop was pressed is interrupted (never a newer attempt, never a finished run).
+    ctx.store.tx(() => {
+      const cur = ctx.store.sessions.require(sessionId);
+      const run = pre ? ctx.store.runs.get(pre.id) : ctx.store.runForSession(cur);
+      if (!run || TERMINAL_RUN_STATES.includes(run.state)) return;
+      const now = ctx.store.nowIso();
+      ctx.store.putRun(
+        { ...run, state: "interrupted", updatedAt: now },
+        cur.projectId ?? undefined,
+      );
+      const task = ctx.store.tasks.get(run.taskId);
+      if (task && task.currentRunId === run.id) {
+        ctx.store.putTask({
+          ...task,
+          blocked: { reason: "Stopped by user" },
+          updatedAt: now,
+          lastActivityAt: now,
+        });
+      }
+    });
+  } finally {
+    release?.();
+  }
   return ctx.store.sessions.require(sessionId);
 }

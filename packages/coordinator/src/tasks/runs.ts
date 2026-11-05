@@ -122,6 +122,8 @@ export function isRunAutomationCommand(runId: string, commandId: string): boolea
  */
 export class RunsService {
   private busy = new Set<string>();
+  /** Runs whose session Stop is aborting right now. */
+  private stopping = new Map<string, number>();
   /** A settle that arrived while its run was being evaluated: re-evaluated afterwards. */
   private deferred = new Map<
     string,
@@ -219,6 +221,16 @@ export class RunsService {
     return store.getSetting<number>(EVALUATED_PREFIX + runId, 0) === store.runSettleCount(runId);
   }
 
+  /** Stop is aborting this run: its aborted settle ends the turn and is not evaluated. Returns the release. */
+  beginStop(runId: string): () => void {
+    this.stopping.set(runId, (this.stopping.get(runId) ?? 0) + 1);
+    return () => {
+      const n = (this.stopping.get(runId) ?? 1) - 1;
+      if (n <= 0) this.stopping.delete(runId);
+      else this.stopping.set(runId, n);
+    };
+  }
+
   stop(): void {
     this.stopped = true;
     for (const u of this.unsubscribe) u();
@@ -284,7 +296,7 @@ export class RunsService {
 
   /**
    * A session went idle. Evaluate the run: markers, continuation within limits, checks, Review.
-   * Human control or an abort only records usage.
+   * Human control only records usage; an aborted turn is evaluated like any other.
    */
   async onSessionSettled(s: Pick<SessionSettled, "session" | "aborted" | "lastAssistantText">) {
     const { store } = this.ctx;
@@ -308,7 +320,10 @@ export class RunsService {
       if (recorded.controlMode === "human") return;
       // The latest settle is evaluated under automation (recovery and deferred signals skip it).
       store.setSetting(EVALUATED_PREFIX + run.id, store.runSettleCount(run.id));
-      if (s.aborted) return;
+      // An aborted turn is evaluated like any settle (continuations count, checks run): pressing Esc
+      // in Pi does not pause automation. To stop automation, use Stop (ends the run) or Take over
+      // (pauses it). Only Stop's own abort is skipped here; stopSession then interrupts the run.
+      if (s.aborted && this.stopping.has(run.id)) return;
       const task = store.tasks.get(run.taskId);
       if (!task || task.currentRunId !== run.id) return;
       const marker = parseMarker(s.lastAssistantText ?? session.lastAssistantText);
