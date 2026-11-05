@@ -1,11 +1,19 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { HOLDER_QUEUE_FULL } from "../src/terminal/holder.js";
-import { holderScriptPath, terminalSupport } from "../src/terminal-process.js";
+import { holderScriptPath, sweepHolders, terminalSupport } from "../src/terminal-process.js";
 
 const dirs: string[] = [];
 const sockets: Socket[] = [];
@@ -13,10 +21,11 @@ const sockets: Socket[] = [];
 function startHolder(
   script: string,
   extraEnv: Record<string, string> = {},
+  socketFile?: string,
 ): { socketPath: string; pid: number; done: Promise<number | null> } {
   const dir = mkdtempSync(join(tmpdir(), "sy-holder-"));
   dirs.push(dir);
-  const socketPath = join(dir, "h.sock");
+  const socketPath = socketFile ?? join(dir, "h.sock");
   const cfg = {
     socketPath,
     piBin: "/bin/sh",
@@ -192,5 +201,35 @@ describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
     process.kill(h.pid, "SIGTERM");
     await h.done;
     expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("sweepHolders kills holders nobody references and keeps the rest", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sy-sweep-"));
+    dirs.push(dir);
+    const a = startHolder("exec cat", {}, join(dir, "term-aaaaaaaa.sock"));
+    const b = startHolder("exec cat", {}, join(dir, "term-bbbbbbbb.sock"));
+    await until(() => existsSync(a.socketPath) && existsSync(b.socketPath));
+    const stale = join(dir, "term-cccccccc.sock");
+    writeFileSync(stale, "");
+    const oldLog = join(dir, "term-dddddddd.log");
+    writeFileSync(oldLog, "old");
+    const eightDays = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
+    utimesSync(oldLog, eightDays, eightDays);
+    const recentLog = join(dir, "term-eeeeeeee.log");
+    writeFileSync(recentLog, "new");
+
+    const swept = await sweepHolders({ dirs: [dir], keep: new Set([a.socketPath]) });
+    expect(swept.killed).toEqual([b.socketPath]);
+    expect(swept.removed).toEqual([stale]);
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(oldLog)).toBe(false);
+    expect(existsSync(recentLog)).toBe(true);
+    await b.done;
+    // The kept holder still answers.
+    const c = await connect(a.socketPath, { role: "control" });
+    await until(() => c.lines.some((l) => l.type === "holder_status"));
+    c.send({ type: "holder_kill", signal: "SIGKILL" });
+    await until(() => c.lines.some((l) => l.type === "holder_exit"));
+    await a.done;
   });
 });

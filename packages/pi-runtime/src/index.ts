@@ -59,9 +59,11 @@ export {
   type UiResolved,
 } from "./session-runtime.js";
 export {
+  type HolderSweep,
   holderScriptPath,
   PiTerminalProcess,
   type PiTerminalStartOptions,
+  sweepHolders,
   terminalExtensionPath,
   terminalSupport,
 } from "./terminal-process.js";

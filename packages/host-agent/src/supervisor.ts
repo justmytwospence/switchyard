@@ -1,5 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import {
   type AdapterEffect,
@@ -15,6 +16,7 @@ import {
 import {
   type BridgeEvent,
   branchSession,
+  type HolderSweep,
   listImportable,
   loadPiSessionManager,
   ManagedSession,
@@ -23,6 +25,8 @@ import {
   type PiUiRequest,
   readNativeTranscript,
   type SettledInfo,
+  socketDirs,
+  sweepHolders,
   treeRows,
   type UiResolved,
 } from "@switchyard/pi-runtime";
@@ -380,6 +384,21 @@ export class SessionSupervisor {
    * A holder that is gone loses its session like an RPC one: `lost` (interrupted) if it was
    * working, `stopped` if it was idle.
    */
+  /**
+   * Stop terminal holders no session record refers to (a record lost in a crash, a start that
+   * never finished). Killed, not adopted: with no record there is no session, run or control state
+   * to attach them to, and Pi's conversation is safe in its native session file. Only this agent's
+   * own socket directories are scanned (see `socketDirs`), so other agents' holders are untouched.
+   */
+  async sweepOrphanHolders(): Promise<HolderSweep> {
+    const keep = new Set<string>();
+    for (const rec of this.records.values()) if (rec.terminal) keep.add(rec.terminal.socketPath);
+    return sweepHolders({
+      dirs: socketDirs(this.opts.runtimeDir ?? join(tmpdir(), "switchyard")),
+      keep,
+    });
+  }
+
   async reattachTerminals(): Promise<{ reattached: string[]; lost: string[]; stopped: string[] }> {
     const reattached: string[] = [];
     const lost: string[] = [];

@@ -1,10 +1,19 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JsonlReader, writeJsonl } from "./jsonl.js";
 import { type PiExit, PiRpcError, screenTail, shortSocketPath } from "./rpc-process.js";
@@ -475,4 +484,97 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
         this.emit("event", rec);
     }
   }
+}
+
+export interface HolderSweep {
+  /** Holders nobody referenced, stopped. */
+  killed: string[];
+  /** Dead sockets removed. */
+  removed: string[];
+  /** Sockets that accept a connection but never answered (left alone). */
+  unreachable: string[];
+  /** Exit files and old logs deleted. */
+  filesDeleted: number;
+}
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Stop terminal holders no session record refers to (their Pi session file is safe on disk, so at
+ * most an in-flight turn is lost), remove dead sockets, and delete exit files and old logs that
+ * belong to no kept holder. `dirs` must be directories this agent alone writes sockets to (see
+ * `socketDirs`), and `keep` the socket paths still in use.
+ */
+export async function sweepHolders(opts: {
+  dirs: string[];
+  keep: Set<string>;
+  /** Logs of unreferenced holders older than this are deleted (default 7 days). */
+  maxAgeMs?: number;
+  now?: number;
+}): Promise<HolderSweep> {
+  const out: HolderSweep = { killed: [], removed: [], unreachable: [], filesDeleted: 0 };
+  const keep = new Set([...opts.keep].map((p) => resolve(p)));
+  const maxAgeMs = opts.maxAgeMs ?? SEVEN_DAYS_MS;
+  const now = opts.now ?? Date.now();
+  const list = (dir: string): string[] => {
+    try {
+      return readdirSync(dir);
+    } catch {
+      return [];
+    }
+  };
+  for (const dir of opts.dirs) {
+    const socks = list(dir).filter((f) => /^term-.*\.sock$/.test(f));
+    await Promise.all(
+      socks.map(async (f) => {
+        const path = join(dir, f);
+        if (keep.has(resolve(path))) return;
+        try {
+          const probe = await connectOnce(path, 1000);
+          probe.destroy();
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === "ECONNREFUSED" || code === "ENOENT" || code === "ENOTSOCK") {
+            rmSync(path, { force: true });
+            out.removed.push(path);
+          } else {
+            out.unreachable.push(path);
+          }
+          return;
+        }
+        let proc: PiTerminalProcess;
+        try {
+          proc = await PiTerminalProcess.attach(path, 1000);
+        } catch {
+          out.unreachable.push(path);
+          return;
+        }
+        const exited = (ms: number) =>
+          Promise.race([proc.waitForExit().then(() => true), sleep(ms).then(() => false)]);
+        proc.kill("SIGTERM", true);
+        if (!(await exited(3000))) {
+          proc.kill("SIGKILL", true);
+          if (!(await exited(2000))) proc.detach();
+        }
+        out.killed.push(path);
+      }),
+    );
+    for (const f of list(dir)) {
+      const path = join(dir, f);
+      const sock = f.replace(/\.exit\.json$/, "").replace(/\.log$/, ".sock");
+      if (keep.has(resolve(join(dir, sock)))) continue;
+      try {
+        if (/^term-.*\.sock\.exit\.json$/.test(f)) {
+          rmSync(path, { force: true });
+          out.filesDeleted++;
+        } else if (/^term-.*\.log$/.test(f) && now - statSync(path).mtimeMs > maxAgeMs) {
+          rmSync(path, { force: true });
+          out.filesDeleted++;
+        }
+      } catch {
+        // best effort
+      }
+    }
+  }
+  return out;
 }

@@ -262,6 +262,25 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     );
   }
 
+  const swept = await supervisor.sweepOrphanHolders().catch((err) => {
+    log.warn({ err: (err as Error).message }, "terminal holder sweep failed");
+    return null;
+  });
+  if (
+    swept &&
+    swept.killed.length + swept.removed.length + swept.unreachable.length + swept.filesDeleted > 0
+  ) {
+    log.info(
+      {
+        killed: swept.killed.length,
+        removed: swept.removed.length,
+        unreachable: swept.unreachable.length,
+        files: swept.filesDeleted,
+      },
+      "orphaned terminal holders cleaned up",
+    );
+  }
+
   supervisor.emitAdapters();
   link.start();
 
