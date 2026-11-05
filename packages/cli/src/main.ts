@@ -12,12 +12,13 @@ import {
   coordinatorStart,
 } from "./commands/coordinator.js";
 import { defaultDoctorDeps, printDoctor, runDoctor } from "./commands/doctor.js";
-import { herdrDaemon, herdrNew, herdrPane, herdrStatus } from "./commands/herdr.js";
+import { herdrDaemon, herdrNew, herdrPair, herdrPane, herdrStatus } from "./commands/herdr.js";
 import { hostBackup, hostEnroll, hostRun, hostStatus } from "./commands/host.js";
 import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
 import { installService } from "./commands/service.js";
 import { tuiCommand } from "./commands/tui.js";
 import { up } from "./commands/up.js";
+import { viewsCreate, viewsDelete, viewsEdit, viewsList, viewsPin } from "./commands/views.js";
 import {
   automationsList,
   automationsRun,
@@ -309,6 +310,66 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
   ).action(async (o) => {
     await herdrStatus(ctx, connFlags(o));
   });
+
+  herdr
+    .command("pair")
+    .description("Pair a herdr session (default: the unnamed one) with Switchyard")
+    .option("--session <name>", "herdr session name (default: default)")
+    .option("--view <name>", "view to mirror (default: every session)")
+    .option("--cli <command>", "how to run switchyard")
+    .option("--client-config <path>", "client.json to use")
+    .option("--force", "replace an existing pairing")
+    .action(async (o) => {
+      await herdrPair(ctx, {
+        session: o.session,
+        view: o.view,
+        cli: o.cli,
+        clientConfig: o.clientConfig,
+        force: o.force,
+      });
+    });
+
+  const views = program
+    .command("views")
+    .description("Views: named session filters for TUI clients");
+  const collect = (v: string, prev: string[] = []) => [...prev, v];
+  connectionOptions(views.command("list").description("List views"))
+    .option("--json", "JSON output")
+    .action((o) => viewsList(ctx, { ...connFlags(o), json: o.json }));
+  connectionOptions(views.command("create <name>").description("Create a view"))
+    .option("--mode <mode>", "all (matching or pinned) or pinned (pinned only)")
+    .option("--project <project>", "limit to a project (repeatable)", collect)
+    .option("--host <host>", "limit to a host (repeatable)", collect)
+    .action((name, o) =>
+      viewsCreate(ctx, name, { ...connFlags(o), mode: o.mode, project: o.project, host: o.host }),
+    );
+  connectionOptions(views.command("edit <view>").description("Change a view"))
+    .option("--name <name>", "new name")
+    .option("--mode <mode>", "all or pinned")
+    .option("--project <project>", "limit to a project (repeatable)", collect)
+    .option("--host <host>", "limit to a host (repeatable)", collect)
+    .option("--any-project", "remove the project limit")
+    .option("--any-host", "remove the host limit")
+    .action((ref, o) =>
+      viewsEdit(ctx, ref, {
+        ...connFlags(o),
+        name: o.name,
+        mode: o.mode,
+        project: o.project,
+        host: o.host,
+        anyProject: o.anyProject,
+        anyHost: o.anyHost,
+      }),
+    );
+  connectionOptions(views.command("delete <view>").description("Delete a view")).action((ref, o) =>
+    viewsDelete(ctx, ref, connFlags(o)),
+  );
+  connectionOptions(views.command("pin <view> <sessionId>").description("Pin a session")).action(
+    (ref, id, o) => viewsPin(ctx, ref, id, connFlags(o)),
+  );
+  connectionOptions(
+    views.command("unpin <view> <sessionId>").description("Unpin a session"),
+  ).action((ref, id, o) => viewsPin(ctx, ref, id, connFlags(o), true));
 
   const tasks = program.command("tasks").description("Tasks");
   connectionOptions(tasks.command("create").description("Create a task"))

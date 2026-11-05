@@ -29,12 +29,12 @@ function pair(name: string) {
   const fake = join(home, "fake-switchyard");
   writeFileSync(
     fake,
-    '#!/bin/sh\nprintf "%s|" "$SWITCHYARD_CLIENT_CONFIG" "$SWITCHYARD_HERDR_SESSION" "$@"\n',
+    '#!/bin/sh\nprintf "%s|" "$SWITCHYARD_CLIENT_CONFIG" "$SWITCHYARD_VIEW" "$SWITCHYARD_HERDR_SESSION" "$@"\n',
     { mode: 0o755 },
   );
   writeFileSync(
     join(dir, `${name}.env`),
-    `SWITCHYARD_CLI="sh ${fake}"\nSWITCHYARD_CLIENT_CONFIG="/cfg/dev.json"\n`,
+    `SWITCHYARD_CLI="sh ${fake}"\nSWITCHYARD_CLIENT_CONFIG="/cfg/dev.json"\nSWITCHYARD_VIEW="work"\n`,
   );
 }
 
@@ -45,13 +45,13 @@ describe("switchyard-herdr.sh", () => {
       HERDR_SOCKET_PATH: join(home, ".config/herdr/sessions/switchyard-dev/herdr.sock"),
     });
     expect(r.stderr).toBe("");
-    expect(r.stdout).toBe("/cfg/dev.json|switchyard-dev|herdr|status|");
+    expect(r.stdout).toBe("/cfg/dev.json|work|switchyard-dev|herdr|status|");
   });
 
   it("maps new-here to new --here", () => {
     pair("switchyard-dev");
     const r = run(["new-here"], { HERDR_SESSION: "switchyard-dev" });
-    expect(r.stdout).toBe("/cfg/dev.json|switchyard-dev|herdr|new|--here|");
+    expect(r.stdout).toBe("/cfg/dev.json|work|switchyard-dev|herdr|new|--here|");
   });
 
   it("does nothing in unpaired herdr sessions", () => {

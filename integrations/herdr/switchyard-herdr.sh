@@ -4,6 +4,7 @@
 #   SWITCHYARD_CLI            how to run switchyard (default: switchyard on PATH),
 #                             e.g. "node $HOME/Projects/switchyard/packages/cli/dist/main.js"
 #   SWITCHYARD_CLIENT_CONFIG  client.json written by `switchyard login` (default: the usual one)
+#   SWITCHYARD_VIEW           name or id of the view to mirror (default: every session)
 # Without that file the plugin does nothing in this herdr session.
 set -eu
 SWITCHYARD_HERDR_ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -31,6 +32,9 @@ fi
 . "$ENV_FILE"
 if [ -n "${SWITCHYARD_CLIENT_CONFIG:-}" ]; then
   export SWITCHYARD_CLIENT_CONFIG
+fi
+if [ -n "${SWITCHYARD_VIEW:-}" ]; then
+  export SWITCHYARD_VIEW
 fi
 if [ "${1:-}" = "new-here" ]; then
   shift

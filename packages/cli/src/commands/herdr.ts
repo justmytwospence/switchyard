@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir, hostname } from "node:os";
+import { dirname, join } from "node:path";
 import type { Session } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags, resolveConnection } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
@@ -20,7 +21,8 @@ import {
   stableLauncherPath,
   writeStableLauncher,
 } from "../herdr/util.js";
-import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
+import { startPresence } from "../mirror/presence.js";
+import { loadMirrorState, mirrorStateOf, resolveBoundView } from "../mirror/state.js";
 import type { Env } from "../paths.js";
 
 export { herdrNew } from "../herdr/new-session.js";
@@ -125,12 +127,69 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     api: client.api,
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
+    view: () => {
+      const r = resolveBoundView(mirrorStateOf(client), env.SWITCHYARD_VIEW);
+      return r.missing ? "missing" : r.view;
+    },
     stateDir: dir,
     launcherPath,
     log,
   });
   await daemon.start();
+  const bound = resolveBoundView(mirrorStateOf(client), env.SWITCHYARD_VIEW).view;
+  if (bound) {
+    const name = herdrSessionName(env);
+    const machine = hostname();
+    const presence = startPresence(
+      client.api,
+      bound,
+      { id: `herdr:${name}@${machine}`, kind: "herdr", name, machine },
+      log,
+    );
+    const leave = () => void presence.stop().finally(() => process.exit(0));
+    process.once("SIGTERM", leave);
+    process.once("SIGINT", leave);
+  }
   await new Promise(() => {});
+}
+
+export interface PairFlags {
+  session?: string;
+  view?: string;
+  cli?: string;
+  clientConfig?: string;
+  force?: boolean;
+}
+
+/** Write `<config>/switchyard-<kind>/<session>.env`, which pairs a multiplexer session. */
+export function writePairFile(
+  ctx: Ctx,
+  kind: "herdr" | "tmux",
+  session: string,
+  flags: PairFlags,
+): string {
+  const base = ctx.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  const path = join(base, `switchyard-${kind}`, `${session}.env`);
+  if (existsSync(path) && !flags.force) {
+    throw new CliError(`${path} exists; pass --force to replace it`);
+  }
+  const q = (v: string) => `"${v.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  const lines = [
+    flags.cli ? `SWITCHYARD_CLI=${q(flags.cli)}` : null,
+    flags.clientConfig ? `SWITCHYARD_CLIENT_CONFIG=${q(flags.clientConfig)}` : null,
+    flags.view ? `SWITCHYARD_VIEW=${q(flags.view)}` : null,
+  ].filter(Boolean);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${lines.join("\n")}${lines.length ? "\n" : ""}`, { mode: 0o600 });
+  return path;
+}
+
+/** `switchyard herdr pair`: pair a herdr session (default: the unnamed one) with Switchyard. */
+export async function herdrPair(ctx: Ctx, flags: PairFlags): Promise<void> {
+  const session = flags.session ?? "default";
+  const path = writePairFile(ctx, "herdr", session, flags);
+  ctx.out(`Wrote ${path}`);
+  ctx.out(`Start it with: ${session === "default" ? "herdr" : `herdr --session ${session}`}`);
 }
 
 /** `switchyard herdr status`: which tab shows which session. */
