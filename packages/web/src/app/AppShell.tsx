@@ -10,7 +10,7 @@ import {
   Timer,
   Workflow,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { CountBadge } from "../components/ui/Badge";
 import { Spinner } from "../components/ui/Spinner";
@@ -112,6 +112,7 @@ export function AppShell() {
           tabIndex={-1}
           className="relative min-h-0 min-w-0 flex-1 overflow-y-auto outline-none"
         >
+          <ScrollReset />
           <Outlet />
         </main>
         {mobile && <BottomNav />}
@@ -119,6 +120,26 @@ export function AppShell() {
       <Toaster />
     </div>
   );
+}
+
+const BOARD_FAMILY = /^\/(board|tasks)(\/|$)/;
+
+/**
+ * Resets the shared scroller on a new page (not on ?query changes). Rendered before <Outlet/>
+ * so it runs before views that restore their own position; the board manages its own.
+ */
+function ScrollReset() {
+  const { pathname } = useLocation();
+  const prev = useRef(pathname);
+  useLayoutEffect(() => {
+    const from = prev.current;
+    prev.current = pathname;
+    if (from === pathname) return;
+    if (BOARD_FAMILY.test(from) && BOARD_FAMILY.test(pathname)) return;
+    const el = document.getElementById("main");
+    if (el) el.scrollTop = 0;
+  }, [pathname]);
+  return null;
 }
 
 function Rail() {
