@@ -1,22 +1,13 @@
-import {
-  ArrowLeft,
-  ChevronDown,
-  ChevronUp,
-  CircleAlert,
-  EllipsisVertical,
-  Play,
-  SquareKanban,
-} from "lucide-react";
+import type { Session } from "@switchyard/protocol";
+import { ArrowLeft, ChevronDown, ChevronUp, EllipsisVertical, SquareKanban } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
-import { Button, buttonClasses } from "../../components/ui/Button";
+import { buttonClasses } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
-import { HostUnavailable } from "../../components/ui/states";
-import { TextLink } from "../../components/ui/TextLink";
 import { useDraft } from "../../drafts";
 import { usePendingInteractions, useSyncStore } from "../../sync/store";
 import { MobileChanges } from "./Changes";
@@ -27,6 +18,7 @@ import { MobileDetails } from "./Details";
 import type { SessionContext } from "./hooks";
 import { AUTOMATION_LABEL, isSubagentView, SUBAGENT_READ_ONLY, workspaceLabel } from "./model";
 import type { SessionActions } from "./SessionActions";
+import { SessionStatusBar } from "./SessionStatusBar";
 import { Transcript } from "./Transcript";
 
 function interactionReadOnly(ctx: SessionContext): string | null {
@@ -37,67 +29,13 @@ function interactionReadOnly(ctx: SessionContext): string | null {
   return null;
 }
 
-/** Host unavailable, failed and interrupted states shown above the transcript. */
-function SessionBanners({ ctx, actions }: { ctx: SessionContext; actions: SessionActions }) {
-  const { session } = ctx;
+/** A subagent's transcript is re-read from its native file on every open to show progress. */
+function useSubagentRefresh(session: Session) {
   const loadTranscript = useSyncStore((s) => s.loadTranscript);
   const subagent = isSubagentView(session);
-  // A subagent's transcript is re-read from its native file on every open to show progress.
   useEffect(() => {
     if (subagent) void loadTranscript(session.id, { force: true });
   }, [subagent, session.id, loadTranscript]);
-  return (
-    <>
-      {ctx.link !== "connected" && (
-        <div className="shrink-0 px-3 pt-2">
-          <HostUnavailable
-            compact
-            hostName={ctx.hostName}
-            connectivity={ctx.link === "reconnecting" ? "reconnecting" : "unreachable"}
-            lastSeenAt={ctx.host?.lastSeenAt}
-            detail="Showing the last known transcript. Sending and answers resume when the host reconnects."
-          />
-        </div>
-      )}
-      {session.runtime === "failed" && (
-        <div className="shrink-0 px-3 pt-2">
-          <div
-            role="alert"
-            className="flex flex-wrap items-start gap-2 rounded-md border border-border bg-danger-soft px-3 py-2 text-sm"
-          >
-            <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
-            <div className="min-w-0 flex-1">
-              <div className="font-medium">This session failed</div>
-              <div className="break-words text-muted">
-                {session.runtimeDetail ?? "Pi exited with an error."}
-              </div>
-              <TextLink to="/settings/diagnostics">Open diagnostics</TextLink>
-            </div>
-            {actions.canResume && (
-              <Button
-                size="sm"
-                icon={<Play className="size-3.5" />}
-                busy={actions.busy.resume}
-                onClick={actions.resume}
-              >
-                Resume
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-      {session.runtime === "interrupted" && session.runtimeDetail && (
-        <p role="status" className="shrink-0 px-4 pt-2 text-sm text-muted">
-          Interrupted: {session.runtimeDetail}
-        </p>
-      )}
-      {session.archivedAt && (
-        <p role="status" className="shrink-0 px-4 pt-2 text-sm text-muted">
-          This session is archived.
-        </p>
-      )}
-    </>
-  );
 }
 
 function useComposerDraft(sessionId: string) {
@@ -122,6 +60,7 @@ export function Conversation({
   inspector: { open: boolean; toggle: () => void; label: string };
 }) {
   const d = useComposerDraft(ctx.session.id);
+  useSubagentRefresh(ctx.session);
   return (
     <section
       data-testid="conversation"
@@ -129,13 +68,15 @@ export function Conversation({
       className="flex h-full min-h-0 min-w-0 flex-col bg-bg"
     >
       <ConversationHeader ctx={ctx} actions={actions} inspector={inspector} />
-      <SessionBanners ctx={ctx} actions={actions} />
       <Transcript
         sessionId={ctx.session.id}
         draftEmpty={d.draft.trim() === ""}
         onUseSuggestion={d.onUseSuggestion}
         interactionReadOnly={interactionReadOnly(ctx)}
         focusInteractionId={focusInteractionId}
+        footer={({ openFirstPending }) => (
+          <SessionStatusBar ctx={ctx} actions={actions} onAnswer={openFirstPending} />
+        )}
       />
       <Composer
         ctx={ctx}
@@ -143,10 +84,6 @@ export function Conversation({
         setDraft={d.setDraft}
         clearDraft={d.clearDraft}
         mobile={false}
-        onTakeover={actions.takeover}
-        takeoverBusy={actions.busy.takeover}
-        onResume={actions.resume}
-        resumeBusy={actions.busy.resume}
       />
       {actions.dialogs}
     </section>
@@ -181,6 +118,7 @@ export function MobileSession({
   const [metaOpen, setMetaOpen] = useState(false);
   const pending = usePendingInteractions(session.id);
   const d = useComposerDraft(session.id);
+  useSubagentRefresh(session);
 
   // Deep links and session switches show Chat, unless the link asks for a tab (`?tab=changes`).
   const tabKey = tabRequest ? `${tabRequest.tab}:${tabRequest.key}` : null;
@@ -200,16 +138,6 @@ export function MobileSession({
             label: "Open linked task",
             icon: <SquareKanban className="size-4" />,
             onSelect: () => navigate(`/tasks/${encodeURIComponent(task.id)}`),
-          },
-        ]
-      : []),
-    ...(actions.canResume
-      ? [
-          {
-            id: "resume",
-            label: "Resume",
-            icon: <Play className="size-4" />,
-            onSelect: actions.resume,
           },
         ]
       : []),
@@ -324,13 +252,15 @@ export function MobileSession({
               aria-label="Chat"
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
-              <SessionBanners ctx={ctx} actions={actions} />
               <Transcript
                 sessionId={session.id}
                 draftEmpty={d.draft.trim() === ""}
                 onUseSuggestion={d.onUseSuggestion}
                 interactionReadOnly={interactionReadOnly(ctx)}
                 focusInteractionId={focusInteractionId}
+                footer={({ openFirstPending }) => (
+                  <SessionStatusBar ctx={ctx} actions={actions} onAnswer={openFirstPending} />
+                )}
               />
               <Composer
                 ctx={ctx}
@@ -338,11 +268,6 @@ export function MobileSession({
                 setDraft={d.setDraft}
                 clearDraft={d.clearDraft}
                 mobile
-                onTakeover={actions.takeover}
-                takeoverBusy={actions.busy.takeover}
-                onResume={actions.resume}
-                resumeBusy={actions.busy.resume}
-                className="safe-pb"
               />
             </section>
           )}

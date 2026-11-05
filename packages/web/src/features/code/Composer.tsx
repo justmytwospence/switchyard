@@ -1,15 +1,12 @@
 import type { CommandView, Session } from "@switchyard/protocol";
 import {
   Camera,
-  Hand,
   ImagePlus,
   ListPlus,
   Navigation,
   Paperclip,
-  Play,
   SendHorizontal,
   Slash,
-  TriangleAlert,
   X,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
@@ -19,7 +16,6 @@ import { Button } from "../../components/ui/Button";
 import { copyText } from "../../components/ui/Copy";
 import { IconButton } from "../../components/ui/IconButton";
 import { Sheet } from "../../components/ui/Overlay";
-import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -63,10 +59,6 @@ export interface ComposerProps {
   setDraft: (t: string) => void;
   clearDraft: () => void;
   mobile: boolean;
-  onTakeover?: () => void;
-  takeoverBusy?: boolean;
-  onResume?: () => void;
-  resumeBusy?: boolean;
   className?: string;
 }
 
@@ -78,18 +70,7 @@ const AUTOMATION_WARNING = "Automation is active; take over to stop automatic co
  * running it offers "Steer" (only when the runtime supports it) and "Queue
  * follow-up". The draft is cleared only after the coordinator acknowledged.
  */
-export function Composer({
-  ctx,
-  draft,
-  setDraft,
-  clearDraft,
-  mobile,
-  onTakeover,
-  takeoverBusy,
-  onResume,
-  resumeBusy,
-  className,
-}: ComposerProps) {
+export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }: ComposerProps) {
   const { session, host } = ctx;
   const sendWithEnter = usePrefs((s) => s.sendWithEnter);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
@@ -396,51 +377,6 @@ export function Composer({
     >
       <div className="flex w-full min-w-0 flex-col gap-2">
         {controls && session.model && <ContextMeter session={session} enabled={controls} />}
-        {ctx.control === "automation" && !block && (
-          <div
-            role="note"
-            className="flex flex-wrap items-center gap-2 rounded-md bg-warning-soft px-3 py-1.5 text-sm"
-          >
-            <TriangleAlert aria-hidden className="size-4 shrink-0 text-warning" />
-            <span className="min-w-0 flex-1">{AUTOMATION_WARNING}</span>
-            {onTakeover && (
-              <Button
-                size="sm"
-                icon={<Hand className="size-3.5" />}
-                busy={takeoverBusy}
-                onClick={onTakeover}
-              >
-                Take over
-              </Button>
-            )}
-          </div>
-        )}
-        {ctx.control === "human" && (
-          <p className="flex items-center gap-1.5 text-xs text-muted">
-            <Hand aria-hidden className="size-3.5" />
-            You have control. Automatic continuations are paused.
-          </p>
-        )}
-        {block && (
-          <div
-            role="status"
-            className="flex flex-wrap items-center gap-2 rounded-md bg-surface-2 px-3 py-1.5 text-sm"
-          >
-            {block.pending && <Spinner className="size-4 shrink-0 text-info" />}
-            <span className="min-w-0 flex-1 font-medium">{block.reason}</span>
-            {block.action === "resume" && onResume && (
-              <Button
-                size="sm"
-                variant="primary"
-                icon={<Play className="size-3.5" />}
-                busy={resumeBusy}
-                onClick={onResume}
-              >
-                Resume
-              </Button>
-            )}
-          </div>
-        )}
         {queued > 0 && (
           <p className="text-xs text-muted">
             {session.queue.steering.length > 0 &&

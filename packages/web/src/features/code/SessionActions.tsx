@@ -27,7 +27,8 @@ export interface SessionActions {
   openRename: () => void;
   requestArchive: () => void;
   openInfo: () => void;
-  busy: { takeover: boolean; ret: boolean; stop: boolean; resume: boolean };
+  unarchive: () => void;
+  busy: { takeover: boolean; ret: boolean; stop: boolean; resume: boolean; unarchive: boolean };
   /** Confirmation and form dialogs; render once in the view. */
   dialogs: ReactNode;
 }
@@ -56,6 +57,10 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
     success: "Session renamed.",
   });
   const archive = useMutation(() => codeApi.archive(session.id), { success: "Session archived." });
+  const unarchive = useMutation(() => codeApi.unarchive(session.id), {
+    success: "Session unarchived.",
+    errorToast: true,
+  });
 
   const connected = ctx.link === "connected";
   const close = () => {
@@ -65,11 +70,7 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
     archive.reset();
   };
 
-  const archiveBlocked = session.archivedAt
-    ? "Already archived"
-    : isBusy(session)
-      ? "Stop the session before archiving it"
-      : null;
+  const archiveBlocked = isBusy(session) ? "Stop the session before archiving it" : null;
 
   const dialogs = (
     <>
@@ -184,7 +185,14 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
       else setDialog("archive");
     },
     openInfo: () => setDialog("info"),
-    busy: { takeover: takeover.busy, ret: ret.busy, stop: stop.busy, resume: resume.busy },
+    unarchive: () => void unarchive.run(),
+    busy: {
+      takeover: takeover.busy,
+      ret: ret.busy,
+      stop: stop.busy,
+      resume: resume.busy,
+      unarchive: unarchive.busy,
+    },
     dialogs,
   };
 }

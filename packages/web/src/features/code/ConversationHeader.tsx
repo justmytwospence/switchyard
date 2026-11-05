@@ -1,5 +1,6 @@
 import {
   Archive,
+  ArchiveRestore,
   Bot,
   EllipsisVertical,
   GitBranch,
@@ -8,18 +9,16 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Pencil,
-  Play,
   Server,
   Square,
   SquareKanban,
 } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { StatusChip } from "../../components/ui/StatusChip";
-import { cn } from "../../lib/cn";
-import type { SessionContext } from "./hooks";
+import { type SessionContext, useElementWidth } from "./hooks";
 import { AUTOMATION_LABEL, workspaceLabel } from "./model";
 import type { SessionActions } from "./SessionActions";
 
@@ -62,17 +61,24 @@ export function sessionMenuItems(ctx: SessionContext, a: SessionActions): MenuIt
       onSelect: a.openRename,
       disabled: ctx.session.readOnly,
     },
-    {
-      id: "archive",
-      label: "Archive",
-      icon: <Archive className="size-4" />,
-      onSelect: a.requestArchive,
-      disabled: !!a.archiveBlocked,
-      hint: a.archiveBlocked ?? undefined,
-    },
+    ctx.session.archivedAt
+      ? {
+          id: "unarchive",
+          label: "Unarchive",
+          icon: <ArchiveRestore className="size-4" />,
+          onSelect: a.unarchive,
+        }
+      : {
+          id: "archive",
+          label: "Archive",
+          icon: <Archive className="size-4" />,
+          onSelect: a.requestArchive,
+          disabled: !!a.archiveBlocked,
+          hint: a.archiveBlocked ?? undefined,
+        },
     {
       id: "info",
-      label: "Native session information",
+      label: "Session info",
       icon: <Info className="size-4" />,
       onSelect: a.openInfo,
     },
@@ -90,13 +96,32 @@ export function ConversationHeader({
   inspector: { open: boolean; toggle: () => void; label: string };
 }) {
   const { session, project, workspace, task } = ctx;
+  const navigate = useNavigate();
+  const [ref, width] = useElementWidth<HTMLElement>();
+  const narrow = width > 0 && width < 640;
+  const menuItems: MenuItem[] = [
+    ...(narrow && task
+      ? [
+          {
+            id: "task",
+            label: "Open linked task",
+            icon: <SquareKanban className="size-4" />,
+            onSelect: () => navigate(`/tasks/${encodeURIComponent(task.id)}`),
+          },
+        ]
+      : []),
+    ...sessionMenuItems(ctx, actions),
+  ];
   return (
-    <header className="flex min-w-0 shrink-0 flex-col gap-1.5 border-b border-border bg-surface px-4 py-2.5">
+    <header
+      ref={ref}
+      className="flex min-w-0 shrink-0 flex-col gap-1.5 border-b border-border bg-surface px-4 py-2.5"
+    >
       <div className="flex min-w-0 items-center gap-2">
         <h1 className="min-w-0 flex-1 truncate text-base font-semibold" title={session.title}>
           {session.title}
         </h1>
-        {task && (
+        {task && !narrow && (
           <Link
             to={`/tasks/${encodeURIComponent(task.id)}`}
             className={buttonClasses("ghost", "sm")}
@@ -107,40 +132,10 @@ export function ConversationHeader({
             <span className="xl:hidden">Task</span>
           </Link>
         )}
-        {actions.canTakeover && (
-          <Button
-            size="sm"
-            icon={<Hand className="size-3.5" />}
-            busy={actions.busy.takeover}
-            onClick={actions.takeover}
-          >
-            Take over
-          </Button>
-        )}
-        {actions.canReturn && (
-          <Button
-            size="sm"
-            icon={<Bot className="size-3.5" />}
-            busy={actions.busy.ret}
-            onClick={actions.returnToAutomation}
-          >
-            Return to automation
-          </Button>
-        )}
-        {actions.canResume && (
-          <Button
-            size="sm"
-            icon={<Play className="size-3.5" />}
-            busy={actions.busy.resume}
-            onClick={actions.resume}
-          >
-            Resume
-          </Button>
-        )}
         {actions.canStop && (
           <Button
             size="sm"
-            variant="danger"
+            variant={session.runtime === "waiting_input" ? "secondary" : "danger"}
             icon={<Square className="size-3.5" />}
             busy={actions.busy.stop}
             onClick={actions.requestStop}
@@ -150,7 +145,7 @@ export function ConversationHeader({
         )}
         <Menu
           label="Session menu"
-          items={sessionMenuItems(ctx, actions)}
+          items={menuItems}
           trigger={(p) => (
             <IconButton
               {...p}
@@ -175,17 +170,13 @@ export function ConversationHeader({
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
         <StatusChip kind="runtime" value={session.runtime} size="sm" />
         <ControlChip ctx={ctx} />
+        <span className="min-w-0 truncate text-xs text-muted">{project?.name ?? "No project"}</span>
         <span className="inline-flex min-w-0 items-center gap-1 text-xs text-muted">
-          <span className="truncate">{project?.name ?? "No project"}</span>
           <GitBranch aria-hidden className="size-3.5 shrink-0" />
+          <span className="sr-only">Branch </span>
           <span className="truncate font-mono">{workspaceLabel(workspace, session.cwd)}</span>
         </span>
         <HostChip ctx={ctx} />
-        {session.readOnly && (
-          <span className={cn("text-xs text-muted")}>
-            Subagent: view only. Live control is not supported.
-          </span>
-        )}
       </div>
     </header>
   );

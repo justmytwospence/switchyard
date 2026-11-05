@@ -512,12 +512,14 @@ function DocumentInteraction({
         <h3 className="min-w-0 flex-1 truncate text-[15px] leading-snug font-semibold md:text-sm">
           {title}
         </h3>
-        <StatusChip
-          kind="interaction"
-          value={interaction.state}
-          size="sm"
-          className={mobile ? "[&>span]:sr-only" : undefined}
-        />
+        {mobile && (
+          <StatusChip
+            kind="interaction"
+            value={interaction.state}
+            size="sm"
+            className="[&>span]:sr-only"
+          />
+        )}
         {!disabled && !optionsVisible && (
           <TextLink
             size="xs"

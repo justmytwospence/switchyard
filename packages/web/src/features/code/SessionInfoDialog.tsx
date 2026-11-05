@@ -19,12 +19,12 @@ export interface SessionInfoDialogProps {
   onClose: () => void;
 }
 
-/** Native session information plus token, cost and context stats. */
+/** Session ids, Pi session file, tokens, cost and context. */
 export function SessionInfoDialog({ session, hostLabel, open, onClose }: SessionInfoDialogProps) {
   const meter = contextMeter(session);
   const stats = session.stats;
   return (
-    <Dialog open={open} onClose={onClose} title="Native session information">
+    <Dialog open={open} onClose={onClose} title="Session info">
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
         <InfoRow label="Switchyard session" value={session.id} />
         <InfoRow label="Pi session id" value={session.nativeHandle?.sessionId ?? "Not started"} />

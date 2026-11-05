@@ -159,16 +159,19 @@ test.describe("desktop coding view", () => {
     await expect(transcript.getByText("Received: Another message while reading")).toBeInViewport();
   });
 
-  test("Needs-your-answer strip opens the first question", async ({ page, state }) => {
+  test("the status bar's Answer opens the first question", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.question}`);
-    const strip = page.getByTestId("needs-answer-strip");
-    await expect(strip).toContainText("Needs your answer");
-    await expect(strip).toContainText("Pick a fruit");
-    // Scroll the question away, then use the strip.
+    const strip = page.locator('[data-testid="session-status"][data-kind="answer"]');
+    await expect(strip).toContainText("Needs input: Pick a fruit");
+    // While waiting for input, Stop is the secondary action.
+    const stop = page.getByTestId("conversation").getByRole("button", { name: "Stop" });
+    await expect(stop).toBeVisible();
+    await expect(stop).not.toHaveClass(/bg-danger/);
+    // Scroll the question away, then use the status bar.
     await page.getByTestId("transcript").evaluate((el) => {
       el.scrollTop = 0;
     });
-    await strip.getByRole("button").click();
+    await strip.getByRole("button", { name: "Answer" }).click();
     const card = page.getByTestId("interaction-card").first();
     await expect(card).toBeInViewport();
     const focusedIn = await page.evaluate(
@@ -176,6 +179,29 @@ test.describe("desktop coding view", () => {
     );
     expect(focusedIn).toBe(true);
     await expect(card.getByRole("radio", { name: "Apple" })).toBeVisible();
+  });
+
+  test("archived session: one status bar, Unarchive, then Resume", async ({
+    page,
+    state,
+    api,
+  }, info) => {
+    const id = await createSession(api, state, `Archived ${uid(info)}`, "hello");
+    await api("POST", `/api/sessions/${id}/archive`);
+    await page.goto(`/code/${id}`);
+    const conversation = page.getByTestId("conversation");
+    const bar = page.getByTestId("session-status");
+    await expect(bar).toHaveAttribute("data-kind", "archived");
+    await expect(bar).toContainText("This session is archived. Unarchive it to send messages.");
+    await expect(conversation.getByRole("button", { name: "Resume" })).toHaveCount(0);
+    await bar.getByRole("button", { name: "Unarchive" }).click();
+    await expect(page.getByText("Session unarchived.")).toBeVisible();
+    await expect(bar).toHaveAttribute("data-kind", "stopped");
+    await expect(conversation.getByRole("button", { name: "Resume" })).toHaveCount(1);
+    await expect(conversation.getByRole("button", { name: "Stop" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Session menu" }).click();
+    await expect(page.getByRole("menuitem", { name: /Session info/ })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /^Archive/ })).toBeVisible();
   });
 
   test("Enter sends, Shift+Enter adds a newline", async ({ page, state, api }, info) => {

@@ -1,8 +1,16 @@
 import { ArrowDown } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { isDocumentPresentation } from "../../components/intent/InteractionCard";
 import { Button } from "../../components/ui/Button";
-import { ErrorState, InteractionPending, LoadingState } from "../../components/ui/states";
+import { ErrorState, LoadingState } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
 import { usePendingInteractions, useStreams, useSyncStore, useTranscript } from "../../sync/store";
 import { buildTimeline, countAfter, interactionDomId } from "./model";
@@ -23,6 +31,9 @@ function scrollWithin(container: HTMLElement, target: HTMLElement, smooth = fals
 export const STICK_THRESHOLD_PX = 48;
 const LOAD_OLDER_THRESHOLD_PX = 160;
 const HIGHLIGHT_MS = 4000;
+/** Every row sits in one centered column so the left edge stays aligned; plans span the full width. */
+const ROW =
+  "mx-auto w-full min-w-0 max-w-[80ch] has-[[data-testid=document-interaction]]:max-w-none";
 
 export interface TranscriptProps {
   sessionId: string;
@@ -33,6 +44,10 @@ export interface TranscriptProps {
   /** `?interaction=<id>` deep link: scroll to and highlight it once. */
   focusInteractionId: string | null;
   className?: string;
+  /** Rendered under the transcript, above the composer (the session status bar). */
+  footer?: (api: { openFirstPending: () => void }) => ReactNode;
+  /** False while the transcript is hidden (mobile tabs); restores the scroll position when shown. */
+  active?: boolean;
 }
 
 /**
@@ -48,6 +63,8 @@ export function Transcript({
   interactionReadOnly,
   focusInteractionId,
   className,
+  footer,
+  active = true,
 }: TranscriptProps) {
   const t = useTranscript(sessionId);
   const streams = useStreams(sessionId);
@@ -63,6 +80,7 @@ export function Transcript({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
+  const savedTop = useRef(0);
   const [atBottom, setAtBottom] = useState(true);
   const [baselineKey, setBaselineKey] = useState<string | null>(null);
   const prependHeight = useRef<number | null>(null);
@@ -94,6 +112,8 @@ export function Transcript({
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
+    if (el.clientHeight === 0) return; // hidden tab
+    savedTop.current = el.scrollTop;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     const at = dist <= STICK_THRESHOLD_PX;
     if (at !== atBottomRef.current) {
@@ -128,6 +148,13 @@ export function Transcript({
       else el.scrollTop = el.scrollHeight;
     }
   }, [entries.length, lastKey, firstKey, streamSize, t.loaded]);
+
+  // Showing the Chat tab again: back to the bottom, or to where the reader was.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!active || !el) return;
+    el.scrollTop = atBottomRef.current ? el.scrollHeight : savedTop.current;
+  }, [active]);
 
   // Opening a session with a plan awaiting approval lands on the plan, once.
   const landed = useRef<string | null>(null);
@@ -202,97 +229,90 @@ export function Transcript({
 
   return (
     <div className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)}>
-      {pending.length > 0 && (
-        <div data-testid="needs-answer-strip" className="shrink-0 px-3 pt-2">
-          <InteractionPending
-            count={pending.length}
-            onOpen={openFirstPending}
-            label={
-              pending.length === 1
-                ? `Needs your answer: ${pending[0]!.title}`
-                : `${pending.length} questions need your answer`
-            }
-          />
-        </div>
-      )}
-      <div
-        ref={scrollRef}
-        data-testid="transcript"
-        role="log"
-        aria-live="off"
-        aria-label="Transcript"
-        onScroll={onScroll}
-        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 md:px-6 [overflow-anchor:none] focus-visible:outline-offset-[-2px]"
-      >
-        <div className="flex w-full min-w-0 flex-col gap-3">
-          {t.loaded && t.hasMore && (
-            <div className="flex justify-center">
-              <Button size="sm" variant="ghost" busy={t.loading} onClick={requestOlder}>
-                Load earlier messages
-              </Button>
-            </div>
-          )}
-          {t.error && t.loaded && (
-            <ErrorState
-              compact
-              title="Could not load more of the transcript"
-              error={t.error}
-              onRetry={requestOlder}
-            />
-          )}
-          {!t.loaded && t.error ? (
-            <ErrorState
-              title="Could not load the transcript"
-              error={t.error}
-              onRetry={() => void loadTranscript(sessionId, { force: true })}
-            />
-          ) : !t.loaded && entries.length === 0 ? (
-            <LoadingState label="Loading transcript…" />
-          ) : entries.length === 0 && !starting ? (
-            <p className="py-10 text-center text-sm text-muted">
-              No messages yet. Write a prompt below to start.
-            </p>
-          ) : (
-            entries.map((entry) => (
-              <TimelineRow
-                key={entry.key}
-                entry={entry}
-                sessionId={sessionId}
-                interactionReadOnly={interactionReadOnly}
-                draftEmpty={draftEmpty}
-                onUseSuggestion={onUseSuggestion}
-                highlightInteractionId={highlight}
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          ref={scrollRef}
+          data-testid="transcript"
+          role="log"
+          aria-live="off"
+          aria-label="Transcript"
+          onScroll={onScroll}
+          className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 md:px-6 [overflow-anchor:none] focus-visible:outline-offset-[-2px]"
+        >
+          <div className="flex w-full min-w-0 flex-col gap-3">
+            {t.loaded && t.hasMore && (
+              <div className="flex justify-center">
+                <Button size="sm" variant="ghost" busy={t.loading} onClick={requestOlder}>
+                  Load earlier messages
+                </Button>
+              </div>
+            )}
+            {t.error && t.loaded && (
+              <ErrorState
+                compact
+                title="Could not load more of the transcript"
+                error={t.error}
+                onRetry={requestOlder}
               />
-            ))
-          )}
-          {starting && (
-            <StartingCard
-              sessionId={sessionId}
-              detail={session?.runtimeDetail ?? null}
-              showPrompt={entries.length === 0}
-            />
-          )}
-          {t.stale && t.loaded && (
-            <p role="status" className="text-center text-xs text-muted">
-              Refreshing transcript…
-            </p>
-          )}
+            )}
+            {!t.loaded && t.error ? (
+              <ErrorState
+                title="Could not load the transcript"
+                error={t.error}
+                onRetry={() => void loadTranscript(sessionId, { force: true })}
+              />
+            ) : !t.loaded && entries.length === 0 ? (
+              <LoadingState label="Loading transcript…" />
+            ) : entries.length === 0 && !starting ? (
+              <p className="py-10 text-center text-sm text-muted">
+                No messages yet. Write a prompt below to start.
+              </p>
+            ) : (
+              entries.map((entry) => (
+                <div key={entry.key} className={ROW}>
+                  <TimelineRow
+                    entry={entry}
+                    sessionId={sessionId}
+                    interactionReadOnly={interactionReadOnly}
+                    draftEmpty={draftEmpty}
+                    onUseSuggestion={onUseSuggestion}
+                    highlightInteractionId={highlight}
+                  />
+                </div>
+              ))
+            )}
+            {starting && (
+              <div className={ROW}>
+                <StartingCard
+                  sessionId={sessionId}
+                  detail={session?.runtimeDetail ?? null}
+                  showPrompt={entries.length === 0}
+                />
+              </div>
+            )}
+            {t.stale && t.loaded && (
+              <p role="status" className="text-center text-xs text-muted">
+                Refreshing transcript…
+              </p>
+            )}
+          </div>
         </div>
+        {!atBottom && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+            <Button
+              data-testid="jump-to-latest"
+              size="sm"
+              variant="secondary"
+              className="pointer-events-auto shadow-pop"
+              icon={<ArrowDown className="size-4" />}
+              onClick={jumpToLatest}
+            >
+              Jump to latest{unseen > 0 ? ` (${unseen})` : ""}
+            </Button>
+          </div>
+        )}
       </div>
-      {!atBottom && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-          <Button
-            data-testid="jump-to-latest"
-            size="sm"
-            variant="secondary"
-            className="pointer-events-auto shadow-pop"
-            icon={<ArrowDown className="size-4" />}
-            onClick={jumpToLatest}
-          >
-            Jump to latest{unseen > 0 ? ` (${unseen})` : ""}
-          </Button>
-        </div>
-      )}
+      {footer?.({ openFirstPending })}
     </div>
   );
 }

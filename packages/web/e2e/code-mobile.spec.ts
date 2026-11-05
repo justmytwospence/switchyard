@@ -182,7 +182,7 @@ test.describe("mobile coding view", () => {
     ).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByTestId("needs-answer-strip")).toHaveCount(0);
+    await expect(page.locator('[data-testid="session-status"][data-kind="answer"]')).toHaveCount(0);
   });
 
   test("bottom nav hides while composing with the keyboard", async ({ page, state }) => {
