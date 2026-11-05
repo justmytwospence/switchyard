@@ -251,12 +251,18 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   const reattach = await supervisor.reattachTerminals();
   interruptedOnStart.push(...reattach.lost);
   stoppedOnStart.push(...reattach.stopped);
-  if (reattach.reattached.length > 0 || reattach.lost.length > 0 || reattach.stopped.length > 0) {
+  if (
+    reattach.reattached.length > 0 ||
+    reattach.lost.length > 0 ||
+    reattach.stopped.length > 0 ||
+    reattach.starting.length > 0
+  ) {
     log.info(
       {
         reattached: reattach.reattached.length,
         lost: reattach.lost.length,
         stopped: reattach.stopped.length,
+        starting: reattach.starting.length,
       },
       "terminal sessions after restart",
     );

@@ -92,6 +92,8 @@ export interface ManagedSessionOptions {
   transport?: "rpc" | "terminal";
   /** Terminal transport: attach to this running holder instead of starting Pi. */
   terminalSocket?: string;
+  /** Terminal transport: the holder's Pi had not finished starting; wait for it like a start. */
+  reattachStarting?: boolean;
 }
 
 export const STARTING_IN_TERMINAL =
@@ -173,6 +175,8 @@ export interface ManagedSessionEventMap {
   model: [ModelState];
   compacting: [boolean];
   exit: [PiExit];
+  /** Terminal transport: the holder is up; persist its socket now. */
+  terminal: [{ socketPath: string }];
 }
 
 type ToolItem = Extract<TranscriptItem, { kind: "tool" }>;
@@ -218,6 +222,8 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   private busy = false;
   private abortRequested = false;
   private closeRequested = false;
+  /** Set by `detach()`: the agent is going away, so a start in flight neither fails nor closes Pi. */
+  private detachedDuring = false;
   private _native: NativeHandle | null;
   private _queue: QueueState = { steering: [], followUp: [] };
   private readonly pending = new Map<string, PiDialogRequest>();
@@ -363,6 +369,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       throw new SwitchyardError("internal", (err as Error).message);
     }
     this.wire(this.proc);
+    if (this.proc instanceof PiTerminalProcess) {
+      this.emit("terminal", { socketPath: this.proc.socketPath });
+    }
     if (terminal) this.setRuntime(STARTING_IN_TERMINAL);
     let state: PiState;
     try {
@@ -371,6 +380,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
         this.opts.startTimeoutMs ?? (terminal ? 15 * 60_000 : 30000),
       );
     } catch (err) {
+      if (this.detachedDuring) {
+        throw new SwitchyardError("host_unreachable", "Host agent is shutting down");
+      }
       const message = `Pi did not start: ${(err as Error).message}`;
       this.fail(message);
       void this.proc.close({ graceMs: 1000, termMs: 1000 });
@@ -406,10 +418,19 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       throw new SwitchyardError("internal", (err as Error).message);
     }
     this.wire(this.proc);
+    // A holder whose Pi had not finished starting when the last agent stopped: wait like a start.
+    const starting = this.opts.reattachStarting === true;
+    if (starting) this.setRuntime(STARTING_IN_TERMINAL);
     let state: PiState;
     try {
-      state = await this.proc.request<PiState>({ type: "get_state" }, 10000);
+      state = await this.proc.request<PiState>(
+        { type: "get_state" },
+        starting ? (this.opts.startTimeoutMs ?? 15 * 60_000) : 10000,
+      );
     } catch (err) {
+      if (this.detachedDuring) {
+        throw new SwitchyardError("host_unreachable", "Host agent is shutting down");
+      }
       const exited = this.proc.exited;
       const message = exited
         ? `Pi exited while the host agent was away (code ${exited.code}, signal ${exited.signal})${screenTail(exited.screen)}`
@@ -437,6 +458,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       throw new Error("detach needs a terminal session");
     }
     const proc = this.proc;
+    this.detachedDuring = true;
     proc.removeAllListeners();
     proc.on("error", () => {});
     proc.detach();

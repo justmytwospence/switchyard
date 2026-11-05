@@ -1,4 +1,5 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -245,6 +246,24 @@ export interface HarnessOptions {
   withPi?: boolean;
   testHooks?: HostTestHooks;
   terminalSessions?: boolean;
+  /** Pi binary the agent runs (default: the real one). */
+  piBin?: string;
+}
+
+/**
+ * A `pi` wrapper that answers `--version` at once and sleeps `delaySeconds` before it runs the
+ * real Pi: a Pi that is slow to start (a trust prompt, a cold disk).
+ */
+export function slowPi(delaySeconds: number): { path: string; cleanup(): void } {
+  const dir = mkdtempSync(join(tmpdir(), "sy-slowpi-"));
+  const real = execFileSync("sh", ["-c", `command -v "${piBin()}"`], { encoding: "utf8" }).trim();
+  const path = join(dir, "pi");
+  writeFileSync(
+    path,
+    `#!/bin/sh\n[ "$1" = "--version" ] && exec "${realpathSync(real)}" "$@"\nsleep ${delaySeconds}\nexec "${realpathSync(real)}" "$@"\n`,
+  );
+  chmodSync(path, 0o755);
+  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarness> {
@@ -265,7 +284,7 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarne
     const agent = await runHostAgent({
       config,
       stateDir: state.path,
-      piBin: piBin(),
+      piBin: opts.piBin ?? piBin(),
       env: pi?.env ?? { PI_CODING_AGENT_DIR: join(state.path, "no-pi") },
       extraExtensions: [fixtureExtensionPath()],
       ownerAdapterDir: join(state.path, "owner-adapters"),

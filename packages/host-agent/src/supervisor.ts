@@ -380,11 +380,6 @@ export class SessionSupervisor {
   }
 
   /**
-   * After `recoverAfterRestart()`: reattach to the terminal holders of sessions that were live.
-   * A holder that is gone loses its session like an RPC one: `lost` (interrupted) if it was
-   * working, `stopped` if it was idle.
-   */
-  /**
    * Stop terminal holders no session record refers to (a record lost in a crash, a start that
    * never finished). Killed, not adopted: with no record there is no session, run or control state
    * to attach them to, and Pi's conversation is safe in its native session file. Only this agent's
@@ -399,53 +394,101 @@ export class SessionSupervisor {
     });
   }
 
-  async reattachTerminals(): Promise<{ reattached: string[]; lost: string[]; stopped: string[] }> {
+  /**
+   * After `recoverAfterRestart()`: reattach to the terminal holders of sessions that were live.
+   * A holder that is gone loses its session like an RPC one: `lost` (interrupted) if it was
+   * working, `stopped` if it was idle.
+   */
+  async reattachTerminals(): Promise<{
+    reattached: string[];
+    lost: string[];
+    stopped: string[];
+    starting: string[];
+  }> {
     const reattached: string[] = [];
     const lost: string[] = [];
     const stopped: string[] = [];
+    const starting: string[] = [];
     for (const id of this.reattachCandidates.splice(0)) {
       const rec = this.records.get(id);
       if (!rec?.terminal) continue;
       const was = { runtime: rec.runtime, compacting: rec.compacting };
-      const l = this.newLive(rec);
-      this.live.set(rec.id, l);
-      await this.openAdapters(l, rec.cwd);
-      const ms = new ManagedSession({
-        sessionId: rec.id,
-        cwd: rec.cwd,
-        title: rec.title,
-        profile: rec.profile,
-        nativeHandle: rec.nativeHandle,
-        piBin: this.opts.piBin,
-        env: this.opts.env,
-        runtimeDir: this.opts.runtimeDir,
-        nextOrder: rec.nextOrder,
-        transport: "terminal",
-        terminalSocket: rec.terminal.socketPath,
-      });
-      l.ms = ms;
-      this.wire(l, ms);
-      try {
-        await ms.start();
-        reattached.push(rec.id);
-      } catch (err) {
-        this.opts.log.warn(
-          { sessionId: rec.id, err: errorMessage(err) },
-          "terminal session could not be reattached",
-        );
-        this.teardown(l);
-        const next = this.db.tx(() =>
-          this.markLost(
-            rec,
-            RESTART_TERMINAL_LOST_DETAIL,
-            "Host agent restarted before this question was answered",
-            was,
-          ),
-        );
-        (next === "interrupted" ? lost : stopped).push(rec.id);
+      if (was.runtime === "starting") {
+        // Pi may wait on a trust prompt for a long time: finish starting in the background.
+        starting.push(rec.id);
+        void this.reattachOne(rec, was)
+          .then((result) =>
+            this.opts.log.info(
+              { sessionId: rec.id, result },
+              "starting terminal session reattached",
+            ),
+          )
+          .catch((err: unknown) =>
+            this.opts.log.warn(
+              { sessionId: rec.id, err: errorMessage(err) },
+              "starting terminal session could not be reattached",
+            ),
+          );
+        continue;
       }
+      const result = await this.reattachOne(rec, was);
+      if (result === "reattached") reattached.push(rec.id);
+      else if (result === "interrupted") lost.push(rec.id);
+      else if (result === "stopped") stopped.push(rec.id);
     }
-    return { reattached, lost, stopped };
+    return { reattached, lost, stopped, starting };
+  }
+
+  private async reattachOne(
+    rec: HostSessionRecord,
+    was: Pick<HostSessionRecord, "runtime" | "compacting">,
+  ): Promise<"reattached" | "interrupted" | "stopped" | "detached"> {
+    const socketPath = rec.terminal?.socketPath;
+    if (!socketPath) return "stopped";
+    const l = this.newLive(rec);
+    this.live.set(rec.id, l);
+    await this.openAdapters(l, rec.cwd);
+    const ms = new ManagedSession({
+      sessionId: rec.id,
+      cwd: rec.cwd,
+      title: rec.title,
+      profile: rec.profile,
+      nativeHandle: rec.nativeHandle,
+      piBin: this.opts.piBin,
+      env: this.opts.env,
+      runtimeDir: this.opts.runtimeDir,
+      nextOrder: rec.nextOrder,
+      transport: "terminal",
+      terminalSocket: socketPath,
+      reattachStarting: was.runtime === "starting",
+    });
+    l.ms = ms;
+    this.wire(l, ms);
+    try {
+      await ms.start();
+      // Stopped while it was still starting: nothing to mark lost.
+      if (ms.runtime === "stopped") return "stopped";
+      return "reattached";
+    } catch (err) {
+      if (this.closing) {
+        // The agent is stopping again: keep the record so the next agent reattaches.
+        this.teardown(l);
+        return "detached";
+      }
+      this.opts.log.warn(
+        { sessionId: rec.id, err: errorMessage(err) },
+        "terminal session could not be reattached",
+      );
+      this.teardown(l);
+      return this.db.tx(() =>
+        this.markLost(
+          rec,
+          RESTART_TERMINAL_LOST_DETAIL,
+          "Host agent restarted before this question was answered",
+          was,
+        ),
+      );
+    }
   }
 
   private newLive(rec: HostSessionRecord): Live {
@@ -731,11 +774,18 @@ export class SessionSupervisor {
     } catch (err) {
       if (ms.process) this.spawned++;
       this.teardown(l);
+      if (this.closing && rec.terminal) {
+        // Detached at shutdown while Pi was still starting: keep the record for the next agent.
+        throw err instanceof SwitchyardError
+          ? err
+          : new SwitchyardError("host_unreachable", "Host agent is shutting down");
+      }
+      rec.terminal = null;
       if (rec.runtime === "starting") {
         rec.runtime = "failed";
         rec.runtimeDetail = errorMessage(err);
-        this.db.tx(() => this.saveAndEmit(rec));
       }
+      this.db.tx(() => this.saveAndEmit(rec));
       throw err instanceof SwitchyardError
         ? err
         : new SwitchyardError("internal", `Pi failed to start: ${errorMessage(err)}`);
@@ -1196,6 +1246,12 @@ export class SessionSupervisor {
         this.saveRecord(rec);
         this.link.emit({ type: "transcript.item", sessionId: rec.id, data: item });
       });
+    });
+    ms.on("terminal", ({ socketPath }) => {
+      // Recorded as soon as the holder is up, so an agent that stops while Pi is still starting
+      // can reattach, and the terminal can be opened to answer a trust prompt.
+      rec.terminal = { socketPath };
+      this.db.tx(() => this.saveAndEmit(rec));
     });
     ms.on("stream", (delta) => this.link.sendStream(delta));
     ms.on("runtime", ({ runtime, detail }) => {

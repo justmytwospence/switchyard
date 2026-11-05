@@ -3,7 +3,7 @@ import type { HostEvent } from "@switchyard/protocol";
 import { skipRealPi, when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NO_TERMINAL } from "../src/index.js";
-import { type HostHarness, startCommand, startHarness, waitFor } from "./helpers.js";
+import { type HostHarness, slowPi, startCommand, startHarness, waitFor } from "./helpers.js";
 
 let n = 0;
 const sid = () => `ses_term${Date.now()}${++n}`;
@@ -110,5 +110,39 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions on the h
     await h.coord.ok({ type: "session.stop", sessionId: id });
     await waitFor(() => agent2.supervisor.record(id)?.terminal == null, 10000, "terminal cleared");
     expect(agent2.supervisor.record(id)?.runtime).toBe("stopped");
+  });
+});
+
+describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions still starting", () => {
+  it("a terminal session still starting when the agent stops keeps its socket and finishes starting under the next agent", async () => {
+    const slow = slowPi(4);
+    const h = await startHarness({
+      terminalSessions: true,
+      piBin: slow.path,
+      script: [{ when: when.userSays("hello"), reply: { text: "hi" } }],
+    });
+    try {
+      const id = sid();
+      const started = h.coord.command(startCommand(id, h.pi!.cwd)).catch(() => null);
+      await waitFor(
+        () => {
+          const rec = h.agent.supervisor.record(id);
+          return rec?.terminal != null && rec.runtime === "starting";
+        },
+        15000,
+        "starting with a socket",
+      );
+      await h.agent.stop();
+      await started;
+      const agent2 = await h.restartAgent();
+      expect(agent2.supervisor.record(id)?.runtime).toBe("starting");
+      expect(agent2.supervisor.record(id)?.terminal).not.toBeNull();
+      await waitFor(() => agent2.supervisor.record(id)?.runtime === "idle", 30000, "idle");
+      await h.coord.ok({ type: "session.stop", sessionId: id });
+      await waitFor(() => agent2.supervisor.record(id)?.runtime === "stopped", 10000, "stopped");
+    } finally {
+      await h.dispose();
+      slow.cleanup();
+    }
   });
 });
