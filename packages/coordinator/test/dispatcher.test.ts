@@ -112,6 +112,48 @@ describe("dispatcher", () => {
     expect(session.cwd).toBe(`${ROOT}/.worktrees/x`);
   });
 
+  it("re-asks a connected host about an uncertain launch on the store clock", async () => {
+    h = await setupHarness({ coordinator: { dispatcher: { tickMs: 0, startTimeoutMs: 300 } } });
+    let busy = true;
+    h.override = (cmd) => {
+      if (cmd.type === "dispatch.start") {
+        h!.state.dispatches.set(cmd.dispatchKey, {
+          sessionId: cmd.sessionId,
+          workspacePath: `${ROOT}/.worktrees/x`,
+        });
+        return NO_REPLY;
+      }
+      if (cmd.type === "dispatch.reconcile" && busy) {
+        return { __error: { code: "internal", message: "busy" } };
+      }
+      return undefined;
+    };
+    const tk = await createTask(h, { state: "ready" });
+    await untilRun(h, tk.id, "uncertain");
+    const asked = () => commandsOf(h!.host, "dispatch.reconcile").length;
+    await until(() => {
+      dispatcherOf(h!).tick();
+      return asked() === 1;
+    });
+    await sleep(50);
+    dispatcherOf(h).tick();
+    await sleep(20);
+    expect(asked()).toBe(1);
+    h.t.clock.advance(31_000);
+    await until(() => {
+      dispatcherOf(h!).tick();
+      return asked() === 2;
+    });
+    busy = false;
+    h.t.clock.advance(31_000);
+    dispatcherOf(h).tick();
+    await untilRun(h, tk.id, "running");
+    dispatcherOf(h).tick();
+    expect(
+      (dispatcherOf(h) as unknown as { lastReconcile: Map<string, number> }).lastReconcile.size,
+    ).toBe(0);
+  });
+
   it("an unknown dispatch is resent with the same dispatchKey", async () => {
     h = await setupHarness({ coordinator: { dispatcher: { tickMs: 0, startTimeoutMs: 300 } } });
     let drop = true;

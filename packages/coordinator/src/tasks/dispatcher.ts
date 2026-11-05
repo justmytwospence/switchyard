@@ -1108,7 +1108,7 @@ export class Dispatcher {
   private async reconcileRun(stale: Run): Promise<void> {
     const run = this.ctx.store.runs.get(stale.id);
     if (!run?.hostId) return;
-    this.lastReconcile.set(run.id, Date.now());
+    this.lastReconcile.set(run.id, this.ctx.store.now().getTime());
     if (run.controlMode !== "automation") {
       await this.reconcileHuman(run.id);
       return;
@@ -1167,8 +1167,12 @@ export class Dispatcher {
 
   /** Periodically re-ask connected hosts about uncertain launches. */
   private reconcileStale(): void {
-    const now = Date.now();
-    for (const run of this.ctx.store.runs.list("state = 'uncertain'")) {
+    const now = this.ctx.store.now().getTime();
+    const uncertain = this.ctx.store.runs.list("state = 'uncertain'");
+    const ids = new Set(uncertain.map((r) => r.id));
+    // Only uncertain runs are re-asked: forget the rest so the map never grows.
+    for (const id of this.lastReconcile.keys()) if (!ids.has(id)) this.lastReconcile.delete(id);
+    for (const run of uncertain) {
       if (!run.hostId || this.inflight.has(run.id)) continue;
       if (!this.ctx.hostHub.isConnected(run.hostId)) continue;
       const last = this.lastReconcile.get(run.id) ?? 0;
