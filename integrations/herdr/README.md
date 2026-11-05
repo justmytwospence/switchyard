@@ -48,4 +48,6 @@ State and logs live in `~/.local/state/switchyard-herdr/` (`$XDG_STATE_HOME`):
 - `<herdr session>/daemon.log` and `daemon.pid`;
 - `<herdr session>/spaces.json`: which spaces and tabs the mirror created. It only ever closes spaces it created.
 
+`daemon --ensure` resolves the coordinator and credential (flags, environment, `client.json`) and passes them to the background daemon in its environment.
+
 MIT licensed, like Switchyard.

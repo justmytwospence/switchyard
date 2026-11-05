@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Session } from "@switchyard/protocol";
-import { CliError, type ConnectionFlags } from "../config.js";
+import { CliError, type ConnectionFlags, resolveConnection } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
 import {
   type HerdrCall,
@@ -21,6 +21,7 @@ import {
   stableLauncherPath,
   writeStableLauncher,
 } from "../herdr/util.js";
+import type { Env } from "../paths.js";
 
 export { herdrNew } from "../herdr/new-session.js";
 export { herdrPane } from "../herdr/pane.js";
@@ -38,6 +39,20 @@ function pidAlive(pid: number): boolean {
 export interface DaemonFlags extends ConnectionFlags {
   ensure?: boolean;
   once?: boolean;
+}
+
+/**
+ * Environment for the background daemon: the caller's env plus the resolved connection.
+ * The credential travels in the environment, never in argv (argv is visible to every user).
+ */
+export function daemonEnv(ctx: Ctx, flags: ConnectionFlags, launcherPath: string): Env {
+  const conn = resolveConnection(flags, ctx.env, ctx.paths);
+  return {
+    ...ctx.env,
+    SWITCHYARD_HERDR_LAUNCHER: launcherPath,
+    SWITCHYARD_URL: conn.url,
+    SWITCHYARD_TOKEN: conn.credential,
+  };
 }
 
 /** `switchyard herdr daemon`: mirror Switchyard into this (paired) herdr session. */
@@ -81,12 +96,13 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
   const running = existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0;
   if (flags.ensure) {
     if (running && pidAlive(running)) return;
+    const daemonEnvironment = daemonEnv(ctx, flags, launcherPath);
     const fd = openSync(logFile, "a", 0o600);
     try {
       const child = spawn(process.execPath, [process.argv[1]!, "herdr", "daemon"], {
         detached: true,
         stdio: ["ignore", fd, fd],
-        env: { ...process.env, SWITCHYARD_HERDR_LAUNCHER: launcherPath },
+        env: daemonEnvironment,
       });
       child.unref();
     } finally {

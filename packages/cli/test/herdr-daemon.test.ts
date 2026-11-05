@@ -4,8 +4,11 @@ import { join } from "node:path";
 import type { Session } from "@switchyard/protocol";
 import { ApiClient } from "@switchyard/terminal";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { daemonEnv } from "../src/commands/herdr.js";
+import { writeClientConfig } from "../src/config.js";
 import { MirrorDaemon } from "../src/herdr/daemon.js";
 import type { MirrorState } from "../src/herdr/mirror.js";
+import { stubFetch, testCtx } from "./helpers.js";
 import { session } from "./herdr-fixtures.js";
 
 /** An in-memory herdr: workspaces, tabs and panes, recording every request. */
@@ -285,5 +288,35 @@ describe("MirrorDaemon", () => {
     expect(offers.map((o) => o.text)).toEqual([
       "sh '/state/switchyard-herdr' 'new' '--workspace' 'wsp_main'",
     ]);
+  });
+});
+
+describe("daemonEnv", () => {
+  it("adds the resolved connection and launcher to the caller's environment", () => {
+    const ctx = testCtx(stubFetch({}).fetch, { PATH: "/bin" });
+    expect(daemonEnv(ctx, { coordinator: "https://sy", credential: "cred" }, "/s/l")).toMatchObject(
+      {
+        PATH: "/bin",
+        SWITCHYARD_URL: "https://sy",
+        SWITCHYARD_TOKEN: "cred",
+        SWITCHYARD_HERDR_LAUNCHER: "/s/l",
+      },
+    );
+  });
+
+  it("falls back to client.json and never reads process.env", () => {
+    const ctx = testCtx(stubFetch({}).fetch, {});
+    writeClientConfig(ctx.paths!.clientConfig!, {
+      coordinatorUrl: "https://c",
+      credential: "devcred",
+    });
+    const env = daemonEnv(ctx, {}, "/s/l");
+    expect(env).toMatchObject({ SWITCHYARD_URL: "https://c", SWITCHYARD_TOKEN: "devcred" });
+    expect(env).not.toHaveProperty("HOME");
+  });
+
+  it("throws when not signed in", () => {
+    const ctx = testCtx(stubFetch({}).fetch, {});
+    expect(() => daemonEnv(ctx, {}, "/s/l")).toThrow(/Not signed in/);
   });
 });
