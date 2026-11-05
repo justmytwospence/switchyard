@@ -7,7 +7,7 @@ import type {
   Task,
   Workspace,
 } from "@switchyard/protocol";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "../../components/ui/Toast";
 import { errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
@@ -126,4 +126,21 @@ export function useNow(active: boolean, ms = 1000): number {
     return () => clearInterval(t);
   }, [active, ms]);
   return now;
+}
+
+/** Width of an element, kept current with a ResizeObserver. */
+export function useElementWidth<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setWidth(el.clientWidth);
+    const ro = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width] as const;
 }

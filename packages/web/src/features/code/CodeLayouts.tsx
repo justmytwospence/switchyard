@@ -1,6 +1,6 @@
 import type { Session } from "@switchyard/protocol";
 import { MousePointerClick, SearchX } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Drawer } from "../../components/ui/Overlay";
@@ -8,29 +8,13 @@ import { Splitter } from "../../components/ui/Splitter";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { PANE_LIMITS, usePrefs } from "../../prefs";
 import { CodeContext, type CodeViewContext, type InspectorTab } from "./context";
-import { type SessionContext, useSessionContext } from "./hooks";
+import { type SessionContext, useElementWidth, useSessionContext } from "./hooks";
 import { Inspector } from "./Inspector";
 import { CONVERSATION_MIN, fitPanes } from "./model";
 import { Navigator } from "./Navigator";
 import { NewSessionFlow } from "./NewSession";
 import { useSessionActions } from "./SessionActions";
 import { Conversation, MobileSession } from "./SessionView";
-
-function useWidth<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    setWidth(el.clientWidth);
-    const ro = new ResizeObserver(([entry]) => {
-      if (entry) setWidth(entry.contentRect.width);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, width] as const;
-}
 
 function NoSession({ missing }: { missing: boolean }) {
   return missing ? (
@@ -72,7 +56,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
   const setPref = usePrefs((s) => s.set);
   const [newOpen, setNewOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [ref, width] = useWidth<HTMLDivElement>();
+  const [ref, width] = useElementWidth<HTMLDivElement>();
   const ctx = useSessionContext(props.session);
 
   const showInspector = !compact && !collapsed && !!ctx;

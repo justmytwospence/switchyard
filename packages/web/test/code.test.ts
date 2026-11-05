@@ -1,4 +1,4 @@
-import type { Host, Project, Session, Workspace } from "@switchyard/protocol";
+import type { Host, Project, Session, TranscriptItem, Workspace } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import { normalizeEntries, normalizeFile } from "../src/features/code/api";
 import {
@@ -18,6 +18,7 @@ import {
   filterCommands,
   fitPanes,
   groupModels,
+  HOST_OFFLINE_DANGER_MS,
   isSubagentView,
   mergeCommands,
   modelSummary,
@@ -31,6 +32,7 @@ import {
   piControlsAvailable,
   pillModelLabel,
   sendModes,
+  sessionStatus,
   TERMINAL_COMMANDS,
   worktreePath,
 } from "../src/features/code/model";
@@ -202,7 +204,7 @@ describe("navigator tree", () => {
     expect(tree.groups[0]!.rows[0]).toMatchObject({ branch: null });
   });
 
-  it("Worktrees keeps project -> workspace; all adds empty projects; search matches branches", () => {
+  it("Worktrees keeps project -> workspace; all hides projects without sessions; search matches branches", () => {
     const tree = buildNavTree(input, { filter: "active", query: "", layout: "worktrees" });
     const beta = tree.groups[0]!;
     const w2 = beta.groups.find((w) => w.key === "w:w2")!;
@@ -211,10 +213,15 @@ describe("navigator tree", () => {
     expect(w2.rows[0]!.attention).toBe(true);
     expect(beta.sessionCount).toBe(2);
     const all = buildNavTree(input, { filter: "all", query: "", layout: "worktrees" });
-    expect(all.groups.map((p) => p.label)).toEqual(["alpha", "beta", "Other sessions"]);
+    expect(all.groups.map((p) => p.label)).toEqual(["beta", "Other sessions"]);
     const found = buildNavTree(input, { filter: "all", query: "W2", layout: "worktrees" });
     expect(found.groups).toHaveLength(1);
     expect(found.groups[0]!.groups.map((w) => w.key)).toEqual(["w:w2"]);
+  });
+
+  it("Projects with All hides projects without sessions", () => {
+    const tree = buildNavTree(input, { filter: "all", query: "" });
+    expect(tree.groups.map((g) => g.label)).toEqual(["beta", "Other sessions"]);
   });
 
   it("Worktrees flattens a project whose only workspace is the main checkout", () => {
@@ -292,7 +299,7 @@ describe("navigator tree", () => {
 
   it("empty trees and group keys", () => {
     const empty = buildNavTree({ ...input, sessions: {} }, { filter: "all", query: "" });
-    expect(empty.groups.length).toBeGreaterThan(0);
+    expect(empty.groups).toEqual([]);
     expect(navTreeIsEmpty(empty)).toBe(true);
     expect(navTreeIsEmpty(buildNavTree(input, { filter: "all", query: "" }))).toBe(false);
     const keys = navGroupKeys(
@@ -386,6 +393,35 @@ describe("transcript timeline", () => {
     expect(entries.map((e) => e.key)).toEqual(["i1", "i2", "stream:i9", "interaction:q2"]);
     const first = entries[0]!;
     expect(first.type === "item" && first.stream?.text).toBe(" world");
+  });
+
+  it("collapses consecutive identical notices into one row with a count", () => {
+    const notice = (
+      id: string,
+      order: number,
+      level: "info" | "warning" = "warning",
+    ): TranscriptItem => ({
+      id,
+      sessionId: "ses_1",
+      order,
+      at: T0,
+      kind: "notice",
+      data: { level, text: "Host agent restarted; resume to continue" },
+    });
+    const entries = buildTimeline(
+      [
+        notice("n1", 1),
+        notice("n2", 2),
+        notice("n3", 3),
+        notice("n4", 4, "info"),
+        assistant("a1", 5, "hi"),
+        notice("n5", 6),
+      ],
+      [],
+      [],
+    );
+    expect(entries.map((e) => e.key)).toEqual(["n1", "n4", "a1", "n5"]);
+    expect(entries.map((e) => (e.type === "item" ? (e.repeat ?? 1) : 0))).toEqual([3, 1, 1, 1]);
   });
 
   it("counts entries after the baseline", () => {
@@ -659,5 +695,72 @@ describe("model controls", () => {
     expect(piControlsAvailable(host("h", { capabilities: caps }), { reason: "x" })).toBe(false);
     expect(piControlsAvailable(host("h"), null)).toBe(false);
     expect(piControlsAvailable(undefined, null)).toBe(false);
+  });
+});
+
+describe("session status bar", () => {
+  const base = {
+    hostLink: "connected" as const,
+    hostName: "mac",
+    hostLastSeenAt: T0 as string | null,
+    control: "none" as const,
+    pending: [] as { title: string }[],
+    canResume: false,
+    now: Date.parse(T0),
+  };
+  const st = (patch: Partial<Session>, over: Partial<typeof base> = {}) =>
+    sessionStatus({ ...base, ...over, session: session("s", patch) });
+
+  it("is null for an idle manual session", () => {
+    expect(st({})).toBeNull();
+  });
+
+  it("orders by what most needs the user", () => {
+    expect(st({ readOnly: true, archivedAt: T0, runtime: "failed" })?.kind).toBe("subagent");
+    const archived = st({ archivedAt: T0 }, { hostLink: "unreachable" });
+    expect(archived?.kind).toBe("archived");
+    expect(archived?.action?.kind).toBe("unarchive");
+    const host = st({}, { hostLink: "reconnecting", pending: [{ title: "Q" }] });
+    expect(host).toMatchObject({ kind: "host", tone: "warning", pending: true });
+    const one = st({}, { control: "automation", pending: [{ title: "Pick a fruit" }] });
+    expect(one).toMatchObject({ kind: "answer", text: "Needs input: Pick a fruit" });
+    expect(st({}, { pending: [{ title: "a" }, { title: "b" }] })?.text).toBe(
+      "2 questions need input",
+    );
+  });
+
+  it("an unreachable host turns danger after five minutes or when last seen is unknown", () => {
+    const at = (ms: number) => st({}, { hostLink: "unreachable", now: Date.parse(T0) + ms });
+    expect(at(60_000)?.tone).toBe("warning");
+    expect(at(HOST_OFFLINE_DANGER_MS + 60_000)?.tone).toBe("danger");
+    expect(st({}, { hostLink: "unreachable", hostLastSeenAt: null })?.tone).toBe("danger");
+  });
+
+  it("failed, interrupted and stopped", () => {
+    const failed = st({ runtime: "failed", runtimeDetail: "boom" }, { canResume: true });
+    expect(failed).toMatchObject({
+      tone: "danger",
+      text: "This session failed: boom",
+      action: { kind: "resume" },
+      link: { to: "/settings/diagnostics" },
+    });
+    expect(st({ runtime: "failed" })?.action).toBeNull();
+    expect(st({ runtime: "interrupted", runtimeDetail: "host restarted" })).toMatchObject({
+      tone: "neutral",
+      text: "Interrupted: host restarted",
+    });
+    expect(st({ runtime: "stopped", nativeHandle: "h" })?.text).toBe(
+      "Stopped. Sending a message resumes it.",
+    );
+    expect(st({ runtime: "stopped", nativeHandle: null })?.text).toBe(
+      "Stopped: no native Pi session to resume.",
+    );
+  });
+
+  it("transitional and control states", () => {
+    expect(st({ runtime: "starting" })?.pending).toBe(true);
+    expect(st({ compacting: true })?.pending).toBe(true);
+    expect(st({}, { control: "automation" })?.action?.kind).toBe("takeover");
+    expect(st({}, { control: "human" })?.action?.kind).toBe("return");
   });
 });

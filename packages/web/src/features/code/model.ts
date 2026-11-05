@@ -214,8 +214,8 @@ function countSessions(g: NavGroup): number {
 /**
  * The navigator tree for a layout. `active` keeps live sessions and those
  * needing attention; `attention` only the latter; `all` includes stopped
- * sessions (and, in Projects and Worktrees, projects and workspaces without
- * sessions). Archived sessions are never listed; subagents only on request.
+ * sessions; projects without sessions are hidden (Worktrees still lists empty
+ * workspaces of projects that have sessions). Archived sessions are never listed; subagents only on request.
  * Rows needing attention come first, then by last activity.
  */
 export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
@@ -323,8 +323,6 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       pg.detail = pg.rows[0]!.host;
       for (const r of pg.rows) r.host = null;
     }
-    if (opts.filter === "all" && !q)
-      for (const p of Object.values(input.projects)) projectGroup(p.id);
     const groups = sortGroups([...projects.values()]);
     for (const g of groups) countSessions(g);
     return { groups, rows: [] };
@@ -354,9 +352,10 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   }
 
   if (opts.filter === "all") {
-    // Workspaces and projects without sessions still appear, so a new session can start there.
+    // Empty workspaces still appear under projects that have sessions, so a new session can start there.
+    const withSessions = new Set(entries.map((e) => e.projectId));
     for (const ws of Object.values(input.workspaces)) {
-      if (ws.archivedAt) continue;
+      if (ws.archivedAt || !withSessions.has(ws.projectId)) continue;
       const project = input.projects[ws.projectId] ?? null;
       if (
         q &&
@@ -365,7 +364,6 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
         continue;
       wsGroup(projectGroup(ws.projectId), ws, ws.hostId, ws.path);
     }
-    if (!q) for (const p of Object.values(input.projects)) projectGroup(p.id);
   }
 
   const groups = sortGroups([...projects.values()]);
@@ -491,6 +489,163 @@ export function composerBlockReason(input: {
   return null;
 }
 
+export type SessionStatusKind =
+  | "subagent"
+  | "archived"
+  | "host"
+  | "answer"
+  | "failed"
+  | "interrupted"
+  | "stopped"
+  | "starting"
+  | "compacting"
+  | "automation"
+  | "human";
+export type SessionStatusAction = "unarchive" | "answer" | "resume" | "takeover" | "return";
+
+export interface SessionStatus {
+  kind: SessionStatusKind;
+  tone: "neutral" | "info" | "warning" | "danger";
+  text: string;
+  action: { kind: SessionStatusAction; label: string } | null;
+  /** Transitional: show a spinner instead of the icon. */
+  pending?: boolean;
+  /** Secondary link (failed: diagnostics). */
+  link?: { label: string; to: string };
+}
+
+/** An unreachable host turns the status from warning to danger after this long. */
+export const HOST_OFFLINE_DANGER_MS = 5 * 60_000;
+
+/**
+ * The one status line above the composer: what most needs the user, in priority order
+ * (subagent, archived, host, question, failed, interrupted, stopped, starting, compacting,
+ * automation, human control). Null when nothing needs saying.
+ */
+export function sessionStatus(input: {
+  session: Session;
+  hostLink: HostLink;
+  hostName: string;
+  hostLastSeenAt: string | null | undefined;
+  control: AutomationControl;
+  pending: Pick<Interaction, "title">[];
+  canResume: boolean;
+  now: number;
+}): SessionStatus | null {
+  const { session: s, hostLink: link, hostName, pending } = input;
+  const resume = input.canResume ? { kind: "resume" as const, label: "Resume" } : null;
+  if (s.readOnly)
+    return { kind: "subagent", tone: "neutral", text: SUBAGENT_READ_ONLY, action: null };
+  if (s.archivedAt) {
+    return {
+      kind: "archived",
+      tone: "neutral",
+      text: "This session is archived. Unarchive it to send messages.",
+      action: { kind: "unarchive", label: "Unarchive" },
+    };
+  }
+  if (link !== "connected") {
+    const seen = input.hostLastSeenAt ? Date.parse(input.hostLastSeenAt) : Number.NaN;
+    const long =
+      link === "unreachable" &&
+      (!Number.isFinite(seen) || input.now - seen > HOST_OFFLINE_DANGER_MS);
+    return link === "reconnecting"
+      ? {
+          kind: "host",
+          tone: "warning",
+          pending: true,
+          text: `Host ${hostName} is reconnecting… Sending and answers resume when it is back.`,
+          action: null,
+        }
+      : {
+          kind: "host",
+          tone: long ? "danger" : "warning",
+          text: `Host ${hostName} is offline. Showing the last known transcript; sending resumes when it reconnects.`,
+          action: null,
+        };
+  }
+  if (pending.length > 0) {
+    return {
+      kind: "answer",
+      tone: "warning",
+      text:
+        pending.length === 1
+          ? `Needs input: ${pending[0]!.title}`
+          : `${pending.length} questions need input`,
+      action: { kind: "answer", label: "Answer" },
+    };
+  }
+  if (s.runtime === "failed") {
+    return {
+      kind: "failed",
+      tone: "danger",
+      text: `This session failed: ${s.runtimeDetail ?? "Pi exited with an error."}`,
+      action: resume,
+      link: { label: "Diagnostics", to: "/settings/diagnostics" },
+    };
+  }
+  if (s.runtime === "interrupted") {
+    return {
+      kind: "interrupted",
+      tone: "neutral",
+      text: s.runtimeDetail
+        ? `Interrupted: ${s.runtimeDetail}`
+        : "Interrupted. Resume to continue.",
+      action: resume,
+    };
+  }
+  if (s.runtime === "stopped") {
+    return s.nativeHandle
+      ? {
+          kind: "stopped",
+          tone: "neutral",
+          text: "Stopped. Sending a message resumes it.",
+          action: resume,
+        }
+      : {
+          kind: "stopped",
+          tone: "neutral",
+          text: "Stopped: no native Pi session to resume.",
+          action: null,
+        };
+  }
+  if (s.runtime === "starting") {
+    return {
+      kind: "starting",
+      tone: "info",
+      pending: true,
+      text: "Starting Pi… you can send once it is ready.",
+      action: null,
+    };
+  }
+  if (s.compacting) {
+    return {
+      kind: "compacting",
+      tone: "info",
+      pending: true,
+      text: "Compacting context… you can send when it finishes.",
+      action: null,
+    };
+  }
+  if (input.control === "automation") {
+    return {
+      kind: "automation",
+      tone: "info",
+      text: "Automation is running this session. Take over to pause automatic continuations.",
+      action: { kind: "takeover", label: "Take over" },
+    };
+  }
+  if (input.control === "human") {
+    return {
+      kind: "human",
+      tone: "neutral",
+      text: "You have control. Automatic continuations are paused.",
+      action: { kind: "return", label: "Return to automation" },
+    };
+  }
+  return null;
+}
+
 export interface SendModes {
   /** Send as a normal prompt (session idle). */
   prompt: boolean;
@@ -517,7 +672,13 @@ export function sendModes(
 /* ------------------------------------------------------------------ */
 
 export type TimelineEntry =
-  | { type: "item"; key: string; item: TranscriptItem; stream: StreamBuffer | null }
+  | {
+      type: "item";
+      key: string;
+      item: TranscriptItem;
+      stream: StreamBuffer | null;
+      repeat?: number;
+    }
   | { type: "stream"; key: string; stream: StreamBuffer }
   | { type: "interaction"; key: string; interaction: Interaction };
 
@@ -538,6 +699,19 @@ export function buildTimeline(
     const stream = byItem.get(item.id) ?? null;
     if (stream) byItem.delete(item.id);
     if (item.kind === "interaction") seenInteractions.add(item.data.interactionId);
+    // Consecutive identical notices (e.g. repeated "Host agent restarted") become one row with a count.
+    const prev = out[out.length - 1];
+    if (
+      item.kind === "notice" &&
+      !stream &&
+      prev?.type === "item" &&
+      prev.item.kind === "notice" &&
+      prev.item.data.level === item.data.level &&
+      prev.item.data.text === item.data.text
+    ) {
+      out[out.length - 1] = { ...prev, repeat: (prev.repeat ?? 1) + 1 };
+      continue;
+    }
     out.push({ type: "item", key: item.id, item, stream });
   }
   const orphans = [...byItem.values()].sort(
@@ -651,6 +825,8 @@ export function outputPreview(output: string, maxLines = 6): { text: string; tru
 /* ------------------------------------------------------------------ */
 
 export const CONVERSATION_MIN = 420;
+/** At the compact breakpoint the navigator is at most this wide (the inspector is a drawer). */
+export const COMPACT_NAVIGATOR_MAX = 300;
 const SPLITTER = 6;
 
 /**
