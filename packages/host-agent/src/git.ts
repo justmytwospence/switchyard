@@ -14,12 +14,14 @@ import {
   WorktreeDir,
 } from "@switchyard/protocol";
 import { spawnShell, tailBytes } from "./checks.js";
+import { mapLimit } from "./concurrency.js";
 
 const MAX_BUFFER = 64 * 1024 * 1024;
 /** Git's well-known empty tree, the diff base for a repository without commits. */
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const MAX_PATCH_BYTES = 2 * 1024 * 1024;
 const MAX_UNTRACKED_CONTENT_BYTES = 1024 * 1024;
+const UNTRACKED_READ_CONCURRENCY = 8;
 const SETUP_LOG_BYTES = 64 * 1024;
 const SETUP_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -542,7 +544,8 @@ async function describeUntracked(top: string, rel: string): Promise<UntrackedFil
 
 /**
  * Changes of the worktree at `path` against its merge base with `base`: committed and uncommitted
- * changes plus untracked files. `file` limits the patch (not the file list) to one path.
+ * changes plus untracked files. `file` limits the patch to one path and reads only that file: the
+ * list still names every change, but other untracked files report `added: 0`.
  */
 export async function diffWorkspace(
   path: string,
@@ -583,17 +586,15 @@ export async function diffWorkspace(
   }
   const untrackedPaths = untrackedOut.stdout.split("\0").filter((p) => p !== "");
   const wanted = file === null ? untrackedPaths : untrackedPaths.filter((p) => p === file);
-  const untracked = new Map<string, UntrackedFile>();
-  await Promise.all(
-    untrackedPaths.map(async (p) => {
-      untracked.set(p, await describeUntracked(top, p));
-    }),
+  const described = await mapLimit(wanted, UNTRACKED_READ_CONCURRENCY, (p) =>
+    describeUntracked(top, p),
   );
+  const untracked = new Map(wanted.map((p, i) => [p, described[i]!] as const));
   for (const p of untrackedPaths) {
     files.push({
       path: p,
       oldPath: null,
-      added: untracked.get(p)!.lines,
+      added: untracked.get(p)?.lines ?? 0,
       deleted: 0,
       status: "untracked",
     });

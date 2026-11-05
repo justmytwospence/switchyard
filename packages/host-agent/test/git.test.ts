@@ -389,10 +389,15 @@ describe("worktrees", () => {
     expect(one.files).toHaveLength(diff.files.length);
     expect(one.patch).toContain("+++ b/untracked.txt");
     expect(one.patch).not.toContain("committed.txt");
+    expect(one.files.find((f) => f.path === "untracked.txt")?.added).toBe(3);
 
     const readme = await diffWorkspace(path, "main", "README.md");
     expect(readme.patch).toContain("+more");
     expect(readme.patch).not.toContain("untracked.txt");
+    expect(readme.files.find((f) => f.path === "untracked.txt")).toMatchObject({
+      status: "untracked",
+      added: 0,
+    });
   });
 
   it("detects renames and binary changes", async () => {
