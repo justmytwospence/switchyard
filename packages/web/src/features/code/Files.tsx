@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeView } from "../../components/intent/CodeView";
 import { Markdown } from "../../components/intent/Markdown";
+import { copyText } from "../../components/ui/Copy";
 import { IconButton } from "../../components/ui/IconButton";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import {
@@ -26,7 +27,6 @@ import {
   UnsupportedCapability,
 } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
-import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { langFor } from "../../lib/highlight";
 import { isApiError } from "../../sync/api";
@@ -438,7 +438,7 @@ function FilePreview({
   const lines = text === null ? null : text.replace(/\n$/, "").split("\n").length;
   const dir = parentDir(file);
   const copy = (value: string) => {
-    void navigator.clipboard?.writeText(value).then(() => toast.success("Copied"));
+    void copyText(value, "Copied");
   };
   const checkerboard =
     "flex justify-center bg-[conic-gradient(var(--sy-surface-2)_25%,var(--sy-surface)_0_50%,var(--sy-surface-2)_0_75%,var(--sy-surface)_0)] bg-[length:16px_16px] p-4";

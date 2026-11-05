@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
+import { copyText } from "../../components/ui/Copy";
 import { ConfirmDialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
@@ -230,15 +231,6 @@ function PreviewResult({ preview, stale }: { preview: AutomationPreview; stale: 
 /* Webhook token                                                       */
 /* ------------------------------------------------------------------ */
 
-async function copy(text: string, what: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.success(`${what} copied`);
-  } catch {
-    toast.error(`Could not copy the ${what.toLowerCase()}; select it and copy manually`);
-  }
-}
-
 function CopyField({
   label,
   value,
@@ -260,7 +252,7 @@ function CopyField({
         <Button
           size="sm"
           icon={<Copy className="size-3.5" />}
-          onClick={() => void copy(value, label)}
+          onClick={() => void copyText(value, `${label} copied`)}
           aria-label={`Copy ${label.toLowerCase()}`}
         >
           Copy

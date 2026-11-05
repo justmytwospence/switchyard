@@ -22,6 +22,7 @@ import { InteractionCard } from "../../components/intent/InteractionCard";
 import { Markdown } from "../../components/intent/Markdown";
 import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
 import { Button } from "../../components/ui/Button";
+import { copyText } from "../../components/ui/Copy";
 import { Sheet } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
 import { toast } from "../../components/ui/Toast";
@@ -357,9 +358,7 @@ function SystemItem({
           size="sm"
           variant="ghost"
           icon={<Copy className="size-3.5" />}
-          onClick={() =>
-            void navigator.clipboard?.writeText(text).then(() => toast.success("Copied"))
-          }
+          onClick={() => void copyText(text, "Copied")}
         >
           Copy
         </Button>

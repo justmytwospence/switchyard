@@ -2,6 +2,7 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/cn";
 import { langFor, useHighlight } from "../../lib/highlight";
+import { copyText } from "../ui/Copy";
 
 /** Monospace block; long lines scroll horizontally inside the block, never the page. */
 export function CodeBlock({
@@ -48,7 +49,8 @@ export function CodeBlock({
         title={copied ? "Copied" : "Copy code"}
         className="tap absolute top-1 right-1 inline-flex size-7 items-center justify-center rounded border border-border bg-surface text-muted opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100"
         onClick={() => {
-          void navigator.clipboard?.writeText(text).then(() => {
+          void copyText(text, false).then((ok) => {
+            if (!ok) return;
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           });

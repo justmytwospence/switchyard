@@ -16,6 +16,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useHideBottomNav } from "../../app/chrome";
 import { Button } from "../../components/ui/Button";
+import { copyText } from "../../components/ui/Copy";
 import { IconButton } from "../../components/ui/IconButton";
 import { Sheet } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
@@ -300,8 +301,7 @@ export function Composer({
         return;
       case "copy":
         if (session.lastAssistantText) {
-          await navigator.clipboard.writeText(session.lastAssistantText);
-          toast.success("Copied the last reply");
+          await copyText(session.lastAssistantText, "Copied the last reply");
         } else toast.info("No reply to copy yet");
         return;
       default:
