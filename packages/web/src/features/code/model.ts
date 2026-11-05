@@ -70,6 +70,78 @@ export function branchProblem(branch: string): string | null {
   return null;
 }
 
+export function hostOnline(h: Host | undefined): boolean {
+  return !!h && !h.revokedAt && h.connectivity === "connected";
+}
+
+/** Main checkout first, then by branch. */
+export function compareWorkspaces(a: Workspace, b: Workspace): number {
+  return (
+    (a.provenance === "main" ? 0 : 1) - (b.provenance === "main" ? 0 : 1) ||
+    (a.branch ?? "").localeCompare(b.branch ?? "")
+  );
+}
+
+/** Branch suggested from a prompt: first 5 words, kebab-case, at most 40 chars; else session-MMDD-HHMM. */
+export function branchFromPrompt(prompt: string, now: Date = new Date()): string {
+  const words = prompt
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 5);
+  const slug = words.join("-").slice(0, 40).replace(/-+$/, "");
+  if (slug) return slug;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `session-${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}`;
+}
+
+/** `base`, or `base-2`, `base-3`… when a workspace already uses that branch. */
+export function uniqueBranch(base: string, taken: Iterable<string | null>): string {
+  const set = new Set([...taken].filter((b): b is string => !!b));
+  if (!set.has(base)) return base;
+  for (let i = 2; ; i++) if (!set.has(`${base}-${i}`)) return `${base}-${i}`;
+}
+
+/** Project id of a navigator project group ("p:<id>", "h:<host>/p:<id>"); null for other groups. */
+export function projectIdOfGroup(key: string): string | null {
+  const m = /(?:^|\/)p:([^/]+)$/.exec(key);
+  return m && m[1] !== "__none" ? m[1]! : null;
+}
+
+export interface NewSessionDefaults {
+  hostId: string;
+  /** The main checkout's workspace on that host; null means "New worktree…". */
+  workspaceId: string | null;
+  checkoutId: string | null;
+}
+
+/** Host: the requested one, else the project default if online, else the first online host with a checkout. */
+export function newSessionDefaults(
+  project: Project,
+  checkouts: Checkout[],
+  workspaces: Workspace[],
+  hosts: Record<string, Host>,
+  hostId?: string,
+): NewSessionDefaults {
+  const hostIds = [...new Set(checkouts.map((c) => c.hostId))];
+  const def = project.defaultHostId;
+  const pick =
+    (hostId && hostIds.includes(hostId) ? hostId : undefined) ??
+    (def && hostIds.includes(def) && hostOnline(hosts[def]) ? def : undefined) ??
+    hostIds.find((id) => hostOnline(hosts[id])) ??
+    hostIds[0] ??
+    "";
+  const main =
+    workspaces.find((w) => w.hostId === pick && !w.archivedAt && w.provenance === "main") ?? null;
+  const onHost = checkouts.filter((c) => c.hostId === pick);
+  const checkout = onHost.find((c) => c.id === main?.checkoutId) ?? onHost[0] ?? null;
+  return { hostId: pick, workspaceId: main?.id ?? null, checkoutId: checkout?.id ?? null };
+}
+
 /* ------------------------------------------------------------------ */
 /* Navigator tree                                                      */
 /* ------------------------------------------------------------------ */
@@ -81,7 +153,7 @@ export type NavLayout = "projects" | "worktrees" | "recent" | "hosts";
 export const NAV_LAYOUTS: { value: NavLayout; label: string; hint: string }[] = [
   { value: "projects", label: "Projects", hint: "Sessions under each project" },
   { value: "worktrees", label: "Worktrees", hint: "Project, then branch or worktree" },
-  { value: "recent", label: "Recent", hint: "One list, needs-you first" },
+  { value: "recent", label: "Recent", hint: "One list, needs-input first" },
   { value: "hosts", label: "Hosts", hint: "Host, then project" },
 ];
 

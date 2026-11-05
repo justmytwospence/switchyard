@@ -54,7 +54,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
   const setPaneSize = usePrefs((s) => s.setPaneSize);
   const collapsed = usePrefs((s) => s.inspectorCollapsed);
   const setPref = usePrefs((s) => s.set);
-  const [newOpen, setNewOpen] = useState(false);
+  const [newFor, setNewFor] = useState<{ projectId: string | null } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const ctx = useSessionContext(props.session);
@@ -69,7 +69,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
 
   const onCreated = useCallback(
     (id: string) => {
-      setNewOpen(false);
+      setNewFor(null);
       navigate(`/code/${encodeURIComponent(id)}`);
     },
     [navigate],
@@ -80,7 +80,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
       <Navigator
         variant="pane"
         selectedId={props.sessionId}
-        onNewSession={() => setNewOpen(true)}
+        onNewSession={(pid) => setNewFor({ projectId: pid ?? null })}
         className="shrink-0 border-r border-border"
         style={{ width: fit.nav }}
       />
@@ -116,8 +116,9 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
         )}
       </div>
       <NewSessionFlow
-        open={newOpen}
-        onClose={() => setNewOpen(false)}
+        open={newFor !== null}
+        projectId={newFor?.projectId ?? null}
+        onClose={() => setNewFor(null)}
         onCreated={onCreated}
         mobile={false}
       />
@@ -257,11 +258,11 @@ function SessionPanes({
 /** Mobile: the session list at /code, one session screen at /code/:id. */
 export function CodeMobile(props: LayoutProps) {
   const navigate = useNavigate();
-  const [newOpen, setNewOpen] = useState(false);
+  const [newFor, setNewFor] = useState<{ projectId: string | null } | null>(null);
   const ctx = useSessionContext(props.session);
   const onCreated = useCallback(
     (id: string) => {
-      setNewOpen(false);
+      setNewFor(null);
       navigate(`/code/${encodeURIComponent(id)}`, { state: BACK_STATE });
     },
     [navigate],
@@ -283,12 +284,13 @@ export function CodeMobile(props: LayoutProps) {
       <Navigator
         variant="screen"
         selectedId={null}
-        onNewSession={() => setNewOpen(true)}
+        onNewSession={(pid) => setNewFor({ projectId: pid ?? null })}
         className="min-h-0 flex-1 safe-pt"
       />
       <NewSessionFlow
-        open={newOpen}
-        onClose={() => setNewOpen(false)}
+        open={newFor !== null}
+        projectId={newFor?.projectId ?? null}
+        onClose={() => setNewFor(null)}
         onCreated={onCreated}
         mobile
       />

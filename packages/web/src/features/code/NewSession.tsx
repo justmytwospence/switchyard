@@ -1,414 +1,257 @@
-import type { Checkout, Host, Workspace } from "@switchyard/protocol";
-import { GitBranch } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, GitBranch, TriangleAlert } from "lucide-react";
+import { type KeyboardEvent, useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
-import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
 import { useProjects, useSyncStore } from "../../sync/store";
 import { codeApi } from "./api";
-import { branchProblem, workspaceLabel, worktreePath } from "./model";
+import {
+  branchFromPrompt,
+  branchProblem,
+  compareWorkspaces,
+  hostOnline,
+  newSessionDefaults,
+  uniqueBranch,
+  workspaceLabel,
+  worktreePath,
+} from "./model";
+import { CHIP_SELECT, ProjectPicker } from "./ProjectPicker";
 import { rememberInitialPrompt } from "./startingPrompts";
 
-type WsMode = "existing" | "new";
+const NEW = "__new";
 
-function hostOnline(h: Host | undefined): boolean {
-  return !!h && !h.revokedAt && h.connectivity === "connected";
-}
-
-function useNewSessionForm(open: boolean) {
+function useNewSessionForm(open: boolean, initialProjectId: string | null) {
   const projects = useProjects();
   const workspaces = useSyncStore((s) => s.workspaces);
   const checkouts = useSyncStore((s) => s.checkouts);
   const profilesMap = useSyncStore((s) => s.profiles);
   const hosts = useSyncStore((s) => s.hosts);
+  const projectsById = useSyncStore((s) => s.projects);
   const selectedProject = usePrefs((s) => s.selectedProjectId);
+  const lastProject = usePrefs((s) => s.lastNewSessionProjectId);
   const profiles = useMemo(
     () => Object.values(profilesMap).sort((a, b) => a.name.localeCompare(b.name)),
     [profilesMap],
   );
 
   const [projectId, setProjectId] = useState("");
-  const [mode, setMode] = useState<WsMode>("new");
-  const [workspaceId, setWorkspaceId] = useState("");
+  const [hostId, setHostId] = useState("");
+  const [workspaceId, setWorkspaceId] = useState(NEW);
   const [checkoutId, setCheckoutId] = useState("");
   const [branch, setBranch] = useState("");
+  const [branchTouched, setBranchTouched] = useState(false);
   const [base, setBase] = useState("");
   const [profileId, setProfileId] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [title, setTitle] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Defaults when the flow opens.
   // biome-ignore lint/correctness/useExhaustiveDependencies: initialize once per opening
   useEffect(() => {
     if (!open) return;
-    const p = projects.find((x) => x.id === selectedProject) ?? projects[0] ?? null;
-    setProjectId(p?.id ?? "");
-  }, [open]);
+    const pick = [initialProjectId, lastProject, selectedProject].find(
+      (id) => !!id && !!projectsById[id],
+    );
+    setProjectId(pick ?? projects[0]?.id ?? "");
+  }, [open, initialProjectId]);
 
   const project = projects.find((p) => p.id === projectId);
   const projectWorkspaces = useMemo(
-    () =>
-      Object.values(workspaces)
-        .filter((w) => w.projectId === projectId && !w.archivedAt)
-        .sort(
-          (a, b) =>
-            (a.provenance === "main" ? 0 : 1) - (b.provenance === "main" ? 0 : 1) ||
-            (a.branch ?? "").localeCompare(b.branch ?? ""),
-        ),
+    () => Object.values(workspaces).filter((w) => w.projectId === projectId && !w.archivedAt),
     [workspaces, projectId],
   );
   const projectCheckouts = useMemo(
-    () => Object.values(checkouts).filter((c) => c.projectId === projectId),
+    () =>
+      Object.values(checkouts)
+        .filter((c) => c.projectId === projectId)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [checkouts, projectId],
+  );
+  const hostIds = useMemo(
+    () =>
+      [...new Set(projectCheckouts.map((c) => c.hostId))].sort((a, b) =>
+        (hosts[a]?.name ?? "").localeCompare(hosts[b]?.name ?? ""),
+      ),
+    [projectCheckouts, hosts],
   );
 
   // Project-dependent defaults.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-default when the project changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-default when the flow opens or the project changes
   useEffect(() => {
-    if (!project) return;
-    const preferred =
-      projectCheckouts.find(
-        (c) => c.hostId === project.defaultHostId && hostOnline(hosts[c.hostId]),
-      ) ??
-      projectCheckouts.find((c) => hostOnline(hosts[c.hostId])) ??
-      projectCheckouts[0];
-    setCheckoutId(preferred?.id ?? "");
-    const ws = projectWorkspaces.find((w) => hostOnline(hosts[w.hostId])) ?? projectWorkspaces[0];
-    setWorkspaceId(ws?.id ?? "");
-    setProfileId(project.defaultProfileId ?? profiles[0]?.id ?? "");
+    if (!open || !project) return;
+    const d = newSessionDefaults(project, projectCheckouts, projectWorkspaces, hosts);
+    setHostId(d.hostId);
+    setWorkspaceId(d.workspaceId ?? NEW);
+    setCheckoutId(d.checkoutId ?? "");
+    setProfileId("");
     setBase("");
-  }, [projectId]);
+    setBranch("");
+    setBranchTouched(false);
+  }, [open, projectId]);
 
-  const workspace: Workspace | undefined = workspaces[workspaceId];
-  const checkout: Checkout | undefined = checkouts[checkoutId];
-  const hostId = mode === "existing" ? workspace?.hostId : checkout?.hostId;
-  const host = hostId ? hosts[hostId] : undefined;
+  const changeHost = (id: string) => {
+    if (!project) return;
+    const d = newSessionDefaults(project, projectCheckouts, projectWorkspaces, hosts, id);
+    setHostId(d.hostId);
+    setWorkspaceId(d.workspaceId ?? NEW);
+    setCheckoutId(d.checkoutId ?? "");
+  };
 
-  const problems: string[] = [];
-  if (!project) problems.push("Select a project.");
-  if (mode === "existing" && !workspace) problems.push("Select a workspace.");
-  if (mode === "new") {
-    if (!checkout) problems.push("Select a host checkout.");
-    const bp = branchProblem(branch);
-    if (bp) problems.push(bp);
+  const hostWorkspaces = useMemo(
+    () => projectWorkspaces.filter((w) => w.hostId === hostId).sort(compareWorkspaces),
+    [projectWorkspaces, hostId],
+  );
+  const hostCheckouts = useMemo(
+    () => projectCheckouts.filter((c) => c.hostId === hostId),
+    [projectCheckouts, hostId],
+  );
+  const mode = workspaceId === NEW ? "new" : "existing";
+  const workspace = mode === "existing" ? workspaces[workspaceId] : undefined;
+  const checkout = checkouts[checkoutId] ?? hostCheckouts[0];
+  const host = hosts[hostId];
+  const suggested = useMemo(
+    () =>
+      uniqueBranch(
+        branchFromPrompt(prompt),
+        projectWorkspaces.map((w) => w.branch),
+      ),
+    [prompt, projectWorkspaces],
+  );
+  const effectiveBranch = branchTouched ? branch : suggested;
+
+  let problem: string | null = null;
+  if (!project) problem = "Choose a project.";
+  else if (hostIds.length === 0)
+    problem = "This project has no checkout yet. Add one in Settings › Projects.";
+  else if (!host) problem = "Choose a host.";
+  else if (!hostOnline(host)) problem = `${host.name} is offline.`;
+  else if (!host.piCompatible) {
+    problem = `Pi ${host.piVersion ?? "(not found)"} on ${host.name} is outside the tested range.`;
+  } else if (mode === "existing" && !workspace) problem = "Choose a workspace.";
+  else if (mode === "new" && !checkout) problem = `No checkout of ${project.name} on ${host.name}.`;
+  else if (mode === "new") problem = branchProblem(effectiveBranch);
+
+  let summary: { text: string; path: string } | null = null;
+  if (workspace) {
+    summary = {
+      text: `${workspaceLabel(workspace)} on ${host?.name ?? "unknown host"}`,
+      path: workspace.path,
+    };
+  } else if (mode === "new" && checkout) {
+    summary = {
+      text: `New worktree ${effectiveBranch.trim()} from ${base.trim() || checkout.defaultBranch} on ${host?.name ?? "unknown host"}`,
+      path: worktreePath(checkout.path, effectiveBranch, project?.worktreeDir),
+    };
   }
-  if (host && !hostOnline(host)) problems.push(`Host ${host.name} is offline.`);
-  if (host && !host.piCompatible) {
-    problems.push(
-      `Pi ${host.piVersion ?? "(not found)"} on ${host.name} is outside the tested range.`,
-    );
-  }
-
-  const preview =
-    mode === "existing"
-      ? workspace
-        ? { branch: workspaceLabel(workspace), path: workspace.path }
-        : null
-      : checkout && branch.trim()
-        ? { branch: branch.trim(), path: worktreePath(checkout.path, branch, project?.worktreeDir) }
-        : null;
 
   return {
     projects,
     profiles,
     hosts,
-    projectWorkspaces,
-    projectCheckouts,
     project,
+    projectId,
+    setProjectId,
+    hostId,
+    hostIds,
+    changeHost,
+    workspaceId,
+    setWorkspaceId,
+    hostWorkspaces,
+    hostCheckouts,
+    setCheckoutId,
+    mode,
     workspace,
     checkout,
     host,
-    preview,
-    problems,
-    values: { projectId, mode, workspaceId, checkoutId, branch, base, profileId, prompt },
-    set: {
-      projectId: setProjectId,
-      mode: setMode,
-      workspaceId: setWorkspaceId,
-      checkoutId: setCheckoutId,
-      branch: setBranch,
-      base: setBase,
-      profileId: setProfileId,
-      prompt: setPrompt,
-    },
+    branch,
+    setBranch,
+    branchTouched,
+    setBranchTouched,
+    base,
+    setBase,
+    profileId,
+    setProfileId,
+    prompt,
+    setPrompt,
+    title,
+    setTitle,
+    advancedOpen,
+    setAdvancedOpen,
+    suggested,
+    effectiveBranch,
+    problem,
+    summary,
     reset: () => {
-      setBranch("");
-      setBase("");
       setPrompt("");
+      setTitle("");
+      setBranch("");
+      setBranchTouched(false);
+      setBase("");
+      setAdvancedOpen(false);
     },
   };
 }
 
-type Form = ReturnType<typeof useNewSessionForm>;
-
-function ProjectField({ form, id }: { form: Form; id: string }) {
-  return (
-    <Field label="Project" id={`${id}-project`}>
-      <Select
-        id={`${id}-project`}
-        value={form.values.projectId}
-        onChange={(e) => form.set.projectId(e.target.value)}
-      >
-        {form.projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </Select>
-    </Field>
-  );
-}
-
-function WorkspaceFields({ form, id }: { form: Form; id: string }) {
-  const { values, set, hosts } = form;
-  return (
-    <fieldset className="flex min-w-0 flex-col gap-3">
-      <legend className="mb-1 text-sm font-medium">Workspace</legend>
-      <div className="flex flex-col gap-1.5">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="radio"
-            name={`${id}-wsmode`}
-            checked={values.mode === "new"}
-            onChange={() => set.mode("new")}
-            className="size-4"
-          />
-          Create a new worktree
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="radio"
-            name={`${id}-wsmode`}
-            checked={values.mode === "existing"}
-            onChange={() => set.mode("existing")}
-            disabled={form.projectWorkspaces.length === 0}
-            className="size-4"
-          />
-          Use an existing workspace
-          {form.projectWorkspaces.length === 0 && (
-            <span className="text-xs text-muted">(none discovered)</span>
-          )}
-        </label>
-      </div>
-      {values.mode === "existing" ? (
-        <Field
-          label="Existing workspace"
-          id={`${id}-ws`}
-          hint={form.host ? `Runs on ${form.host.name}` : undefined}
-        >
-          <Select
-            id={`${id}-ws`}
-            value={values.workspaceId}
-            onChange={(e) => set.workspaceId(e.target.value)}
-          >
-            {form.projectWorkspaces.map((w) => {
-              const h = hosts[w.hostId];
-              return (
-                <option key={w.id} value={w.id} disabled={!hostOnline(h)}>
-                  {workspaceLabel(w)} on {h?.name ?? "unknown host"}
-                  {hostOnline(h) ? "" : " (host offline)"}
-                </option>
-              );
-            })}
-          </Select>
-        </Field>
-      ) : (
-        <>
-          <Field label="Host and checkout" id={`${id}-checkout`}>
-            <Select
-              id={`${id}-checkout`}
-              value={values.checkoutId}
-              onChange={(e) => set.checkoutId(e.target.value)}
-            >
-              {form.projectCheckouts.length === 0 && <option value="">No checkouts</option>}
-              {form.projectCheckouts.map((c) => {
-                const h = hosts[c.hostId];
-                return (
-                  <option key={c.id} value={c.id} disabled={!hostOnline(h)}>
-                    {h?.name ?? "Unknown host"}: {c.path}
-                    {hostOnline(h) ? "" : " (host offline)"}
-                  </option>
-                );
-              })}
-            </Select>
-          </Field>
-          <Field
-            label="New branch"
-            id={`${id}-branch`}
-            hint={values.branch ? branchProblem(values.branch) : undefined}
-          >
-            <TextInput
-              id={`${id}-branch`}
-              value={values.branch}
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              placeholder="e.g. fix/login-retry"
-              onChange={(e) => set.branch(e.target.value)}
-            />
-          </Field>
-          <Field
-            label="Base branch (optional)"
-            id={`${id}-base`}
-            hint={`Defaults to ${form.checkout?.defaultBranch ?? "the default branch"}.`}
-          >
-            <TextInput
-              id={`${id}-base`}
-              value={values.base}
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              placeholder={form.checkout?.defaultBranch ?? "main"}
-              onChange={(e) => set.base(e.target.value)}
-            />
-          </Field>
-        </>
-      )}
-    </fieldset>
-  );
-}
-
-function ProfileField({ form, id }: { form: Form; id: string }) {
-  const p = form.profiles.find((x) => x.id === form.values.profileId);
-  return (
-    <Field
-      label="Pi profile"
-      id={`${id}-profile`}
-      hint={
-        p
-          ? [p.provider, p.model, p.thinking ? `effort ${p.thinking}` : null]
-              .filter(Boolean)
-              .join(" · ") || "Pi defaults"
-          : undefined
-      }
-    >
-      <Select
-        id={`${id}-profile`}
-        value={form.values.profileId}
-        onChange={(e) => form.set.profileId(e.target.value)}
-      >
-        {form.profiles.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-            {form.project?.defaultProfileId === p.id ? " (project default)" : ""}
-          </option>
-        ))}
-      </Select>
-    </Field>
-  );
-}
-
-function PromptField({ form, id }: { form: Form; id: string }) {
-  return (
-    <Field label="Initial prompt (optional)" id={`${id}-prompt`}>
-      <TextArea
-        id={`${id}-prompt`}
-        minRows={3}
-        maxHeight="30vh"
-        value={form.values.prompt}
-        placeholder="What should Pi work on?"
-        onChange={(e) => form.set.prompt(e.target.value)}
-      />
-    </Field>
-  );
-}
-
-function Preview({ form }: { form: Form }) {
-  return (
-    <section
-      aria-label="Preview"
-      data-testid="new-session-preview"
-      className="flex min-w-0 flex-col gap-1 rounded-md border border-border bg-surface-2 p-3 text-sm"
-    >
-      <h3 className="flex items-center gap-1.5 font-medium">
-        <GitBranch aria-hidden className="size-4" />
-        Result
-      </h3>
-      {form.preview ? (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5">
-          <dt className="text-muted">Branch</dt>
-          <dd className="min-w-0 font-mono text-xs break-all">{form.preview.branch}</dd>
-          <dt className="text-muted">Path</dt>
-          <dd className="min-w-0 font-mono text-xs break-all">{form.preview.path}</dd>
-          <dt className="text-muted">Host</dt>
-          <dd className="min-w-0 break-words">{form.host?.name ?? "Unknown"}</dd>
-        </dl>
-      ) : (
-        <p className="text-muted">Choose a workspace to see the branch and path.</p>
-      )}
-      {form.values.mode === "new" && form.preview && (
-        <p className="text-xs text-muted">A new Git worktree is created at this path.</p>
-      )}
-    </section>
-  );
-}
-
-function Problems({ problems }: { problems: string[] }) {
-  if (problems.length === 0) return null;
-  return (
-    <ul className="flex flex-col gap-0.5 text-xs text-muted" aria-live="polite">
-      {problems.map((p) => (
-        <li key={p}>{p}</li>
-      ))}
-    </ul>
-  );
-}
-
-const STEPS = ["Project", "Workspace", "Profile", "Prompt"] as const;
-
 /**
- * New session: a dialog on desktop, sequential sheets on mobile. Creating
- * posts `/api/sessions` and opens the session at once; the session view shows
- * its starting progress until Pi is ready.
+ * New session: prompt first, then project, workspace, host and profile as
+ * compact choices. A dialog on desktop, one full-height sheet on mobile.
+ * Creating posts `/api/sessions` and opens the session at once; the session view
+ * shows its starting progress until Pi is ready.
  */
 export function NewSessionFlow({
   open,
   onClose,
   onCreated,
   mobile,
+  projectId = null,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (sessionId: string) => void;
   mobile: boolean;
+  projectId?: string | null;
 }) {
   const id = useId();
-  const form = useNewSessionForm(open);
-  const [step, setStep] = useState(0);
+  const f = useNewSessionForm(open, projectId);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
     if (!open) {
-      setStep(0);
       setError(null);
       setSubmitting(false);
     }
   }, [open]);
 
   const create = async () => {
-    if (form.problems.length || submitting) return;
-    const v = form.values;
+    if (f.problem || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
       const s = await codeApi.createSession({
-        projectId: v.projectId,
+        projectId: f.projectId,
         workspace:
-          v.mode === "existing"
-            ? { existingId: v.workspaceId }
-            : { checkoutId: v.checkoutId, newBranch: v.branch.trim(), base: v.base.trim() || null },
-        profileId: v.profileId || null,
-        prompt: v.prompt,
+          f.mode === "existing"
+            ? { existingId: f.workspaceId }
+            : {
+                checkoutId: f.checkout?.id ?? "",
+                newBranch: f.effectiveBranch.trim(),
+                base: f.base.trim() || null,
+              },
+        profileId: f.profileId || null,
+        prompt: f.prompt,
+        ...(f.title.trim() ? { title: f.title.trim() } : {}),
       });
       useSyncStore.getState().upsertSessionIfMissing(s);
-      rememberInitialPrompt(s.id, v.prompt);
-      form.reset();
+      rememberInitialPrompt(s.id, f.prompt);
+      usePrefs.getState().set("lastNewSessionProjectId", f.projectId);
+      f.reset();
       onCreated(s.id);
     } catch (e) {
       setError(e);
@@ -416,6 +259,16 @@ export function NewSessionFlow({
       setSubmitting(false);
     }
   };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLFormElement>) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      void create();
+    }
+  };
+  const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+  const shortcut = mac ? "⌘ Enter" : "Ctrl+Enter";
+  const defaultProfile = f.profiles.find((p) => p.id === f.project?.defaultProfileId);
 
   const errorBox =
     error !== null ? (
@@ -427,124 +280,262 @@ export function NewSessionFlow({
       />
     ) : null;
 
+  const body =
+    f.projects.length === 0 ? (
+      <p className="text-sm text-muted">Add a project in Settings first.</p>
+    ) : (
+      <form
+        className="flex min-w-0 flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void create();
+        }}
+        onKeyDown={onKeyDown}
+      >
+        <label htmlFor={`${id}-prompt`} className="text-base font-medium">
+          What should Pi do? <span className="text-sm font-normal text-muted">(optional)</span>
+        </label>
+        <TextArea
+          id={`${id}-prompt`}
+          autoFocus
+          minRows={mobile ? 6 : 5}
+          maxHeight="40vh"
+          value={f.prompt}
+          onChange={(e) => f.setPrompt(e.target.value)}
+          placeholder="Describe the task. Leave empty to start Pi without a prompt."
+        />
+        {/* biome-ignore lint/a11y/useSemanticElements: a fieldset would restyle the chip row */}
+        <div
+          role="group"
+          aria-label="Session options"
+          className="flex min-w-0 flex-wrap items-center gap-2"
+        >
+          <ProjectPicker projects={f.projects} value={f.projectId} onChange={f.setProjectId} />
+          <label htmlFor={`${id}-ws`} className="sr-only">
+            Workspace
+          </label>
+          <select
+            id={`${id}-ws`}
+            className={CHIP_SELECT}
+            value={f.workspaceId}
+            onChange={(e) => f.setWorkspaceId(e.target.value)}
+          >
+            {f.hostWorkspaces.map((w) => (
+              <option key={w.id} value={w.id}>
+                {workspaceLabel(w)}
+                {w.provenance === "main" ? " (main checkout)" : ""}
+              </option>
+            ))}
+            <option value={NEW} disabled={f.hostCheckouts.length === 0}>
+              New worktree…
+            </option>
+          </select>
+          {f.hostIds.length > 1 && (
+            <>
+              <label htmlFor={`${id}-host`} className="sr-only">
+                Host
+              </label>
+              <select
+                id={`${id}-host`}
+                className={CHIP_SELECT}
+                value={f.hostId}
+                onChange={(e) => f.changeHost(e.target.value)}
+              >
+                {f.hostIds.map((h) => (
+                  <option key={h} value={h} disabled={!hostOnline(f.hosts[h])}>
+                    {f.hosts[h]?.name ?? "Removed host"}
+                    {hostOnline(f.hosts[h]) ? "" : " (offline)"}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {f.profiles.length > 0 && (
+            <>
+              <label htmlFor={`${id}-profile`} className="sr-only">
+                Pi profile
+              </label>
+              <select
+                id={`${id}-profile`}
+                className={CHIP_SELECT}
+                value={f.profileId}
+                onChange={(e) => f.setProfileId(e.target.value)}
+              >
+                <option value="">
+                  {defaultProfile ? `${defaultProfile.name} (project default)` : "Pi defaults"}
+                </option>
+                {f.profiles
+                  .filter((p) => p.id !== f.project?.defaultProfileId)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            </>
+          )}
+        </div>
+        {f.mode === "new" && (
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+            <Field
+              label="Branch"
+              id={`${id}-branch`}
+              hint={
+                branchProblem(f.effectiveBranch) ??
+                (f.branchTouched && f.branch !== f.suggested ? (
+                  <button
+                    type="button"
+                    className="font-medium text-accent"
+                    onClick={() => {
+                      f.setBranch("");
+                      f.setBranchTouched(false);
+                    }}
+                  >
+                    Use suggested name
+                  </button>
+                ) : (
+                  "Suggested from the prompt."
+                ))
+              }
+            >
+              <TextInput
+                id={`${id}-branch`}
+                value={f.effectiveBranch}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(e) => {
+                  f.setBranch(e.target.value);
+                  f.setBranchTouched(true);
+                }}
+              />
+            </Field>
+            <Field
+              label="Base branch"
+              id={`${id}-base`}
+              hint={`Defaults to ${f.checkout?.defaultBranch ?? "the default branch"}.`}
+            >
+              <TextInput
+                id={`${id}-base`}
+                value={f.base}
+                placeholder={f.checkout?.defaultBranch ?? "main"}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(e) => f.setBase(e.target.value)}
+              />
+            </Field>
+          </div>
+        )}
+        <div>
+          <button
+            type="button"
+            aria-expanded={f.advancedOpen}
+            aria-controls={`${id}-adv`}
+            onClick={() => f.setAdvancedOpen(!f.advancedOpen)}
+            className="tap inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-text"
+          >
+            {f.advancedOpen ? (
+              <ChevronDown aria-hidden className="size-4" />
+            ) : (
+              <ChevronRight aria-hidden className="size-4" />
+            )}
+            Advanced
+          </button>
+          {f.advancedOpen && (
+            <div id={`${id}-adv`} className="mt-2 flex min-w-0 flex-col gap-3">
+              <Field label="Session title" optional id={`${id}-title`}>
+                <TextInput
+                  id={`${id}-title`}
+                  value={f.title}
+                  placeholder="Named from the prompt"
+                  onChange={(e) => f.setTitle(e.target.value)}
+                />
+              </Field>
+              {f.mode === "new" && f.hostCheckouts.length > 1 && (
+                <Field label="Checkout" id={`${id}-checkout`}>
+                  <Select
+                    id={`${id}-checkout`}
+                    value={f.checkout?.id ?? ""}
+                    onChange={(e) => f.setCheckoutId(e.target.value)}
+                  >
+                    {f.hostCheckouts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.path}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </div>
+          )}
+        </div>
+        {f.summary && (
+          <p
+            data-testid="new-session-summary"
+            className="flex min-w-0 items-center gap-1.5 text-xs text-muted"
+            title={f.summary.path}
+          >
+            <GitBranch aria-hidden className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate">
+              {f.summary.text} · <span className="font-mono">{f.summary.path}</span>
+            </span>
+          </p>
+        )}
+        {errorBox}
+      </form>
+    );
+
+  const footer = (
+    <>
+      {f.problem ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="mr-auto flex min-w-0 flex-1 basis-full items-start gap-1 text-xs text-muted sm:basis-auto"
+        >
+          <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warning" />
+          {f.problem}
+        </p>
+      ) : !mobile ? (
+        <span className="mr-auto text-xs text-subtle">{shortcut} to create</span>
+      ) : null}
+      <Button onClick={onClose}>Cancel</Button>
+      <Button
+        variant="primary"
+        busy={submitting}
+        disabled={!!f.problem}
+        onClick={() => void create()}
+      >
+        Create session
+      </Button>
+    </>
+  );
+
   if (!mobile) {
     return (
       <Dialog
         open={open}
         onClose={onClose}
         title="New session"
-        description="A task is not required."
         dismissOnBackdrop={!submitting}
         className="max-w-xl"
-        footer={
-          <>
-            <Button onClick={onClose}>Cancel</Button>
-            <Button
-              variant="primary"
-              busy={submitting}
-              disabled={form.problems.length > 0}
-              onClick={() => void create()}
-            >
-              Create session
-            </Button>
-          </>
-        }
+        footer={footer}
       >
-        {form.projects.length === 0 ? (
-          <p className="text-sm text-muted">Add a project in Settings first.</p>
-        ) : (
-          <form
-            className="flex min-w-0 flex-col gap-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void create();
-            }}
-          >
-            <ProjectField form={form} id={id} />
-            <WorkspaceFields form={form} id={id} />
-            <ProfileField form={form} id={id} />
-            <PromptField form={form} id={id} />
-            <Preview form={form} />
-            <Problems problems={form.problems} />
-            {errorBox}
-          </form>
-        )}
+        {body}
       </Dialog>
     );
   }
-
-  const last = step === STEPS.length - 1;
-  const stepProblems =
-    step === 0
-      ? form.project
-        ? []
-        : ["Select a project."]
-      : step === 1
-        ? form.problems.filter((p) => p !== "Select a project.")
-        : [];
   return (
     <Sheet
+      fullHeight
       open={open}
       onClose={onClose}
-      title={`New session: ${STEPS[step]}`}
-      description={`Step ${step + 1} of ${STEPS.length}`}
+      title="New session"
       dismissOnBackdrop={!submitting}
-      footer={
-        <>
-          {step > 0 && (
-            <Button onClick={() => setStep((s) => s - 1)} disabled={submitting}>
-              Back
-            </Button>
-          )}
-          {last ? (
-            <Button
-              variant="primary"
-              busy={submitting}
-              disabled={form.problems.length > 0}
-              onClick={() => void create()}
-            >
-              Create session
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              disabled={stepProblems.length > 0}
-              onClick={() => setStep((s) => s + 1)}
-            >
-              Next
-            </Button>
-          )}
-        </>
-      }
+      footer={footer}
     >
-      <ol aria-label="Steps" className="mb-3 flex gap-1">
-        {STEPS.map((s, i) => (
-          <li
-            key={s}
-            aria-current={i === step ? "step" : undefined}
-            className={cn("h-1 flex-1 rounded-full", i <= step ? "bg-accent" : "bg-border")}
-          >
-            <span className="sr-only">
-              {s}
-              {i < step ? " (done)" : ""}
-            </span>
-          </li>
-        ))}
-      </ol>
-      <div className="flex min-w-0 flex-col gap-4">
-        {step === 0 && <ProjectField form={form} id={id} />}
-        {step === 1 && <WorkspaceFields form={form} id={id} />}
-        {step === 2 && <ProfileField form={form} id={id} />}
-        {step === 3 && (
-          <>
-            <PromptField form={form} id={id} />
-            <Preview form={form} />
-          </>
-        )}
-        {step === 1 && <Preview form={form} />}
-        <Problems problems={last ? form.problems : stepProblems} />
-        {errorBox}
-      </div>
+      {body}
     </Sheet>
   );
 }

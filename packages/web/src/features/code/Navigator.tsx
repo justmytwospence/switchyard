@@ -35,6 +35,7 @@ import {
   type NavRow,
   navGroupKeys,
   navTreeIsEmpty,
+  projectIdOfGroup,
 } from "./model";
 
 interface NavPrefs {
@@ -58,7 +59,7 @@ function defaultPrefs(screen: boolean): NavPrefs {
 
 export interface NavigatorProps {
   selectedId: string | null;
-  onNewSession: () => void;
+  onNewSession: (projectId?: string) => void;
   /** "pane" for the desktop navigator, "screen" for the mobile session list. */
   variant: "pane" | "screen";
   className?: string;
@@ -189,8 +190,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
               ? "No active sessions"
               : "No sessions yet"
         }
-        description="Start a session in one of your projects; a task is not required."
-        action={{ label: "New session", onClick: onNewSession }}
+        description="Start a session in one of your projects."
+        action={{ label: "New session", onClick: () => onNewSession() }}
         secondaryAction={
           prefs.filter !== "all"
             ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
@@ -227,6 +228,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             toggle={toggle}
             selectedId={selectedId}
             screen={screen}
+            onNewSession={onNewSession}
           />
         ))}
       </ul>
@@ -250,19 +252,19 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             size="sm"
             variant="primary"
             icon={<Plus className="size-4" />}
-            onClick={onNewSession}
+            onClick={() => onNewSession()}
             disabled={!hydrated || hosts.length === 0 || projectList.length === 0}
-            title={
-              hosts.length === 0
-                ? "Connect a host first"
-                : projectList.length === 0
-                  ? "Add a project first"
-                  : undefined
-            }
           >
             New session
           </Button>
         </div>
+        {hydrated && (hosts.length === 0 || projectList.length === 0) && (
+          <p className="text-xs text-muted">
+            {hosts.length === 0
+              ? "Connect a host to start sessions."
+              : "Add a project to start sessions."}
+          </p>
+        )}
         <div className="relative">
           <Search
             aria-hidden
@@ -374,6 +376,7 @@ function GroupNode({
   toggle,
   selectedId,
   screen,
+  onNewSession,
 }: {
   group: NavGroup;
   depth: number;
@@ -381,21 +384,34 @@ function GroupNode({
   toggle: (key: string) => void;
   selectedId: string | null;
   screen: boolean;
+  onNewSession: (projectId?: string) => void;
 }) {
   const open = !collapsed.has(group.key);
+  const pid = group.kind === "project" ? projectIdOfGroup(group.key) : null;
   return (
     <li className="min-w-0">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => toggle(group.key)}
-        className={cn(
-          "tap flex w-full min-w-0 items-center gap-1.5 rounded-md text-left hover:bg-surface-2",
-          depth === 0 ? "px-1.5 py-1.5 text-sm font-semibold" : "py-1 pr-1.5 pl-4",
+      <div className="group/row flex min-w-0 items-center">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => toggle(group.key)}
+          className={cn(
+            "tap flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left hover:bg-surface-2",
+            depth === 0 ? "px-1.5 py-1.5 text-sm font-semibold" : "py-1 pr-1.5 pl-4",
+          )}
+        >
+          <GroupHeader group={group} depth={depth} open={open} />
+        </button>
+        {pid && (
+          <IconButton
+            size="sm"
+            label={`New session in ${group.label}`}
+            icon={<Plus className="size-4" />}
+            onClick={() => onNewSession(pid)}
+            className="opacity-0 focus-visible:opacity-100 group-hover/row:opacity-100 max-md:opacity-100"
+          />
         )}
-      >
-        <GroupHeader group={group} depth={depth} open={open} />
-      </button>
+      </div>
       {open && (
         <ul className={cn("flex min-w-0 flex-col", depth > 0 && "gap-0.5 py-0.5")}>
           {group.rows.length === 0 && group.groups.length === 0 && (
@@ -410,6 +426,7 @@ function GroupNode({
               toggle={toggle}
               selectedId={selectedId}
               screen={screen}
+              onNewSession={onNewSession}
             />
           ))}
           {group.rows.map((row) => (
@@ -463,7 +480,7 @@ function SessionRow({
           {attention && session.runtime !== "waiting_input" && (
             <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
               <MessageCircleQuestion aria-hidden className="size-3.5" />
-              Needs you
+              Needs input
             </span>
           )}
         </span>

@@ -29,6 +29,8 @@ export interface OverlayProps {
   flush?: boolean;
   /** Extra body classes. Additive only: it cannot override the padding, use `flush`. */
   bodyClassName?: string;
+  /** Bottom sheet only: fill the viewport height. */
+  fullHeight?: boolean;
 }
 
 type Placement = "right" | "bottom" | "center";
@@ -47,6 +49,7 @@ function Surface({
   className,
   flush,
   bodyClassName,
+  fullHeight,
   style,
 }: OverlayProps & { placement: Placement; style?: React.CSSProperties }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -81,13 +84,15 @@ function Surface({
           "relative flex flex-col bg-surface text-text shadow-pop outline-none",
           placement === "right" && "h-full max-w-full border-l border-border safe-pt safe-pb",
           placement === "bottom" &&
-            "max-h-[90dvh] w-full rounded-t-xl border-t border-border safe-pb",
+            (fullHeight
+              ? "h-dvh w-full safe-pt safe-pb"
+              : "max-h-[90dvh] w-full rounded-t-xl border-t border-border safe-pb"),
           placement === "center" &&
             "max-h-[min(90dvh,720px)] w-full max-w-lg rounded-xl border border-border",
           className,
         )}
       >
-        {placement === "bottom" && (
+        {placement === "bottom" && !fullHeight && (
           <div className="flex justify-center pt-2" aria-hidden>
             <div className="h-1 w-10 rounded-full bg-border-strong" />
           </div>

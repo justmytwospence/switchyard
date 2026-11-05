@@ -1,9 +1,17 @@
-import type { Host, Project, Session, TranscriptItem, Workspace } from "@switchyard/protocol";
+import type {
+  Checkout,
+  Host,
+  Project,
+  Session,
+  TranscriptItem,
+  Workspace,
+} from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import { normalizeEntries, normalizeFile } from "../src/features/code/api";
 import {
   activeArgumentHint,
   applyCompletion,
+  branchFromPrompt,
   branchProblem,
   buildNavTree,
   buildTimeline,
@@ -26,14 +34,17 @@ import {
   type NavTree,
   navGroupKeys,
   navTreeIsEmpty,
+  newSessionDefaults,
   outputPreview,
   parseClientCommand,
   parseDataUrl,
   piControlsAvailable,
   pillModelLabel,
+  projectIdOfGroup,
   sendModes,
   sessionStatus,
   TERMINAL_COMMANDS,
+  uniqueBranch,
   worktreePath,
 } from "../src/features/code/model";
 import type { StreamBuffer } from "../src/sync/store";
@@ -762,5 +773,69 @@ describe("session status bar", () => {
     expect(st({ compacting: true })?.pending).toBe(true);
     expect(st({}, { control: "automation" })?.action?.kind).toBe("takeover");
     expect(st({}, { control: "human" })?.action?.kind).toBe("return");
+  });
+});
+
+describe("new session helpers", () => {
+  it("suggests a kebab-case branch from the prompt", () => {
+    expect(branchFromPrompt("Fix the login retry bug now please")).toBe("fix-the-login-retry-bug");
+    expect(branchFromPrompt("  Réparer l'écran: d'accueil!! ")).toBe("reparer-l-ecran-d-accueil");
+    expect(
+      branchFromPrompt("Implementation of internationalization infrastructure everywhere"),
+    ).toBe("implementation-of-internationalization-i");
+    expect(branchFromPrompt("", new Date(2026, 10, 2, 9, 5))).toBe("session-1102-0905");
+    expect(branchFromPrompt("!!!", new Date(2026, 10, 2, 9, 5))).toBe("session-1102-0905");
+    for (const p of ["Fix #12: crash", "a/b c..d", "x".repeat(80)]) {
+      expect(branchProblem(branchFromPrompt(p))).toBeNull();
+    }
+  });
+  it("avoids branches already used by workspaces", () => {
+    expect(uniqueBranch("fix", [])).toBe("fix");
+    expect(uniqueBranch("fix", ["fix", "fix-2", null])).toBe("fix-3");
+  });
+  it("reads the project id from navigator group keys", () => {
+    expect(projectIdOfGroup("p:prj_1")).toBe("prj_1");
+    expect(projectIdOfGroup("h:hst_1/p:prj_2")).toBe("prj_2");
+    expect(projectIdOfGroup("p:__none")).toBeNull();
+    expect(projectIdOfGroup("w:ws_1")).toBeNull();
+    expect(projectIdOfGroup("h:hst_1")).toBeNull();
+  });
+  it("defaults to the main checkout on an online host", () => {
+    const co = (id: string, hostId: string): Checkout => ({
+      id,
+      projectId: "prj_1",
+      hostId,
+      path: `/r-${hostId}`,
+      commonDir: `/r-${hostId}/.git`,
+      defaultBranch: "main",
+      createdAt: T0,
+    });
+    const p = { ...project("prj_1", "app"), defaultHostId: "hst_a" };
+    const hosts = { hst_a: host("hst_a", { connectivity: "unreachable" }), hst_b: host("hst_b") };
+    const cos = [co("chk_a", "hst_a"), co("chk_b", "hst_b")];
+    const wss = [
+      workspace("w_feat_b", { hostId: "hst_b", checkoutId: "chk_b" }),
+      workspace("w_main_b", {
+        hostId: "hst_b",
+        checkoutId: "chk_b",
+        provenance: "main",
+        branch: "main",
+      }),
+    ];
+    expect(newSessionDefaults(p, cos, wss, hosts)).toEqual({
+      hostId: "hst_b",
+      workspaceId: "w_main_b",
+      checkoutId: "chk_b",
+    });
+    expect(newSessionDefaults(p, cos, wss, hosts, "hst_a")).toEqual({
+      hostId: "hst_a",
+      workspaceId: null,
+      checkoutId: "chk_a",
+    });
+    expect(newSessionDefaults(p, [], [], hosts)).toEqual({
+      hostId: "",
+      workspaceId: null,
+      checkoutId: null,
+    });
   });
 });

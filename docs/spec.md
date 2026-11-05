@@ -372,16 +372,7 @@ Provide search, active/all filter, view options, collapse controls, and New sess
 
 Empty state: "Add a project" and "Connect a host," based on what is missing.
 
-New session flow:
-
-- Select project.
-- Select existing workspace or create worktree.
-- Select host/check-out.
-- Select Pi profile.
-- Enter initial prompt.
-- Show resulting branch/path before creation.
-
-Do not require a task.
+New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. Show the resulting branch/path above Create; Cmd/Ctrl+Enter creates. Do not require a task.
 
 ### Conversation header
 

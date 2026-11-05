@@ -468,7 +468,7 @@ test.describe("desktop coding view", () => {
 
     // A project group toggles with the keyboard.
     await tabTo("Demo project");
-    const project = nav.getByRole("button", { name: /Demo project/ });
+    const project = nav.getByRole("button", { name: /^Demo project/ });
     await expect(project).toBeFocused();
     await expect(project).toHaveAttribute("aria-expanded", "true");
     await page.keyboard.press("Enter");
@@ -493,7 +493,7 @@ test.describe("desktop coding view", () => {
   test("navigator layouts switch and persist", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
     const nav = page.getByTestId("navigator");
-    const projectBtn = nav.getByRole("button", { name: /Demo project/ });
+    const projectBtn = nav.getByRole("button", { name: /^Demo project/ });
     await expect(projectBtn).toBeVisible();
 
     await nav.getByRole("button", { name: "View options" }).click();
@@ -532,5 +532,57 @@ test.describe("desktop coding view", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  test("New session starts from a prompt in the main checkout", async ({ page, state }, info) => {
+    await page.goto("/code");
+    await page.getByTestId("new-session").click();
+    const dialog = page.getByRole("dialog", { name: "New session" });
+    const prompt = dialog.getByLabel("What should Pi do?");
+    await expect(prompt).toBeFocused();
+    await expect(dialog.getByLabel("Workspace")).toHaveValue(state.workspaceId);
+    await expect(dialog.getByTestId("new-session-summary")).toContainText("e2e-host");
+    const text = `Say hello ${uid(info)}`;
+    await prompt.fill(text);
+    const req = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().endsWith("/api/sessions"),
+    );
+    await page.keyboard.press("ControlOrMeta+Enter");
+    const body = (await req).postDataJSON();
+    expect(body.workspace).toEqual({ existingId: state.workspaceId });
+    expect(body.prompt).toBe(text);
+    await expect(page).toHaveURL(/\/code\/ses_/);
+    await expect(page.getByTestId("transcript").getByText(`Received: ${text}`)).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+
+  test("New worktree suggests a branch from the prompt", async ({ page }) => {
+    await page.goto("/code");
+    await page.getByTestId("new-session").click();
+    const dialog = page.getByRole("dialog", { name: "New session" });
+    await dialog.getByLabel("What should Pi do?").fill("Fix the login retry bug now please");
+    await dialog.getByLabel("Workspace").selectOption({ label: "New worktree…" });
+    const branch = dialog.getByLabel("Branch", { exact: true });
+    await expect(branch).toHaveValue(/^fix-the-login-retry-bug(-\d+)?$/);
+    await expect(dialog.getByTestId("new-session-summary")).toContainText(
+      "New worktree fix-the-login-retry-bug",
+    );
+    await branch.fill("bad branch");
+    await expect(dialog.getByRole("status")).toContainText("Branch names cannot contain spaces.");
+    await expect(dialog.getByRole("button", { name: "Create session" })).toBeDisabled();
+    await dialog.getByRole("button", { name: "Use suggested name" }).click();
+    await expect(dialog.getByRole("button", { name: "Create session" })).toBeEnabled();
+    await page.keyboard.press("Escape");
+  });
+
+  test("New session from a project group preselects the project", async ({ page, state }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    const nav = page.getByTestId("navigator");
+    await nav.getByRole("button", { name: /^Demo project/ }).hover();
+    await nav.getByRole("button", { name: "New session in Demo project" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "New session" }).getByLabel("Project"),
+    ).toHaveValue(state.projectId);
   });
 });

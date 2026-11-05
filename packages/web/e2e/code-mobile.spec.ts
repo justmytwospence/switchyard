@@ -341,4 +341,17 @@ test.describe("mobile coding view", () => {
     // The inset sits on a wrapper with no padding utility, so it is not lost to the header's py-1.
     await expect(top).toHaveCSS("padding-top", "20px");
   });
+
+  test("New session is one full-height sheet", async ({ page }, info) => {
+    await page.goto("/code");
+    await page.getByTestId("new-session").tap();
+    const sheet = page.getByRole("dialog", { name: "New session" });
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByText(/Step \d of/)).toHaveCount(0);
+    expect(Math.round((await sheet.boundingBox())!.height)).toBe(page.viewportSize()!.height);
+    const text = `Mobile hello ${uid(info)}`;
+    await sheet.getByLabel("What should Pi do?").fill(text);
+    await sheet.getByRole("button", { name: "Create session" }).tap();
+    await expect(page).toHaveURL(/\/code\/ses_/);
+  });
 });

@@ -19,6 +19,8 @@ export interface Prefs {
   selectedProjectId: string | null;
   /** Last opened session (Code view reopens it). */
   lastSessionId: string | null;
+  /** Project of the last session created with New session (prefills the next one). */
+  lastNewSessionProjectId: string | null;
   paneSizes: Record<PaneName, number>;
   inspectorCollapsed: boolean;
   /** Rail labels expanded (desktop/compact). */
@@ -51,6 +53,7 @@ export const usePrefs = create<PrefsStore>()(
     (set) => ({
       selectedProjectId: null,
       lastSessionId: null,
+      lastNewSessionProjectId: null,
       paneSizes: {
         navigator: PANE_LIMITS.navigator.default,
         inspector: PANE_LIMITS.inspector.default,
