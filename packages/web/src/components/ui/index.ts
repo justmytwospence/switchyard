@@ -1,4 +1,4 @@
-export { Badge, CountBadge, TONE_CLASSES, type Tone } from "./Badge";
+export { Badge, CountBadge, TONE_CLASSES, TONE_TEXT, type Tone } from "./Badge";
 export { Button, type ButtonProps, buttonClasses } from "./Button";
 export { Card, type CardProps } from "./Card";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
@@ -23,6 +23,7 @@ export {
   Sheet,
 } from "./Overlay";
 export { Popover, type PopoverProps } from "./Popover";
+export { PRIORITY_INFO, PriorityIcon, PriorityLabel, PrioritySelect } from "./Priority";
 export { SegmentedControl, type SegmentOption } from "./SegmentedControl";
 export { Select, type SelectProps } from "./Select";
 export { Spinner } from "./Spinner";
@@ -32,6 +33,7 @@ export {
   CONNECTION_STATUS,
   HOST_STATUS,
   INTERACTION_STATUS,
+  InlineStatus,
   OCCURRENCE_STATUS,
   RUN_STATUS,
   RUNTIME_STATUS,

@@ -34,6 +34,7 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import type { ConnectionState } from "../../sync/store";
 import { TONE_CLASSES, type Tone } from "./Badge";
@@ -211,6 +212,34 @@ export function StatusChip(props: StatusChipProps) {
         />
       )}
       <span className="truncate">{props.label ?? info.label}</span>
+    </span>
+  );
+}
+
+/** Icon plus text status, the tone only reinforces. */
+export function InlineStatus({
+  icon: Icon,
+  label,
+  tone = "neutral",
+  spin,
+  className,
+}: {
+  icon: LucideIcon;
+  label: ReactNode;
+  tone?: Tone;
+  spin?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center gap-1 rounded-full border px-2 text-xs leading-6 font-medium",
+        TONE_CLASSES[tone],
+        className,
+      )}
+    >
+      {spin ? <Spinner className="size-3.5" /> : <Icon aria-hidden className="size-3.5 shrink-0" />}
+      <span className="min-w-0 truncate">{label}</span>
     </span>
   );
 }

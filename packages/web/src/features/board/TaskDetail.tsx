@@ -1,5 +1,4 @@
 import type { Eligibility, Priority, Run, Task } from "@switchyard/protocol";
-import { PRIORITY_LABELS } from "@switchyard/protocol";
 import {
   CircleAlert,
   CircleCheck,
@@ -20,6 +19,7 @@ import { Button, buttonClasses } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
 import { ConfirmDialog } from "../../components/ui/Overlay";
+import { PriorityLabel, PrioritySelect } from "../../components/ui/Priority";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
   ErrorState,
@@ -44,7 +44,7 @@ import {
 } from "./api";
 import { eligibilityText, isRunActive, previewEligibility, STATE_LABELS } from "./logic";
 import { useTaskMover } from "./MoveProvider";
-import { executionLine, PRIORITY_INFO, useTaskInfo } from "./taskInfo";
+import { executionLine, useTaskInfo } from "./taskInfo";
 import { useResource } from "./useResource";
 
 const ACCEPT_NOTE = "Accepting marks the task Done. It does not merge or push.";
@@ -303,8 +303,6 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
   const host = hostId ? hosts[hostId] : undefined;
   const runHost = run?.hostId ? hosts[run.hostId] : undefined;
   const offlineHost = runHost && runHost.connectivity !== "connected" ? runHost : undefined;
-  const pr = PRIORITY_INFO[task.priority];
-  const PrIcon = pr.icon;
   const profileId = task.policy.profileId ?? project?.defaultProfileId ?? null;
   const pendingCount = useSyncStore((s) =>
     task.sessionId ? countPendingInteractions(s.interactions, task.sessionId) : 0,
@@ -379,10 +377,7 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
       <Section title="State">
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip kind="task" value={task.state} />
-          <span className="inline-flex items-center gap-1 text-sm text-muted">
-            <PrIcon aria-hidden className="size-4" />
-            {pr.label} priority
-          </span>
+          <PriorityLabel priority={task.priority} suffix=" priority" muted className="text-sm" />
         </div>
         {task.blocked && (
           <p className="flex items-start gap-1.5 rounded-md bg-danger-soft px-3 py-2 text-sm">
@@ -831,7 +826,9 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
           onChange={(e) => setCriteria(e.target.value)}
         />
       </Field>
-      <PrioritySelect id={`${id}-prio`} value={priority} onChange={setPriority} />
+      <Field id={`${id}-prio`} label="Priority">
+        {(p) => <PrioritySelect {...p} value={priority} onChange={setPriority} />}
+      </Field>
       <DependencyPicker candidates={candidates} value={deps} onChange={setDeps} />
       {error && (
         <p role="alert" className="text-sm text-danger">
@@ -847,36 +844,6 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
         </Button>
       </div>
     </form>
-  );
-}
-
-export function PrioritySelect({
-  id,
-  value,
-  onChange,
-}: {
-  id: string;
-  value: Priority;
-  onChange: (p: Priority) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm font-medium">
-        Priority
-      </label>
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value) as Priority)}
-        className="tap h-9 rounded-md border border-border bg-surface px-2 text-base md:text-sm"
-      >
-        {PRIORITY_LABELS.map((l, i) => (
-          <option key={l} value={i}>
-            {l}
-          </option>
-        ))}
-      </select>
-    </div>
   );
 }
 

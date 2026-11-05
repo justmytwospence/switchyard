@@ -3,7 +3,6 @@ import {
   type AutomationInput,
   type AutomationPreview,
   type Occurrence,
-  PRIORITY_LABELS,
   WebhookTokenResponse,
 } from "@switchyard/protocol";
 import {
@@ -23,6 +22,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { copyText } from "../../components/ui/Copy";
 import { ConfirmDialog } from "../../components/ui/Overlay";
+import { PriorityLabel } from "../../components/ui/Priority";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
   EmptyState,
@@ -34,7 +34,7 @@ import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { apiGet, apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { automationPath, PriorityIcon } from "./controls";
+import { automationPath } from "./controls";
 import {
   curlExample,
   formatAbsolute,
@@ -179,10 +179,7 @@ function PreviewResult({ preview, stale }: { preview: AutomationPreview; stale: 
       <div className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-surface-2 p-3">
         <div className="flex min-w-0 items-start justify-between gap-2">
           <h3 className="min-w-0 font-medium break-words">{task.title}</h3>
-          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted">
-            <PriorityIcon priority={task.priority} className="size-3.5" />
-            {PRIORITY_LABELS[task.priority]}
-          </span>
+          <PriorityLabel priority={task.priority} muted className="shrink-0 text-xs" />
         </div>
         {task.objective ? (
           <p className="text-sm break-words whitespace-pre-wrap">{task.objective}</p>

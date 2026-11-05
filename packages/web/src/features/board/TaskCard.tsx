@@ -13,7 +13,9 @@ import {
 import type { HTMLAttributes, ReactNode, Ref } from "react";
 import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
+import { TONE_TEXT } from "../../components/ui/Badge";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
+import { PriorityLabel } from "../../components/ui/Priority";
 import { Spinner } from "../../components/ui/Spinner";
 import { ATTENTION_STATUS, TASK_STATUS } from "../../components/ui/StatusChip";
 import { cn } from "../../lib/cn";
@@ -21,16 +23,7 @@ import { formatRelative } from "../../lib/time";
 import { useSyncStore } from "../../sync/store";
 import { dependencySummary, moveTargets, STATE_LABELS } from "./logic";
 import { useTaskMover } from "./MoveProvider";
-import { executionLine, PRIORITY_INFO, useTaskInfo } from "./taskInfo";
-
-const TONE_TEXT = {
-  neutral: "text-muted",
-  info: "text-info",
-  success: "text-success",
-  warning: "text-warning",
-  danger: "text-danger",
-  accent: "text-accent",
-} as const;
+import { executionLine, useTaskInfo } from "./taskInfo";
 
 export interface DragBindings {
   setNodeRef: Ref<HTMLElement>;
@@ -61,8 +54,6 @@ export function TaskCard({ task, showProject, wait, onOpen, drag, full, selected
   const mover = useTaskMover();
   const navigate = useNavigate();
   const busy = mover.isBusy(task.id);
-  const pr = PRIORITY_INFO[task.priority];
-  const PrIcon = pr.icon;
   const exec = executionLine(task, info.run, wait);
   const deps = dependencySummary(task, tasks);
   const attention = info.attention[0];
@@ -150,10 +141,7 @@ export function TaskCard({ task, showProject, wait, onOpen, drag, full, selected
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-        <span className={cn("inline-flex items-center gap-1", TONE_TEXT[pr.tone])}>
-          <PrIcon aria-hidden className="size-3.5" />
-          {pr.label}
-        </span>
+        <PriorityLabel priority={task.priority} />
         {showProject && info.projectName && (
           <span className="min-w-0 truncate">{info.projectName}</span>
         )}

@@ -1,4 +1,4 @@
-import type { Eligibility, Priority, Task } from "@switchyard/protocol";
+import type { Eligibility, Task } from "@switchyard/protocol";
 import { PRIORITY_LABELS } from "@switchyard/protocol";
 import {
   CalendarClock,
@@ -21,6 +21,7 @@ import { useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ROUTES } from "../../app/routes";
 import { buttonClasses } from "../../components/ui/Button";
+import { PrioritySelect } from "../../components/ui/Priority";
 import { Spinner } from "../../components/ui/Spinner";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
@@ -299,13 +300,12 @@ function QueuedRow({
           <label htmlFor={id} className="text-sm text-muted">
             Priority
           </label>
-          <select
+          <PrioritySelect
             id={id}
+            width="auto"
             value={task.priority}
             disabled={busy}
-            className="tap h-9 rounded-md border border-border bg-surface px-2 text-base md:text-sm"
-            onChange={async (e) => {
-              const p = Number(e.target.value) as Priority;
+            onChange={async (p) => {
               setBusy(true);
               try {
                 await updateTask(task.id, { priority: p });
@@ -316,13 +316,7 @@ function QueuedRow({
                 setBusy(false);
               }
             }}
-          >
-            {PRIORITY_LABELS.map((l, i) => (
-              <option key={l} value={i}>
-                {l}
-              </option>
-            ))}
-          </select>
+          />
           {busy && <Spinner label="Saving priority" />}
         </div>
       )}

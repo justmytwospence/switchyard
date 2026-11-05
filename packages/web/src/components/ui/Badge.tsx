@@ -12,6 +12,16 @@ export const TONE_CLASSES: Record<Tone, string> = {
   accent: "bg-accent text-accent-fg border-transparent",
 };
 
+/** Text colour for each tone (the Badge classes colour the background too). */
+export const TONE_TEXT: Record<Tone, string> = {
+  neutral: "text-muted",
+  info: "text-info",
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-danger",
+  accent: "text-accent",
+};
+
 export interface BadgeProps {
   children: ReactNode;
   tone?: Tone;

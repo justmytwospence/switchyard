@@ -15,6 +15,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Field, fieldControlProps } from "../../components/ui/Field";
 import { Select } from "../../components/ui/Select";
+import { InlineStatus } from "../../components/ui/StatusChip";
 import { SwitchRow } from "../../components/ui/Switch";
 import {
   ErrorState,
@@ -37,7 +38,7 @@ import {
 } from "../../push";
 import { ApiClientError, apiPatch, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { InlineStatus, SectionPage } from "./shared";
+import { SectionPage } from "./shared";
 import { isObject, useResource } from "./useResource";
 
 const PERMISSION: Record<

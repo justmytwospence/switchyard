@@ -14,13 +14,14 @@ import { useMemo, useState } from "react";
 import { currentDeviceId, useAuth } from "../../app/auth";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/Overlay";
+import { InlineStatus } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { InlineStatus, LastKnownNote, SectionPage, useHydrated } from "./shared";
+import { LastKnownNote, SectionPage, useHydrated } from "./shared";
 
 export const DEVICE_KIND_LABEL: Record<Device["kind"], string> = {
   browser: "Browser",

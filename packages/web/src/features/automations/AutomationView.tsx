@@ -1,4 +1,4 @@
-import { Automation, PRIORITY_LABELS, type Priority } from "@switchyard/protocol";
+import { Automation } from "@switchyard/protocol";
 import {
   ArrowLeft,
   CalendarClock,
@@ -20,6 +20,7 @@ import { Card } from "../../components/ui/Card";
 import { Field, FieldError } from "../../components/ui/Field";
 import { IconButton } from "../../components/ui/IconButton";
 import { ConfirmDialog } from "../../components/ui/Overlay";
+import { PriorityIcon, PrioritySelect } from "../../components/ui/Priority";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { Select } from "../../components/ui/Select";
 import { Switch } from "../../components/ui/Switch";
@@ -38,7 +39,6 @@ import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import {
   automationPath,
   ConnectionNote,
-  PriorityIcon,
   useLocalAutomations,
   useMergedAutomation,
   useRunNow,
@@ -992,18 +992,12 @@ function TemplateSection({ draft, update, err }: SectionProps) {
         {(p) => (
           <div className="flex items-center gap-2">
             <PriorityIcon priority={draft.priority} />
-            <Select
+            <PrioritySelect
               {...p}
-              value={String(draft.priority)}
-              onChange={(e) => update("priority", Number(e.target.value) as Priority)}
+              value={draft.priority}
+              onChange={(v) => update("priority", v)}
               className="sm:max-w-48"
-            >
-              {PRIORITY_LABELS.map((label, i) => (
-                <option key={label} value={i}>
-                  {label}
-                </option>
-              ))}
-            </Select>
+            />
           </div>
         )}
       </Field>

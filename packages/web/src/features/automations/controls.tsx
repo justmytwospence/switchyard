@@ -1,13 +1,5 @@
-import type { Automation, Priority } from "@switchyard/protocol";
-import {
-  CircleCheck,
-  CloudOff,
-  OctagonAlert,
-  SignalHigh,
-  SignalLow,
-  SignalMedium,
-  TriangleAlert,
-} from "lucide-react";
+import type { Automation } from "@switchyard/protocol";
+import { CircleCheck, CloudOff, TriangleAlert } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { create } from "zustand";
 import { toast } from "../../components/ui/Toast";
@@ -17,18 +9,6 @@ import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
 
 /* Small building blocks shared by the Automations list and editor. */
-
-const PRIORITY_ICONS = [OctagonAlert, SignalHigh, SignalMedium, SignalLow];
-
-export function PriorityIcon({ priority, className }: { priority: Priority; className?: string }) {
-  const Icon = PRIORITY_ICONS[priority] ?? SignalMedium;
-  return (
-    <Icon
-      aria-hidden
-      className={cn("size-4 shrink-0", priority === 0 ? "text-danger" : "text-muted", className)}
-    />
-  );
-}
 
 /** Failure count as icon + text; warning tone when > 0. */
 export function FailureCount({ count }: { count: number }) {

@@ -21,9 +21,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
-import { TONE_CLASSES, type Tone } from "../../components/ui/Badge";
-import { Spinner } from "../../components/ui/Spinner";
-import { cn } from "../../lib/cn";
+import { InlineStatus } from "../../components/ui/StatusChip";
 import { formatTime } from "../../lib/time";
 import { useConnectionState, useStaleSince, useSyncStore } from "../../sync/store";
 
@@ -189,34 +187,6 @@ export function LastKnownNote() {
 /** Whether store-backed data is available yet. */
 export function useHydrated(): boolean {
   return useSyncStore((s) => s.hydrated);
-}
-
-/** Icon plus text status, the tone only reinforces. */
-export function InlineStatus({
-  icon: Icon,
-  label,
-  tone = "neutral",
-  spin,
-  className,
-}: {
-  icon: LucideIcon;
-  label: ReactNode;
-  tone?: Tone;
-  spin?: boolean;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex max-w-full items-center gap-1 rounded-full border px-2 text-xs leading-6 font-medium",
-        TONE_CLASSES[tone],
-        className,
-      )}
-    >
-      {spin ? <Spinner className="size-3.5" /> : <Icon aria-hidden className="size-3.5 shrink-0" />}
-      <span className="min-w-0 truncate">{label}</span>
-    </span>
-  );
 }
 
 export const PLATFORM_LABEL: Record<Host["platform"], string> = {

@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
+import { PrioritySelect } from "../../components/ui/Priority";
 import { Select } from "../../components/ui/Select";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -11,7 +12,7 @@ import { errorMessage } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { createTask, fetchEligibility } from "./api";
 import { eligibilityText, isRunActive, previewEligibility } from "./logic";
-import { DependencyPicker, EligibilityNote, PrioritySelect } from "./TaskDetail";
+import { DependencyPicker, EligibilityNote } from "./TaskDetail";
 
 const DRAFT_KEY = "sy:new-task-draft";
 
@@ -280,11 +281,11 @@ export function NewTaskForm({
 
       {d.advanced && (
         <div id={`${id}-adv`} className="flex flex-col gap-4 rounded-lg border border-border p-3">
-          <PrioritySelect
-            id={`${id}-prio`}
-            value={d.priority}
-            onChange={(p) => set("priority", p)}
-          />
+          <Field id={`${id}-prio`} label="Priority">
+            {(p) => (
+              <PrioritySelect {...p} value={d.priority} onChange={(v) => set("priority", v)} />
+            )}
+          </Field>
           <Field id={`${id}-criteria`} label="Acceptance criteria (one per line)">
             <TextArea
               id={`${id}-criteria`}

@@ -1,34 +1,11 @@
-import type {
-  AttentionItem,
-  Eligibility,
-  Interaction,
-  Priority,
-  Run,
-  Task,
-} from "@switchyard/protocol";
-import { PRIORITY_LABELS } from "@switchyard/protocol";
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronsUp,
-  CircleAlert,
-  Clock,
-  type LucideIcon,
-  Minus,
-} from "lucide-react";
+import type { AttentionItem, Eligibility, Interaction, Run, Task } from "@switchyard/protocol";
+import { CircleAlert, Clock, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 import type { StatusInfo } from "../../components/ui/StatusChip";
 import { RUN_STATUS } from "../../components/ui/StatusChip";
 import { isOpenAttention, pendingInteractionsFor } from "../../sync/selectors";
 import { useSyncStore } from "../../sync/store";
 import { WAIT_LABELS } from "./logic";
-
-export const PRIORITY_INFO: Record<Priority, StatusInfo> = {
-  0: { label: PRIORITY_LABELS[0], icon: ChevronsUp, tone: "danger" },
-  1: { label: PRIORITY_LABELS[1], icon: ArrowUp, tone: "warning" },
-  2: { label: PRIORITY_LABELS[2], icon: Minus, tone: "neutral" },
-  3: { label: PRIORITY_LABELS[3], icon: ArrowDown, tone: "neutral" },
-};
 
 export interface TaskInfo {
   run: Run | undefined;
