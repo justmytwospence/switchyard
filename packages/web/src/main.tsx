@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, useNavigate } from "react-router";
 import { checkAuth, initAuth } from "./app/auth";
 import { AppRoutes } from "./app/routes";
+import { closeResolvedNotifications } from "./push";
 
 /** Notification clicks on an open window navigate in place (see sw.ts). */
 function ServiceWorkerNavigation() {
@@ -18,7 +19,16 @@ function ServiceWorkerNavigation() {
       navigate(url.pathname + url.search + url.hash);
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
-    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+    // A clear push while the app was in the background leaves a silent "Resolved" notice.
+    const closeResolved = () => {
+      if (document.visibilityState === "visible") void closeResolvedNotifications();
+    };
+    closeResolved();
+    document.addEventListener("visibilitychange", closeResolved);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+      document.removeEventListener("visibilitychange", closeResolved);
+    };
   }, [navigate]);
   return null;
 }

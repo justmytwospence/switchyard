@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
-import type { PushPayload } from "@switchyard/protocol";
 import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from "workbox-precaching";
+import { parsePushData, resolvedNotice } from "./swPush";
 
 /**
  * Service worker: precache the app shell, serve it for offline navigations,
@@ -36,46 +36,44 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-function parsePayload(event: PushEvent): PushPayload | null {
-  if (!event.data) return null;
-  try {
-    const v = event.data.json() as PushPayload;
-    if (v && (v.type === "show" || v.type === "clear")) return v;
-  } catch {
-    // Plain-text push: show it as is.
-    return {
-      type: "show",
-      title: "Switchyard",
-      body: event.data.text(),
-      tag: "switchyard",
-      url: "/attention",
-      renotify: false,
-    };
-  }
-  return null;
-}
+const ICON = "/icon-192.png";
 
 self.addEventListener("push", (event) => {
-  const payload = parsePayload(event);
-  if (!payload) return;
-  if (payload.type === "clear") {
-    event.waitUntil(
-      self.registration.getNotifications({ tag: payload.tag }).then((list) => {
-        for (const n of list) n.close();
-      }),
-    );
+  const p = parsePushData(event.data);
+  event.waitUntil(
+    p.type === "clear"
+      ? clearTag(p.tag)
+      : self.registration.showNotification(p.title, {
+          body: p.body,
+          tag: p.tag,
+          data: { url: p.url },
+          renotify: p.renotify,
+          icon: ICON,
+          badge: ICON,
+        } as NotificationOptions),
+  );
+});
+
+/**
+ * A `clear` push must still show something or the browser may show its own "updated in the
+ * background" notice (and may revoke the subscription). With a visible window we only close;
+ * otherwise we replace the notification with a silent "Resolved" one under the same tag, which
+ * the app closes when it returns to the foreground.
+ */
+async function clearTag(tag: string): Promise<void> {
+  const open = await self.registration.getNotifications({ tag });
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  if (windows.some((c) => c.visibilityState === "visible")) {
+    for (const n of open) n.close();
     return;
   }
-  const options: NotificationOptions & { renotify?: boolean } = {
-    body: payload.body,
-    tag: payload.tag,
-    data: { url: payload.url },
-    renotify: payload.renotify,
-    icon: "/icon-192.png",
-    badge: "/icon-192.png",
-  };
-  event.waitUntil(self.registration.showNotification(payload.title, options));
-});
+  const n = resolvedNotice(tag, open[0] ? { title: open[0].title, data: open[0].data } : null);
+  await self.registration.showNotification(n.title, {
+    ...n.options,
+    icon: ICON,
+    badge: ICON,
+  } as NotificationOptions);
+}
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
@@ -87,12 +85,16 @@ self.addEventListener("notificationclick", (event) => {
       const sameOrigin = windows.filter((c) => new URL(c.url).origin === self.location.origin);
       const existing = sameOrigin.find((c) => c.url === target) ?? sameOrigin[0];
       if (existing) {
-        const focused = await existing.focus();
-        if (focused.url !== target) {
-          // The app navigates in place (keeps drafts and sync state); see main.tsx.
-          focused.postMessage({ type: "navigate", url: target });
+        try {
+          const focused = (await existing.focus()) ?? existing;
+          if (focused.url !== target) {
+            // The app navigates in place (keeps drafts and sync state); see main.tsx.
+            focused.postMessage({ type: "navigate", url: target });
+          }
+          return;
+        } catch {
+          // focus() is not allowed for this client: open a window instead.
         }
-        return;
       }
       await self.clients.openWindow(target);
     })(),

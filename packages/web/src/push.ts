@@ -104,6 +104,15 @@ export async function reportPermission(permission: NotificationPermission): Prom
   });
 }
 
+/** Close "Resolved" notices left by clear pushes (called when the app is in the foreground). */
+export async function closeResolvedNotifications(): Promise<void> {
+  if (!pushSupported()) return;
+  const reg = await navigator.serviceWorker.getRegistration();
+  for (const n of (await reg?.getNotifications()) ?? []) {
+    if ((n.data as { resolved?: boolean } | null)?.resolved) n.close();
+  }
+}
+
 export function sendTestNotification(): Promise<unknown> {
   return apiPost("/api/push/test");
 }
