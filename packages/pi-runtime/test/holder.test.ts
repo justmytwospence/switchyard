@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,10 @@ import { holderScriptPath, terminalSupport } from "../src/terminal-process.js";
 const dirs: string[] = [];
 const sockets: Socket[] = [];
 
-function startHolder(script: string): { socketPath: string; done: Promise<number | null> } {
+function startHolder(
+  script: string,
+  extraEnv: Record<string, string> = {},
+): { socketPath: string; done: Promise<number | null> } {
   const dir = mkdtempSync(join(tmpdir(), "sy-holder-"));
   dirs.push(dir);
   const socketPath = join(dir, "h.sock");
@@ -18,7 +21,12 @@ function startHolder(script: string): { socketPath: string; done: Promise<number
     piBin: "/bin/sh",
     args: ["-c", script],
     cwd: dir,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+    env: {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      TERM: "xterm-256color",
+      SOCK: socketPath,
+      ...extraEnv,
+    },
     cols: 80,
     rows: 24,
   };
@@ -114,6 +122,19 @@ describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
     await until(() => ext.lines.some((l) => l.type === "control_attached"));
     c.send({ type: "ping", id: "x" });
     await until(() => ext.lines.some((l) => l.type === "ping"));
+    c.send({ type: "holder_kill", signal: "SIGKILL" });
+    await until(() => c.lines.some((l) => l.type === "holder_exit"));
+    await h.done;
+  });
+
+  it("listens before it spawns Pi", async () => {
+    const h = startHolder('if [ -S "$SOCK" ]; then echo listening; else echo early; fi; exec cat');
+    const v = await connect(h.socketPath, { role: "viewer", cols: 80, rows: 24 });
+    await until(() => decoded(v.lines).includes("listening") || decoded(v.lines).includes("early"));
+    expect(decoded(v.lines)).toContain("listening");
+    expect(decoded(v.lines)).not.toContain("early");
+    expect(statSync(h.socketPath).mode & 0o777).toBe(0o600);
+    const c = await connect(h.socketPath, { role: "control" });
     c.send({ type: "holder_kill", signal: "SIGKILL" });
     await until(() => c.lines.some((l) => l.type === "holder_exit"));
     await h.done;

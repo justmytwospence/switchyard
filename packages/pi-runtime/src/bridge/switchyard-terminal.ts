@@ -648,6 +648,16 @@ export default function switchyardTerminal(pi: any): void {
     }
   };
 
+  /** Tell a (re)attached controller who we are, then re-send the dialogs it has not answered. */
+  const announce = (): void => {
+    if (ctx) {
+      hello();
+      sendModelState();
+      sendQueue();
+    }
+    for (const p of pending.values()) send(p.request);
+  };
+
   const onLine = (line: string): void => {
     let msg: any;
     try {
@@ -663,12 +673,7 @@ export default function switchyardTerminal(pi: any): void {
     if (msg.type === "control_attached") {
       // A controller re-attached (host agent restart): it starts from scratch, so announce the
       // session again before re-sending the dialogs it has not answered.
-      if (ctx) {
-        hello();
-        sendModelState();
-        sendQueue();
-      }
-      for (const p of pending.values()) send(p.request);
+      announce();
       return;
     }
     if (typeof msg.type === "string" && msg.id !== undefined) handleCommand(msg);
@@ -676,9 +681,19 @@ export default function switchyardTerminal(pi: any): void {
 
   // ---- socket ----
 
-  try {
-    const s = createConnection(socketPath);
+  // The holder listens before it starts Pi, but retry a few times anyway (a slow or restarting holder).
+  const CONNECT_ATTEMPTS = 5;
+  const CONNECT_RETRY_MS = 200;
+  const connect = (attempt: number): void => {
+    let s: Socket;
+    try {
+      s = createConnection(socketPath);
+    } catch {
+      socket = null;
+      return;
+    }
     socket = s;
+    let connected = false;
     let buf = "";
     s.setEncoding("utf8");
     s.on("data", (chunk: string) => {
@@ -691,17 +706,23 @@ export default function switchyardTerminal(pi: any): void {
         nl = buf.indexOf("\n");
       }
     });
+    s.once("connect", () => {
+      connected = true;
+      if (attempt > 1) announce();
+    });
     s.on("error", () => {
-      socket = null;
+      if (socket === s) socket = null;
     });
     s.on("close", () => {
       if (socket === s) socket = null;
+      if (!connected && attempt < CONNECT_ATTEMPTS) {
+        setTimeout(() => connect(attempt + 1), CONNECT_RETRY_MS).unref();
+      }
     });
     s.unref();
     s.write(`${JSON.stringify({ role: "extension" })}\n`);
-  } catch {
-    socket = null;
-  }
+  };
+  connect(1);
 
   try {
     pi.events?.on?.(REMOTE_UI_CHANNEL, (data: unknown) => {

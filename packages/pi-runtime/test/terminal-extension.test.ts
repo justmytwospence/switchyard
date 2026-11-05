@@ -16,8 +16,7 @@ interface Holder {
 let dir: string;
 let holder: Holder;
 
-async function startHolder(): Promise<Holder> {
-  const path = join(dir, "c.sock");
+async function startHolder(path = join(dir, "c.sock")): Promise<Holder> {
   const lines: any[] = [];
   let sock: Socket | null = null;
   const server = createServer((s) => {
@@ -177,6 +176,23 @@ describe("switchyard terminal extension", () => {
     expect(calls[0]!.args[2].signal.aborted).toBe(true);
     await new Promise((r) => setTimeout(r, 50));
     expect(holder.lines.some((l) => l.type === "extension_ui_closed")).toBe(false);
+  });
+
+  it("retries its connect and announces itself once the holder listens", async () => {
+    const late = join(dir, "late.sock");
+    process.env.SWITCHYARD_CONTROL_SOCKET = late;
+    const pi = fakePi();
+    switchyardTerminal(pi);
+    pi.emit("session_start", { reason: "startup" }, fakeCtx(fakeUi().ui));
+    await new Promise((r) => setTimeout(r, 300));
+    const lateHolder = await startHolder(late);
+    try {
+      await until(() => lateHolder.lines.some((l) => l.type === "extension_hello"));
+      expect(lateHolder.lines[0]).toMatchObject({ role: "extension" });
+    } finally {
+      lateHolder.socket()?.destroy();
+      lateHolder.server.close();
+    }
   });
 
   it("announces itself again before re-sending pending dialogs when a control attaches", async () => {

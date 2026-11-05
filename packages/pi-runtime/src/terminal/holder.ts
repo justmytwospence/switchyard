@@ -132,17 +132,12 @@ export function runHolder(cfg: HolderConfig): void {
   const serializer = new SerializeAddon();
   term.loadAddon(serializer as never);
 
-  const proc = pty.spawn(cfg.piBin, cfg.args, {
-    name: "xterm-256color",
-    cols: cfg.cols,
-    rows: cfg.rows,
-    cwd: cfg.cwd,
-    env: cfg.env,
-  });
+  let proc: Pty | null = null;
+  let killRequested = false;
 
   const resize = (cols: number, rows: number) => {
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 2) return;
-    if (exitInfo) return;
+    if (exitInfo || !proc) return;
     try {
       proc.resize(cols, rows);
       term.resize(cols, rows);
@@ -185,14 +180,7 @@ export function runHolder(cfg: HolderConfig): void {
     setTimeout(() => process.exit(0), 100).unref();
   };
 
-  proc.onData((d: string) => {
-    term.write(d);
-    if (viewers.size === 0) return;
-    const line = JSON.stringify({ t: "out", d: Buffer.from(d, "utf8").toString("base64") });
-    for (const v of viewers) write(v, line);
-  });
-
-  proc.onExit(({ exitCode, signal }) => {
+  const onPiExit = ({ exitCode, signal }: { exitCode: number | null; signal?: number }) => {
     exitInfo = { code: exitCode ?? null, signal: signal ? signalName(signal) : null };
     const closed = JSON.stringify({ t: "closed", reason: "Pi exited" });
     for (const v of viewers) {
@@ -204,9 +192,39 @@ export function runHolder(cfg: HolderConfig): void {
       write(control, JSON.stringify({ type: "holder_exit", ...exitInfo }));
       setTimeout(shutdown, 1000).unref();
     } else {
-      setTimeout(shutdown, EXIT_WAIT_MS).unref();
+      setTimeout(shutdown, killRequested ? 1000 : EXIT_WAIT_MS).unref();
     }
-  });
+  };
+
+  /** Spawn Pi once the socket is listening, so the extension can always connect. */
+  const startPi = () => {
+    try {
+      proc = pty.spawn(cfg.piBin, cfg.args, {
+        name: "xterm-256color",
+        cols: cfg.cols,
+        rows: cfg.rows,
+        cwd: cfg.cwd,
+        env: cfg.env,
+      });
+    } catch (err) {
+      process.stderr.write(
+        `switchyard holder: could not start ${cfg.piBin}: ${(err as Error).message}\n`,
+      );
+      onPiExit({ exitCode: null });
+      return;
+    }
+    const started = proc;
+    started.onData((d: string) => {
+      term.write(d);
+      if (viewers.size === 0) return;
+      const line = JSON.stringify({ t: "out", d: Buffer.from(d, "utf8").toString("base64") });
+      for (const v of viewers) write(v, line);
+    });
+    started.onExit(onPiExit);
+    if (control && !control.destroyed) {
+      write(control, JSON.stringify({ type: "holder_status", piPid: started.pid }));
+    }
+  };
 
   const server = createServer((socket) => {
     let role: "extension" | "control" | "viewer" | null = null;
@@ -231,7 +249,7 @@ export function runHolder(cfg: HolderConfig): void {
           role = "control";
           if (control && control !== socket) control.destroy();
           control = socket;
-          write(socket, JSON.stringify({ type: "holder_status", piPid: proc.pid }));
+          write(socket, JSON.stringify({ type: "holder_status", piPid: proc?.pid ?? null }));
           if (gap) {
             write(socket, JSON.stringify({ type: "holder_gap" }));
             gap = false;
@@ -278,7 +296,7 @@ export function runHolder(cfg: HolderConfig): void {
           // forward as-is
         }
         if (rec?.type === "holder_keys") {
-          if (!exitInfo && typeof rec.data === "string") proc.write(rec.data);
+          if (!exitInfo && proc && typeof rec.data === "string") proc.write(rec.data);
           return;
         }
         toControl(line);
@@ -293,7 +311,7 @@ export function runHolder(cfg: HolderConfig): void {
         }
         if (rec?.type === "holder_kill") {
           try {
-            proc.kill(typeof rec.signal === "string" ? rec.signal : "SIGTERM");
+            proc?.kill(typeof rec.signal === "string" ? rec.signal : "SIGTERM");
           } catch {
             // already gone
           }
@@ -310,7 +328,7 @@ export function runHolder(cfg: HolderConfig): void {
         return;
       }
       if (msg?.t === "in" && typeof msg.d === "string") {
-        if (!exitInfo) proc.write(Buffer.from(msg.d, "base64").toString("utf8"));
+        if (!exitInfo && proc) proc.write(Buffer.from(msg.d, "base64").toString("utf8"));
       } else if (msg?.t === "resize") {
         resize(Number(msg.cols), Number(msg.rows));
       }
@@ -322,18 +340,26 @@ export function runHolder(cfg: HolderConfig): void {
     });
   });
 
+  server.on("error", (err) => {
+    process.stderr.write(`switchyard holder: cannot listen on ${cfg.socketPath}: ${err.message}\n`);
+    process.exit(1);
+  });
+  // Listen with a restrictive umask, then spawn Pi with the original one.
+  const oldMask = process.umask(0o077);
   server.listen(cfg.socketPath, () => {
+    process.umask(oldMask);
     try {
       chmodSync(cfg.socketPath, 0o600);
     } catch {
       // best effort
     }
+    startPi();
   });
 
   process.on("uncaughtException", (err) => {
     process.stderr.write(`switchyard holder: ${err.stack ?? err.message}\n`);
     try {
-      proc.kill();
+      proc?.kill();
     } catch {
       // ignore
     }
@@ -342,6 +368,11 @@ export function runHolder(cfg: HolderConfig): void {
   });
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
     process.on(sig, () => {
+      killRequested = true;
+      if (!proc) {
+        rmSync(cfg.socketPath, { force: true });
+        process.exit(0);
+      }
       try {
         proc.kill(sig);
       } catch {
