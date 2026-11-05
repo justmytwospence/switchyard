@@ -381,21 +381,27 @@ export function NewSessionFlow({
               label="Branch"
               id={`${id}-branch`}
               hint={
-                branchProblem(f.effectiveBranch) ??
-                (f.branchTouched && f.branch !== f.suggested ? (
-                  <button
-                    type="button"
-                    className="font-medium text-accent"
-                    onClick={() => {
-                      f.setBranch("");
-                      f.setBranchTouched(false);
-                    }}
-                  >
-                    Use suggested name
-                  </button>
-                ) : (
-                  "Suggested from the prompt."
-                ))
+                <>
+                  {branchProblem(f.effectiveBranch) ??
+                    (f.branchTouched && f.branch !== f.suggested
+                      ? "Custom branch name."
+                      : "Suggested from the prompt.")}
+                  {f.branchTouched && f.branch !== f.suggested && (
+                    <>
+                      {" "}
+                      <button
+                        type="button"
+                        className="font-medium text-accent"
+                        onClick={() => {
+                          f.setBranch("");
+                          f.setBranchTouched(false);
+                        }}
+                      >
+                        Use suggested name
+                      </button>
+                    </>
+                  )}
+                </>
               }
             >
               <TextInput
