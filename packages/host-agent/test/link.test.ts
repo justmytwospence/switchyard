@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 import { makeRepo, type TempRepo } from "@switchyard/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RESTART_TERMINAL_LOST_DETAIL, terminalLostNotice } from "../src/index.js";
+import {
+  RESTART_TERMINAL_LOST_DETAIL,
+  RESTARTED_WHILE_RUNNING,
+  terminalLostNotice,
+} from "../src/index.js";
 import { type HostHarness, seedSession, sleep, startHarness, waitFor } from "./helpers.js";
 
 function diag(h: HostHarness, message: string): void {
@@ -167,6 +171,45 @@ describe("command router", () => {
         error: { code: "invalid_request", message: `Session stopped (stopped): ${hint}` },
       });
     }
+  });
+
+  it("a command interrupted by a restart answers with an error instead of running again", async () => {
+    const now = new Date().toISOString();
+    const pending = (commandId: string, type: string) =>
+      h.agent.db.run("INSERT INTO receipts (command_id, json, created_at) VALUES (?, ?, ?)", [
+        commandId,
+        JSON.stringify({ commandId, pending: true, type }),
+        now,
+      ]);
+    pending("cmd_pend", "workspace.create");
+    // Reads are rerunnable and never leave a marker, but any pending row is converted.
+    pending("cmd_pend_read", "workspace.status");
+    await h.agent.stop();
+    const hellos = h.coord.hellos.length;
+    await h.restartAgent();
+    await waitFor(() => h.coord.hellos.length > hellos, 10000, "second hello");
+
+    const branch = "feat/pending";
+    const r = await h.coord.command(
+      {
+        type: "workspace.create",
+        checkoutPath: repo.path,
+        branch,
+        base: "main",
+        setupCommand: null,
+      },
+      { commandId: "cmd_pend" },
+    );
+    expect(r).toMatchObject({
+      ok: false,
+      error: { code: "internal", message: RESTARTED_WHILE_RUNNING },
+    });
+    expect(existsSync(`${repo.path}/.worktrees/feat-pending`)).toBe(false);
+    const read = await h.coord.command(
+      { type: "workspace.status", path: repo.path },
+      { commandId: "cmd_pend_read" },
+    );
+    expect(read).toMatchObject({ ok: false, error: { message: RESTARTED_WHILE_RUNNING } });
   });
 
   it("rejects malformed commands with invalid_request", async () => {

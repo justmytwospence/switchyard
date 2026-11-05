@@ -41,6 +41,34 @@ export interface CommandRouterOptions {
   checkTimeoutMs?: number;
 }
 
+export const RESTARTED_WHILE_RUNNING = "Host restarted while running";
+
+/**
+ * Commands safe to run again after a restart: reads, checks, and dispatch (idempotent by its
+ * dispatch key). Every other command leaves a pending marker while it runs; a marker found at
+ * startup means the host died mid-command, and the command is answered with an error, never rerun.
+ */
+const RERUNNABLE = new Set<HostCommand["type"]>([
+  "dispatch.start",
+  "dispatch.reconcile",
+  "checks.run",
+  "session.snapshot",
+  "session.models",
+  "session.commands",
+  "session.complete",
+  "session.tree",
+  "session.export",
+  "session.importable",
+  "session.readNative",
+  "checkout.inspect",
+  "projects.scan",
+  "workspace.discover",
+  "workspace.status",
+  "workspace.diff",
+  "workspace.files",
+  "workspace.readFile",
+]);
+
 /** Map any thrown value to a protocol error body. */
 export function toErrorBody(err: unknown): ErrorBody {
   if (err instanceof SwitchyardError) return err.toBody();
@@ -99,9 +127,42 @@ export class CommandRouter {
   }
 
   storedReceipt(commandId: string): Receipt | undefined {
-    return this.opts.db.getJson<Receipt>("SELECT json FROM receipts WHERE command_id = ?", [
-      commandId,
-    ]);
+    const stored = this.opts.db.getJson<Receipt & { pending?: boolean }>(
+      "SELECT json FROM receipts WHERE command_id = ?",
+      [commandId],
+    );
+    // A pending marker is not an answer: the command is (or was) still running.
+    return stored && stored.pending !== true ? stored : undefined;
+  }
+
+  /**
+   * Answer every command a previous run left pending (the host died while it ran) with an error,
+   * so a resend gets that answer instead of running it a second time. Call before the link starts.
+   */
+  recoverPending(): number {
+    const { db } = this.opts;
+    return db.tx(() => {
+      const rows = db.all<{ command_id: string; json: string }>(
+        "SELECT command_id, json FROM receipts WHERE json_extract(json, '$.pending') = 1",
+      );
+      for (const row of rows) {
+        const type = (JSON.parse(row.json) as { type?: string }).type;
+        const receipt: Receipt = {
+          commandId: row.command_id,
+          ok: false,
+          error: {
+            code: "internal",
+            message: RESTARTED_WHILE_RUNNING,
+            details: { type },
+          },
+        };
+        db.run("UPDATE receipts SET json = ? WHERE command_id = ?", [
+          JSON.stringify(receipt),
+          row.command_id,
+        ]);
+      }
+      return rows.length;
+    });
   }
 
   handle(commandId: string, raw: unknown): Promise<Receipt> {
@@ -157,6 +218,18 @@ export class CommandRouter {
           },
         };
       } else {
+        if (!RERUNNABLE.has(command.type)) {
+          this.opts.db.tx(() =>
+            this.opts.db.run(
+              "INSERT OR REPLACE INTO receipts (command_id, json, created_at) VALUES (?, ?, ?)",
+              [
+                commandId,
+                JSON.stringify({ commandId, pending: true, type: command.type }),
+                new Date().toISOString(),
+              ],
+            ),
+          );
+        }
         try {
           const result = await this.execute(command);
           receipt = { commandId, ok: true, result: result ?? null };

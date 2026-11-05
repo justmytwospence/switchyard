@@ -228,12 +228,19 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   const interruptedOnStart = recovered.interrupted;
   const stoppedOnStart = recovered.stopped;
   const failedDispatches = dispatcher.recoverAfterRestart();
-  if (interruptedOnStart.length > 0 || stoppedOnStart.length > 0 || failedDispatches > 0) {
+  const failedCommands = router.recoverPending();
+  if (
+    interruptedOnStart.length > 0 ||
+    stoppedOnStart.length > 0 ||
+    failedDispatches > 0 ||
+    failedCommands > 0
+  ) {
     log.warn(
       {
         sessions: interruptedOnStart.length,
         stopped: stoppedOnStart.length,
         dispatches: failedDispatches,
+        commands: failedCommands,
       },
       "recovered after restart",
     );
