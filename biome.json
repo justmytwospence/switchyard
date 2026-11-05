@@ -13,7 +13,8 @@
       "!**/*.md",
       "!pnpm-lock.yaml",
       "!**/.tmp*",
-      "!dist-npm"
+      "!dist-npm",
+      "!.worktrees"
     ]
   },
   "formatter": {

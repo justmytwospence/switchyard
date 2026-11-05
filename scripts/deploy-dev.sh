@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Deploy the current main to switchyard-dev (https://switchyard-dev.spencerboucher.com):
-#   1. require a clean main that is pushed (HEAD == origin/main);
+# Deploy the current dev branch to switchyard-dev (https://switchyard-dev.spencerboucher.com):
+#   1. require a clean dev that is pushed (HEAD == origin/dev);
 #   2. wait for CI on that commit, which publishes ghcr.io/justmytwospence/switchyard:edge;
 #   3. on the NUC, pull and recreate the switchyard-dev coordinator and its host (homelab's
 #      switchyard-dev compose project) and check the running image is this commit;
-#   4. on this Mac, rebuild the checkout and restart the dev host agent
+#   4. on this Mac, rebuild this checkout (the dev worktree) and restart the dev host agent
 #      (launchd com.switchyard.host.dev runs packages/cli/dist/main.js from this checkout).
 # Prints the URL and revision for review.
 set -euo pipefail
@@ -18,13 +18,13 @@ LABEL=com.switchyard.host.dev
 
 step() { printf '\n==> %s\n' "$*"; }
 
-step "Checking main is clean and pushed"
-[ "$(git rev-parse --abbrev-ref HEAD)" = main ] || { echo "Not on main" >&2; exit 1; }
+step "Checking dev is clean and pushed"
+[ "$(git rev-parse --abbrev-ref HEAD)" = dev ] || { echo "Not on dev (run it from the dev worktree, .worktrees/dev)" >&2; exit 1; }
 [ -z "$(git status --porcelain)" ] || { echo "Working tree is not clean" >&2; exit 1; }
-git fetch -q origin main
+git fetch -q origin dev
 SHA=$(git rev-parse HEAD)
-[ "$SHA" = "$(git rev-parse origin/main)" ] || {
-  echo "HEAD ($SHA) is not origin/main; push first" >&2
+[ "$SHA" = "$(git rev-parse origin/dev)" ] || {
+  echo "HEAD ($SHA) is not origin/dev; push first" >&2
   exit 1
 }
 echo "$SHA"
@@ -49,6 +49,12 @@ REV=$(ssh "$NUC" "docker inspect switchyard-dev --format '{{index .Config.Labels
 echo "switchyard-dev runs $REV"
 
 if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
+  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  grep -qF "$PWD/packages/cli/dist/main.js" "$PLIST" || {
+    echo "$LABEL runs another checkout. Reinstall it from here:" >&2
+    echo "  node packages/cli/dist/main.js host install-service --instance dev --config ~/.config/switchyard-dev/host.json --state-dir \"\$HOME/Library/Application Support/switchyard-dev\"" >&2
+    exit 1
+  }
   step "Rebuilding this checkout and restarting $LABEL"
   pnpm build >/dev/null
   launchctl kickstart -k "gui/$(id -u)/$LABEL"

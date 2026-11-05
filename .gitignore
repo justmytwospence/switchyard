@@ -8,3 +8,4 @@ test-results/
 .env
 data/
 dist-npm/
+.worktrees/

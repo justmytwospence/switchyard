@@ -15,12 +15,13 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
 
-  # Every green push to main publishes the coordinator image as :edge and :sha-<short>, for a
-  # development deployment that tracks main. Releases (v* tags, release.yml) stay the only
-  # source of versioned images and the npm package.
+  # Every green push to dev publishes the coordinator image as :edge and :sha-<short> for
+  # switchyard-dev, which tracks dev. main moves only by fast-forward to a green dev
+  # (scripts/promote.sh). Releases (v* tags, release.yml) stay the only source of versioned
+  # images and the npm package.
   edge-image:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:
       contents: read
