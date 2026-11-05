@@ -1,11 +1,11 @@
 import type { UINode, UIRef } from "@switchyard/protocol";
 import { ChevronRight, CircleCheck, CircleX, FileCode, LoaderCircle } from "lucide-react";
 import { useId, useState } from "react";
-import { Link } from "react-router";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/Button";
 import { Spinner } from "../ui/Spinner";
 import { TabPanel, Tabs } from "../ui/Tabs";
+import { TextLink } from "../ui/TextLink";
 import { CodeBlock } from "./CodeBlock";
 import { ConfirmRenderer } from "./ConfirmRenderer";
 import { IntentContext, type IntentHandlers, useIntent } from "./context";
@@ -267,22 +267,22 @@ function RefView({ refValue, label }: { refValue: UIRef; label: string }) {
   const href = refHref(refValue);
   if (href) {
     return (
-      <Link to={href} className="text-sm text-accent underline underline-offset-2">
+      <TextLink to={href} size="sm">
         {label}
-      </Link>
+      </TextLink>
     );
   }
   if (refValue.kind === "file") {
     if (onOpenFile) {
       return (
-        <button
-          type="button"
+        <TextLink
+          size="sm"
+          variant="inline"
+          icon={<FileCode aria-hidden className="size-4 shrink-0" />}
           onClick={() => onOpenFile(refValue.path)}
-          className="inline-flex min-w-0 items-center gap-1 text-left text-sm text-accent underline underline-offset-2"
         >
-          <FileCode aria-hidden className="size-4 shrink-0" />
           <span className="truncate">{label || refValue.path}</span>
-        </button>
+        </TextLink>
       );
     }
     return (

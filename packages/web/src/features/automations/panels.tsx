@@ -17,7 +17,6 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { copyText } from "../../components/ui/Copy";
@@ -30,6 +29,7 @@ import {
   LoadingState,
   UnsupportedCapability,
 } from "../../components/ui/states";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { apiGet, apiPost, errorMessage, isApiError } from "../../sync/api";
@@ -449,9 +449,11 @@ export function HistorySection({
                 </div>
                 {text && <p className="text-sm break-words text-muted">{text}</p>}
                 {o.taskId && (
-                  <Link
+                  <TextLink
                     to={taskPath(o.taskId)}
-                    className="tap inline-flex min-w-0 items-center gap-1 self-start text-sm text-accent hover:underline"
+                    variant="action"
+                    size="sm"
+                    className="self-start"
                   >
                     <span className="min-w-0 truncate">
                       {task ? `Task: ${task.title}` : "Open task"}
@@ -459,7 +461,7 @@ export function HistorySection({
                     {task?.hiddenFromBoard && (
                       <span className="shrink-0 text-xs text-muted">(hidden from board)</span>
                     )}
-                  </Link>
+                  </TextLink>
                 )}
               </li>
             );

@@ -16,6 +16,7 @@ import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { HostUnavailable } from "../../components/ui/states";
+import { TextLink } from "../../components/ui/TextLink";
 import { useDraft } from "../../drafts";
 import { usePendingInteractions, useSyncStore } from "../../sync/store";
 import { MobileChanges } from "./Changes";
@@ -70,9 +71,7 @@ function SessionBanners({ ctx, actions }: { ctx: SessionContext; actions: Sessio
               <div className="break-words text-muted">
                 {session.runtimeDetail ?? "Pi exited with an error."}
               </div>
-              <Link to="/settings/diagnostics" className="text-accent underline">
-                Open diagnostics
-              </Link>
+              <TextLink to="/settings/diagnostics">Open diagnostics</TextLink>
             </div>
             {actions.canResume && (
               <Button

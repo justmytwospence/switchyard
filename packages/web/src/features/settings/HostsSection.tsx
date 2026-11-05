@@ -14,6 +14,7 @@ import {
   LoadingState,
   UnsupportedCapability,
 } from "../../components/ui/states";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { formatRelative, formatTime } from "../../lib/time";
 import { apiPost } from "../../sync/api";
@@ -382,12 +383,12 @@ export function HostDetail() {
           <ul className="flex min-w-0 flex-col divide-y divide-border">
             {checkouts.map((c) => (
               <li key={c.id} className="min-w-0 py-2 text-sm">
-                <Link
+                <TextLink
                   to={settingsPath(`projects/${encodeURIComponent(c.projectId)}`)}
-                  className="font-medium text-accent hover:underline"
+                  variant="action"
                 >
                   {projects[c.projectId]?.name ?? "Unknown project"}
-                </Link>
+                </TextLink>
                 <div className="break-all font-mono text-xs">{c.path}</div>
                 <div className="text-xs text-muted">Default branch: {c.defaultBranch}</div>
               </li>
@@ -399,9 +400,9 @@ export function HostDetail() {
       <Card
         title="Adapters"
         actions={
-          <Link to={settingsPath("adapters")} className="text-sm font-medium text-accent">
+          <TextLink to={settingsPath("adapters")} size="sm" variant="action">
             All adapters
-          </Link>
+          </TextLink>
         }
       >
         {!adapters || adapters.length === 0 ? (

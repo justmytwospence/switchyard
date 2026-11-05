@@ -15,6 +15,7 @@ import {
   UnsupportedCapability,
 } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { errorMessage, isApiError } from "../../sync/api";
@@ -322,13 +323,12 @@ export function FilterChips({
       ))}
       {chips.length > 1 && (
         <li>
-          <button
-            type="button"
-            className="tap rounded px-2 py-0.5 text-xs font-medium text-accent"
+          <TextLink
+            size="xs"
             onClick={() => board.setFilters({ ...DEFAULT_FILTERS, sort: board.filters.sort })}
           >
             Clear all
-          </button>
+          </TextLink>
         </li>
       )}
     </ul>

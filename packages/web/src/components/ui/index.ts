@@ -58,5 +58,6 @@ export {
 } from "./states";
 export { type TabItem, TabPanel, Tabs } from "./Tabs";
 export { CONTROL_CLASSES, TextArea, TextInput } from "./TextArea";
+export { TextLink, type TextLinkProps } from "./TextLink";
 export { Toaster, toast, useToasts } from "./Toast";
 export { focusableWithin, useFocusTrap, useScrollLock } from "./useFocusTrap";

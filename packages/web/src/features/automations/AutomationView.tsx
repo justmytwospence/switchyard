@@ -32,6 +32,7 @@ import {
   LoadingState,
 } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { apiDelete, apiGet, apiPatch, apiPost, errorMessage, isApiError } from "../../sync/api";
@@ -595,7 +596,8 @@ function BasicsSection({
           hint={
             projects.length === 0 ? (
               <>
-                No projects yet. <Link to="/settings/projects">Add a project in Settings</Link>.
+                No projects yet.{" "}
+                <TextLink to="/settings/projects">Add a project in Settings</TextLink>.
               </>
             ) : undefined
           }
@@ -762,13 +764,9 @@ function TriggerSection({
             error={err("cronTimezone")}
             hint={
               draft.cronTimezone.trim() !== localTz ? (
-                <button
-                  type="button"
-                  className="tap text-accent hover:underline"
-                  onClick={() => update("cronTimezone", localTz)}
-                >
+                <TextLink onClick={() => update("cronTimezone", localTz)}>
                   Use this device's timezone ({localTz})
-                </button>
+                </TextLink>
               ) : (
                 "IANA timezone name; daylight saving is handled."
               )

@@ -7,6 +7,7 @@ import { Field } from "../../components/ui/Field";
 import { PrioritySelect } from "../../components/ui/Priority";
 import { Select } from "../../components/ui/Select";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { errorMessage } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
@@ -262,20 +263,21 @@ export function NewTaskForm({
       </Field>
 
       <div>
-        <button
-          type="button"
-          className="tap inline-flex items-center gap-1 rounded text-sm font-medium text-accent"
+        <TextLink
+          size="sm"
           aria-expanded={d.advanced}
           aria-controls={`${id}-adv`}
+          icon={
+            d.advanced ? (
+              <ChevronDown aria-hidden className="size-4" />
+            ) : (
+              <ChevronRight aria-hidden className="size-4" />
+            )
+          }
           onClick={() => set("advanced", !d.advanced)}
         >
-          {d.advanced ? (
-            <ChevronDown aria-hidden className="size-4" />
-          ) : (
-            <ChevronRight aria-hidden className="size-4" />
-          )}
           Advanced options
-        </button>
+        </TextLink>
         <p className="text-xs text-muted">Unset options inherit the project defaults.</p>
       </div>
 

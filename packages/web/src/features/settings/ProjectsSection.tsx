@@ -15,6 +15,7 @@ import {
   UnsupportedCapability,
 } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { apiPost } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
@@ -191,9 +192,9 @@ export function ProjectCreate() {
               : "No host is connected. The checkout is inspected on its host, so the host must be online."
           }
           fallback={
-            <Link to={settingsPath("hosts")} className="font-medium text-accent">
+            <TextLink to={settingsPath("hosts")} variant="action">
               Open hosts
-            </Link>
+            </TextLink>
           }
         />
       )}

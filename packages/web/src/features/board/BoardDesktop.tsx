@@ -25,6 +25,7 @@ import { Button } from "../../components/ui/Button";
 import { Dialog, Drawer } from "../../components/ui/Overlay";
 import { TASK_STATUS } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
+import { TextLink } from "../../components/ui/TextLink";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
 import {
@@ -240,13 +241,11 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
           {board.visibleCount === 0 && (
             <p role="status" className="px-4 pt-3 text-sm text-muted">
               No tasks match the filters.{" "}
-              <button
-                type="button"
-                className="tap font-medium text-accent"
+              <TextLink
                 onClick={() => board.setFilters({ ...DEFAULT_FILTERS, sort: board.filters.sort })}
               >
                 Clear filters
-              </button>
+              </TextLink>
             </p>
           )}
           <section
@@ -419,25 +418,15 @@ function Column({
             <li className="flex flex-col items-start gap-1 px-1 py-2 text-sm text-muted">
               {tasks.length} completed {tasks.length === 1 ? "task is" : "tasks are"} hidden.
               {tasks.length > 0 && (
-                <button
-                  type="button"
-                  className="tap font-medium text-accent"
-                  onClick={() => setRevealDone(true)}
-                >
-                  Show completed
-                </button>
+                <TextLink onClick={() => setRevealDone(true)}>Show completed</TextLink>
               )}
             </li>
           ) : tasks.length === 0 ? (
             <li className="px-1 py-2 text-sm text-muted">
               {state === "backlog" ? (
-                <button
-                  type="button"
-                  className="tap inline-flex items-center gap-1 font-medium text-accent"
-                  onClick={onNew}
-                >
-                  <Plus aria-hidden className="size-4" /> New task
-                </button>
+                <TextLink icon={<Plus aria-hidden className="size-4" />} onClick={onNew}>
+                  New task
+                </TextLink>
               ) : (
                 "No tasks"
               )}

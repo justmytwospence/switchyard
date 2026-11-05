@@ -13,6 +13,7 @@ import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { TASK_STATUS } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TabPanel, Tabs } from "../../components/ui/Tabs";
+import { TextLink } from "../../components/ui/TextLink";
 import { useFilter } from "../../prefs";
 import { useSyncStore, useTask } from "../../sync/store";
 import {
@@ -200,13 +201,11 @@ export function BoardMobile() {
             {tab === "done" && !board.filters.showCompleted ? (
               <p className="text-sm text-muted">
                 Completed tasks are hidden.{" "}
-                <button
-                  type="button"
-                  className="tap font-medium text-accent"
+                <TextLink
                   onClick={() => board.setFilters({ ...board.filters, showCompleted: true })}
                 >
                   Show completed
-                </button>
+                </TextLink>
               </p>
             ) : (
               renderList(board.columns[tab], tab)

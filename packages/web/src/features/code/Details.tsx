@@ -8,6 +8,7 @@ import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { EmptyState, HostUnavailable, UnsupportedCapability } from "../../components/ui/states";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatRelative, formatTime } from "../../lib/time";
@@ -223,12 +224,9 @@ export function TaskSection({
               return (
                 <li key={id} className="flex min-w-0 items-center gap-2 text-sm">
                   {dep ? <StatusChip kind="task" value={dep.state} size="sm" /> : null}
-                  <Link
-                    to={`/tasks/${encodeURIComponent(id)}`}
-                    className="min-w-0 truncate text-accent underline underline-offset-2"
-                  >
+                  <TextLink to={`/tasks/${encodeURIComponent(id)}`} size="sm" className="truncate">
                     {dep?.title ?? id}
-                  </Link>
+                  </TextLink>
                 </li>
               );
             })}
@@ -428,9 +426,9 @@ export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
             ))}
           </ul>
         )}
-        <Link to="/settings/diagnostics" className="text-sm text-accent underline">
+        <TextLink to="/settings/diagnostics" size="sm">
           All diagnostics
-        </Link>
+        </TextLink>
       </Section>
     </div>
   );
@@ -512,12 +510,9 @@ export function MobileDetails({ ctx, actions }: { ctx: SessionContext; actions: 
                   <span className="min-w-0 truncate">{s.data.label}</span>
                   <span className="text-xs text-muted">{s.data.status}</span>
                   {s.data.linkedSessionId && (
-                    <Link
-                      to={`/code/${encodeURIComponent(s.data.linkedSessionId)}`}
-                      className="text-accent underline"
-                    >
+                    <TextLink to={`/code/${encodeURIComponent(s.data.linkedSessionId)}`}>
                       Open (view only)
-                    </Link>
+                    </TextLink>
                   )}
                 </li>
               ) : null,

@@ -12,6 +12,7 @@ import { Sheet } from "../ui/Overlay";
 import { StatusChip } from "../ui/StatusChip";
 import { ErrorState } from "../ui/states";
 import { TextArea } from "../ui/TextArea";
+import { TextLink } from "../ui/TextLink";
 import { headingSlug, Markdown } from "./Markdown";
 import { UINodeRenderer } from "./UINodeRenderer";
 import { isUnsupported, messageMode, unsupportedView } from "./unsupported";
@@ -518,13 +519,13 @@ function DocumentInteraction({
           className={mobile ? "[&>span]:sr-only" : undefined}
         />
         {!disabled && !optionsVisible && (
-          <button
-            type="button"
-            className="shrink-0 text-xs font-medium text-accent"
+          <TextLink
+            size="xs"
+            className="shrink-0"
             onClick={() => scrollTo(optionsRef.current, "center")}
           >
             Jump to options ↓
-          </button>
+          </TextLink>
         )}
       </header>
       {changes && (
@@ -597,14 +598,14 @@ function DocumentInteraction({
             ))}
           </div>
         )}
-        <button
-          type="button"
-          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent"
+        <TextLink
+          size="xs"
+          className="mt-2"
+          icon={<ArrowUp aria-hidden className="size-3.5" />}
           onClick={() => jump(startRef.current)}
         >
-          <ArrowUp aria-hidden className="size-3.5" />
           Back to the plan start
-        </button>
+        </TextLink>
       </section>
       {showBar && (
         <div

@@ -8,6 +8,7 @@ import { usePasskeyCeremony } from "../../app/passkeyCeremony";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState, LoadingState } from "../../components/ui/states";
+import { TextLink } from "../../components/ui/TextLink";
 import { isStandalone } from "../../push";
 import { apiGet, apiPost, isApiError } from "../../sync/api";
 import {
@@ -442,14 +443,9 @@ function HandoffScreen({
         continues on its own.
       </p>
       {authorizeUrl && (
-        <a
-          href={authorizeUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="font-medium text-accent underline"
-        >
+        <TextLink href={authorizeUrl} external>
           Open the sign-in page again
-        </a>
+        </TextLink>
       )}
       <Button
         onClick={() => {

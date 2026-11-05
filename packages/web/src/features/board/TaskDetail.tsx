@@ -28,6 +28,7 @@ import {
   UnsupportedCapability,
 } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatRelative, formatTime } from "../../lib/time";
@@ -457,12 +458,9 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
                   {d ? (
                     <>
                       <StatusChip kind="task" value={d.state} size="sm" />
-                      <Link
-                        to={ROUTES.task(id)}
-                        className="min-w-0 truncate text-accent hover:underline"
-                      >
+                      <TextLink to={ROUTES.task(id)} variant="action" className="truncate">
                         {d.title}
-                      </Link>
+                      </TextLink>
                     </>
                   ) : (
                     <span className="text-muted">A task that is no longer available</span>

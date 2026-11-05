@@ -16,7 +16,6 @@ import {
   Wand2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { Link } from "react-router";
 import { CodeBlock } from "../../components/intent/CodeBlock";
 import { InteractionCard } from "../../components/intent/InteractionCard";
 import { Markdown } from "../../components/intent/Markdown";
@@ -25,6 +24,7 @@ import { Button } from "../../components/ui/Button";
 import { copyText } from "../../components/ui/Copy";
 import { Sheet } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatTime } from "../../lib/time";
@@ -398,12 +398,9 @@ function SubagentRow({ data }: { data: Extract<TranscriptItem, { kind: "subagent
           <span className="text-xs text-muted">{data.status}</span>
         </div>
         {data.linkedSessionId ? (
-          <Link
-            to={`/code/${encodeURIComponent(data.linkedSessionId)}`}
-            className="text-sm text-accent underline underline-offset-2"
-          >
+          <TextLink to={`/code/${encodeURIComponent(data.linkedSessionId)}`} size="sm">
             Open {linked?.title ?? "subagent session"}
-          </Link>
+          </TextLink>
         ) : (
           <p className="text-xs break-all text-muted">
             {data.sessionFile ? `Session file: ${data.sessionFile}` : "Session not linked yet."}

@@ -1,10 +1,11 @@
 import type { TerminalLoginRequest } from "@switchyard/protocol";
 import { Terminal, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { InlineError, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { formatRelative } from "../../lib/time";
 import { apiGet, apiPost, errorMessage, isApiError } from "../../sync/api";
 
@@ -103,9 +104,7 @@ export default function TerminalLoginView() {
         <p className="font-medium">
           Terminal signed in. You can close this tab and return to your terminal.
         </p>
-        <Link to="/" className="font-medium text-accent underline">
-          Back to Switchyard
-        </Link>
+        <TextLink to="/">Back to Switchyard</TextLink>
       </div>
     );
   } else if (request.status === "denied") {
