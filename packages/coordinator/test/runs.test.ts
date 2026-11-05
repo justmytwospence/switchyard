@@ -271,6 +271,21 @@ describe("runs", () => {
     expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(0);
   });
 
+  it("a continuation error after the run was stopped leaves it interrupted", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h, { policy: continuation() });
+    h.override = (cmd) => {
+      if (cmd.type !== "session.prompt" || cmd.origin !== "automation") return undefined;
+      h!.t.c.store.putRun({ ...runOf(h!, tk.id), state: "interrupted" });
+      return { __error: { code: "invalid_request", message: "Pi is not running" } };
+    };
+    await settle(h, run.sessionId!, "partial");
+    await until(() => commandsOf(h!.host, "session.prompt").length === 1);
+    await sleep(50);
+    expect(runOf(h, tk.id).state).toBe("interrupted");
+    expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(0);
+  });
+
   it("a settle arriving while the previous one is evaluated is evaluated afterwards, not dropped", async () => {
     h = await setupHarness();
     const { task: tk, run } = await startRun(h, { policy: continuation() });

@@ -563,7 +563,10 @@ export class RunsService {
     });
   }
 
-  /** The run failed or the agent is blocked: task blocked plus `failed` attention. */
+  /**
+   * The run failed or the agent is blocked: task blocked plus `failed` attention. A run that
+   * already ended (stopped, finished) while the failing step was in flight is left alone.
+   */
   finishBlocked(
     runId: string,
     reason: string,
@@ -573,6 +576,7 @@ export class RunsService {
     const { store } = this.ctx;
     store.tx(() => {
       const run = store.runs.require(runId);
+      if (!EVALUATED.has(run.state) && run.state !== "checking") return;
       saveRun(this.ctx, run, {
         state: "failed",
         endedAt: store.nowIso(),
