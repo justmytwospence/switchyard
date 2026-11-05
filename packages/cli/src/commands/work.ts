@@ -1,5 +1,5 @@
 import type {
-  Automation,
+  AutomationView,
   Host,
   MoveTaskResult,
   Occurrence,
@@ -218,19 +218,13 @@ export async function tasksMove(
 
 export async function automationsList(ctx: Ctx, flags: ListFlags): Promise<void> {
   const { api } = connect(ctx, flags);
-  const list = await api.get<(Automation & { summary?: string })[]>("/api/automations");
+  const list = await api.get<AutomationView[]>("/api/automations");
   printList(
     ctx,
     flags.json,
     list,
     ["ID", "ENABLED", "NEXT", "NAME", "TRIGGER"],
-    list.map((a) => [
-      a.id,
-      a.enabled ? "yes" : "no",
-      a.nextAt ?? "-",
-      a.name,
-      a.summary ?? a.trigger.kind,
-    ]),
+    list.map((a) => [a.id, a.enabled ? "yes" : "no", a.nextAt ?? "-", a.name, a.summary]),
     "No automations.",
   );
 }

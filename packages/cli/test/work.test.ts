@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  automationsList,
   automationsRun,
   parsePriority,
   parseStates,
@@ -193,6 +194,24 @@ describe("sessions and automations", () => {
     const ctx = testCtx(fetch);
     await sessionsList(ctx, conn);
     expect(ctx.lines[1]).toMatch(/^ses_1\s+running\s+Alpha\s+mac\s+\d+s ago\s+Fix login$/);
+  });
+
+  it("lists automations with their trigger summary", async () => {
+    const { fetch } = stubFetch({
+      "GET /api/automations": () => [
+        {
+          id: "aut_1",
+          enabled: true,
+          nextAt: null,
+          name: "Nightly",
+          trigger: { kind: "cron" },
+          summary: "Every day at 09:00",
+        },
+      ],
+    });
+    const ctx = testCtx(fetch);
+    await automationsList(ctx, conn);
+    expect(ctx.lines[1]).toMatch(/Every day at 09:00$/);
   });
 
   it("fires an automation", async () => {

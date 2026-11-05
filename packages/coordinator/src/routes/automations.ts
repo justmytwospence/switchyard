@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { AutomationInput, newId, SwitchyardError } from "@switchyard/protocol";
+import { AutomationInput, type AutomationView, newId, SwitchyardError } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { filtersMatch } from "../automations/service.js";
@@ -17,7 +17,7 @@ export function registerAutomationRoutes(app: FastifyInstance, ctx: CoordinatorC
   const svc = () => requireService(ctx, "automations");
   const idOf = (req: { params: unknown }) => (req.params as { id: string }).id;
   /** Automation plus its human-readable trigger summary. */
-  const view = (id: string) => {
+  const view = (id: string): AutomationView => {
     const a = store.automations.require(id);
     return { ...a, summary: svc().describe(a) };
   };
@@ -27,7 +27,7 @@ export function registerAutomationRoutes(app: FastifyInstance, ctx: CoordinatorC
     const list = q.projectId
       ? store.automations.list("project_id = ?", [q.projectId], "created_at")
       : store.automations.list(undefined, [], "created_at");
-    return list.map((a) => ({ ...a, summary: svc().describe(a) }));
+    return list.map((a): AutomationView => ({ ...a, summary: svc().describe(a) }));
   });
 
   app.post("/api/automations", async (req, reply) => {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  Automation,
   CompletionPolicy,
   ContinuationPolicy,
   Device,
@@ -306,6 +307,10 @@ export const AutomationInput = z.object({
   completion: CompletionPolicy.default({ checks: null, requireHumanReview: true }),
 });
 export type AutomationInput = z.infer<typeof AutomationInput>;
+
+/** GET /api/automations items and the automation routes' responses: the automation plus its trigger summary. */
+export const AutomationView = Automation.extend({ summary: z.string() });
+export type AutomationView = z.infer<typeof AutomationView>;
 
 export const AutomationPreview = z.object({
   summary: z.string(),

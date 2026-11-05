@@ -1,4 +1,10 @@
-import { Automation, type Host, type Project, type Task } from "@switchyard/protocol";
+import {
+  type Automation,
+  AutomationView,
+  type Host,
+  type Project,
+  type Task,
+} from "@switchyard/protocol";
 import {
   CalendarClock,
   ChevronRight,
@@ -74,7 +80,7 @@ export default function AutomationsView() {
         : res && typeof res === "object" && Array.isArray((res as { items?: unknown }).items)
           ? (res as { items: unknown[] }).items
           : null;
-      const parsed = list ? Automation.array().safeParse(list) : null;
+      const parsed = list ? AutomationView.array().safeParse(list) : null;
       if (!parsed?.success) {
         setFetchState({
           status: "fatal",
