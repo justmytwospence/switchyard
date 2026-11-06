@@ -698,17 +698,47 @@ export class Store {
   // ---- transcript items ------------------------------------------------------------------
 
   upsertItem(item: TranscriptItem): void {
+    this.insertItem(item, this.maxItemRev(item.sessionId) + 1);
+  }
+
+  private insertItem(item: TranscriptItem, rev: number): void {
     this.st
       .get(
-        "INSERT INTO session_items (session_id, item_id, ord, json) VALUES (?, ?, ?, ?) ON CONFLICT(session_id, item_id) DO UPDATE SET ord = excluded.ord, json = excluded.json",
+        "INSERT INTO session_items (session_id, item_id, ord, json, rev) VALUES (?, ?, ?, ?, ?) ON CONFLICT(session_id, item_id) DO UPDATE SET ord = excluded.ord, json = excluded.json, rev = excluded.rev",
       )
-      .run(item.sessionId, item.id, item.order, JSON.stringify(item));
+      .run(item.sessionId, item.id, item.order, JSON.stringify(item), rev);
+  }
+
+  /** Highest item revision of a session (0 when it has none). */
+  maxItemRev(sessionId: string): number {
+    const r = this.st
+      .get("SELECT COALESCE(MAX(rev), 0) AS m FROM session_items WHERE session_id = ?")
+      .get(sessionId) as { m: number };
+    return r.m;
   }
 
   /** Replace a session's whole transcript (read-only views re-read from the native file). */
   replaceItems(sessionId: string, items: TranscriptItem[]): void {
+    let rev = this.maxItemRev(sessionId);
     this.st.get("DELETE FROM session_items WHERE session_id = ?").run(sessionId);
-    for (const item of items) this.upsertItem(item);
+    for (const item of items) this.insertItem(item, ++rev);
+  }
+
+  /** Items changed after a revision, in order; `more` when there are more than `limit`. */
+  listItemsAfterRev(
+    sessionId: string,
+    afterRev: number,
+    limit = 1000,
+  ): { items: TranscriptItem[]; more: boolean } {
+    const rows = this.st
+      .get(
+        "SELECT json FROM session_items WHERE session_id = ? AND rev > ? ORDER BY ord ASC LIMIT ?",
+      )
+      .all(sessionId, afterRev, limit + 1) as { json: string }[];
+    return {
+      items: rows.slice(0, limit).map((r) => JSON.parse(r.json) as TranscriptItem),
+      more: rows.length > limit,
+    };
   }
 
   /** Items in ascending order; `before` pages backwards from an order value. */

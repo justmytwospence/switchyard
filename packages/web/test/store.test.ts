@@ -7,6 +7,7 @@ import {
   applyTranscriptPage,
   clearTranscriptErrors,
   emptySyncData,
+  hydrateTranscript,
   mergeTranscriptItems,
   toSyncState,
 } from "../src/sync/reduce";
@@ -213,6 +214,62 @@ describe("transcripts", () => {
     });
     expect(s.transcripts.ses_1!.items.map((i) => i.id)).toEqual(["new"]);
     expect(s.transcripts.ses_1!.stale).toBe(false);
+  });
+});
+
+describe("transcript cursors and cache", () => {
+  const cursor = { epoch: 0, rev: 3 };
+  it("a delta merges into the loaded items and keeps hasMore", () => {
+    let s = applyTranscriptPage(emptySyncData(), "ses_1", [assistant("a", 1, "x")], {
+      hasMore: true,
+      older: false,
+      ...cursor,
+    });
+    s = applyTranscriptPage(s, "ses_1", [assistant("b", 2, "y")], {
+      hasMore: false,
+      older: false,
+      delta: true,
+      epoch: 0,
+      rev: 4,
+    });
+    expect(s.transcripts.ses_1).toMatchObject({ hasMore: true, rev: 4 });
+    expect(s.transcripts.ses_1!.items.map((i) => i.id)).toEqual(["a", "b"]);
+  });
+  it("a reset page replaces", () => {
+    let s = applyTranscriptPage(emptySyncData(), "ses_1", [assistant("a", 1, "x")], {
+      hasMore: false,
+      older: false,
+      ...cursor,
+    });
+    s = applyTranscriptPage(s, "ses_1", [assistant("n", 1, "z")], {
+      hasMore: false,
+      older: false,
+      reset: true,
+      epoch: 1,
+      rev: 1,
+    });
+    expect(s.transcripts.ses_1!.items.map((i) => i.id)).toEqual(["n"]);
+    expect(s.transcripts.ses_1!.epoch).toBe(1);
+  });
+  it("hydrate paints stale from the cache but never overwrites a loaded transcript", () => {
+    const rec = {
+      sessionId: "ses_1",
+      ...cursor,
+      items: [assistant("c", 1, "cached")],
+      hasMore: false,
+      savedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const s = hydrateTranscript(emptySyncData(), rec);
+    expect(s.transcripts.ses_1).toMatchObject({
+      loaded: true,
+      stale: true,
+      cachedAt: rec.savedAt,
+    });
+    const loaded = applyTranscriptPage(emptySyncData(), "ses_1", [assistant("n", 1, "n")], {
+      hasMore: false,
+      older: false,
+    });
+    expect(hydrateTranscript(loaded, rec)).toBe(loaded);
   });
 });
 

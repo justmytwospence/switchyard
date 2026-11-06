@@ -16,6 +16,32 @@ function makeStore(): Store {
   return new Store(db, new EventHub());
 }
 
+describe("item revisions", () => {
+  const item = (id: string, order: number, text = "x") =>
+    ({
+      id,
+      sessionId: "ses_r",
+      order,
+      at: "2026-01-01T00:00:00.000Z",
+      kind: "user",
+      data: { text },
+    }) as never;
+
+  it("grow on every upsert and continue across replaceItems", () => {
+    const store = makeStore();
+    store.upsertItem(item("a", 0));
+    store.upsertItem(item("b", 1));
+    expect(store.maxItemRev("ses_r")).toBe(2);
+    store.upsertItem(item("a", 0, "changed"));
+    expect(store.maxItemRev("ses_r")).toBe(3);
+    expect(store.listItemsAfterRev("ses_r", 2).items.map((i) => i.id)).toEqual(["a"]);
+    store.replaceItems("ses_r", [item("c", 0), item("d", 1)]);
+    expect(store.maxItemRev("ses_r")).toBe(5);
+    expect(store.listItemsAfterRev("ses_r", 3).items.map((i) => i.id)).toEqual(["c", "d"]);
+    expect(store.listItemsAfterRev("ses_r", 0, 1).more).toBe(true);
+  });
+});
+
 describe("store publication order", () => {
   it("a listener that writes during publication cannot reorder the batch", () => {
     const store = makeStore();

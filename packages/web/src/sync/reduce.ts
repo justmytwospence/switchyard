@@ -73,6 +73,11 @@ export interface TranscriptState {
   /** Set after a snapshot resync; the next view reloads the newest page. */
   stale: boolean;
   error: string | null;
+  /** Server cursor of the loaded copy; null until the server has answered. */
+  epoch: number | null;
+  rev: number | null;
+  /** Set while the items come from the offline cache and the server has not confirmed them. */
+  cachedAt: string | null;
 }
 
 export interface StreamBuffer {
@@ -132,7 +137,17 @@ export function emptySyncData(): SyncData {
 }
 
 export function emptyTranscript(): TranscriptState {
-  return { items: [], loaded: false, loading: false, hasMore: false, stale: false, error: null };
+  return {
+    items: [],
+    loaded: false,
+    loading: false,
+    hasMore: false,
+    stale: false,
+    error: null,
+    epoch: null,
+    rev: null,
+    cachedAt: null,
+  };
 }
 
 function byId<T extends { id: string }>(list: T[]): ById<T> {
@@ -236,21 +251,77 @@ export function applyTranscriptPage<S extends SyncData>(
   state: S,
   sessionId: string,
   items: TranscriptItem[],
-  opts: { hasMore: boolean; older: boolean },
+  opts: {
+    hasMore: boolean;
+    older: boolean;
+    epoch?: number;
+    rev?: number;
+    delta?: boolean;
+    reset?: boolean;
+  },
 ): S {
   const prev = state.transcripts[sessionId] ?? emptyTranscript();
-  // A fresh newest page after a resync replaces items, so nothing stale lingers.
-  const base = !opts.older && prev.stale ? [] : prev.items;
+  const cursor = {
+    epoch: opts.epoch ?? prev.epoch,
+    rev: opts.rev ?? prev.rev,
+  };
+  let next: TranscriptState;
+  if (opts.delta) {
+    next = {
+      ...prev,
+      items: mergeTranscriptItems(prev.items, items),
+      loaded: true,
+      loading: false,
+      stale: false,
+      error: null,
+      cachedAt: null,
+      ...cursor,
+    };
+  } else {
+    // A fresh newest page after a resync (or a reset) replaces items, so nothing stale lingers.
+    const base = !opts.older && (prev.stale || opts.reset) ? [] : prev.items;
+    next = {
+      ...prev,
+      items: mergeTranscriptItems(base, items),
+      loaded: true,
+      loading: false,
+      stale: opts.older ? prev.stale : false,
+      error: null,
+      hasMore: opts.older || !prev.loaded || prev.stale || opts.reset ? opts.hasMore : prev.hasMore,
+      cachedAt: opts.older ? prev.cachedAt : null,
+      ...cursor,
+    };
+  }
+  return { ...state, transcripts: { ...state.transcripts, [sessionId]: next } };
+}
+
+/** Paint a transcript from the offline cache; never replaces one the server already filled. */
+export function hydrateTranscript<S extends SyncData>(
+  state: S,
+  rec: {
+    sessionId: string;
+    epoch: number;
+    rev: number;
+    items: TranscriptItem[];
+    hasMore: boolean;
+    savedAt: string;
+  },
+): S {
+  const prev = state.transcripts[rec.sessionId];
+  if (prev?.loaded) return state;
   const next: TranscriptState = {
-    ...prev,
-    items: mergeTranscriptItems(base, items),
+    ...(prev ?? emptyTranscript()),
+    items: mergeTranscriptItems(rec.items, prev?.items ?? []),
     loaded: true,
     loading: false,
-    stale: opts.older ? prev.stale : false,
+    stale: true,
+    hasMore: rec.hasMore,
     error: null,
-    hasMore: opts.older || !prev.loaded || prev.stale ? opts.hasMore : prev.hasMore,
+    epoch: rec.epoch,
+    rev: rec.rev,
+    cachedAt: rec.savedAt,
   };
-  return { ...state, transcripts: { ...state.transcripts, [sessionId]: next } };
+  return { ...state, transcripts: { ...state.transcripts, [rec.sessionId]: next } };
 }
 
 function upsertTranscriptItem<S extends SyncData>(state: S, item: TranscriptItem): S {

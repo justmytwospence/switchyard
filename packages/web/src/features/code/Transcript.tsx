@@ -12,6 +12,7 @@ import { isDocumentPresentation } from "../../components/intent/InteractionCard"
 import { Button } from "../../components/ui/Button";
 import { ErrorState, LoadingState } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
+import { formatTime } from "../../lib/time";
 import { usePrefs } from "../../prefs";
 import { usePendingInteractions, useStreams, useSyncStore, useTranscript } from "../../sync/store";
 import { buildTimeline, countAfter, foldTimeline, interactionDomId, isBusy } from "./model";
@@ -78,6 +79,7 @@ export function Transcript({
   const pending = usePendingInteractions(sessionId);
   const session = useSyncStore((s) => s.sessions[sessionId]);
   const starting = session?.runtime === "starting";
+  const conn = useSyncStore((s) => s.connection.state);
   const loadOlder = useSyncStore((s) => s.loadOlderTranscript);
   const loadTranscript = useSyncStore((s) => s.loadTranscript);
   const collapse = usePrefs((s) => s.collapseWork);
@@ -314,7 +316,12 @@ export function Transcript({
                 />
               </div>
             )}
-            {t.stale && t.loaded && (
+            {t.cachedAt && conn !== "live" && (
+              <p role="status" className="text-center text-xs text-muted">
+                Showing what was saved at {formatTime(t.cachedAt)}
+              </p>
+            )}
+            {t.stale && t.loaded && !t.cachedAt && (
               <p role="status" className="text-center text-xs text-muted">
                 Refreshing transcript…
               </p>

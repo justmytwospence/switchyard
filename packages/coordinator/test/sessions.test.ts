@@ -396,6 +396,31 @@ describe("sessions", () => {
     expect(prev.body.items.map((i: { order: number }) => i.order)).toEqual([1, 2]);
   });
 
+  it("transcript afterRev returns changed items for the same epoch and a reset page for another", async () => {
+    await setup();
+    await host!.event("session.updated", hostSession("ses_rv"));
+    const put = (i: number, text: string) =>
+      host!.event("transcript.item", {
+        id: `itm_${i}`,
+        sessionId: "ses_rv",
+        order: i,
+        at: new Date().toISOString(),
+        kind: "user",
+        data: { text },
+      });
+    await put(0, "a");
+    await put(1, "b");
+    const full = await t!.admin("GET", "/api/sessions/ses_rv/transcript");
+    expect(full.body).toMatchObject({ epoch: 0, rev: 2 });
+    await put(1, "b2");
+    const d = await t!.admin("GET", "/api/sessions/ses_rv/transcript?afterRev=2&epoch=0");
+    expect(d.body.delta).toBe(true);
+    expect(d.body.items.map((i: { id: string }) => i.id)).toEqual(["itm_1"]);
+    const r = await t!.admin("GET", "/api/sessions/ses_rv/transcript?afterRev=2&epoch=5");
+    expect(r.body.reset).toBe(true);
+    expect(r.body.items).toHaveLength(2);
+  });
+
   it("refuses to archive a possibly live session while its host is offline", async () => {
     const { creds } = await setup();
     await host!.event("session.updated", hostSession("ses_idle", { runtime: "idle" }));

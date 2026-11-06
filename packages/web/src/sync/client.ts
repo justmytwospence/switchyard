@@ -3,6 +3,7 @@ import { apiGet } from "./api";
 import { clearCache, loadCache, saveCache } from "./cache";
 import { toSyncState } from "./reduce";
 import { syncStore } from "./store";
+import { startTranscriptPersistence } from "./transcriptCache";
 
 /**
  * Live sync over `/ws/client`.
@@ -44,6 +45,7 @@ export class SyncClient {
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFrameAt = 0;
   private unsubscribeStore: (() => void) | null = null;
+  private stopPersistence: (() => void) | null = null;
   private liveListeners = new Set<Listener>();
   private logoutListeners = new Set<(reason: string) => void>();
   private cacheLoaded: Promise<void> | null = null;
@@ -62,6 +64,7 @@ export class SyncClient {
     this.unsubscribeStore = syncStore.subscribe((s, prev) => {
       if (s.synced && s.seq !== prev.seq) this.schedulePersist();
     });
+    this.stopPersistence = startTranscriptPersistence();
     this.cacheLoaded ??= loadCache().then((cached) => {
       if (cached && !syncStore.getState().synced) {
         syncStore.getState().hydrateFromCache(cached.seq, cached.state, cached.savedAt);
@@ -79,6 +82,8 @@ export class SyncClient {
     window.removeEventListener("focus", this.onForeground);
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
+    this.stopPersistence?.();
+    this.stopPersistence = null;
     this.clearTimers();
     const ws = this.ws;
     this.ws = null;

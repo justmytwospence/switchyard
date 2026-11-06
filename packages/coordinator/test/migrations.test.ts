@@ -19,6 +19,15 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("008 adds the item revision column", () => {
+    const db = dbAt(7);
+    db.prepare(
+      "INSERT INTO session_items (session_id, item_id, ord, json) VALUES ('s','i',0,'{}')",
+    ).run();
+    expect(migrate(db)).toBe(8);
+    expect(db.prepare("SELECT rev FROM session_items").get()).toEqual({ rev: 0 });
+  });
+
   it("004 rewrites cancelled interactions and their update events", () => {
     const db = dbAt(3);
     db.prepare(

@@ -6,6 +6,7 @@ import { sql as interactionCanceled } from "./migrations/004_interaction_cancele
 import { sql as workspaceDeletedEvent } from "./migrations/005_workspace_deleted_event.js";
 import { sql as uniqueNativeSession } from "./migrations/006_unique_native_session.js";
 import { sql as views } from "./migrations/007_views.js";
+import { sql as itemRev } from "./migrations/008_item_rev.js";
 
 export interface Migration {
   version: number;
@@ -22,6 +23,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 5, name: "005_workspace_deleted_event", sql: workspaceDeletedEvent },
   { version: 6, name: "006_unique_native_session", sql: uniqueNativeSession },
   { version: 7, name: "007_views", sql: views },
+  { version: 8, name: "008_item_rev", sql: itemRev },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

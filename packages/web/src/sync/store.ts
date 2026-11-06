@@ -14,6 +14,7 @@ import type {
 import { useEffect, useMemo } from "react";
 import { create } from "zustand";
 import { apiGet, errorMessage } from "./api";
+import { loadTranscriptCache } from "./cache";
 import {
   applyEvent,
   applyEvents,
@@ -23,6 +24,7 @@ import {
   clearTranscriptErrors,
   emptySyncData,
   emptyTranscript,
+  hydrateTranscript,
   type StreamBuffer,
   type SyncData,
   type TranscriptState,
@@ -78,13 +80,26 @@ export const TRANSCRIPT_PAGE = 200;
 interface TranscriptPage {
   items: TranscriptItem[];
   hasMore?: boolean;
+  epoch?: number;
+  rev?: number;
+  delta?: boolean;
+  reset?: boolean;
 }
 
 function normalizePage(res: TranscriptPage | TranscriptItem[], limit: number): TranscriptPage {
   const items = Array.isArray(res) ? res : (res.items ?? []);
   const hasMore = Array.isArray(res) ? undefined : res.hasMore;
-  return { items, hasMore: hasMore ?? items.length >= limit };
+  return {
+    items,
+    hasMore: hasMore ?? items.length >= limit,
+    ...(Array.isArray(res)
+      ? {}
+      : { epoch: res.epoch, rev: res.rev, delta: res.delta, reset: res.reset }),
+  };
 }
+
+/** Sessions whose offline copy was already looked up this page load. */
+const cacheChecked = new Set<string>();
 
 const inflight = new Map<string, Promise<void>>();
 
@@ -156,16 +171,32 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
     const existing = inflight.get(key);
     if (existing) return existing;
     setTranscript(set, sessionId, { loading: true, error: null });
-    const p = apiGet<TranscriptPage | TranscriptItem[]>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/transcript`,
-      { limit: TRANSCRIPT_PAGE },
-    )
+    const p = (async () => {
+      if (!get().transcripts[sessionId]?.loaded && !cacheChecked.has(sessionId)) {
+        cacheChecked.add(sessionId);
+        const rec = await loadTranscriptCache(sessionId);
+        if (rec) set((s) => hydrateTranscript(s, rec));
+      }
+      const cur = get().transcripts[sessionId];
+      const query: Record<string, number> =
+        cur?.loaded && cur.epoch !== null && cur.rev !== null
+          ? { afterRev: cur.rev, epoch: cur.epoch, limit: TRANSCRIPT_PAGE }
+          : { limit: TRANSCRIPT_PAGE };
+      return apiGet<TranscriptPage | TranscriptItem[]>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/transcript`,
+        query,
+      );
+    })()
       .then((res) => {
         const page = normalizePage(res, TRANSCRIPT_PAGE);
         set((s) =>
           applyTranscriptPage(s, sessionId, page.items, {
             hasMore: page.hasMore ?? false,
             older: false,
+            epoch: page.epoch,
+            rev: page.rev,
+            delta: page.delta,
+            reset: page.reset,
           }),
         );
       })
@@ -201,6 +232,7 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
     return p;
   },
   reset() {
+    cacheChecked.clear();
     set({
       ...emptySyncData(),
       hydrated: false,

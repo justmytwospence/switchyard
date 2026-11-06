@@ -75,6 +75,8 @@ const ListQuery = z.object({
 const TranscriptQuery = z.object({
   before: z.coerce.number().int().optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(200),
+  afterRev: z.coerce.number().int().min(0).optional(),
+  epoch: z.coerce.number().int().min(0).optional(),
 });
 const AbortRequest = z.object({ clearQueue: z.boolean().default(false) });
 const ImportableQuery = z.object({ hostId: z.string() });
@@ -249,7 +251,16 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     const q = parse(TranscriptQuery, req.query, "query");
     // A subagent view is read from its native file: opening it (the first page) shows progress.
     if (q.before === undefined) await refreshSubagentTranscript(ctx, s);
-    return ctx.store.listItems(s.id, { before: q.before, limit: q.limit });
+    const epoch = s.transcriptEpoch ?? 0;
+    const rev = ctx.store.maxItemRev(s.id);
+    if (q.afterRev !== undefined && q.before === undefined) {
+      if (q.epoch === epoch) {
+        const d = ctx.store.listItemsAfterRev(s.id, q.afterRev, 1000);
+        if (!d.more) return { items: d.items, hasMore: false, epoch, rev, delta: true };
+      }
+      return { ...ctx.store.listItems(s.id, { limit: q.limit }), epoch, rev, reset: true };
+    }
+    return { ...ctx.store.listItems(s.id, { before: q.before, limit: q.limit }), epoch, rev };
   });
 
   /** Current partial stream and pending interactions, from the host. */

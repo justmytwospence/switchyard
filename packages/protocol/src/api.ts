@@ -197,6 +197,15 @@ export const HostBranchResult = z.object({
   sessionFile: z.string().nullable(),
   prefill: z.string().nullable(),
 });
+export const TranscriptPage = z.object({
+  items: z.array(TranscriptItem),
+  hasMore: z.boolean(),
+  epoch: z.number().int().optional(),
+  rev: z.number().int().optional(),
+  delta: z.boolean().optional(),
+  reset: z.boolean().optional(),
+});
+export type TranscriptPage = z.infer<typeof TranscriptPage>;
 export const NavigateRequest = z.object({
   entryId: z.string().min(1),
   summarize: z.boolean().default(false),
