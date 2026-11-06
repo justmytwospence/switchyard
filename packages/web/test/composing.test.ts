@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { keyboardOpen } from "../src/app/useComposing";
 import { appendQuote, applyReplyNotes, quoteBlock } from "../src/drafts";
+import { spliceAtCaret } from "../src/features/code/dictation";
 
 describe("keyboardOpen", () => {
   it("is false when no text field is focused", () => {
@@ -61,5 +62,19 @@ describe("reply notes", () => {
   it("appends a quote to a blank or existing draft", () => {
     expect(appendQuote("", "q")).toBe("> q\n\n");
     expect(appendQuote("hello  \n", "q")).toBe("hello\n\n> q\n\n");
+  });
+});
+
+describe("spliceAtCaret", () => {
+  it("adds spaces where the insert would touch words", () => {
+    expect(spliceAtCaret("hello", 5, 5, " world ")).toEqual({ text: "hello world", caret: 11 });
+    expect(spliceAtCaret("ab", 1, 1, "x")).toEqual({ text: "a x b", caret: 4 });
+  });
+  it("handles an empty draft and an empty insert", () => {
+    expect(spliceAtCaret("", 0, 0, "hi")).toEqual({ text: "hi", caret: 2 });
+    expect(spliceAtCaret("abc", 1, 1, "  ")).toEqual({ text: "abc", caret: 1 });
+  });
+  it("replaces a selection", () => {
+    expect(spliceAtCaret("a OLD b", 2, 5, "new")).toEqual({ text: "a new b", caret: 5 });
   });
 });

@@ -3,6 +3,8 @@ import {
   Camera,
   ImagePlus,
   ListPlus,
+  Mic,
+  MicOff,
   Navigation,
   Paperclip,
   SendHorizontal,
@@ -26,6 +28,7 @@ import { errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 import { codeApi, type PromptMode } from "./api";
 import { CommandViewDrawer } from "./CommandViewDrawer";
+import { spliceAtCaret, useDictation } from "./dictation";
 import type { SessionContext } from "./hooks";
 import { ImageEditor } from "./ImageEditor";
 import {
@@ -104,6 +107,16 @@ export function Composer({
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
+  const dictation = useDictation({
+    onFinal: (t) => {
+      const el = textRef.current;
+      const start = el?.selectionStart ?? draft.length;
+      const end = el?.selectionEnd ?? draft.length;
+      const next = spliceAtCaret(draft, start, end, t);
+      setDraft(next.text);
+      requestAnimationFrame(() => textRef.current?.setSelectionRange(next.caret, next.caret));
+    },
+  });
   useHideBottomNav(mobile && focused);
 
   // Attachments and errors belong to one session.
@@ -111,6 +124,7 @@ export function Composer({
   useEffect(() => {
     setAttachments([]);
     setError(null);
+    dictation.stop();
   }, [session.id]);
 
   const block = composerBlockReason({ session, hostLink: ctx.link, hostName: ctx.hostName });
@@ -212,6 +226,7 @@ export function Composer({
 
   const send = async (mode: PromptMode) => {
     if (block || noText || busy || commandProblem) return;
+    dictation.stop();
     const sent = draft;
     setBusy(mode);
     setError(null);
@@ -669,6 +684,19 @@ export function Composer({
               setCommandSheet(true);
             }}
           />
+          {dictation.supported && (
+            <IconButton
+              label={dictation.listening ? "Stop dictation" : "Dictate"}
+              icon={
+                dictation.listening ? <MicOff className="size-4" /> : <Mic className="size-4" />
+              }
+              variant={dictation.listening ? "danger" : "ghost"}
+              aria-pressed={dictation.listening}
+              disabled={session.readOnly}
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
+            />
+          )}
           {pills ? (
             <div
               data-testid="session-controls"
@@ -750,6 +778,11 @@ export function Composer({
         {running && !modes.steer && host?.capabilities && (
           <p className="text-xs text-muted">
             Immediate steering is not supported by this runtime; messages are queued as follow-ups.
+          </p>
+        )}
+        {dictation.listening && (
+          <p className="text-xs text-muted" aria-live="polite">
+            Listening… {dictation.interim}
           </p>
         )}
         {sendReason && !block && (
