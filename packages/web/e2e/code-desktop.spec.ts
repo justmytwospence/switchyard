@@ -136,6 +136,9 @@ test.describe("desktop coding view", () => {
     const transcript = page.getByTestId("transcript");
     await expect(transcript.getByText("Paragraph 40 of the long answer.")).toBeInViewport();
     await expect(page.getByTestId("jump-to-latest")).toHaveCount(0);
+    // The finished turn's tool calls are folded into one row.
+    await expect(transcript.getByTestId("work-row").first()).toBeVisible();
+    await transcript.getByTestId("work-row").first().locator("> summary").click();
     await expect(transcript.getByTestId("tool-card").first()).toBeVisible();
 
     // Scroll up to read; the button appears without a count.
