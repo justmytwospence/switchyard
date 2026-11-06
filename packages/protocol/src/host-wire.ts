@@ -8,6 +8,7 @@ import {
   NativeHandle,
   Platform,
   Profile,
+  ProviderUsage,
   RuntimeCapabilities,
   RuntimeState,
   ThinkingLevel,
@@ -301,6 +302,7 @@ export const HostToCoordinator = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stream"), delta: StreamDelta }),
   z.object({ type: z.literal("receipt"), receipt: Receipt }),
   z.object({ type: z.literal("pong") }),
+  z.object({ type: z.literal("usage"), usage: z.array(ProviderUsage) }),
   z.object({ type: z.literal("term"), streamId: z.string(), msg: TermServerToViewer }),
 ]);
 export type HostToCoordinator = z.infer<typeof HostToCoordinator>;

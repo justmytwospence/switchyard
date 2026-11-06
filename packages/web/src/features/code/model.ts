@@ -6,6 +6,7 @@ import type {
   Interaction,
   Profile,
   Project,
+  ProviderUsage,
   Run,
   RuntimeCapabilities,
   Session,
@@ -1099,6 +1100,18 @@ export function foldTimeline(entries: TimelineEntry[], busy: boolean): FoldedEnt
     });
   });
   return out;
+}
+
+/** The host's subscription usage for the provider a session's model uses. */
+export function sessionUsage(session: Session, host: Host | undefined): ProviderUsage | null {
+  const p = session.model?.provider;
+  const provider = p === "anthropic" ? "anthropic" : p === "openai-codex" ? "openai-codex" : null;
+  if (!provider) return null;
+  return host?.usage?.find((u) => u.provider === provider) ?? null;
+}
+
+export function usageTone(pct: number): "neutral" | "warning" | "danger" {
+  return pct >= 90 ? "danger" : pct >= 70 ? "warning" : "neutral";
 }
 
 /** Number of entries after the one with `baselineKey` (unseen while scrolled up). */

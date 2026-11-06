@@ -61,6 +61,23 @@ export const ProjectScan = z.object({
 });
 export type ProjectScan = z.infer<typeof ProjectScan>;
 
+export const UsageWindow = z.object({
+  id: z.enum(["five_hour", "weekly"]),
+  usedPct: z.number(),
+  resetsAt: Iso.nullable(),
+});
+export type UsageWindow = z.infer<typeof UsageWindow>;
+
+/** Subscription limits of one provider, read on the host from Pi's sign-in. */
+export const ProviderUsage = z.object({
+  provider: z.enum(["anthropic", "openai-codex"]),
+  status: z.enum(["available", "expired", "rejected", "error"]),
+  message: z.string().nullable(),
+  windows: z.array(UsageWindow),
+  fetchedAt: Iso,
+});
+export type ProviderUsage = z.infer<typeof ProviderUsage>;
+
 export const Host = z.object({
   id: Id,
   name: z.string(),
@@ -76,6 +93,8 @@ export const Host = z.object({
   /** Folders on the host whose git repositories become projects (absolute or ~/...). */
   projectFolders: z.array(z.string()).optional(),
   projectScan: ProjectScan.nullable().optional(),
+  /** Subscription limits (host-reported, refreshed every few minutes). */
+  usage: z.array(ProviderUsage).optional(),
 });
 export type Host = z.infer<typeof Host>;
 

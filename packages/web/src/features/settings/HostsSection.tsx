@@ -342,6 +342,24 @@ export function HostDetail() {
         />
       </Card>
 
+      {host.usage && host.usage.length > 0 && (
+        <Card title="Subscription usage">
+          <KeyValues
+            items={host.usage.map((u) => [
+              u.provider === "anthropic" ? "Claude" : "ChatGPT",
+              u.status === "available"
+                ? u.windows
+                    .map(
+                      (w) =>
+                        `${w.id === "five_hour" ? "Session" : "Weekly"} ${Math.round(w.usedPct)}% used, resets ${formatRelative(w.resetsAt)}`,
+                    )
+                    .join("; ") || "No limits reported"
+                : (u.message ?? u.status),
+            ])}
+          />
+        </Card>
+      )}
+
       <Card
         title="Capabilities"
         description="What Pi on this host supports. Unsupported features are hidden or explained in sessions."

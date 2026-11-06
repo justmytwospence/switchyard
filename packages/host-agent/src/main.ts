@@ -1,4 +1,7 @@
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { piAgentDir } from "@switchyard/adapter-sdk";
 import { detectPi, type PiDetection, terminalSupport } from "@switchyard/pi-runtime";
 import { PROTOCOL_VERSION, type Receipt } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
@@ -19,6 +22,7 @@ import { CoordinatorLink } from "./link.js";
 import { createLogger, type Logger } from "./logger.js";
 import { SessionSupervisor } from "./supervisor.js";
 import { TerminalRelay } from "./terminal-relay.js";
+import { UsagePoller } from "./usage.js";
 import { WorkspaceService } from "./workspaces.js";
 
 /** Host agent version reported in `hello` (this package's `package.json` version). */
@@ -223,6 +227,23 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     log,
   });
   link.events.on("disconnected", () => relay.closeAll());
+  const usagePoller = new UsagePoller({
+    deps: {
+      authPath: join(piAgentDir(mergedEnv), "auth.json"),
+      fetch,
+      now: Date.now,
+      readFile: (p) => readFile(p, "utf8"),
+    },
+    send: (u) => {
+      link.sendUsage(u);
+    },
+    log,
+  });
+  link.events.on("welcome", () => {
+    const u = usagePoller.latest();
+    if (u) link.sendUsage(u);
+  });
+  usagePoller.start();
   let resolveRejected!: (r: HostRejection) => void;
   const rejected = new Promise<HostRejection>((r) => {
     resolveRejected = r;
@@ -386,6 +407,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         process.off("SIGTERM", onSignal);
         process.off("SIGINT", onSignal);
         relay.closeAll();
+        usagePoller.stop();
         await Promise.all([supervisor.stopAll(stopOpts), stopAllShells()]);
         // Let the final session.updated events go out before closing the socket.
         await new Promise((r) => setTimeout(r, 50));

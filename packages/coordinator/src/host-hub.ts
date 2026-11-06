@@ -12,6 +12,7 @@ import {
   Panel,
   PROTOCOL_VERSION,
   type Profile,
+  type ProviderUsage,
   type Receipt,
   Session,
   StreamDelta,
@@ -439,6 +440,15 @@ export class HostHub {
       }
       case "pong":
         return;
+      case "usage": {
+        const host = this.store.hosts.get(hostId);
+        if (!host) return;
+        const strip = (u: ProviderUsage[] | undefined) =>
+          JSON.stringify((u ?? []).map(({ fetchedAt: _f, ...r }) => r));
+        if (strip(host.usage) === strip(frame.usage)) return;
+        this.store.tx(() => this.store.putHost({ ...host, usage: frame.usage }));
+        return;
+      }
       case "term":
         this.terminalSink?.frame(hostId, frame.streamId, frame.msg);
         return;

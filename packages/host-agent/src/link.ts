@@ -6,6 +6,7 @@ import {
   type HostEventType,
   type HostToCoordinator,
   newId,
+  type ProviderUsage,
   type Receipt,
   reconnectDelay,
   type StreamDelta,
@@ -208,6 +209,11 @@ export class CoordinatorLink {
 
   sendStream(delta: StreamDelta): void {
     if (this.ready) this.send({ type: "stream", delta });
+  }
+
+  /** Send subscription usage now if connected (ephemeral; the next poll resends). */
+  sendUsage(usage: ProviderUsage[]): boolean {
+    return this.ready ? this.send({ type: "usage", usage }) : false;
   }
 
   /** Send a terminal relay frame now if connected. */

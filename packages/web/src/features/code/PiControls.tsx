@@ -1,4 +1,4 @@
-import type { Session, SessionModel, ThinkingLevel } from "@switchyard/protocol";
+import type { ProviderUsage, Session, SessionModel, ThinkingLevel } from "@switchyard/protocol";
 import { Brain, Check, Cpu, Shrink } from "lucide-react";
 import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
@@ -10,6 +10,7 @@ import { ErrorState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
+import { formatRelative } from "../../lib/time";
 import { errorMessage } from "../../sync/api";
 import { codeApi } from "./api";
 import {
@@ -20,6 +21,7 @@ import {
   isBusy,
   modelLabel,
   pillModelLabel,
+  usageTone,
 } from "./model";
 
 interface PillProps {
@@ -402,6 +404,44 @@ export function EffortControl({
     >
       <EffortSlider levels={levels} level={draft.level} onChange={draft.setLevel} large={mobile} />
     </Popover>
+  );
+}
+
+const USAGE_TONE = {
+  neutral: "text-muted",
+  warning: "text-warning",
+  danger: "text-danger",
+} as const;
+
+/** Subscription limits of the session's provider: "5h 63% · wk 19%" (used). */
+export function UsageMeter({ usage }: { usage: ProviderUsage }) {
+  if (usage.status === "error") return null;
+  if (usage.status !== "available") {
+    return (
+      <span title={usage.message ?? undefined} className="text-[11px] leading-4 text-muted">
+        Usage unavailable
+      </span>
+    );
+  }
+  if (usage.windows.length === 0) return null;
+  const label = { five_hour: "5h", weekly: "wk" } as const;
+  const title = usage.windows
+    .map(
+      (w) =>
+        `${w.id === "five_hour" ? "Session limit" : "Weekly limit"} ${Math.round(w.usedPct)}% used, resets ${formatRelative(w.resetsAt)}`,
+    )
+    .join("; ");
+  return (
+    <span title={title} className="text-[11px] leading-4 tabular-nums" data-testid="usage-meter">
+      {usage.windows.map((w, i) => (
+        <span key={w.id}>
+          {i > 0 && <span className="text-muted"> · </span>}
+          <span className={USAGE_TONE[usageTone(w.usedPct)]}>
+            {label[w.id]} {Math.round(w.usedPct)}%
+          </span>
+        </span>
+      ))}
+    </span>
   );
 }
 

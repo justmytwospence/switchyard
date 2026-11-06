@@ -44,8 +44,9 @@ import {
   readImageFile,
   SUBAGENT_READ_ONLY,
   sendModes,
+  sessionUsage,
 } from "./model";
-import { ContextMeter, EffortControl, ModelControl } from "./PiControls";
+import { ContextMeter, EffortControl, ModelControl, UsageMeter } from "./PiControls";
 import { ResumeDialog, TreeDialog } from "./SessionCommandDialogs";
 import { SessionInfoDialog } from "./SessionInfoDialog";
 import { SlashCompletions, SlashPicker } from "./SlashPicker";
@@ -130,6 +131,7 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
     : null;
   const [selectedView] = useSelectedView();
   const views = useSyncStore((st) => st.views);
+  const usage = useSyncStore((st) => sessionUsage(session, st.hosts[session.hostId]));
   const openSession = (id: string) => navigate(`/code/${encodeURIComponent(id)}`);
   const startNew = async (prompt: string): Promise<Session> => {
     if (!session.projectId || !session.workspaceId) {
@@ -378,7 +380,14 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
       )}
     >
       <div className="flex w-full min-w-0 flex-col gap-2">
-        {controls && session.model && <ContextMeter session={session} enabled={controls} />}
+        {controls && session.model && (
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <ContextMeter session={session} enabled={controls} />
+            </div>
+            {usage && <UsageMeter usage={usage} />}
+          </div>
+        )}
         {queued > 0 && (
           <p className="text-xs text-muted">
             {session.queue.steering.length > 0 &&

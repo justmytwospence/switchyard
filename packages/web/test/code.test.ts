@@ -46,6 +46,7 @@ import {
   STATUS_BUCKETS,
   sendModes,
   sessionStatus,
+  sessionUsage,
   statusBucket,
   statusSummary,
   TERMINAL_COMMANDS,
@@ -1173,5 +1174,27 @@ describe("status buckets", () => {
     expect(tree.groups.map((g) => g.label)).toEqual(["Needs input", "Working", "Ready to review"]);
     expect(tree.groups.map((g) => g.kind)).toEqual(["status", "status", "status"]);
     expect(STATUS_BUCKETS[0]?.value).toBe("needs_input");
+  });
+});
+
+describe("sessionUsage", () => {
+  const usage = [
+    {
+      provider: "anthropic",
+      status: "available",
+      message: null,
+      windows: [],
+      fetchedAt: "2026-11-01T10:00:00.000Z",
+    },
+  ] as NonNullable<Host["usage"]>;
+  const h = { ...host("hst_1"), usage } as Host;
+  const model = (provider: string) => ({ provider, id: "m" }) as unknown as Session["model"];
+  it("maps anthropic and openai-codex models and nothing else", () => {
+    expect(sessionUsage(session("a", { model: model("anthropic") }), h)?.provider).toBe(
+      "anthropic",
+    );
+    expect(sessionUsage(session("a", { model: model("openai-codex") }), h)).toBeNull();
+    expect(sessionUsage(session("a", { model: model("google") }), h)).toBeNull();
+    expect(sessionUsage(session("a", {}), undefined)).toBeNull();
   });
 });

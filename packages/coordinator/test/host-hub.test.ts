@@ -259,6 +259,27 @@ describe("host link", () => {
     expect(t.c.store.sessions.get("ses_v")?.unreadSince ?? null).toBeNull();
   });
 
+  it("stores host usage and ignores a repeat that differs only by fetchedAt", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connect(t, creds);
+    const usage = (fetchedAt: string) => [
+      {
+        provider: "anthropic",
+        status: "available",
+        message: null,
+        windows: [{ id: "five_hour", usedPct: 12, resetsAt: null }],
+        fetchedAt,
+      },
+    ];
+    h.sendRaw({ type: "usage", usage: usage("2026-11-01T10:00:00.000Z") });
+    await until(() => (t!.c.store.hosts.get(creds.hostId)?.usage?.length ?? 0) === 1);
+    const before = eventCount(t, "host.updated");
+    h.sendRaw({ type: "usage", usage: usage("2026-11-01T10:05:00.000Z") });
+    await sleep(100);
+    expect(eventCount(t, "host.updated")).toBe(before);
+  });
+
   it("emits host.connected with reconnect flag", async () => {
     t = await startCoordinator();
     const creds = await enrollHost(t);
