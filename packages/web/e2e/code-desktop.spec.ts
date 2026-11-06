@@ -124,6 +124,19 @@ test.describe("desktop coding view", () => {
     }
   });
 
+  test("Cmd+K opens the palette and jumps to a session", async ({ page, state, api }, info) => {
+    if (viewportOf(info) === "mobile") test.skip();
+    const title = `Palette ${uid(info)}`;
+    const id = await createSession(api, state, title, "hello");
+    await page.goto("/code");
+    await expect(page.getByTestId("navigator")).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByRole("textbox", { name: "Search" }).fill(title.slice(0, 14));
+    await expect(page.getByTestId("palette-item").first()).toContainText(title);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(new RegExp(`/code/${id}`));
+  });
+
   test("Jump to latest does not autoscroll while reading", async ({ page, state, api }, info) => {
     const id = await createSession(
       api,
