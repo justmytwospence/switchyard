@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   enrollDevice,
+  enrollHost,
   FakeClient,
+  FakeHost,
+  hostSession,
   startCoordinator,
   type TestCoordinator,
   tempDir,
@@ -103,6 +106,31 @@ describe("client sync", () => {
     c.send({ type: "ping" });
     await c.inbox.waitFor((x) => x.type === "pong");
     c.close();
+  });
+});
+
+describe("unread", () => {
+  it("a foreground presence viewing an unread session clears unreadSince", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await FakeHost.connect(t, creds);
+    await h.event("session.updated", hostSession("ses_r", { runtime: "running" }));
+    await h.event("session.updated", hostSession("ses_r", { runtime: "idle" }));
+    expect(t.c.store.sessions.get("ses_r")?.unreadSince).toBeTruthy();
+    const dev = await enrollDevice(t);
+    const c = await FakeClient.connect(t, { token: dev.credential });
+    await c.hello(null);
+    c.send({
+      type: "presence",
+      presence: {
+        foreground: true,
+        interactedAt: new Date(t.clock.now).toISOString(),
+        viewing: { sessionId: "ses_r" },
+      },
+    });
+    await until(() => !t!.c.store.sessions.get("ses_r")?.unreadSince);
+    c.close();
+    await h.close();
   });
 });
 

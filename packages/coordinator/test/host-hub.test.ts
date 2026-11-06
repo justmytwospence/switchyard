@@ -234,6 +234,31 @@ describe("host link", () => {
     expect(settled[0]!.aborted).toBe(false);
   });
 
+  it("marks a finished or failed session unread unless a foreground viewer has it open", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const dev = await enrollDevice(t);
+    const h = await connect(t, creds);
+    await h.event("session.updated", hostSession("ses_u", { runtime: "running" }));
+    await h.event("session.updated", hostSession("ses_u", { runtime: "idle" }));
+    expect(t.c.store.sessions.get("ses_u")?.unreadSince).toBeTruthy();
+
+    await h.event("session.updated", hostSession("ses_f", { runtime: "running" }));
+    await h.event("session.updated", hostSession("ses_f", { runtime: "failed" }));
+    expect(t.c.store.sessions.get("ses_f")?.unreadSince).toBeTruthy();
+
+    t.c.store.upsertPresence({
+      deviceId: dev.deviceId,
+      foregroundUntil: new Date(t.clock.now + 30_000).toISOString(),
+      interactedAt: null,
+      viewingSessionId: "ses_v",
+      updatedAt: new Date(t.clock.now).toISOString(),
+    });
+    await h.event("session.updated", hostSession("ses_v", { runtime: "running" }));
+    await h.event("session.updated", hostSession("ses_v", { runtime: "idle" }));
+    expect(t.c.store.sessions.get("ses_v")?.unreadSince ?? null).toBeNull();
+  });
+
   it("emits host.connected with reconnect flag", async () => {
     t = await startCoordinator();
     const creds = await enrollHost(t);

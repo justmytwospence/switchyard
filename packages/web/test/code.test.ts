@@ -43,8 +43,11 @@ import {
   piControlsAvailable,
   pillModelLabel,
   projectIdOfGroup,
+  STATUS_BUCKETS,
   sendModes,
   sessionStatus,
+  statusBucket,
+  statusSummary,
   TERMINAL_COMMANDS,
   uniqueBranch,
   worktreePath,
@@ -1112,5 +1115,63 @@ describe("formatWorkSummary", () => {
   });
   it("handles a null duration", () => {
     expect(formatWorkSummary({ ...base, durationMs: null, reads: 1 })).toBe("Worked · 1 read");
+  });
+});
+
+describe("status buckets", () => {
+  const at = "2026-11-01T10:00:00.000Z";
+  it("follows the precedence", () => {
+    expect(statusBucket(session("a", { runtime: "idle" }), true)).toBe("needs_input");
+    expect(statusBucket(session("a", { runtime: "waiting_input" }), false)).toBe("needs_input");
+    expect(statusBucket(session("a", { runtime: "failed", unreadSince: at }), false)).toBe(
+      "failed",
+    );
+    expect(statusBucket(session("a", { runtime: "failed" }), false)).toBe("idle");
+    expect(statusBucket(session("a", { runtime: "running", unreadSince: at }), false)).toBe(
+      "running",
+    );
+    expect(statusBucket(session("a", { runtime: "idle", compacting: true }), false)).toBe(
+      "running",
+    );
+    expect(statusBucket(session("a", { runtime: "idle", unreadSince: at }), false)).toBe("review");
+    expect(statusBucket(session("a", { runtime: "stopped" }), false)).toBe("idle");
+  });
+
+  it("summarizes non-idle buckets in order with the latest session first", () => {
+    const mk = (id: string, runtime: Session["runtime"], last: string, unread = false) => {
+      const s = session(id, { runtime, lastActivityAt: last, unreadSince: unread ? at : null });
+      return { session: s, bucket: statusBucket(s, false) };
+    };
+    const out = statusSummary([
+      mk("r1", "running", "2026-11-01T10:00:00.000Z"),
+      mk("r2", "running", "2026-11-01T11:00:00.000Z"),
+      mk("v1", "idle", at, true),
+      mk("i1", "idle", at),
+      mk("n1", "waiting_input", at),
+    ]);
+    expect(out).toEqual([
+      { bucket: "needs_input", count: 1, first: "n1" },
+      { bucket: "running", count: 2, first: "r2" },
+      { bucket: "review", count: 1, first: "v1" },
+    ]);
+  });
+
+  it("lays out the status layout in bucket order", () => {
+    const base = {
+      projects: { prj_1: project("prj_1", "beta") },
+      workspaces: {},
+      hosts: { hst_1: host("hst_1") } as Record<string, Host>,
+      sessions: {
+        a: session("a", { runtime: "idle", unreadSince: at }),
+        b: session("b", { runtime: "running" }),
+        c: session("c", { runtime: "waiting_input" }),
+      } as Record<string, Session>,
+      attention: {},
+      interactions: {},
+    };
+    const tree = buildNavTree(base, { filter: "all", query: "", layout: "status" });
+    expect(tree.groups.map((g) => g.label)).toEqual(["Needs input", "Working", "Ready to review"]);
+    expect(tree.groups.map((g) => g.kind)).toEqual(["status", "status", "status"]);
+    expect(STATUS_BUCKETS[0]?.value).toBe("needs_input");
   });
 });

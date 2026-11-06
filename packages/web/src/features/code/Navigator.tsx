@@ -13,14 +13,19 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { type CSSProperties, type ReactNode, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { Select } from "../../components/ui/Select";
-import { RUNTIME_STATUS, StatusChip, type StatusInfo } from "../../components/ui/StatusChip";
+import {
+  REVIEW_STATUS,
+  RUNTIME_STATUS,
+  StatusChip,
+  type StatusInfo,
+} from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
@@ -40,6 +45,10 @@ import {
   navGroupKeys,
   navTreeIsEmpty,
   projectIdOfGroup,
+  STATUS_BUCKETS,
+  sessionsNeedingAttention,
+  statusBucket,
+  statusSummary,
 } from "./model";
 import { ViewsDialog } from "./ViewsDialog";
 import { useSelectedView } from "./views";
@@ -126,6 +135,14 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       view,
     ],
   );
+  const navigate = useNavigate();
+  const summary = useMemo(() => {
+    const attn = sessionsNeedingAttention(attention, interactions);
+    const rows = Object.values(sessions)
+      .filter((s) => s.archivedAt === null && s.provenance !== "subagent")
+      .map((session) => ({ session, bucket: statusBucket(session, attn.has(session.id)) }));
+    return statusSummary(rows);
+  }, [sessions, attention, interactions]);
   const collapsed = new Set(prefs.collapsed);
   const toggle = (key: string) => {
     const next = new Set(collapsed);
@@ -256,7 +273,9 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   } else {
     body = (
       <ul
-        aria-label={prefs.layout === "hosts" ? "Hosts" : "Projects"}
+        aria-label={
+          prefs.layout === "hosts" ? "Hosts" : prefs.layout === "status" ? "Status" : "Projects"
+        }
         className="flex min-w-0 flex-col gap-1 pb-4"
       >
         {tree.groups.map((g) => (
@@ -298,6 +317,27 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             New session
           </Button>
         </div>
+        {summary.length > 0 && (
+          <p
+            data-testid="status-summary"
+            className="flex flex-wrap items-center gap-x-1 text-xs text-muted"
+          >
+            {summary.map((b, i) => (
+              <span key={b.bucket} className="inline-flex items-center gap-1">
+                {i > 0 && <span aria-hidden>·</span>}
+                <button
+                  type="button"
+                  className="tap rounded underline-offset-2 hover:underline"
+                  onClick={() =>
+                    navigate(`/code/${encodeURIComponent(b.first)}`, { state: BACK_STATE })
+                  }
+                >
+                  {b.count} {STATUS_BUCKETS.find((x) => x.value === b.bucket)?.short}
+                </button>
+              </span>
+            ))}
+          </p>
+        )}
         {hydrated && (hosts.length === 0 || projectList.length === 0) && (
           <p className="text-xs text-muted">
             {hosts.length === 0
@@ -557,7 +597,7 @@ function SessionRow({
           )}
         </span>
         <span className="flex min-w-0 items-center gap-x-1.5">
-          <StatusChip kind="custom" status={rowStatus(session.runtime)} size="sm" />
+          <StatusChip kind="custom" status={rowStatusFor(row)} size="sm" />
           {session.provenance === "subagent" && (
             <span className="shrink-0 text-xs text-muted">Subagent</span>
           )}
@@ -566,6 +606,12 @@ function SessionRow({
       </Link>
     </li>
   );
+}
+
+function rowStatusFor(row: NavRow): StatusInfo {
+  if (row.bucket === "review") return REVIEW_STATUS;
+  if (row.bucket === "failed") return RUNTIME_STATUS.failed;
+  return rowStatus(row.session.runtime);
 }
 
 /** List rows stay calm: only failed and needs input stand out; interrupted reads like stopped. */

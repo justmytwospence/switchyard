@@ -111,6 +111,12 @@ export class ClientHub {
           viewingSessionId: p.viewing?.sessionId ?? null,
           updatedAt: now.toISOString(),
         });
+        if (p.foreground && p.viewing?.sessionId) {
+          const s = this.store.sessions.get(p.viewing.sessionId);
+          if (s?.unreadSince) {
+            this.store.tx(() => this.store.putSession({ ...s, unreadSince: null }));
+          }
+        }
         return;
       }
     }

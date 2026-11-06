@@ -278,6 +278,8 @@ export const Session = z.object({
   createdAt: Iso,
   /** A live terminal session: `switchyard tui` can attach to its Pi terminal. */
   terminal: z.boolean().optional(),
+  /** Set when the session finished or failed with nobody viewing it; cleared when viewed (coordinator-owned). */
+  unreadSince: Iso.nullable().optional(),
 });
 export type Session = z.infer<typeof Session>;
 

@@ -147,13 +147,14 @@ export function newSessionDefaults(
 
 export type NavFilter = "active" | "attention" | "all";
 
-export type NavLayout = "projects" | "worktrees" | "recent" | "hosts";
+export type NavLayout = "projects" | "worktrees" | "recent" | "hosts" | "status";
 
 export const NAV_LAYOUTS: { value: NavLayout; label: string; hint: string }[] = [
   { value: "projects", label: "Projects", hint: "Sessions under each project" },
   { value: "worktrees", label: "Worktrees", hint: "Project, then branch or worktree" },
   { value: "recent", label: "Recent", hint: "One list of every session" },
   { value: "hosts", label: "Hosts", hint: "Host, then project" },
+  { value: "status", label: "Status", hint: "Grouped by what needs you" },
 ];
 
 export type NavSort = "activity" | "created" | "name" | "status";
@@ -170,21 +171,63 @@ export const DEFAULT_SORT: Record<NavLayout, NavSort> = {
   worktrees: "activity",
   recent: "activity",
   hosts: "name",
+  status: "activity",
 };
 
-const STATUS_RANK: Record<Session["runtime"], number> = {
-  waiting_input: 0,
-  running: 1,
-  starting: 2,
-  idle: 3,
-  failed: 4,
-  interrupted: 5,
-  stopped: 6,
+export type StatusBucket = "needs_input" | "failed" | "running" | "review" | "idle";
+
+export const STATUS_BUCKETS: { value: StatusBucket; label: string; short: string }[] = [
+  { value: "needs_input", label: "Needs input", short: "needs you" },
+  { value: "failed", label: "Failed", short: "failed" },
+  { value: "running", label: "Working", short: "working" },
+  { value: "review", label: "Ready to review", short: "to review" },
+  { value: "idle", label: "Idle", short: "idle" },
+];
+
+const BUCKET_RANK: Record<StatusBucket, number> = {
+  needs_input: 0,
+  failed: 1,
+  running: 2,
+  review: 3,
+  idle: 4,
 };
+
+/** Where a session sits in the "what needs me" order. */
+export function statusBucket(s: Session, attention: boolean): StatusBucket {
+  if (attention || s.runtime === "waiting_input") return "needs_input";
+  if (s.runtime === "failed" && s.unreadSince) return "failed";
+  if (s.runtime === "running" || s.runtime === "starting" || s.compacting) return "running";
+  if (s.unreadSince) return "review";
+  return "idle";
+}
+
+/** Non-empty buckets (not idle) with their counts and the most recently active session of each. */
+export function statusSummary(
+  rows: Pick<NavRow, "bucket" | "session">[],
+): { bucket: StatusBucket; count: number; first: string }[] {
+  const out: { bucket: StatusBucket; count: number; first: string; at: string }[] = [];
+  for (const b of STATUS_BUCKETS) {
+    if (b.value === "idle") continue;
+    let count = 0;
+    let first = "";
+    let at = "";
+    for (const r of rows) {
+      if (r.bucket !== b.value) continue;
+      count += 1;
+      if (r.session.lastActivityAt >= at) {
+        at = r.session.lastActivityAt;
+        first = r.session.id;
+      }
+    }
+    if (count > 0) out.push({ bucket: b.value, count, first, at });
+  }
+  return out.map(({ at: _at, ...r }) => r);
+}
 
 export interface NavRow {
   session: Session;
   attention: boolean;
+  bucket: StatusBucket;
   /** Context shown on the row's second line; null = not shown in this layout. */
   project: string | null;
   host: string | null;
@@ -197,7 +240,7 @@ export interface NavGroup {
    * "h:<hostId>", or "h:<hostId>/p:<projectId|__none>".
    */
   key: string;
-  kind: "project" | "workspace" | "host";
+  kind: "project" | "workspace" | "host" | "status";
   label: string;
   /** Muted text beside the label: the shared host on project/workspace headers. */
   detail: string | null;
@@ -256,6 +299,7 @@ export function workspaceLabel(ws: Workspace | null | undefined, cwd?: string): 
 interface NavEntry {
   session: Session;
   attention: boolean;
+  bucket: StatusBucket;
   ws: Workspace | null;
   projectId: string | null;
   project: Project | null;
@@ -363,7 +407,16 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
         .includes(q)
     )
       continue;
-    entries.push({ session: s, attention: needs, ws, projectId, project, hostId, hostName });
+    entries.push({
+      session: s,
+      attention: needs,
+      bucket: statusBucket(s, needs),
+      ws,
+      projectId,
+      project,
+      hostId,
+      hostName,
+    });
   }
   const byActivity = (a: NavEntry, b: NavEntry) =>
     b.session.lastActivityAt.localeCompare(a.session.lastActivityAt);
@@ -380,17 +433,40 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
           }) || byActivity(a, b)
         );
       case "status":
-        return STATUS_RANK[a.session.runtime] - STATUS_RANK[b.session.runtime] || byActivity(a, b);
+        return BUCKET_RANK[a.bucket] - BUCKET_RANK[b.bucket] || byActivity(a, b);
       default:
         return byActivity(a, b);
     }
   });
 
-  const row = (e: NavEntry, ctx: Omit<NavRow, "session" | "attention">): NavRow => ({
+  const row = (e: NavEntry, ctx: Omit<NavRow, "session" | "attention" | "bucket">): NavRow => ({
     session: e.session,
     attention: e.attention,
+    bucket: e.bucket,
     ...ctx,
   });
+
+  if (layout === "status") {
+    const groups: NavGroup[] = [];
+    for (const b of STATUS_BUCKETS) {
+      const g = emptyGroup(`s:${b.value}`, "status", b.label);
+      for (const e of entries) {
+        if (e.bucket !== b.value) continue;
+        g.rows.push(
+          row(e, {
+            project: projectLabel(e.projectId, e.project),
+            host: e.hostName,
+            branch: branchFor(e),
+          }),
+        );
+      }
+      if (g.rows.length > 0) {
+        countSessions(g);
+        groups.push(g);
+      }
+    }
+    return { groups, rows: [] };
+  }
 
   if (layout === "recent") {
     return {

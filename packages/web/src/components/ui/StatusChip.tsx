@@ -61,6 +61,9 @@ export const RUNTIME_STATUS: Record<RuntimeState, StatusInfo> = {
   stopped: { label: "Stopped", icon: Square, tone: "neutral" },
 };
 
+/** A finished session nobody has looked at yet. */
+export const REVIEW_STATUS: StatusInfo = { label: "Ready to review", icon: Eye, tone: "success" };
+
 export const TASK_STATUS: Record<TaskState, StatusInfo> = {
   backlog: { label: "Backlog", icon: Inbox, tone: "neutral" },
   ready: { label: "Ready", icon: CirclePlay, tone: "info" },

@@ -697,9 +697,14 @@ export class HostHub {
         connectivity,
       });
     }
+    const prev = existing?.runtime;
+    const finished = (prev === "running" || prev === "waiting_input") && next.runtime === "idle";
+    const failed = next.runtime === "failed" && prev !== "failed";
+    if ((finished || failed) && !next.unreadSince && !this.beingViewed(id)) {
+      next.unreadSince = this.store.nowIso();
+    }
     if (existing && JSON.stringify(existing) === JSON.stringify(next)) return;
     this.store.putSession(next);
-    const prev = existing?.runtime;
     if ((prev === "running" || prev === "waiting_input") && next.runtime === "idle") {
       const settled = (raw.settled ?? null) as {
         aborted?: boolean;
@@ -716,6 +721,17 @@ export class HostHub {
       if (next.runId) this.store.noteRunSettle(next.runId);
       this.store.afterCommit(() => this.hub.emit("session.settled", payload));
     }
+  }
+
+  /** Whether a device has this session open in the foreground right now. */
+  private beingViewed(sessionId: string): boolean {
+    const now = this.store.nowIso();
+    return this.store
+      .listPresence()
+      .some(
+        (p) =>
+          p.viewingSessionId === sessionId && p.foregroundUntil !== null && p.foregroundUntil > now,
+      );
   }
 
   private projectInteraction(hostId: string, i: Interaction): void {
