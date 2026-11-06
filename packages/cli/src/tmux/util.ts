@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { CliError } from "../config.js";
 import type { Env } from "../paths.js";
 
@@ -28,9 +28,15 @@ export function writeStableTmuxLauncher(stateRoot: string, pluginRoot: string): 
   }
   mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
   const path = join(stateRoot, "switchyard-tmux");
-  writeFileSync(path, `#!/bin/sh\nexec sh '${pluginRoot}/switchyard-tmux.sh' "$@"\n`, {
-    mode: 0o755,
-  });
+  const nodeDir = dirname(process.execPath);
+  if (nodeDir.includes("'")) throw new CliError("Node path contains an apostrophe");
+  writeFileSync(
+    path,
+    `#!/bin/sh\n# Panes run under the user's shell rc, which may put another node first.\nPATH='${nodeDir}':"$PATH"\nexport PATH\nexec sh '${pluginRoot}/switchyard-tmux.sh' "$@"\n`,
+    {
+      mode: 0o755,
+    },
+  );
   chmodSync(path, 0o755);
   return path;
 }
