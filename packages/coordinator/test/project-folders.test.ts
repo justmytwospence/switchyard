@@ -186,3 +186,38 @@ describe("project folders", () => {
     await until(() => scans() === 1);
   });
 });
+
+describe("project suggestions", () => {
+  const suggest: CommandHandler = (cmd: HostCommand) => {
+    if (cmd.type === "projects.suggest") {
+      return {
+        suggestions: [
+          { rootPath: "/repos/app", sessionCount: 9, lastActivityAt: "2026-11-01T10:00:00.000Z" },
+          { rootPath: "/repos/new", sessionCount: 3, lastActivityAt: "2026-11-01T09:00:00.000Z" },
+          { rootPath: "/repos/few", sessionCount: 1, lastActivityAt: "2026-11-01T08:00:00.000Z" },
+        ],
+      };
+    }
+    return handler(cmd);
+  };
+
+  it("drops existing checkouts and preselects repositories with 3 or more sessions", async () => {
+    const { creds } = await setup(suggest);
+    const r = await t!.admin("GET", `/api/hosts/${creds.hostId}/project-suggestions`);
+    expect(r.status).toBe(200);
+    expect(r.body.suggestions).toEqual([
+      expect.objectContaining({ rootPath: "/repos/new", name: "new", preselected: true }),
+      expect.objectContaining({ rootPath: "/repos/few", name: "few", preselected: false }),
+    ]);
+  });
+
+  it("reports an old host as unsupported", async () => {
+    const { creds } = await setup((cmd) =>
+      cmd.type === "projects.suggest"
+        ? { __error: { code: "invalid_request", message: "Invalid command: projects.suggest" } }
+        : handler(cmd),
+    );
+    const r = await t!.admin("GET", `/api/hosts/${creds.hostId}/project-suggestions`);
+    expect(r.body.error.code).toBe("unsupported_capability");
+  });
+});

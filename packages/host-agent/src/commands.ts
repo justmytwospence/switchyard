@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { piAgentDir } from "@switchyard/adapter-sdk";
 import {
   type ErrorBody,
   HostCommand,
@@ -12,6 +14,7 @@ import { listDir, readWorkspaceFile } from "./files.js";
 import { diffWorkspace, discoverWorktrees, inspectCheckout, worktreeStatus } from "./git.js";
 import type { Logger } from "./logger.js";
 import { scanProjectFolder } from "./project-folders.js";
+import { suggestProjects } from "./project-suggestions.js";
 import type { SessionSupervisor } from "./supervisor.js";
 import type { WorkspaceService } from "./workspaces.js";
 
@@ -55,6 +58,7 @@ export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostComm
   "session.readNative",
   "checkout.inspect",
   "projects.scan",
+  "projects.suggest",
   "workspace.discover",
   "workspace.status",
   "workspace.diff",
@@ -84,6 +88,7 @@ const RERUNNABLE = new Set<HostCommand["type"]>([
   "session.readNative",
   "checkout.inspect",
   "projects.scan",
+  "projects.suggest",
   "workspace.discover",
   "workspace.status",
   "workspace.diff",
@@ -411,6 +416,11 @@ export class CommandRouter {
         return inspectCheckout(c.path);
       case "projects.scan":
         return scanProjectFolder(c.folder);
+      case "projects.suggest":
+        return suggestProjects(
+          join(piAgentDir({ ...process.env, ...(this.opts.env ?? {}) }), "sessions"),
+          { days: c.days },
+        );
       case "workspace.discover":
         return {
           worktrees: await discoverWorktrees(c.checkoutPath, { worktreeDir: c.worktreeDir }),

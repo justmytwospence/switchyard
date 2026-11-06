@@ -104,6 +104,10 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("checkout.inspect"), path: z.string() }),
   z.object({ type: z.literal("projects.scan"), folder: z.string().min(1) }),
   z.object({
+    type: z.literal("projects.suggest"),
+    days: z.number().int().min(1).max(365).default(30),
+  }),
+  z.object({
     type: z.literal("workspace.discover"),
     checkoutPath: z.string(),
     worktreeDir: z.string().default(DEFAULT_WORKTREE_DIR),
@@ -212,6 +216,16 @@ export const ProjectFolderScan = z.object({
   repositories: z.array(ScannedRepository),
 });
 export type ProjectFolderScan = z.infer<typeof ProjectFolderScan>;
+
+export const ProjectSuggestion = z.object({
+  rootPath: z.string(),
+  sessionCount: z.number().int(),
+  lastActivityAt: z.string(),
+});
+export type ProjectSuggestion = z.infer<typeof ProjectSuggestion>;
+
+export const ProjectSuggestions = z.object({ suggestions: z.array(ProjectSuggestion) });
+export type ProjectSuggestions = z.infer<typeof ProjectSuggestions>;
 
 export const DiffFile = z.object({
   path: z.string(),

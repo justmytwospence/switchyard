@@ -21,6 +21,7 @@ import { toast } from "../../components/ui/Toast";
 import { matchesProject, repoLabel } from "../../lib/repo";
 import { apiPost } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
+import { ProjectSuggestions } from "./ProjectSuggestions";
 import { SectionPage, settingsPath, useHydrated, validateAbsolutePath } from "./shared";
 import { WORKTREE_DIR_HINT, worktreeDirProblem } from "./worktreeDir";
 
@@ -30,6 +31,7 @@ export const projectPath = (id: string) => settingsPath(`projects/${encodeURICom
 export function ProjectsSection() {
   const hydrated = useHydrated();
   const projects = useProjects();
+  const hosts = useHosts().filter((h) => !h.revokedAt && h.connectivity === "connected");
   const [query, setQuery] = useState("");
   const shown = projects.filter((p) => matchesProject(p, query));
   const checkouts = useSyncStore((s) => s.checkouts);
@@ -62,6 +64,9 @@ export function ProjectsSection() {
       }
     >
       <LastKnownNote />
+      {hosts.map((h) => (
+        <ProjectSuggestions key={h.id} host={h} />
+      ))}
       {!hydrated ? (
         <LoadingState label="Loading projects…" />
       ) : projects.length === 0 ? (

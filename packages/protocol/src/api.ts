@@ -22,6 +22,7 @@ import {
   ViewClient,
   WorktreeDir,
 } from "./entities.js";
+import { ProjectSuggestion } from "./host-wire.js";
 import { InteractionResponseSchema, UINodeSchema } from "./ui.js";
 
 /** REST request bodies. Responses return entities from `entities.ts` unless noted. */
@@ -508,3 +509,8 @@ export const ViewInput = View.pick({
 });
 export const ViewPatch = ViewInput.partial();
 export const ViewClientReport = ViewClient.omit({ lastSeenAt: true });
+
+export const ProjectSuggestionsResponse = z.object({
+  suggestions: z.array(ProjectSuggestion.extend({ name: z.string(), preselected: z.boolean() })),
+});
+export type ProjectSuggestionsResponse = z.infer<typeof ProjectSuggestionsResponse>;

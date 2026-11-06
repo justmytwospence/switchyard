@@ -81,7 +81,7 @@ function setScan(ctx: CoordinatorContext, hostId: string, scan: ProjectScan): vo
   });
 }
 
-function isTooOld(err: unknown): boolean {
+export function isTooOld(err: unknown): boolean {
   return (
     err instanceof SwitchyardError &&
     err.code === "invalid_request" &&

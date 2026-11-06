@@ -17,6 +17,7 @@ export {
   INACTIVE_AFTER_MS,
   lastSessionName,
   listImportable,
+  listRecentSessionCwds,
   loadPiEntryParser,
   parseEntriesFallback,
   type ReadNativeOptions,

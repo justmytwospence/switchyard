@@ -179,6 +179,31 @@ async function findJsonl(dir: string, depth: number, out: string[]): Promise<voi
   }
 }
 
+/** The working directory of each Pi session file modified since `sinceMs` (header read only). */
+export async function listRecentSessionCwds(
+  sessionsRoot: string,
+  sinceMs: number,
+): Promise<{ cwd: string; mtime: string }[]> {
+  const files: string[] = [];
+  await findJsonl(sessionsRoot, 2, files);
+  const out: { cwd: string; mtime: string }[] = [];
+  for (const file of files) {
+    try {
+      const st = await stat(file);
+      if (st.mtimeMs < sinceMs) continue;
+      const line = await readFirstLine(file);
+      if (!line) continue;
+      const header = JSON.parse(line) as { type?: unknown; cwd?: unknown };
+      if (header.type === "session" && typeof header.cwd === "string") {
+        out.push({ cwd: header.cwd, mtime: st.mtime.toISOString() });
+      }
+    } catch {
+      // unreadable or malformed: skip
+    }
+  }
+  return out;
+}
+
 /** List Pi session files under `sessionsRoot` with their header data, newest first. */
 export async function listImportable(
   sessionsRoot: string = defaultSessionsRoot(),

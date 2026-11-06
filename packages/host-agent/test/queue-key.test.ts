@@ -53,6 +53,7 @@ describe("read-only and checkout lanes", () => {
       { type: "session.readNative", sessionFile: "/x.jsonl" },
       { type: "checkout.inspect", path: "/r" },
       { type: "projects.scan", folder: "/p" },
+      { type: "projects.suggest", days: 30 },
       { type: "workspace.discover", checkoutPath: "/r", worktreeDir: ".worktrees" },
       { type: "workspace.status", path: "/r", base: null },
       { type: "workspace.diff", path: "/r", base: null, file: null },

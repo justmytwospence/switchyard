@@ -32,6 +32,7 @@ import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
+import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import {
   buildNavTree,
   DEFAULT_SORT,
@@ -222,13 +223,17 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       />
     );
   } else if (projectList.length === 0) {
+    const first = hosts.find((h) => !h.revokedAt && h.connectivity === "connected");
     body = (
-      <EmptyState
-        icon={<FolderGit2 className="size-8" />}
-        title="Add a project"
-        description="Point Switchyard at a Git checkout on one of your hosts to start sessions there."
-        action={{ label: "Add a project", to: "/settings/projects" }}
-      />
+      <>
+        {first && <ProjectSuggestions host={first} compact />}
+        <EmptyState
+          icon={<FolderGit2 className="size-8" />}
+          title="Add a project"
+          description="Point Switchyard at a Git checkout on one of your hosts to start sessions there."
+          action={{ label: "Add a project", to: "/settings/projects" }}
+        />
+      </>
     );
   } else if (navTreeIsEmpty(tree)) {
     body = prefs.query ? (

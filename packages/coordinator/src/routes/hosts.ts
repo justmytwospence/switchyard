@@ -1,9 +1,17 @@
-import { HostEnrollRequest, SwitchyardError, UpdateHostRequest } from "@switchyard/protocol";
+import { basename } from "node:path";
+import {
+  HostEnrollRequest,
+  ProjectSuggestions,
+  type ProjectSuggestionsResponse,
+  SwitchyardError,
+  UpdateHostRequest,
+} from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import type { CoordinatorContext } from "../context.js";
 import { deviceOf, parse } from "../http.js";
-import { normalizeProjectFolders } from "../project-folders.js";
+import { isTooOld, normalizeProjectFolders } from "../project-folders.js";
 import { requireService } from "../services.js";
+import { requireConnected } from "../sessions/service.js";
 import { enrollmentResponse } from "./devices.js";
 
 export function registerHostRoutes(app: FastifyInstance, ctx: CoordinatorContext): void {
@@ -61,6 +69,37 @@ export function registerHostRoutes(app: FastifyInstance, ctx: CoordinatorContext
     const { id } = req.params as { id: string };
     return requireService(ctx, "projectFolders").scan(id);
   });
+
+  /** Repositories used with Pi on this host recently that are not projects yet. */
+  app.get(
+    "/api/hosts/:id/project-suggestions",
+    async (req): Promise<ProjectSuggestionsResponse> => {
+      const { id } = req.params as { id: string };
+      requireConnected(ctx, id);
+      let raw: unknown;
+      try {
+        raw = await ctx.hostHub.request(
+          id,
+          { type: "projects.suggest", days: 30 },
+          { timeoutMs: 30_000 },
+        );
+      } catch (err) {
+        if (isTooOld(err)) {
+          throw new SwitchyardError(
+            "unsupported_capability",
+            "Update the host agent to get project suggestions",
+          );
+        }
+        throw err;
+      }
+      const known = new Set(ctx.store.checkouts.list("host_id = ?", [id]).map((c) => c.path));
+      return {
+        suggestions: ProjectSuggestions.parse(raw)
+          .suggestions.filter((s) => !known.has(s.rootPath))
+          .map((s) => ({ ...s, name: basename(s.rootPath), preselected: s.sessionCount >= 3 })),
+      };
+    },
+  );
 
   const revoke = async (req: { params: unknown }) => {
     const { id } = req.params as { id: string };
