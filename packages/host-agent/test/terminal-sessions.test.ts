@@ -112,6 +112,34 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions on the h
     await waitFor(() => agent2.supervisor.record(id)?.terminal == null, 10000, "terminal cleared");
     expect(agent2.supervisor.record(id)?.runtime).toBe("stopped");
   });
+
+  it("stamps user items with entry ids and rebuilds the transcript on navigate", async () => {
+    const id = sid();
+    await h.coord.ok(startCommand(id, h.pi!.cwd, { initialPrompt: "hello" }));
+    await h.coord.waitEvent(isSettled(id), 30000, "settled");
+    const userItems = () =>
+      h.coord
+        .eventsOf("transcript.item", id)
+        .map((e) => e.data as any)
+        .filter((d) => d.kind === "user");
+    await h.coord.waitUntil(
+      () => userItems().some((d) => typeof d.data.entryId === "string"),
+      10000,
+      "entry id on the user item",
+    );
+    const entryId = userItems().find((d) => d.data.entryId).data.entryId as string;
+    const r = await h.coord.ok<{ items: any[]; prefill: string | null }>({
+      type: "session.navigate",
+      sessionId: id,
+      entryId,
+      summarize: false,
+      instructions: null,
+    });
+    expect(r.prefill).toBe("hello");
+    // The branch before the first message is empty; orders continue after the live counter.
+    expect(r.items.every((i) => i.sessionId === id)).toBe(true);
+    await h.coord.ok({ type: "session.stop", sessionId: id });
+  });
 });
 
 describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions still starting", () => {

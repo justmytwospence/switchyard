@@ -42,6 +42,8 @@ export const RuntimeCapabilities = CoreCapabilities.extend({
   terminal: z.boolean().optional(),
   /** The host answers session.models, session.commands, session.setModel, session.setThinking and session.compact. */
   sessionControls: z.boolean().optional(),
+  /** The host answers session.navigate for terminal sessions. */
+  treeNavigation: z.boolean().optional(),
   unsupported: z.array(z.object({ capability: z.string(), reason: z.string() })),
 });
 export type RuntimeCapabilities = z.infer<typeof RuntimeCapabilities>;
@@ -299,6 +301,8 @@ export const Session = z.object({
   terminal: z.boolean().optional(),
   /** Set when the session finished or failed with nobody viewing it; cleared when viewed (coordinator-owned). */
   unreadSince: Iso.nullable().optional(),
+  /** Bumped when the transcript is rebuilt (rewind); clients drop cached copies (coordinator-owned). */
+  transcriptEpoch: z.number().int().min(0).optional(),
 });
 export type Session = z.infer<typeof Session>;
 
@@ -603,7 +607,12 @@ export const TranscriptItem = z.discriminatedUnion("kind", [
     order: z.number().int(),
     at: Iso,
     kind: z.literal("user"),
-    data: z.object({ text: z.string(), images: z.number().int().optional() }),
+    data: z.object({
+      text: z.string(),
+      images: z.number().int().optional(),
+      /** Pi session entry id, for rewind and fork from this message. */
+      entryId: z.string().optional(),
+    }),
   }),
   z.object({
     id: Id,

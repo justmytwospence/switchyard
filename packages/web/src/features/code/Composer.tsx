@@ -27,6 +27,7 @@ import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 import { codeApi, type PromptMode } from "./api";
+import { applyPrefill, canNavigate, useOpenBranch } from "./branching";
 import { CommandViewDrawer } from "./CommandViewDrawer";
 import { spliceAtCaret, useDictation } from "./dictation";
 import type { SessionContext } from "./hooks";
@@ -173,18 +174,7 @@ export function Composer({
     if (prompt) rememberInitialPrompt(s.id, prompt);
     return s;
   };
-  const afterBranch = async (r: { session: Session | null; prefill: string | null }) => {
-    if (r.session) {
-      useSyncStore.getState().upsertSessionIfMissing(r.session);
-      if (r.prefill) setDraftNow(r.session.id, r.prefill);
-      void codeApi.resume(r.session.id).catch(() => {});
-      openSession(r.session.id);
-      return;
-    }
-    const s = await startNew("");
-    setDraftNow(s.id, r.prefill ?? "");
-    openSession(s.id);
-  };
+  const afterBranch = useOpenBranch(session);
   const runViewCommand = async (command: string) => {
     setViewBusy(true);
     try {
@@ -204,6 +194,20 @@ export function Composer({
     const fork = dialogKind === "fork";
     setDialogKind(null);
     try {
+      if (!fork && canNavigate(session, host)) {
+        if (session.runtime !== "idle" || session.compacting) {
+          throw new Error("Wait for the reply to finish before rewinding");
+        }
+        const r = await codeApi.navigate(session.id, {
+          entryId,
+          summarize: false,
+          instructions: null,
+        });
+        if (applyPrefill(session.id, r.prefill) === "kept")
+          toast.success("Rewound. Your draft was kept.");
+        else toast.success("Rewound.");
+        return;
+      }
       await afterBranch(await codeApi.branch(session.id, entryId, fork));
     } catch (e) {
       toast.error(errorMessage(e));

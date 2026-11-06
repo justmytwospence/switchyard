@@ -12,7 +12,9 @@ import { TranscriptItem } from "@switchyard/protocol";
 import { piBin, when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  entriesToMessages,
   listImportable,
+  messagesToItems,
   parseEntriesFallback,
   readNativeTranscript,
   readSessionNameSync,
@@ -82,6 +84,21 @@ describe.skipIf(skipRealPi)("importable sessions and native transcripts", () => 
       ]);
       expect(native.items.every((i) => i.sessionId === "ses_import")).toBe(true);
     }
+  });
+});
+
+describe("entry ids", () => {
+  it("entriesToMessages keeps entry ids and messagesToItems puts them on user items", () => {
+    const msgs = entriesToMessages([
+      {
+        id: "e9",
+        type: "message",
+        timestamp: "2026-01-01T00:00:00Z",
+        message: { role: "user", content: "hi" },
+      },
+    ]);
+    const items = messagesToItems(msgs, { sessionId: "s1" });
+    expect(items[0]).toMatchObject({ kind: "user", data: { text: "hi", entryId: "e9" } });
   });
 });
 

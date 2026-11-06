@@ -17,6 +17,7 @@ import {
   TaskState,
   TaskTemplate,
   ThinkingLevel,
+  TranscriptItem,
   Trigger,
   View,
   ViewClient,
@@ -192,6 +193,20 @@ export const HostBranchResult = z.object({
   sessionFile: z.string().nullable(),
   prefill: z.string().nullable(),
 });
+export const NavigateRequest = z.object({
+  entryId: z.string().min(1),
+  summarize: z.boolean().default(false),
+  instructions: z.string().max(2000).nullable().default(null),
+});
+export const HostNavigateResult = z.object({
+  items: z.array(TranscriptItem),
+  prefill: z.string().nullable(),
+});
+export const NavigateResult = z.object({
+  prefill: z.string().nullable(),
+  epoch: z.number().int(),
+});
+export type NavigateResult = z.infer<typeof NavigateResult>;
 export const BranchResult = z.object({
   session: Session.nullable(),
   prefill: z.string().nullable(),

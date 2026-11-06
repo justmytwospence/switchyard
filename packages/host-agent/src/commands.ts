@@ -402,6 +402,8 @@ export class CommandRouter {
         return sup.tree(c.sessionId);
       case "session.branch":
         return sup.branch(c.sessionId, c.entryId, c.fork);
+      case "session.navigate":
+        return sup.navigate(c.sessionId, c.entryId, c.summarize, c.instructions);
       case "session.reload":
         return sup.reload(c.sessionId);
       case "session.export":

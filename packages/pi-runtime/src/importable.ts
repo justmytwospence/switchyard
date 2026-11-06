@@ -363,7 +363,7 @@ export function entriesToMessages(entries: any[]): any[] {
     const ts = typeof e.timestamp === "string" ? e.timestamp : undefined;
     switch (e.type) {
       case "message":
-        if (e.message) messages.push({ timestamp: ts, ...e.message });
+        if (e.message) messages.push({ timestamp: ts, ...e.message, entryId: e.id });
         break;
       case "custom_message":
         messages.push({

@@ -87,6 +87,13 @@ export const HostCommand = z.discriminatedUnion("type", [
     entryId: z.string().nullable(),
     fork: z.boolean(),
   }),
+  z.object({
+    type: z.literal("session.navigate"),
+    sessionId: z.string(),
+    entryId: z.string(),
+    summarize: z.boolean(),
+    instructions: z.string().max(2000).nullable(),
+  }),
   z.object({ type: z.literal("session.reload"), sessionId: z.string() }),
   z.object({ type: z.literal("session.export"), sessionId: z.string() }),
   z.object({

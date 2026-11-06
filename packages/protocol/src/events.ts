@@ -34,6 +34,7 @@ export const EventDataSchemas = {
   "view.deleted": z.object({ id: z.string() }),
   "session.updated": Session,
   "transcript.item": TranscriptItem,
+  "transcript.reset": z.object({ sessionId: z.string(), epoch: z.number().int() }),
   "interaction.updated": Interaction,
   "panel.updated": Panel,
   "adapters.updated": z.object({ hostId: z.string(), adapters: z.array(AdapterInfo) }),

@@ -41,6 +41,15 @@ describe("queueKey", () => {
       queueKey({ type: "session.branch", sessionId: "ses_1", entryId: null, fork: false }),
     ).toBe("session:ses_1");
     expect(
+      queueKey({
+        type: "session.navigate",
+        sessionId: "ses_1",
+        entryId: "e1",
+        summarize: false,
+        instructions: null,
+      }),
+    ).toBe("session:ses_1");
+    expect(
       queueKey({ type: "session.setModel", sessionId: "ses_1", provider: "a", modelId: "b" }),
     ).toBe("session:ses_1");
   });

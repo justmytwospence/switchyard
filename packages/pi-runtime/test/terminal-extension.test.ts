@@ -286,6 +286,96 @@ describe("switchyard terminal extension", () => {
     expect(reload).toHaveBeenCalled();
   });
 
+  describe("navigate_tree", () => {
+    const userEntry = { id: "e1", type: "message", message: { role: "user", content: "hello" } };
+    const sm = (over: Record<string, unknown> = {}) => ({
+      getSessionId: () => "nat-1",
+      getSessionFile: () => "/tmp/nat-1.jsonl",
+      getEntries: () => [],
+      getEntry: (id: string) => (id === "e1" ? userEntry : undefined),
+      getBranch: () => [userEntry],
+      getLeafId: () => "leaf-1",
+      ...over,
+    });
+    const reply = async (cmd: object & { id: string }) => {
+      holder.send(cmd);
+      await until(() => holder.lines.some((l) => l.type === "response" && l.id === cmd.id));
+      return holder.lines.find((l) => l.type === "response" && l.id === cmd.id);
+    };
+    const nav = { type: "navigate_tree", entryId: "e1", summarize: false, instructions: null };
+
+    it("refuses a changed session file, a busy session, an open dialog and an unknown entry", async () => {
+      const { ui } = fakeUi();
+      const { ctx } = await load(ui, { sessionManager: sm() });
+      expect((await reply({ ...nav, id: "n1", sessionFile: "/other.jsonl" })).error).toBe(
+        "The session changed; reload and try again",
+      );
+      ctx.setIdle(false);
+      expect((await reply({ ...nav, id: "n2", sessionFile: "/tmp/nat-1.jsonl" })).error).toBe(
+        "Wait for the current reply to finish",
+      );
+      ctx.setIdle(true);
+      expect(
+        (await reply({ ...nav, id: "n3", entryId: "zzz", sessionFile: "/tmp/nat-1.jsonl" })).error,
+      ).toBe("That message is not in this session");
+      void ctx.ui.select("Pick", ["a"]);
+      await until(() => holder.lines.some((l) => l.type === "extension_ui_request"));
+      expect((await reply({ ...nav, id: "n4", sessionFile: "/tmp/nat-1.jsonl" })).error).toBe(
+        "Answer the open dialog first",
+      );
+    });
+
+    it("runs navigateTree through the hidden command and returns the branch and editor text", async () => {
+      const { ui } = fakeUi();
+      const { pi } = await load(ui, { sessionManager: sm() });
+      holder.send({
+        ...nav,
+        id: "n5",
+        summarize: true,
+        instructions: "be brief",
+        sessionFile: "/tmp/nat-1.jsonl",
+      });
+      await until(() => pi.sendUserMessage.mock.calls.length === 1);
+      const token = (pi.sendUserMessage.mock.calls[0]![0] as string).split(" ")[1];
+      const navigateTree = vi.fn(async () => ({ cancelled: false }));
+      await pi.registered.get("switchyard-internal").handler(token, { navigateTree });
+      await until(() => holder.lines.some((l) => l.type === "response" && l.id === "n5"));
+      expect(navigateTree).toHaveBeenCalledWith("e1", {
+        summarize: true,
+        customInstructions: "be brief",
+      });
+      const r = holder.lines.find((l) => l.type === "response" && l.id === "n5");
+      expect(r.data).toEqual({ leafId: "leaf-1", editorText: "hello", entries: [userEntry] });
+    });
+
+    it("reports a cancelled summary", async () => {
+      const { ui } = fakeUi();
+      const { pi } = await load(ui, { sessionManager: sm() });
+      holder.send({ ...nav, id: "n6", summarize: true, sessionFile: "/tmp/nat-1.jsonl" });
+      await until(() => pi.sendUserMessage.mock.calls.length === 1);
+      const token = (pi.sendUserMessage.mock.calls[0]![0] as string).split(" ")[1];
+      await pi.registered
+        .get("switchyard-internal")
+        .handler(token, { navigateTree: async () => ({ cancelled: true }) });
+      await until(() => holder.lines.some((l) => l.type === "response" && l.id === "n6"));
+      expect(holder.lines.find((l) => l.type === "response" && l.id === "n6").error).toBe(
+        "Summary cancelled",
+      );
+    });
+
+    it("sends the leaf on session_start, turn_end, agent_settled and session_tree", async () => {
+      const { ui } = fakeUi();
+      const { pi, ctx } = await load(ui, { sessionManager: sm() });
+      const leaves = () => holder.lines.filter((l) => l.type === "leaf").length;
+      await until(() => leaves() === 1);
+      for (const [i, ev] of ["turn_end", "agent_settled", "session_tree"].entries()) {
+        pi.emit(ev, {}, ctx);
+        await until(() => leaves() === i + 2);
+      }
+      expect(holder.lines.find((l) => l.type === "leaf").leafId).toBe("leaf-1");
+    });
+  });
+
   it("answers empty completions without an autocomplete API", async () => {
     const { ui } = fakeUi();
     await load(ui);

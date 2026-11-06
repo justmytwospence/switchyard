@@ -130,7 +130,8 @@ export function messagesToItems(
     switch (m.role) {
       case "user": {
         const { text, images } = contentText(m.content);
-        push("user", images > 0 ? { text, images } : { text }, at);
+        const entryId = typeof m.entryId === "string" ? { entryId: m.entryId } : {};
+        push("user", images > 0 ? { text, images, ...entryId } : { text, ...entryId }, at);
         break;
       }
       case "assistant": {

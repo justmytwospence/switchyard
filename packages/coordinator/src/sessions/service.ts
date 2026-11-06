@@ -79,6 +79,29 @@ export function appendNotice(
   });
 }
 
+/**
+ * Replace a session's transcript after a rewind: bumps the epoch so clients drop cached copies.
+ * Returns the new epoch.
+ */
+export function resetTranscript(
+  ctx: CoordinatorContext,
+  sessionId: string,
+  items: TranscriptItem[],
+): number {
+  return ctx.store.tx(() => {
+    ctx.store.replaceItems(sessionId, items);
+    const cur = ctx.store.sessions.require(sessionId);
+    const epoch = (cur.transcriptEpoch ?? 0) + 1;
+    ctx.store.putSession({ ...cur, transcriptEpoch: epoch });
+    ctx.store.appendEvent(
+      "transcript.reset",
+      { sessionId, hostId: cur.hostId, projectId: cur.projectId ?? undefined },
+      { sessionId, epoch },
+    );
+    return epoch;
+  });
+}
+
 /** Mark a session failed with an error notice (no optimistic success). */
 export function failSession(ctx: CoordinatorContext, sessionId: string, message: string): void {
   ctx.store.tx(() => {

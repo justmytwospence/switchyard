@@ -180,7 +180,9 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
       piVersion: pi.version,
       piCompatible: pi.compatible,
       platform: hostPlatform(),
-      capabilities: pi.capabilities ? { ...pi.capabilities, terminal: terminalEnabled } : null,
+      capabilities: pi.capabilities
+        ? { ...pi.capabilities, terminal: terminalEnabled, treeNavigation: terminalEnabled }
+        : null,
       protocolVersion: PROTOCOL_VERSION,
     }),
     onTerm: (streamId, msg) => relay.handle(streamId, msg),

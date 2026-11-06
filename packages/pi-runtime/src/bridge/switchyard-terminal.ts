@@ -138,6 +138,14 @@ export default function switchyardTerminal(pi: any): void {
 
   const sendQueue = () => send({ type: "queue_update", ...queue });
 
+  const sendLeaf = () => {
+    try {
+      send({ type: "leaf", leafId: ctx?.sessionManager?.getLeafId?.() ?? null });
+    } catch {
+      // never throw into Pi
+    }
+  };
+
   /** Announce this session (and whether dialogs are remote-backed) to the host. */
   const hello = (): void => {
     if (!ctx) return;
@@ -607,6 +615,53 @@ export default function switchyardTerminal(pi: any): void {
             }
           });
           return;
+        case "navigate_tree": {
+          const entryId = String(cmd.entryId ?? "");
+          if ((cmd.sessionFile ?? null) !== (ctx.sessionManager.getSessionFile() ?? null)) {
+            respond(id, type, undefined, "The session changed; reload and try again");
+            return;
+          }
+          if (!ctx.isIdle()) {
+            respond(id, type, undefined, "Wait for the current reply to finish");
+            return;
+          }
+          if (pending.size > 0) {
+            respond(id, type, undefined, "Answer the open dialog first");
+            return;
+          }
+          const target = ctx.sessionManager.getEntry?.(entryId);
+          if (!target) {
+            respond(id, type, undefined, "That message is not in this session");
+            return;
+          }
+          const summarize = cmd.summarize === true;
+          runInternal(async (c) => {
+            try {
+              const r = await c.navigateTree(entryId, {
+                summarize,
+                customInstructions: cmd.instructions || undefined,
+              });
+              if (r?.cancelled) {
+                respond(id, type, undefined, summarize ? "Summary cancelled" : "Rewind cancelled");
+                return;
+              }
+              const editorText =
+                target.type === "message" && target.message?.role === "user"
+                  ? messageText(target.message)
+                  : null;
+              respond(id, type, {
+                leafId: ctx.sessionManager.getLeafId() ?? null,
+                editorText,
+                entries: ctx.sessionManager.getBranch(),
+              });
+            } catch (e: any) {
+              respond(id, type, undefined, e?.message ?? String(e));
+            }
+            flushEntries();
+            sendLeaf();
+          });
+          return;
+        }
         case "reload":
           if (!ctx) {
             respond(id, type, undefined, "Session is not ready");
@@ -655,6 +710,7 @@ export default function switchyardTerminal(pi: any): void {
       hello();
       sendModelState();
       sendQueue();
+      sendLeaf();
     }
     for (const p of pending.values()) send(p.request);
   };
@@ -760,6 +816,7 @@ export default function switchyardTerminal(pi: any): void {
     const sessionFile = c.sessionManager.getSessionFile() ?? null;
     hello();
     sendModelState();
+    sendLeaf();
     if (event?.reason && event.reason !== "startup") {
       send({ type: "switchyard_native", sessionId, sessionFile });
     }
@@ -793,10 +850,18 @@ export default function switchyardTerminal(pi: any): void {
     send(event);
     flushEntries();
   });
-  on("turn_end", () => flushEntries());
+  on("turn_end", () => {
+    flushEntries();
+    sendLeaf();
+  });
+  on("session_tree", () => {
+    flushEntries();
+    sendLeaf();
+  });
   on("agent_settled", (event) => {
     send({ type: "agent_settled", aborted: event?.aborted === true });
     flushEntries();
+    sendLeaf();
     if (queue.steering.length > 0 || queue.followUp.length > 0) {
       queue.steering = [];
       queue.followUp = [];

@@ -34,7 +34,9 @@ function messageText(message: any): string {
 const MAX_ROWS = 2000;
 
 /** The conversation tree as rows of user and assistant messages. */
-export function treeRows(sm: any): TreeRow[] {
+export function treeRows(sm: any, liveLeaf: string | null = null): TreeRow[] {
+  // The running Pi's leaf can be ahead of the file's (a rewind only moves it in memory).
+  if (liveLeaf && sm.getEntry?.(liveLeaf)) sm.branch?.(liveLeaf);
   const active = new Set<string>((sm.getBranch() ?? []).map((e: any) => e.id));
   const leafId: string | null = sm.getLeafId?.() ?? null;
   const rows: TreeRow[] = [];
@@ -80,6 +82,7 @@ export async function branchSession(
   piBin?: string,
   load: (piBin?: string) => Promise<any | null> = loadPiSessionManager,
   checkFile = true,
+  liveLeaf: string | null = null,
 ): Promise<{ sessionFile: string | null; prefill: string | null }> {
   const SM = await load(piBin);
   if (!SM) {
@@ -100,7 +103,7 @@ export async function branchSession(
     target = e.parentId ?? null;
     if (!target) return { sessionFile: null, prefill };
   } else {
-    target = entryId ?? sm.getLeafId();
+    target = entryId ?? liveLeaf ?? sm.getLeafId();
     if (!target) {
       throw new SwitchyardError("invalid_request", "This session has nothing to branch yet");
     }

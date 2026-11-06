@@ -225,6 +225,10 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   /** Set by `detach()`: the agent is going away, so a start in flight neither fails nor closes Pi. */
   private detachedDuring = false;
   private _native: NativeHandle | null;
+  /** Pi's live leaf entry id (pushed by the terminal extension). */
+  private _leafId: string | null = null;
+  /** The user item just created, waiting for its entry id from `entry_appended`. */
+  private pendingUserItemId: string | null = null;
   private _queue: QueueState = { steering: [], followUp: [] };
   private readonly pending = new Map<string, PiDialogRequest>();
 
@@ -266,6 +270,10 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   get nativeHandle(): NativeHandle | null {
     return this._native;
   }
+  get leafId(): string | null {
+    return this._leafId;
+  }
+
   get queue(): QueueState {
     return { steering: [...this._queue.steering], followUp: [...this._queue.followUp] };
   }
@@ -548,6 +556,42 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       return { disposition: "view", view: view.data };
     }
     return { disposition: data?.disposition ?? "started", view: null };
+  }
+
+  /**
+   * Move Pi's leaf to an earlier entry in place (terminal sessions only), optionally summarizing
+   * the abandoned branch. Resolves with the new active branch's entries.
+   */
+  async navigate(
+    entryId: string,
+    summarize: boolean,
+    instructions: string | null,
+  ): Promise<{ leafId: string | null; editorText: string | null; entries: unknown[] }> {
+    const proc = this.requireAlive();
+    if (!(proc instanceof PiTerminalProcess)) {
+      throw new SwitchyardError("invalid_request", "Rewind needs a terminal session");
+    }
+    const data = await this.call<any>(
+      proc,
+      {
+        type: "navigate_tree",
+        entryId,
+        summarize,
+        instructions,
+        sessionFile: this._native?.sessionFile ?? null,
+      },
+      10 * 60_000,
+    );
+    return {
+      leafId: typeof data?.leafId === "string" ? data.leafId : null,
+      editorText: typeof data?.editorText === "string" ? data.editorText : null,
+      entries: Array.isArray(data?.entries) ? data.entries : [],
+    };
+  }
+
+  /** Skip `n` transcript orders (a rebuilt transcript used them). */
+  reserveOrders(n: number): void {
+    this.order += n;
   }
 
   /** Reload Pi's extensions, skills, prompts and context files (terminal sessions only). */
@@ -1056,6 +1100,26 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       case "message_start":
         if (ev.message?.role === "assistant") this.current = { blocks: new Map() };
         break;
+      case "leaf":
+        this._leafId = typeof ev.leafId === "string" ? ev.leafId : null;
+        break;
+      case "entry_appended": {
+        const entry = ev.entry;
+        if (
+          entry?.type === "message" &&
+          entry.message?.role === "user" &&
+          typeof entry.id === "string" &&
+          this.pendingUserItemId
+        ) {
+          const item = this.items.get(this.pendingUserItemId);
+          this.pendingUserItemId = null;
+          if (item && item.kind === "user") {
+            item.data.entryId = entry.id;
+            this.emit("item", structuredClone(item));
+          }
+        }
+        break;
+      }
       case "message_update":
         this.onMessageUpdate(ev.assistantMessageEvent);
         break;
@@ -1239,7 +1303,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     switch (message.role) {
       case "user": {
         const { text, images } = contentText(message.content);
-        this.emitItem(this.newItem("user", images > 0 ? { text, images } : { text }));
+        const item = this.newItem("user", images > 0 ? { text, images } : { text });
+        this.emitItem(item);
+        this.pendingUserItemId = item.id;
         break;
       }
       case "assistant":

@@ -16,10 +16,12 @@ import {
 import {
   type BridgeEvent,
   branchSession,
+  entriesToMessages,
   type HolderSweep,
   listImportable,
   loadPiSessionManager,
   ManagedSession,
+  messagesToItems,
   type PiDialogRequest,
   type PiEvent,
   type PiUiRequest,
@@ -82,6 +84,7 @@ const NOT_LIVE = {
   setModel: "resume to change the model",
   setThinking: "resume to change the thinking level",
   compact: "resume to compact",
+  navigate: "resume to rewind",
 } as const;
 
 export const SESSION_LIVE_CONFLICT = "Session already live on this host";
@@ -1038,11 +1041,44 @@ export class SessionSupervisor {
         "Pi's SessionManager could not be loaded on this host",
       );
     }
-    return { rows: treeRows(SM.open(file, dirname(file))) };
+    return {
+      rows: treeRows(SM.open(file, dirname(file)), this.live.get(sessionId)?.ms?.leafId ?? null),
+    };
   }
 
   async branch(sessionId: string, entryId: string | null, fork: boolean) {
-    return branchSession(this.piFile(sessionId), entryId, fork, this.opts.piBin);
+    return branchSession(
+      this.piFile(sessionId),
+      entryId,
+      fork,
+      this.opts.piBin,
+      undefined,
+      true,
+      this.live.get(sessionId)?.ms?.leafId ?? null,
+    );
+  }
+
+  /** Move the running Pi's leaf to an earlier message and rebuild the transcript from its branch. */
+  async navigate(
+    sessionId: string,
+    entryId: string,
+    summarize: boolean,
+    instructions: string | null,
+  ): Promise<{ items: TranscriptItem[]; prefill: string | null }> {
+    const ms = this.requireLive(sessionId, "navigate");
+    const l = this.live.get(sessionId)!;
+    const r = await ms.navigate(entryId, summarize, instructions);
+    const start = ms.snapshot().nextOrder;
+    const items = messagesToItems(entriesToMessages(r.entries as any[]), {
+      sessionId,
+      startOrder: start,
+      fallbackAt: nowIso(),
+    });
+    ms.reserveOrders(items.length);
+    l.rec.nextOrder = ms.snapshot().nextOrder;
+    this.db.tx(() => this.saveAndEmit(l.rec));
+    void this.refreshStats(l);
+    return { items, prefill: r.editorText };
   }
 
   async exportSession(sessionId: string) {

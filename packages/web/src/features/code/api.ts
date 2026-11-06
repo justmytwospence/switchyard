@@ -4,6 +4,7 @@ import type {
   FileEntry,
   ImportableSession,
   ModelStateResult,
+  NavigateResult,
   Run,
   Session,
   SessionCompleteResult,
@@ -63,6 +64,10 @@ export const codeApi = {
       entryId,
       fork,
     }),
+  navigate: (
+    id: string,
+    body: { entryId: string; summarize: boolean; instructions: string | null },
+  ) => apiPost<NavigateResult>(`${s(id)}/navigate`, body),
   reload: (id: string) => apiPost<{ ok: true }>(`${s(id)}/reload`),
   exportFile: (id: string) => apiGet<{ fileName: string; content: string }>(`${s(id)}/export`),
   importable: (hostId: string) =>

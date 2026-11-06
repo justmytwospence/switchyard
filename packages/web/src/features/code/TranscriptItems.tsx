@@ -36,6 +36,7 @@ import { useSyncStore } from "../../sync/store";
 import { codeApi } from "./api";
 import { useCodeContext } from "./context";
 import { useNow } from "./hooks";
+import { UserMessageMenu } from "./MessageActions";
 import {
   formatWorkSummary,
   interactionDomId,
@@ -94,7 +95,7 @@ export function TimelineRow(props: TimelineRowProps) {
   const { item, stream } = entry;
   switch (item.kind) {
     case "user":
-      return <UserMessage item={item} />;
+      return <UserMessage item={item} sessionId={props.sessionId} />;
     case "assistant":
       return (
         <AssistantMessage
@@ -142,12 +143,21 @@ function RowLabel({ icon: Icon, children }: { icon: LucideIcon; children: ReactN
   );
 }
 
-function UserMessage({ item }: { item: Extract<TranscriptItem, { kind: "user" }> }) {
+function UserMessage({
+  item,
+  sessionId,
+}: {
+  item: Extract<TranscriptItem, { kind: "user" }>;
+  sessionId: string;
+}) {
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-surface-2 px-3 py-2">
-      <RowLabel icon={User}>
-        You <span className="font-normal text-subtle">· {formatTime(item.at)}</span>
-      </RowLabel>
+    <div className="group/msg min-w-0 rounded-lg border border-border bg-surface-2 px-3 py-2">
+      <div className="flex items-start justify-between gap-2">
+        <RowLabel icon={User}>
+          You <span className="font-normal text-subtle">· {formatTime(item.at)}</span>
+        </RowLabel>
+        <UserMessageMenu item={item} sessionId={sessionId} />
+      </div>
       <p className="text-sm break-words whitespace-pre-wrap">{item.data.text}</p>
       {item.data.images ? (
         <p className="mt-1 text-xs text-muted">

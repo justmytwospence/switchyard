@@ -216,6 +216,19 @@ describe("transcripts", () => {
   });
 });
 
+describe("transcript.reset", () => {
+  it("empties a loaded transcript and drops its streams", () => {
+    let s = applyTranscriptPage(emptySyncData(), "ses_1", [assistant("a", 1, "x")], {
+      hasMore: false,
+      older: false,
+    });
+    s = applyStream(s, { sessionId: "ses_1", itemId: "a2", kind: "text", delta: "x" });
+    s = applyEvent(s, ev("transcript.reset", { sessionId: "ses_1", epoch: 1 }, 5));
+    expect(s.transcripts.ses_1).toMatchObject({ items: [], loaded: false });
+    expect(s.streaming.a2).toBeUndefined();
+  });
+});
+
 describe("upsertSessionIfMissing", () => {
   it("inserts a new session, keeps an existing one, and sync events replace it", () => {
     const store = useSyncStore;

@@ -6,9 +6,12 @@ import {
   CompleteRequest,
   CreateSessionRequest,
   HostBranchResult,
+  HostNavigateResult,
   ImportableSession,
   ImportSessionRequest,
   ModelStateResult,
+  NavigateRequest,
+  NavigateResult,
   newId,
   PromptRequest,
   RenameRequest,
@@ -34,6 +37,7 @@ import {
   LIVE_RUNTIMES,
   requireConnected,
   requireUsableHost,
+  resetTranscript,
   resolveProfile,
   startOnHost,
 } from "../sessions/service.js";
@@ -362,6 +366,40 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
       native.items ?? [],
     );
     return reply.code(201).send({ session, prefill: r.prefill });
+  });
+
+  app.post("/api/sessions/:id/navigate", async (req) => {
+    const s = get(idOf(req));
+    const body = parse(NavigateRequest, req.body);
+    requireSessionControls(ctx, s);
+    if (
+      s.terminal !== true ||
+      ctx.store.hosts.get(s.hostId)?.capabilities?.treeNavigation !== true
+    ) {
+      throw new SwitchyardError(
+        "invalid_request",
+        "Rewind needs a terminal session on an updated host",
+      );
+    }
+    if (s.runtime !== "idle") {
+      throw new SwitchyardError("conflict", "Wait for the reply to finish before rewinding");
+    }
+    if (s.compacting) throw new SwitchyardError("conflict", "Wait for compaction to finish");
+    const r = HostNavigateResult.parse(
+      await ctx.hostHub.request(
+        s.hostId,
+        {
+          type: "session.navigate",
+          sessionId: s.id,
+          entryId: body.entryId,
+          summarize: body.summarize,
+          instructions: body.instructions,
+        },
+        { timeoutMs: body.summarize ? 10 * 60_000 : 30_000 },
+      ),
+    );
+    const epoch = resetTranscript(ctx, s.id, r.items);
+    return NavigateResult.parse({ prefill: r.prefill, epoch });
   });
 
   app.post("/api/sessions/:id/reload", async (req) => {

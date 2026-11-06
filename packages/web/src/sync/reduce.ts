@@ -332,6 +332,15 @@ function reduceEvent<S extends SyncData, T extends EventType>(
     }
     case "transcript.item":
       return upsertTranscriptItem(state, data as EventData<"transcript.item">);
+    case "transcript.reset": {
+      const d = data as EventData<"transcript.reset">;
+      const next = clearSessionStreams(state, d.sessionId);
+      if (!next.transcripts[d.sessionId]) return next;
+      return {
+        ...next,
+        transcripts: { ...next.transcripts, [d.sessionId]: emptyTranscript() },
+      };
+    }
     case "interaction.updated": {
       const d = data as EventData<"interaction.updated">;
       const prev = state.interactions[d.id];

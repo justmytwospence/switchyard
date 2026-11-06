@@ -535,6 +535,69 @@ describe("session controls", () => {
     expect((await t!.admin("GET", "/api/sessions/ses_c/export")).body.fileName).toBe("s.jsonl");
   });
 
+  describe("navigate", () => {
+    const entries = [
+      {
+        id: "itm_n1",
+        sessionId: "ses_c",
+        order: 0,
+        at: "2026-01-01T00:00:00.000Z",
+        kind: "user",
+        data: { text: "hi", entryId: "e1" },
+      },
+    ];
+    async function navSetup(over: Record<string, unknown> = {}, terminalHost = true) {
+      await controlSetup();
+      await host!.close();
+      await host!.open({
+        capabilities: fullCapabilities({ sessionControls: true, treeNavigation: terminalHost }),
+      });
+      const prev = host!.handler;
+      host!.handler = (cmd) =>
+        cmd.type === "session.navigate" ? { items: entries, prefill: "hi" } : prev!(cmd);
+      await host!.event(
+        "session.updated",
+        hostSession("ses_c", { runtime: "idle", terminal: true, ...over }),
+      );
+    }
+
+    it("replaces the transcript, bumps the epoch and emits transcript.reset", async () => {
+      await navSetup();
+      const before = t!.c.store.currentSeq();
+      const r = await t!.admin("POST", "/api/sessions/ses_c/navigate", {
+        entryId: "e1",
+        summarize: true,
+        instructions: "short",
+      });
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ prefill: "hi", epoch: 1 });
+      const sent = host!.commands.find((c) => c.command.type === "session.navigate")!
+        .command as HostCommandOf<"session.navigate">;
+      expect(sent).toMatchObject({ entryId: "e1", summarize: true, instructions: "short" });
+      expect(t!.c.store.listItems("ses_c").items.map((i) => i.id)).toEqual(["itm_n1"]);
+      expect(t!.c.store.sessions.require("ses_c").transcriptEpoch).toBe(1);
+      expect(
+        t!.c.store.eventsAfter(before).filter((e) => e.type === "transcript.reset"),
+      ).toHaveLength(1);
+    });
+
+    it("refuses non-terminal, busy and compacting sessions", async () => {
+      await navSetup({ terminal: false });
+      const body = { entryId: "e1" };
+      expect((await t!.admin("POST", "/api/sessions/ses_c/navigate", body)).status).toBe(400);
+      await host!.event(
+        "session.updated",
+        hostSession("ses_c", { runtime: "running", terminal: true }),
+      );
+      expect((await t!.admin("POST", "/api/sessions/ses_c/navigate", body)).status).toBe(409);
+      await host!.event(
+        "session.updated",
+        hostSession("ses_c", { runtime: "idle", terminal: true, compacting: true }),
+      );
+      expect((await t!.admin("POST", "/api/sessions/ses_c/navigate", body)).status).toBe(409);
+    });
+  });
+
   it("refuses hosts without the capability", async () => {
     await controlSetup(false);
     const r = await t!.admin("GET", "/api/sessions/ses_c/commands");

@@ -8,6 +8,7 @@ import type {
 } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import { normalizeEntries, normalizeFile } from "../src/features/code/api";
+import { prefillDecision } from "../src/features/code/branching";
 import {
   activeArgumentHint,
   applyCompletion,
@@ -1196,5 +1197,14 @@ describe("sessionUsage", () => {
     expect(sessionUsage(session("a", { model: model("openai-codex") }), h)).toBeNull();
     expect(sessionUsage(session("a", { model: model("google") }), h)).toBeNull();
     expect(sessionUsage(session("a", {}), undefined)).toBeNull();
+  });
+});
+
+describe("prefillDecision", () => {
+  it("sets into an empty draft, keeps a non-empty one, and ignores no prefill", () => {
+    expect(prefillDecision("", "hi")).toBe("set");
+    expect(prefillDecision("  \n", "hi")).toBe("set");
+    expect(prefillDecision("typing", "hi")).toBe("kept");
+    expect(prefillDecision("", null)).toBe("none");
   });
 });

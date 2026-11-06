@@ -52,6 +52,39 @@ describe("treeRows", () => {
   });
 });
 
+describe("live leaf", () => {
+  it("treeRows marks the live leaf's branch active when given one", () => {
+    const sm: any = fakeSm();
+    let leaf = "u2";
+    sm.branch = (id: string) => {
+      leaf = id;
+    };
+    sm.getLeafId = () => leaf;
+    sm.getBranch = () => {
+      const chain: any[] = [];
+      const entries: Record<string, any> = {
+        u1: { id: "u1", parentId: null },
+        a1: { id: "a1", parentId: "u1" },
+        u3: { id: "u3", parentId: "a1" },
+        u2: { id: "u2", parentId: "a1" },
+      };
+      for (let e = entries[leaf]; e; e = e.parentId ? entries[e.parentId] : undefined)
+        chain.unshift(e);
+      return chain;
+    };
+    const rows = treeRows(sm, "u3");
+    expect(rows.find((r) => r.leaf)?.entryId).toBe("u3");
+    expect(rows.filter((r) => r.activeBranch).map((r) => r.entryId)).toEqual(["u1", "a1", "u3"]);
+  });
+
+  it("clone branches from the live leaf", async () => {
+    const sm = fakeSm();
+    const load = async () => ({ open: () => sm });
+    await branchSession("/s/x.jsonl", null, false, undefined, load, false, "u3");
+    expect(sm.createBranchedSession).toHaveBeenCalledWith("u3");
+  });
+});
+
 describe("branchSession", () => {
   const load = (sm: any) => async () => ({ open: () => sm });
   it("forks from the parent of a user message and returns its text", async () => {
