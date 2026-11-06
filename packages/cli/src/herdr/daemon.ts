@@ -36,6 +36,8 @@ export interface DaemonDeps {
   onStateChange: (fn: () => void) => () => void;
   /** The bound view: null when unbound, "missing" when it names a view that does not exist. */
   view?: () => View | null | "missing";
+  /** The name the daemon looks for, for its log line. */
+  viewName?: string;
   /** `<state>/<herdr session>`: spaces.json and the fallback space directory. */
   stateDir: string;
   /** Stable launcher for typed commands and resume commands. */
@@ -195,7 +197,7 @@ export class MirrorDaemon {
     const { call, log } = this.deps;
     const bound = this.deps.view?.() ?? null;
     if (bound === "missing") {
-      if (!this.viewMissingLogged) log("bound view not found; not mirroring");
+      if (!this.viewMissingLogged) log(`no view named "${this.deps.viewName ?? ""}"; idle`);
       this.viewMissingLogged = true;
       return [];
     }

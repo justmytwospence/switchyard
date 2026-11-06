@@ -42,6 +42,11 @@ export async function tmuxSessionName(env: Env = process.env, run: TmuxRun = tmu
   return "switchyard";
 }
 
+/** A session id (`$3`) targets as is; a name needs the exact-match `=` prefix. */
+export function tmuxTarget(session: string): string {
+  return session.startsWith("$") ? session : `=${session}`;
+}
+
 export type TmuxEvent =
   | { type: "window-close"; windowId: string }
   | { type: "window-add"; windowId: string }
@@ -73,7 +78,7 @@ export function tmuxControl(
 ): TmuxControl {
   const child = spawn(
     "tmux",
-    ["-C", "attach-session", "-t", `=${session}`, "-f", "ignore-size,no-output,read-only"],
+    ["-C", "attach-session", "-t", tmuxTarget(session), "-f", "ignore-size,no-output,read-only"],
     { stdio: ["pipe", "pipe", "ignore"] },
   );
   let closed = false;

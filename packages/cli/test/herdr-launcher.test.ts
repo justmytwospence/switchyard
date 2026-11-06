@@ -54,14 +54,16 @@ describe("switchyard-herdr.sh", () => {
     expect(r.stdout).toBe("/cfg/dev.json|work|switchyard-dev|herdr|new|--here|");
   });
 
-  it("does nothing in unpaired herdr sessions", () => {
-    const quiet = run(["daemon", "--ensure"], {
-      HERDR_SOCKET_PATH: join(home, ".config/herdr/herdr.sock"),
+  it("runs with defaults in sessions without an env file", () => {
+    const fake = join(home, "switchyard");
+    writeFileSync(fake, '#!/bin/sh\nprintf "%s|" "$SWITCHYARD_HERDR_SESSION" "$@"\n', {
+      mode: 0o755,
     });
-    expect(quiet.status).toBe(0);
-    expect(quiet.stdout + quiet.stderr).toBe("");
-    const loud = run(["status"]);
-    expect(loud.status).toBe(1);
-    expect(loud.stderr).toContain('herdr session "default" is not paired with Switchyard');
+    const r = run(["daemon", "--ensure"], {
+      HERDR_SOCKET_PATH: join(home, ".config/herdr/herdr.sock"),
+      PATH: `${home}:${process.env.PATH}`,
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("default|herdr|daemon|--ensure|");
   });
 });

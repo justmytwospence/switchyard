@@ -41,12 +41,16 @@ describe("switchyard-tmux.sh", () => {
     expect(r.stdout).toBe("/cfg/dev.json|work|work|tmux|status|");
   });
 
-  it("does nothing in unpaired sessions for daemon and new", () => {
-    const quiet = run(["daemon", "--ensure"], { SWITCHYARD_TMUX_SESSION: "none" });
-    expect(quiet.status).toBe(0);
-    expect(quiet.stdout + quiet.stderr).toBe("");
-    const loud = run(["status"], { SWITCHYARD_TMUX_SESSION: "none" });
-    expect(loud.status).toBe(1);
-    expect(loud.stderr).toContain('tmux session "none" is not paired with Switchyard');
+  it("runs with defaults in sessions without an env file", () => {
+    const fake = join(home, "switchyard");
+    writeFileSync(fake, '#!/bin/sh\nprintf "%s|" "$SWITCHYARD_TMUX_SESSION" "$@"\n', {
+      mode: 0o755,
+    });
+    const r = run(["daemon", "--ensure"], {
+      SWITCHYARD_TMUX_SESSION: "none",
+      PATH: `${home}:${process.env.PATH}`,
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("none|tmux|daemon|--ensure|");
   });
 });

@@ -5,7 +5,7 @@ import type { ApiClient } from "@switchyard/terminal";
 import { launcherCommand } from "../herdr/util.js";
 import { archiveSession, renameSession } from "../mirror/actions.js";
 import { type MirrorState, PENDING_MS, viewedSessions } from "../mirror/state.js";
-import type { TmuxControl, TmuxEvent, TmuxRun } from "./client.js";
+import { type TmuxControl, type TmuxEvent, type TmuxRun, tmuxTarget } from "./client.js";
 import {
   emptyTmuxMemory,
   planTmux,
@@ -27,7 +27,10 @@ export interface TmuxDaemonDeps {
   session: string;
   state: () => MirrorState | null;
   onStateChange: (fn: () => void) => () => void;
-  view?: () => View | null | "missing";
+  /** The bound view for the tmux session's current name, or "missing" (idle). */
+  view?: (sessionName: string) => View | null | "missing";
+  /** The session's current name (it can be renamed); defaults to `session`. */
+  sessionName?: () => Promise<string>;
   stateDir: string;
   launcherPath: string;
   log: (line: string) => void;
@@ -66,7 +69,15 @@ export class TmuxDaemon {
   }
 
   private get target(): string {
-    return `=${this.deps.session}`;
+    return tmuxTarget(this.deps.session);
+  }
+
+  private async currentName(): Promise<string> {
+    try {
+      return (await this.deps.sessionName?.()) ?? this.deps.session;
+    } catch {
+      return this.deps.session;
+    }
   }
 
   async start(): Promise<void> {
@@ -179,9 +190,10 @@ export class TmuxDaemon {
     const st = this.deps.state();
     if (!st) return [];
     const { run, log } = this.deps;
-    const bound = this.deps.view?.() ?? null;
+    const name = await this.currentName();
+    const bound = this.deps.view?.(name) ?? null;
     if (bound === "missing") {
-      if (!this.viewMissingLogged) log("bound view not found; not mirroring");
+      if (!this.viewMissingLogged) log(`no view named "${name}"; idle`);
       this.viewMissingLogged = true;
       return [];
     }
@@ -302,7 +314,7 @@ export class TmuxDaemon {
     }
     const st = this.deps.state();
     if (!st) return;
-    const bound = this.deps.view?.() ?? null;
+    const bound = this.deps.view?.(await this.currentName()) ?? null;
     if (bound === "missing") return;
     const mirrored = new Map(viewedSessions(st, bound).map((s) => [s.id, s]));
     if (e.type === "window-close") {

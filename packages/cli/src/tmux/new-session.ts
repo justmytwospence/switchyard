@@ -2,9 +2,11 @@ import { spawnSync } from "node:child_process";
 import type { Session } from "@switchyard/protocol";
 import type { ConnectionFlags } from "../config.js";
 import type { Ctx } from "../context.js";
+import { bindingRef, noViewMessage, viewOrMissing } from "../mirror/binding.js";
 import { chooseSession } from "../mirror/choose.js";
 import { Screen, type TerminalIO } from "../mirror/picker.js";
-import { loadMirrorState, resolveBoundView } from "../mirror/state.js";
+import { loadMirrorState } from "../mirror/state.js";
+import { tmuxSessionName } from "./client.js";
 import { tmuxPane } from "./pane.js";
 
 /**
@@ -18,6 +20,14 @@ export async function tmuxNew(
 ): Promise<void> {
   ctx.err("Connecting to Switchyard…");
   const { client, state } = await loadMirrorState(ctx, flags);
+  const name = await tmuxSessionName(ctx.env);
+  const bound = viewOrMissing(state(), bindingRef(ctx.env, name));
+  if (bound === "missing") {
+    client.close();
+    ctx.err(noViewMessage("tmux", bindingRef(ctx.env, name)));
+    if (!io) spawnSync(ctx.env.SHELL || "/bin/sh", [], { stdio: "inherit" });
+    return;
+  }
   const screen = new Screen(
     io ?? { input: process.stdin, output: process.stdout, color: !("NO_COLOR" in ctx.env) },
   );
@@ -32,11 +42,10 @@ export async function tmuxNew(
       if (!io) spawnSync(ctx.env.SHELL || "/bin/sh", [], { stdio: "inherit" });
       return;
     }
-    const { view } = resolveBoundView(state(), ctx.env.SWITCHYARD_VIEW);
     created = await client.api.post<Session>("/api/sessions", {
       ...choice,
       prompt: "",
-      ...(view ? { viewId: view.id } : {}),
+      viewId: bound.id,
     });
     ctx.err(`Starting ${created.title}…`);
   } finally {

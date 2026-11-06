@@ -3,10 +3,11 @@ import { join } from "node:path";
 import type { Session } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags } from "../config.js";
 import type { Ctx } from "../context.js";
+import { bindingRef, noViewMessage, viewOrMissing } from "../mirror/binding.js";
 import { chooseSession } from "../mirror/choose.js";
 import { Screen, type TerminalIO } from "../mirror/picker.js";
-import { loadMirrorState, resolveBoundView } from "../mirror/state.js";
-import { herdrCall } from "./client.js";
+import { loadMirrorState } from "../mirror/state.js";
+import { herdrCall, herdrSessionName } from "./client.js";
 import { herdrPane } from "./pane.js";
 import { launcherCommand, runInPane, sessionStateDir, stableLauncherPath } from "./util.js";
 
@@ -24,6 +25,13 @@ export async function herdrNew(ctx: Ctx, flags: NewFlags, io?: TerminalIO): Prom
   if (flags.here) return newHere(ctx);
   ctx.err("Connecting to Switchyard…");
   const { client, state } = await loadMirrorState(ctx, flags);
+  const name = herdrSessionName(ctx.env);
+  const bound = viewOrMissing(state(), bindingRef(ctx.env, name));
+  if (bound === "missing") {
+    client.close();
+    ctx.err(noViewMessage("herdr", bindingRef(ctx.env, name)));
+    return;
+  }
   const screen = new Screen(
     io ?? {
       input: process.stdin,
@@ -41,11 +49,10 @@ export async function herdrNew(ctx: Ctx, flags: NewFlags, io?: TerminalIO): Prom
       ctx.err("Kept this tab as a shell.");
       return;
     }
-    const { view } = resolveBoundView(state(), ctx.env.SWITCHYARD_VIEW);
     created = await client.api.post<Session>("/api/sessions", {
       ...choice,
       prompt: "",
-      ...(view ? { viewId: view.id } : {}),
+      viewId: bound.id,
     });
     ctx.err(`Starting ${created.title}…`);
   } finally {

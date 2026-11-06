@@ -5,9 +5,9 @@ import { join } from "node:path";
 import type { Session } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
-import { startPresence } from "../mirror/presence.js";
-import { loadMirrorState, mirrorStateOf, resolveBoundView } from "../mirror/state.js";
-import { tmuxControl, tmuxRun, tmuxSessionName } from "../tmux/client.js";
+import { bindingRef, trackPresence, viewOrMissing } from "../mirror/binding.js";
+import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
+import { tmuxControl, tmuxRun, tmuxSessionName, tmuxTarget } from "../tmux/client.js";
 import { TmuxDaemon } from "../tmux/daemon.js";
 import { WINDOW_OPTION } from "../tmux/mirror.js";
 import {
@@ -45,14 +45,24 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
     throw new CliError("Run this through the tmux launcher once, so it can write its launcher");
   }
   const launcherPath = stableTmuxLauncherPath(env);
-  const session = await tmuxSessionName(env);
-  const dir = tmuxSessionStateDir(session, env);
+  const name0 = await tmuxSessionName(env);
+  // Target the session by id so renaming it rebinds the view instead of losing the session.
+  let session = name0;
+  try {
+    const id = (
+      await tmuxRun(["display-message", "-p", "-t", tmuxTarget(name0), "#{session_id}"])
+    ).trim();
+    if (id) session = id;
+  } catch {
+    // not running yet: fall back to the name
+  }
+  const sessionName = async () =>
+    (await tmuxRun(["display-message", "-p", "-t", tmuxTarget(session), "#S"])).trim() || name0;
+  const dir = tmuxSessionStateDir(name0, env);
   const pidFile = join(dir, "daemon.pid");
   const logFile = join(dir, "daemon.log");
-  const viewOf = (st: ReturnType<typeof mirrorStateOf>) => {
-    const r = resolveBoundView(st, env.SWITCHYARD_VIEW);
-    return r.missing ? ("missing" as const) : r.view;
-  };
+  const viewOf = (st: ReturnType<typeof mirrorStateOf>, name: string) =>
+    viewOrMissing(st, bindingRef(env, name));
 
   if (flags.once) {
     const { client, state } = await loadMirrorState(ctx, flags);
@@ -64,7 +74,8 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
         session,
         state,
         onStateChange: () => () => {},
-        view: () => viewOf(state()),
+        view: (n) => viewOf(state(), n),
+        sessionName,
         stateDir: dir,
         launcherPath,
         log: () => {},
@@ -82,11 +93,16 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   const running = existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0;
   if (flags.ensure) {
     if (running && pidAlive(running)) return;
-    const environment = {
-      ...daemonEnv(ctx, flags, launcherPath),
-      SWITCHYARD_TMUX_LAUNCHER: launcherPath,
-      SWITCHYARD_TMUX_SESSION: session,
-    };
+    let environment: Record<string, string | undefined>;
+    try {
+      environment = {
+        ...daemonEnv(ctx, flags, launcherPath),
+        SWITCHYARD_TMUX_LAUNCHER: launcherPath,
+        SWITCHYARD_TMUX_SESSION: name0,
+      };
+    } catch {
+      return; // not signed in: stay quiet in every tmux session
+    }
     const fd = openSync(logFile, "a", 0o600);
     try {
       const child = spawn(process.execPath, [process.argv[1]!, "tmux", "daemon"], {
@@ -103,12 +119,14 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   if (running && running !== process.pid && pidAlive(running)) return;
   writeFileSync(pidFile, String(process.pid));
   const log = (line: string) => ctx.out(`${new Date().toISOString()} ${line}`);
-  log(`daemon started (pid ${process.pid}, tmux session ${session})`);
+  log(`daemon started (pid ${process.pid}, tmux session ${name0})`);
   const { client } = await loadMirrorState(ctx, flags, 24 * 60 * 60_000);
   client.onLogout((reason) => {
     log(`signed out: ${reason}`);
     process.exit(1);
   });
+  let currentName = name0;
+  const trackedName = async () => (currentName = await sessionName());
   const daemon = new TmuxDaemon({
     run: tmuxRun,
     control: tmuxControl,
@@ -116,25 +134,27 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
     session,
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
-    view: () => viewOf(mirrorStateOf(client)),
+    view: (n) => viewOf(mirrorStateOf(client), n),
+    sessionName: trackedName,
     stateDir: dir,
     launcherPath,
     log,
   });
   await daemon.start();
-  const bound = resolveBoundView(mirrorStateOf(client), env.SWITCHYARD_VIEW).view;
-  if (bound) {
-    const machine = hostname();
-    const presence = startPresence(
-      client.api,
-      bound,
-      { id: `tmux:${session}@${machine}`, kind: "tmux", name: session, machine },
-      log,
-    );
-    const leave = () => void presence.stop().finally(() => process.exit(0));
-    process.once("SIGTERM", leave);
-    process.once("SIGINT", leave);
-  }
+  const machine = hostname();
+  const presence = trackPresence({
+    api: client.api,
+    getView: () => {
+      const v = viewOf(mirrorStateOf(client), currentName);
+      return v === "missing" ? null : v;
+    },
+    subscribe: (fn) => client.store.subscribe(fn),
+    client: { id: `tmux:${name0}@${machine}`, kind: "tmux", name: name0, machine },
+    log,
+  });
+  const leave = () => void presence.stop().finally(() => process.exit(0));
+  process.once("SIGTERM", leave);
+  process.once("SIGINT", leave);
   await new Promise(() => {});
 }
 

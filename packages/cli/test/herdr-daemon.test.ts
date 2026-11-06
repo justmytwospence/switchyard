@@ -187,13 +187,13 @@ function setup(sessions: Session[]) {
 }
 
 describe("MirrorDaemon", () => {
-  it("skips reconciles while the bound view is missing", async () => {
+  it("is idle while no view matches its name", async () => {
     const { herdr, daemon, logs, bound } = setup([session("ses_1")]);
     bound.value = "missing";
     await daemon.reconcile();
     await daemon.reconcile();
     expect(herdr.requests).toEqual([]);
-    expect(logs.filter((l) => l.includes("bound view not found"))).toHaveLength(1);
+    expect(logs.filter((l) => l.includes("; idle"))).toHaveLength(1);
   });
 
   it("opens a space and tabs, types pane commands, and reports claimed panes", async () => {

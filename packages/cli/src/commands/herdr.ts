@@ -21,8 +21,8 @@ import {
   stableLauncherPath,
   writeStableLauncher,
 } from "../herdr/util.js";
-import { startPresence } from "../mirror/presence.js";
-import { loadMirrorState, mirrorStateOf, resolveBoundView } from "../mirror/state.js";
+import { bindingRef, trackPresence, viewOrMissing } from "../mirror/binding.js";
+import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
 import type { Env } from "../paths.js";
 
 export { herdrNew } from "../herdr/new-session.js";
@@ -71,6 +71,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
   const logFile = join(dir, "daemon.log");
   const socket = herdrSocketPath(env);
   const call: HerdrCall = (method, params) => herdrCall(method, params, socket);
+  const ref = bindingRef(env, herdrSessionName(env));
 
   if (flags.once) {
     const { client, state } = await loadMirrorState(ctx, flags);
@@ -81,10 +82,8 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
         api: client.api,
         state,
         onStateChange: () => () => {},
-        view: () => {
-          const r = resolveBoundView(state(), env.SWITCHYARD_VIEW);
-          return r.missing ? "missing" : r.view;
-        },
+        view: () => viewOrMissing(state(), ref),
+        viewName: ref,
         stateDir: dir,
         launcherPath,
         log: () => {},
@@ -102,7 +101,12 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
   const running = existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0;
   if (flags.ensure) {
     if (running && pidAlive(running)) return;
-    const daemonEnvironment = daemonEnv(ctx, flags, launcherPath);
+    let daemonEnvironment: Env;
+    try {
+      daemonEnvironment = daemonEnv(ctx, flags, launcherPath);
+    } catch {
+      return; // not signed in: stay quiet in every herdr session
+    }
     const fd = openSync(logFile, "a", 0o600);
     try {
       const child = spawn(process.execPath, [process.argv[1]!, "herdr", "daemon"], {
@@ -131,29 +135,28 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     api: client.api,
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
-    view: () => {
-      const r = resolveBoundView(mirrorStateOf(client), env.SWITCHYARD_VIEW);
-      return r.missing ? "missing" : r.view;
-    },
+    view: () => viewOrMissing(mirrorStateOf(client), ref),
+    viewName: ref,
     stateDir: dir,
     launcherPath,
     log,
   });
   await daemon.start();
-  const bound = resolveBoundView(mirrorStateOf(client), env.SWITCHYARD_VIEW).view;
-  if (bound) {
-    const name = herdrSessionName(env);
-    const machine = hostname();
-    const presence = startPresence(
-      client.api,
-      bound,
-      { id: `herdr:${name}@${machine}`, kind: "herdr", name, machine },
-      log,
-    );
-    const leave = () => void presence.stop().finally(() => process.exit(0));
-    process.once("SIGTERM", leave);
-    process.once("SIGINT", leave);
-  }
+  const name = herdrSessionName(env);
+  const machine = hostname();
+  const presence = trackPresence({
+    api: client.api,
+    getView: () => {
+      const v = viewOrMissing(mirrorStateOf(client), ref);
+      return v === "missing" ? null : v;
+    },
+    subscribe: (fn) => client.store.subscribe(fn),
+    client: { id: `herdr:${name}@${machine}`, kind: "herdr", name, machine },
+    log,
+  });
+  const leave = () => void presence.stop().finally(() => process.exit(0));
+  process.once("SIGTERM", leave);
+  process.once("SIGINT", leave);
   await new Promise(() => {});
 }
 
