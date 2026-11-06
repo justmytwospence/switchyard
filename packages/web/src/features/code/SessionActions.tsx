@@ -7,7 +7,6 @@ import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { apiDelete, apiPost, errorMessage } from "../../sync/api";
-import { useSyncStore } from "../../sync/store";
 import { codeApi } from "./api";
 import type { SessionContext } from "./hooks";
 import { useMutation } from "./hooks";
