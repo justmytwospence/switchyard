@@ -172,10 +172,7 @@ export async function tmuxStatus(ctx: Ctx, flags: ConnectionFlags): Promise<void
 export async function tmuxPair(ctx: Ctx, flags: PairFlags): Promise<void> {
   const session = flags.session ?? "switchyard";
   const path = writePairFile(ctx, "tmux", session, flags);
-  const launcher = stableTmuxLauncherPath(ctx.env);
   ctx.out(`Wrote ${path}`);
-  ctx.out(
-    `Start it with: tmux new-session -s ${session} \\; run-shell -b '${launcher} daemon --ensure'`,
-  );
-  ctx.out("Or add the plugin to .tmux.conf: set -g @plugin '<repo>/integrations/tmux'");
+  ctx.out("Load the plugin in .tmux.conf: run-shell <repo>/integrations/tmux/switchyard.tmux");
+  ctx.out(`Then start it with: tmux new-session -s ${session}`);
 }
