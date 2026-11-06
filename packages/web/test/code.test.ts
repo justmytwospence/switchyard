@@ -25,6 +25,8 @@ import {
   favoriteModels,
   filterCommands,
   fitPanes,
+  foldTimeline,
+  formatWorkSummary,
   groupModels,
   HOST_OFFLINE_DANGER_MS,
   isSubagentView,
@@ -952,5 +954,163 @@ describe("session menu view pins", () => {
       ["a", false],
       ["b", true],
     ]);
+  });
+});
+
+describe("foldTimeline", () => {
+  const at = "2026-11-01T10:00:00.000Z";
+  const user = (id: string, order: number): TranscriptItem => ({
+    id,
+    sessionId: "ses_1",
+    order,
+    at,
+    kind: "user",
+    data: { text: "go" },
+  });
+  const tool = (
+    id: string,
+    order: number,
+    name = "bash",
+    status = "ok",
+    ms = 1000,
+  ): TranscriptItem =>
+    ({
+      id,
+      sessionId: "ses_1",
+      order,
+      at,
+      kind: "tool",
+      data: {
+        toolCallId: id,
+        name,
+        status,
+        args: {},
+        summary: "",
+        output: "",
+        startedAt: at,
+        durationMs: status === "running" ? null : ms,
+        card: null,
+        adapterId: null,
+      },
+    }) as TranscriptItem;
+  const thinking = (id: string, order: number): TranscriptItem => ({
+    id,
+    sessionId: "ses_1",
+    order,
+    at,
+    kind: "thinking",
+    data: { text: "hm" },
+  });
+  const notice = (id: string, order: number): TranscriptItem => ({
+    id,
+    sessionId: "ses_1",
+    order,
+    at,
+    kind: "notice",
+    data: { level: "info", text: "n" },
+  });
+  const fold = (items: TranscriptItem[], busy = false) =>
+    foldTimeline(buildTimeline(items, [], []), busy);
+
+  it("folds a closed turn into one work entry where the first tool was", () => {
+    const out = fold([
+      user("u1", 1),
+      thinking("t1", 2),
+      tool("a", 3, "edit"),
+      tool("b", 4, "read"),
+      assistant("r1", 5, "done"),
+      user("u2", 6),
+      assistant("r2", 7, "ok"),
+    ]);
+    expect(out.map((e) => (e.type === "work" ? "work" : e.key))).toEqual([
+      "u1",
+      "work",
+      "r1",
+      "u2",
+      "r2",
+    ]);
+    const work = out[1];
+    if (work?.type !== "work") throw new Error("expected work");
+    expect(work.summary).toMatchObject({ edits: 1, reads: 1, thinking: 1 });
+    expect(work.key).toBe("work:t1");
+  });
+
+  it("keeps notices outside the fold and folds intermediate assistant text", () => {
+    const out = fold([
+      user("u1", 1),
+      assistant("m1", 2, "looking"),
+      notice("n1", 3),
+      tool("a", 4),
+      assistant("r1", 5, "done"),
+      user("u2", 6),
+    ]);
+    expect(out.map((e) => (e.type === "work" ? "work" : e.key))).toEqual([
+      "u1",
+      "work",
+      "n1",
+      "r1",
+      "u2",
+    ]);
+  });
+
+  it("leaves the last turn open when busy, streaming or running a tool", () => {
+    const items = [user("u1", 1), tool("a", 2), assistant("r1", 3, "x")];
+    expect(fold(items, true).some((e) => e.type === "work")).toBe(false);
+    expect(fold(items, false).some((e) => e.type === "work")).toBe(true);
+    expect(
+      fold([user("u1", 1), tool("a", 2, "bash", "running")]).some((e) => e.type === "work"),
+    ).toBe(false);
+    const streams = [
+      { itemId: "a", text: "", thinking: "", toolArgs: "", toolOutput: "x" },
+    ] as unknown as StreamBuffer[];
+    expect(
+      foldTimeline(buildTimeline(items, streams, []), false).some((e) => e.type === "work"),
+    ).toBe(false);
+  });
+
+  it("does not fold a turn without tools", () => {
+    const out = fold([user("u1", 1), thinking("t", 2), assistant("r1", 3, "x"), user("u2", 4)]);
+    expect(out.some((e) => e.type === "work")).toBe(false);
+  });
+
+  it("folds turn 0 with no user item, summing tool durations", () => {
+    const out = fold([
+      tool("a", 1, "bash", "ok", 2000),
+      tool("b", 2, "grep", "error", 3000),
+      assistant("r", 3, "x"),
+    ]);
+    const work = out[0];
+    if (work?.type !== "work") throw new Error("expected work");
+    expect(work.summary.durationMs).toBe(5000);
+    expect(work.summary).toMatchObject({ commands: 1, searches: 1, failed: 1 });
+  });
+});
+
+describe("formatWorkSummary", () => {
+  const base = {
+    durationMs: 7000,
+    edits: 0,
+    reads: 0,
+    commands: 0,
+    searches: 0,
+    other: 0,
+    thinking: 3,
+    failed: 0,
+  };
+  it("pluralizes and omits zero counts", () => {
+    expect(
+      formatWorkSummary({
+        ...base,
+        edits: 2,
+        reads: 1,
+        commands: 1,
+        searches: 2,
+        other: 2,
+        failed: 1,
+      }),
+    ).toBe("Worked 7s · 2 edits · 1 read · 1 command · 2 searches · 2 other · 1 failed");
+  });
+  it("handles a null duration", () => {
+    expect(formatWorkSummary({ ...base, durationMs: null, reads: 1 })).toBe("Worked · 1 read");
   });
 });

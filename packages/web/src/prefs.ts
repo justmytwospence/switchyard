@@ -27,6 +27,8 @@ export interface Prefs {
   railExpanded: boolean;
   /** Desktop composer: Enter sends, Shift+Enter inserts a newline. */
   sendWithEnter: boolean;
+  /** Fold the tool calls and thinking of finished turns into one row. */
+  collapseWork: boolean;
   /** Free-form per-view filter state, keyed by view (e.g. "board", "navigator"). */
   filters: Record<string, unknown>;
 }
@@ -62,6 +64,7 @@ export const usePrefs = create<PrefsStore>()(
       inspectorCollapsed: false,
       railExpanded: false,
       sendWithEnter: defaultSendWithEnter(),
+      collapseWork: true,
       filters: {},
       set: (key, value) => set({ [key]: value } as Partial<Prefs>),
       setPaneSize: (pane, px) =>

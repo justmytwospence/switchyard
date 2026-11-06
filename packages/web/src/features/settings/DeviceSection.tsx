@@ -10,6 +10,7 @@ import { KeyValues, SectionPage } from "./shared";
 /** Settings › This device: preferences stored only in this browser. */
 export function DeviceSection() {
   const sendWithEnter = usePrefs((s) => s.sendWithEnter);
+  const collapseWork = usePrefs((s) => s.collapseWork);
   const setPref = usePrefs((s) => s.set);
   const bp = useBreakpoint();
   const coarse = useCoarsePointer();
@@ -35,6 +36,14 @@ export function DeviceSection() {
             {bp === "mobile" || coarse ? " That applies on this device now." : ""}
           </p>
         </div>
+      </Card>
+      <Card title="Transcript">
+        <SwitchRow
+          label="Fold finished turns"
+          description="Collapse the tool calls and thinking of each finished turn into one line. The final reply always shows."
+          checked={collapseWork}
+          onChange={(v) => setPref("collapseWork", v)}
+        />
       </Card>
       <Card title="Identity">
         <KeyValues

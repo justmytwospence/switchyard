@@ -12,9 +12,10 @@ import { isDocumentPresentation } from "../../components/intent/InteractionCard"
 import { Button } from "../../components/ui/Button";
 import { ErrorState, LoadingState } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
+import { usePrefs } from "../../prefs";
 import { usePendingInteractions, useStreams, useSyncStore, useTranscript } from "../../sync/store";
-import { buildTimeline, countAfter, interactionDomId } from "./model";
-import { StartingCard, TimelineRow } from "./TranscriptItems";
+import { buildTimeline, countAfter, foldTimeline, interactionDomId, isBusy } from "./model";
+import { StartingCard, TimelineRow, WorkRow } from "./TranscriptItems";
 
 /**
  * Center `target` inside `container` by scrolling only the container
@@ -73,10 +74,12 @@ export function Transcript({
   const starting = session?.runtime === "starting";
   const loadOlder = useSyncStore((s) => s.loadOlderTranscript);
   const loadTranscript = useSyncStore((s) => s.loadTranscript);
-  const entries = useMemo(
-    () => buildTimeline(t.items, streams, pending),
-    [t.items, streams, pending],
-  );
+  const collapse = usePrefs((s) => s.collapseWork);
+  const busy = session ? isBusy(session) : false;
+  const entries = useMemo(() => {
+    const base = buildTimeline(t.items, streams, pending);
+    return collapse ? foldTimeline(base, busy) : base;
+  }, [t.items, streams, pending, collapse, busy]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -270,14 +273,26 @@ export function Transcript({
             ) : (
               entries.map((entry) => (
                 <div key={entry.key} className={ROW}>
-                  <TimelineRow
-                    entry={entry}
-                    sessionId={sessionId}
-                    interactionReadOnly={interactionReadOnly}
-                    draftEmpty={draftEmpty}
-                    onUseSuggestion={onUseSuggestion}
-                    highlightInteractionId={highlight}
-                  />
+                  {entry.type === "work" ? (
+                    <WorkRow
+                      entries={entry.entries}
+                      summary={entry.summary}
+                      sessionId={sessionId}
+                      interactionReadOnly={interactionReadOnly}
+                      draftEmpty={draftEmpty}
+                      onUseSuggestion={onUseSuggestion}
+                      highlightInteractionId={highlight}
+                    />
+                  ) : (
+                    <TimelineRow
+                      entry={entry}
+                      sessionId={sessionId}
+                      interactionReadOnly={interactionReadOnly}
+                      draftEmpty={draftEmpty}
+                      onUseSuggestion={onUseSuggestion}
+                      highlightInteractionId={highlight}
+                    />
+                  )}
                 </div>
               ))
             )}

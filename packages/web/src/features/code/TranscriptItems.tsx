@@ -14,6 +14,7 @@ import {
   TriangleAlert,
   User,
   Wand2,
+  Wrench,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { CodeBlock } from "../../components/intent/CodeBlock";
@@ -35,7 +36,14 @@ import { useSyncStore } from "../../sync/store";
 import { codeApi } from "./api";
 import { useCodeContext } from "./context";
 import { useNow } from "./hooks";
-import { interactionDomId, outputPreview, stringifyArgs, type TimelineEntry } from "./model";
+import {
+  formatWorkSummary,
+  interactionDomId,
+  outputPreview,
+  stringifyArgs,
+  type TimelineEntry,
+  type WorkSummary,
+} from "./model";
 import { initialPromptFor } from "./startingPrompts";
 
 export interface TimelineRowProps {
@@ -46,6 +54,28 @@ export interface TimelineRowProps {
   draftEmpty: boolean;
   onUseSuggestion: (text: string) => void;
   highlightInteractionId: string | null;
+}
+
+/** A finished turn's tool calls and thinking folded into one summary row. */
+export function WorkRow({
+  entries,
+  summary,
+  ...rest
+}: Omit<TimelineRowProps, "entry"> & { entries: TimelineEntry[]; summary: WorkSummary }) {
+  return (
+    <details data-testid="work-row" className="group min-w-0">
+      <summary className="tap flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted">
+        <ChevronRight aria-hidden className="size-3.5 transition-transform group-open:rotate-90" />
+        <Wrench aria-hidden className="size-3.5" />
+        {formatWorkSummary(summary)}
+      </summary>
+      <div className="mt-2 flex flex-col gap-3">
+        {entries.map((e) => (
+          <TimelineRow key={e.key} entry={e} {...rest} />
+        ))}
+      </div>
+    </details>
+  );
 }
 
 /** One transcript entry. */

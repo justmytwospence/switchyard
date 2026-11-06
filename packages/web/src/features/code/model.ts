@@ -16,6 +16,7 @@ import type {
   Workspace,
 } from "@switchyard/protocol";
 import { DEFAULT_WORKTREE_DIR, sessionInView, ThinkingLevel } from "@switchyard/protocol";
+import { formatDuration } from "../../lib/time";
 import { PANE_LIMITS } from "../../prefs";
 import { isBusyRuntime, isLiveRuntime, sessionsNeedingAttention } from "../../sync/selectors";
 import type { StreamBuffer } from "../../sync/store";
@@ -861,6 +862,166 @@ export function buildTimeline(
     if (seenInteractions.has(i.id)) continue;
     out.push({ type: "interaction", key: `interaction:${i.id}`, interaction: i });
   }
+  return out;
+}
+
+export interface WorkSummary {
+  durationMs: number | null;
+  edits: number;
+  reads: number;
+  commands: number;
+  searches: number;
+  other: number;
+  thinking: number;
+  failed: number;
+}
+
+export type FoldedEntry =
+  | TimelineEntry
+  | { type: "work"; key: string; entries: TimelineEntry[]; summary: WorkSummary };
+
+function isToolEntry(e: TimelineEntry): e is Extract<TimelineEntry, { type: "item" }> {
+  return e.type === "item" && e.item.kind === "tool";
+}
+
+/** Counts and elapsed time of the folded tool calls and thinking of one turn. */
+export function summarizeWork(entries: TimelineEntry[], turnStartAt: string | null): WorkSummary {
+  const s: WorkSummary = {
+    durationMs: null,
+    edits: 0,
+    reads: 0,
+    commands: 0,
+    searches: 0,
+    other: 0,
+    thinking: 0,
+    failed: 0,
+  };
+  let toolSum: number | null = null;
+  let maxEnd: number | null = null;
+  for (const e of entries) {
+    if (e.type !== "item") continue;
+    const item = e.item;
+    if (item.kind === "thinking") s.thinking += 1;
+    if (item.kind === "tool") {
+      const d = item.data;
+      if (d.status === "error") s.failed += 1;
+      switch (d.name) {
+        case "edit":
+        case "write":
+          s.edits += 1;
+          break;
+        case "read":
+          s.reads += 1;
+          break;
+        case "bash":
+        case "powershell":
+          s.commands += 1;
+          break;
+        case "grep":
+        case "find":
+        case "ls":
+          s.searches += 1;
+          break;
+        default:
+          s.other += 1;
+      }
+      if (d.durationMs !== null && d.durationMs !== undefined)
+        toolSum = (toolSum ?? 0) + d.durationMs;
+      const start = Date.parse(d.startedAt);
+      const end = Number.isNaN(start) ? Date.parse(item.at) : start + (d.durationMs ?? 0);
+      if (!Number.isNaN(end)) maxEnd = Math.max(maxEnd ?? end, end);
+    } else {
+      const at = Date.parse(item.at);
+      if (!Number.isNaN(at)) maxEnd = Math.max(maxEnd ?? at, at);
+    }
+  }
+  const startMs = turnStartAt ? Date.parse(turnStartAt) : Number.NaN;
+  if (!Number.isNaN(startMs) && maxEnd !== null) s.durationMs = Math.max(0, maxEnd - startMs);
+  else s.durationMs = toolSum;
+  return s;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "Worked 7s · 2 edits · 3 reads · 1 command". */
+export function formatWorkSummary(s: WorkSummary): string {
+  const dur = formatDuration(s.durationMs);
+  const parts = [dur ? `Worked ${dur}` : "Worked"];
+  if (s.edits) parts.push(plural(s.edits, "edit", "edits"));
+  if (s.reads) parts.push(plural(s.reads, "read", "reads"));
+  if (s.commands) parts.push(plural(s.commands, "command", "commands"));
+  if (s.searches) parts.push(plural(s.searches, "search", "searches"));
+  if (s.other) parts.push(`${s.other} other`);
+  if (s.failed) parts.push(`${s.failed} failed`);
+  return parts.join(" · ");
+}
+
+function turnIsOpen(turn: TimelineEntry[], busy: boolean): boolean {
+  if (busy) return true;
+  return turn.some(
+    (e) =>
+      e.type === "stream" ||
+      (e.type === "item" &&
+        (e.stream !== null ||
+          (e.item.kind === "tool" && e.item.data.status === "running") ||
+          (e.item.kind === "assistant" && e.item.data.streaming === true))),
+  );
+}
+
+/**
+ * Collapse the tool calls and thinking of each finished turn into one "work" entry. The last
+ * turn stays open while the session is busy or anything in it is still streaming. Interactions,
+ * subagents, notices, system and user items and the turn's final reply never fold.
+ */
+export function foldTimeline(entries: TimelineEntry[], busy: boolean): FoldedEntry[] {
+  const turns: TimelineEntry[][] = [];
+  for (const e of entries) {
+    if (turns.length === 0 || (e.type === "item" && e.item.kind === "user")) turns.push([e]);
+    else turns[turns.length - 1]?.push(e);
+  }
+  const out: FoldedEntry[] = [];
+  turns.forEach((turn, idx) => {
+    const first = turn[0];
+    const startsWithUser = first?.type === "item" && first.item.kind === "user";
+    if (idx === turns.length - 1 && turnIsOpen(turn, busy)) {
+      out.push(...turn);
+      return;
+    }
+    let lastAssistant = -1;
+    turn.forEach((e, i) => {
+      if (e.type === "item" && e.item.kind === "assistant") lastAssistant = i;
+    });
+    const foldable = new Set<number>();
+    turn.forEach((e, i) => {
+      if (e.type !== "item") return;
+      const k = e.item.kind;
+      if (k === "tool" || k === "thinking" || (k === "assistant" && i !== lastAssistant))
+        foldable.add(i);
+    });
+    const folded = turn.filter((_, i) => foldable.has(i));
+    if (!folded.some(isToolEntry)) {
+      out.push(...turn);
+      return;
+    }
+    const startAt = startsWithUser && first?.type === "item" ? first.item.at : null;
+    let placed = false;
+    turn.forEach((e, i) => {
+      if (!foldable.has(i)) {
+        out.push(e);
+        return;
+      }
+      if (placed) return;
+      placed = true;
+      out.push({
+        type: "work",
+        key: `work:${e.key}`,
+        entries: folded,
+        summary: summarizeWork(folded, startAt),
+      });
+    });
+  });
   return out;
 }
 
