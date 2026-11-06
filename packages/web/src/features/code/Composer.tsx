@@ -27,6 +27,7 @@ import { useSyncStore } from "../../sync/store";
 import { codeApi, type PromptMode } from "./api";
 import { CommandViewDrawer } from "./CommandViewDrawer";
 import type { SessionContext } from "./hooks";
+import { ImageEditor } from "./ImageEditor";
 import {
   activeArgumentHint,
   applyCompletion,
@@ -89,6 +90,7 @@ export function Composer({
   const [error, setError] = useState<{ error: unknown; mode: PromptMode } | null>(null);
   const [focused, setFocused] = useState(false);
   const [attachSheet, setAttachSheet] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const [commandSheet, setCommandSheet] = useState(false);
   const CommandSurface = mobile ? Sheet : Dialog;
   const [slashDismissed, setSlashDismissed] = useState(false);
@@ -430,6 +432,21 @@ export function Composer({
           </ul>
         )}
 
+        {attachments.map((a) =>
+          a.id === editing ? (
+            <ImageEditor
+              key={a.id}
+              attachment={a}
+              open
+              mobile={mobile}
+              onClose={() => setEditing(null)}
+              onDone={(next) => {
+                setAttachments((p) => p.map((x) => (x.id === a.id ? next : x)));
+                setEditing(null);
+              }}
+            />
+          ) : null,
+        )}
         {attachments.length > 0 && (
           <ul aria-label="Attachments" className="flex flex-wrap gap-2">
             {attachments.map((a) => (
@@ -437,11 +454,18 @@ export function Composer({
                 key={a.id}
                 className="relative flex items-center gap-2 rounded-md border border-border bg-surface-2 py-1 pr-1 pl-1"
               >
-                <img
-                  src={`data:${a.mimeType};base64,${a.data}`}
-                  alt=""
-                  className="size-9 rounded object-cover"
-                />
+                <button
+                  type="button"
+                  aria-label={`Mark up ${a.name}`}
+                  className="tap rounded"
+                  onClick={() => setEditing(a.id)}
+                >
+                  <img
+                    src={`data:${a.mimeType};base64,${a.data}`}
+                    alt=""
+                    className="size-9 rounded object-cover"
+                  />
+                </button>
                 <span className="max-w-32 truncate text-xs">{a.name}</span>
                 <IconButton
                   size="sm"
