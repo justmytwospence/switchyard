@@ -27,6 +27,7 @@ export interface SessionActions {
   openRename: () => void;
   requestArchive: () => void;
   openInfo: () => void;
+  toggleCacheAlert: () => void;
   unarchive: () => void;
   /** Pin the session to a view, or unpin it. */
   setPinned: (viewId: string, pinned: boolean) => void;
@@ -57,6 +58,9 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
   });
   const rename = useMutation((t: string) => codeApi.rename(session.id, t), {
     success: "Session renamed.",
+  });
+  const cacheAlert = useMutation(() => codeApi.cacheAlert(session.id, !session.cacheAlert), {
+    errorToast: true,
   });
   const archive = useMutation(() => codeApi.archive(session.id), { success: "Session archived." });
   const unarchive = useMutation(() => codeApi.unarchive(session.id), {
@@ -187,6 +191,7 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
       else setDialog("archive");
     },
     openInfo: () => setDialog("info"),
+    toggleCacheAlert: () => void cacheAlert.run(),
     unarchive: () => void unarchive.run(),
     setPinned: (viewId, pinned) => {
       const path = `/api/views/${encodeURIComponent(viewId)}/sessions/${encodeURIComponent(session.id)}`;

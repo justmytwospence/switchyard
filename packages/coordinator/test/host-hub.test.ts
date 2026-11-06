@@ -259,6 +259,31 @@ describe("host link", () => {
     expect(t.c.store.sessions.get("ses_v")?.unreadSince ?? null).toBeNull();
   });
 
+  it("projects promptCache from the host and keeps cacheAlert and transcriptEpoch", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connect(t, creds);
+    await h.event("session.updated", hostSession("ses_p", {}));
+    t.c.store.putSession({
+      ...t.c.store.sessions.require("ses_p"),
+      cacheAlert: { ttlSec: null, warnedFor: null },
+      transcriptEpoch: 3,
+    });
+    const pc = {
+      at: "2026-01-01T00:00:00.000Z",
+      provider: "anthropic",
+      model: "m",
+      cacheRead: 1,
+      cacheWrite: 2,
+      cacheWrite1h: 0,
+    };
+    await h.event("session.updated", hostSession("ses_p", { promptCache: pc }));
+    const s = t.c.store.sessions.require("ses_p");
+    expect(s.promptCache).toEqual(pc);
+    expect(s.cacheAlert).toEqual({ ttlSec: null, warnedFor: null });
+    expect(s.transcriptEpoch).toBe(3);
+  });
+
   it("stores host usage and ignores a repeat that differs only by fetchedAt", async () => {
     t = await startCoordinator();
     const creds = await enrollHost(t);

@@ -38,6 +38,8 @@ const GROUP_HINT: Record<AttentionReason, string> = {
     "Questions this client cannot display. Answer them in a terminal attached to the session.",
   host_unreachable:
     "Running work on hosts that stopped responding. Nothing is restarted elsewhere.",
+  cache_expiring:
+    "Idle sessions whose prompt cache is about to expire. Send a message to keep it warm.",
 };
 
 /** /attention: Needs input, Failed, Ready for review (plus unsupported and unreachable). */

@@ -24,6 +24,7 @@ const DEFAULT_SEVERITY: Record<AttentionReason, AttentionItem["severity"]> = {
   ready_for_review: "info",
   unsupported_interaction: "warning",
   host_unreachable: "critical",
+  cache_expiring: "warning",
 };
 
 /** Deep link per the plan: input -> session + interaction, review/failed -> task, else session. */

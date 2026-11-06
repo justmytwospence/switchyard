@@ -65,6 +65,7 @@ const HOST_SESSION_FIELDS = [
   "model",
   "thinking",
   "compacting",
+  "promptCache",
   "lastAssistantText",
   "lastActivityAt",
   "terminal",

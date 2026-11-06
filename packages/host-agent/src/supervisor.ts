@@ -42,6 +42,7 @@ import {
   newId,
   type Panel,
   type Profile,
+  type PromptCacheInfo,
   type RuntimeState,
   type Session,
   type SessionModel,
@@ -131,6 +132,7 @@ export interface HostSessionRecord {
   model?: SessionModel | null;
   thinking?: ThinkingLevel | null;
   compacting?: boolean;
+  promptCache?: PromptCacheInfo | null;
   lastAssistantText: string | null;
   lastActivityAt: string;
   createdAt: string;
@@ -624,6 +626,7 @@ export class SessionSupervisor {
       model: rec.model ?? null,
       thinking: rec.thinking ?? null,
       compacting: rec.compacting ?? false,
+      promptCache: rec.promptCache ?? null,
       lastAssistantText: rec.lastAssistantText,
       createdAt: rec.createdAt,
       terminal: rec.terminal != null,
@@ -1431,6 +1434,10 @@ export class SessionSupervisor {
       rec.thinking = m.thinking;
       this.db.tx(() => this.saveAndEmit(rec));
       void this.refreshStats(l);
+    });
+    ms.on("prompt_cache", (p) => {
+      rec.promptCache = p;
+      this.db.tx(() => this.saveAndEmit(rec));
     });
     ms.on("compacting", (c) => {
       rec.compacting = c;

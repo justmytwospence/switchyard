@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { NotificationRouter } from "./attention/router.js";
 import { Scheduler } from "./automations/scheduler.js";
 import { AutomationService } from "./automations/service.js";
+import { CacheAlertService } from "./cache-alerts.js";
 import type { CoordinatorContext } from "./context.js";
 import { PROJECT_SCAN_INTERVAL_MS, ProjectFolderService } from "./project-folders.js";
 import { type PushSender, PushService } from "./push.js";
@@ -28,6 +29,8 @@ export interface BuiltinOptions {
   desktopRecentMs?: number;
   /** Project folder rescan interval (default 10 min; 0 disables the timer). */
   projectScanIntervalMs?: number;
+  /** Prompt-cache alert tick (default 15 s; 0 disables the timer). */
+  cacheAlertTickMs?: number;
 }
 
 /**
@@ -50,7 +53,9 @@ export function installBuiltins(
   const projectFolders = new ProjectFolderService(ctx, {
     intervalMs: opts.projectScanIntervalMs ?? PROJECT_SCAN_INTERVAL_MS,
   });
+  const cacheAlerts = new CacheAlertService(ctx, { tickMs: opts.cacheAlertTickMs ?? 15_000 });
   const services: BuiltinServices = {
+    cacheAlerts,
     dispatcher,
     runs,
     automations,
@@ -73,8 +78,10 @@ export function installBuiltins(
       dispatcher.start();
       scheduler.start();
       projectFolders.start();
+      cacheAlerts.start();
     },
     stop() {
+      cacheAlerts.stop();
       projectFolders.stop();
       scheduler.stop();
       dispatcher.stop();

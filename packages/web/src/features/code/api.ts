@@ -64,6 +64,8 @@ export const codeApi = {
       entryId,
       fork,
     }),
+  cacheAlert: (id: string, enabled: boolean) =>
+    apiPost<Session>(`${s(id)}/cache-alert`, { enabled }),
   navigate: (
     id: string,
     body: { entryId: string; summarize: boolean; instructions: string | null },

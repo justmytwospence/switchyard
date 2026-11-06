@@ -17,6 +17,7 @@ const REASON_LABEL: Record<AttentionReason, string> = {
   failed: "Failed",
   ready_for_review: "Ready for review",
   host_unreachable: "Host unreachable",
+  cache_expiring: "Prompt cache expiring",
 };
 
 export type RouteDecision =

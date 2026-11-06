@@ -37,6 +37,12 @@ describe("pi-model", () => {
       contextWindow: null,
       reasoning: false,
       thinkingLevels: ["off"],
+      promptCache: null,
     });
+  });
+  it("reads prompt cache lifetimes", () => {
+    expect(
+      modelInfo({ provider: "p", id: "a", promptCache: { short: 300, long: 3600 } })?.promptCache,
+    ).toEqual({ short: 300, long: 3600 });
   });
 });

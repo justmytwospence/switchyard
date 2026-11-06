@@ -6,6 +6,7 @@ export const ATTENTION_GROUPS: AttentionReason[] = [
   "ready_for_review",
   "unsupported_interaction",
   "host_unreachable",
+  "cache_expiring",
 ];
 
 /** Group open attention by reason, keeping the input order within a group. */

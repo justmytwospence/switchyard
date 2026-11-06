@@ -181,6 +181,11 @@ export const SessionModel = z.object({
   scoped: z.boolean().optional(),
   /** Effort levels this model accepts, in Pi's order; ["off"] without reasoning. */
   thinkingLevels: z.array(ThinkingLevel),
+  /** Prompt-cache lifetimes in seconds from Pi's model metadata. */
+  promptCache: z
+    .object({ short: z.number().optional(), long: z.number().optional() })
+    .nullable()
+    .optional(),
 });
 export type SessionModel = z.infer<typeof SessionModel>;
 
@@ -268,6 +273,17 @@ export const SessionStats = z.object({
 });
 export type SessionStats = z.infer<typeof SessionStats>;
 
+/** Cache usage of the last assistant message (host-reported). */
+export const PromptCacheInfo = z.object({
+  at: Iso,
+  provider: z.string(),
+  model: z.string(),
+  cacheRead: z.number(),
+  cacheWrite: z.number(),
+  cacheWrite1h: z.number(),
+});
+export type PromptCacheInfo = z.infer<typeof PromptCacheInfo>;
+
 export const Session = z.object({
   id: Id,
   title: z.string(),
@@ -303,6 +319,13 @@ export const Session = z.object({
   unreadSince: Iso.nullable().optional(),
   /** Bumped when the transcript is rebuilt (rewind); clients drop cached copies (coordinator-owned). */
   transcriptEpoch: z.number().int().min(0).optional(),
+  /** Last assistant message's cache usage (host-owned). */
+  promptCache: PromptCacheInfo.nullable().optional(),
+  /** Warn before the prompt cache expires; non-null means on (coordinator-owned). */
+  cacheAlert: z
+    .object({ ttlSec: z.number().int().min(60).max(86400).nullable(), warnedFor: Iso.nullable() })
+    .nullable()
+    .optional(),
 });
 export type Session = z.infer<typeof Session>;
 
@@ -551,6 +574,7 @@ export const AttentionReason = z.enum([
   "ready_for_review",
   "unsupported_interaction",
   "host_unreachable",
+  "cache_expiring",
 ]);
 export type AttentionReason = z.infer<typeof AttentionReason>;
 

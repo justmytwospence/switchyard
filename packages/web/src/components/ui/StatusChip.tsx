@@ -30,6 +30,7 @@ import {
   RefreshCw,
   Repeat,
   Square,
+  Timer,
   TriangleAlert,
   Wifi,
   WifiOff,
@@ -119,6 +120,7 @@ export const ATTENTION_STATUS: Record<AttentionReason, StatusInfo> = {
     tone: "warning",
   },
   host_unreachable: { label: "Host unreachable", icon: WifiOff, tone: "danger" },
+  cache_expiring: { label: "Cache expiring", icon: Timer, tone: "warning" },
 };
 
 export const OCCURRENCE_STATUS: Record<OccurrenceState, StatusInfo> = {

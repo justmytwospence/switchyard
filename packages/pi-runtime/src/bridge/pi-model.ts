@@ -21,6 +21,7 @@ export interface PiModelInfo {
   contextWindow: number | null;
   reasoning: boolean;
   thinkingLevels: string[];
+  promptCache: { short?: number; long?: number } | null;
 }
 
 /** Pi 1.4 `getSupportedThinkingLevels` (pi-ai dist/models.js:693); passes through an already-mapped `thinkingLevels`. */
@@ -38,6 +39,15 @@ export function supportedThinkingLevels(model: any): string[] {
   });
 }
 
+function promptCacheOf(model: any): { short?: number; long?: number } | null {
+  const pc = model?.promptCache;
+  if (!pc || typeof pc !== "object") return null;
+  const out: { short?: number; long?: number } = {};
+  if (typeof pc.short === "number") out.short = pc.short;
+  if (typeof pc.long === "number") out.long = pc.long;
+  return out.short !== undefined || out.long !== undefined ? out : null;
+}
+
 export function modelInfo(model: any): PiModelInfo | null {
   if (!model || typeof model.provider !== "string" || typeof model.id !== "string") return null;
   return {
@@ -47,5 +57,6 @@ export function modelInfo(model: any): PiModelInfo | null {
     contextWindow: typeof model.contextWindow === "number" ? model.contextWindow : null,
     reasoning: model.reasoning === true,
     thinkingLevels: supportedThinkingLevels(model),
+    promptCache: promptCacheOf(model),
   };
 }

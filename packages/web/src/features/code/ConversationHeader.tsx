@@ -92,6 +92,13 @@ export function sessionMenuItems(
       }),
     ),
     {
+      id: "cache-alert",
+      label: "Warn before the prompt cache expires",
+      kind: "checkbox",
+      checked: !!ctx.session.cacheAlert,
+      onSelect: a.toggleCacheAlert,
+    },
+    {
       id: "info",
       label: "Session info",
       icon: <Info className="size-4" />,

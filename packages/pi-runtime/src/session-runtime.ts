@@ -7,6 +7,7 @@ import {
   type NativeHandle,
   newId,
   type Profile,
+  type PromptCacheInfo,
   type RuntimeState,
   SessionCompleteResult,
   type SessionCompleteResult as SessionCompleteResultT,
@@ -174,6 +175,8 @@ export interface ManagedSessionEventMap {
   /** The live model or effort changed. */
   model: [ModelState];
   compacting: [boolean];
+  /** Cache usage of the last assistant message. */
+  prompt_cache: [PromptCacheInfo];
   exit: [PiExit];
   /** Terminal transport: the holder is up; persist its socket now. */
   terminal: [{ socketPath: string }];
@@ -1373,6 +1376,18 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       }
     });
     if (texts.length > 0) this.runAssistantText = texts.join("\n");
+    const usage = message.usage;
+    if (usage && typeof usage === "object") {
+      const n = (v: unknown) => (typeof v === "number" ? v : 0);
+      this.emit("prompt_cache", {
+        at: this.now(),
+        provider: String(message.provider ?? this._model?.provider ?? ""),
+        model: String(message.model ?? this._model?.id ?? ""),
+        cacheRead: n(usage.cacheRead),
+        cacheWrite: n(usage.cacheWrite),
+        cacheWrite1h: n(usage.cacheWrite1h),
+      });
+    }
     const failed = message.stopReason === "error" || message.stopReason === "aborted";
     if (failed && message.errorMessage && !this.abortRequested) {
       this.notice("error", String(message.errorMessage));

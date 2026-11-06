@@ -1,6 +1,7 @@
 import {
   AdapterActionRequest,
   BranchRequest,
+  CacheAlertRequest,
   CommandView,
   CompactRequest,
   CompleteRequest,
@@ -525,6 +526,21 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     const s = get(idOf(req));
     await resumeSession(s);
     return get(s.id);
+  });
+
+  app.post("/api/sessions/:id/cache-alert", async (req) => {
+    const s = get(idOf(req));
+    const body = parse(CacheAlertRequest, req.body);
+    return ctx.store.tx(() => {
+      const cur = ctx.store.sessions.require(s.id);
+      if (!body.enabled) ctx.attention.resolve({ sessionId: s.id, reason: "cache_expiring" });
+      return ctx.store.putSession({
+        ...cur,
+        cacheAlert: body.enabled
+          ? { ttlSec: body.ttlSec, warnedFor: cur.cacheAlert?.warnedFor ?? null }
+          : null,
+      });
+    });
   });
 
   app.post("/api/sessions/:id/rename", async (req) => {

@@ -151,6 +151,10 @@ export const PromptRequest = z.object({
   images: z.array(z.object({ mimeType: z.string(), data: z.string() })).default([]),
   clientMessageId: z.string().optional(),
 });
+export const CacheAlertRequest = z.object({
+  enabled: z.boolean(),
+  ttlSec: z.number().int().min(60).max(86400).nullable().default(null),
+});
 export const RenameRequest = z.object({ title: z.string().min(1).max(200) });
 export const SetModelRequest = z.object({
   provider: z.string().min(1),
