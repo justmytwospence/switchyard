@@ -11,7 +11,7 @@ import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { Sheet } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
-import { useDraft } from "../../drafts";
+import { appendQuote, useDraft, useReplyNotes } from "../../drafts";
 import { usePendingInteractions, useSyncStore } from "../../sync/store";
 import { MobileChanges } from "./Changes";
 import { Composer } from "./Composer";
@@ -43,11 +43,14 @@ function useSubagentRefresh(session: Session) {
 
 function useComposerDraft(sessionId: string) {
   const [draft, setDraft, clearDraft] = useDraft(sessionId);
+  const replyNotes = useReplyNotes(sessionId);
   const onUseSuggestion = (text: string) => {
     // Never overwrite a non-empty draft.
     if (draft.trim() === "") setDraft(text);
   };
-  return { draft, setDraft, clearDraft, onUseSuggestion };
+  const onQuote = (q: string) => setDraft(appendQuote(draft, q));
+  const onComment = (quote: string, comment: string) => replyNotes.add({ quote, comment });
+  return { draft, setDraft, clearDraft, onUseSuggestion, replyNotes, onQuote, onComment };
 }
 
 /** Desktop/compact conversation pane: header, banners, transcript and composer. */
@@ -75,6 +78,8 @@ export function Conversation({
         sessionId={ctx.session.id}
         draftEmpty={d.draft.trim() === ""}
         onUseSuggestion={d.onUseSuggestion}
+        onQuote={d.onQuote}
+        onComment={d.onComment}
         interactionReadOnly={interactionReadOnly(ctx)}
         focusInteractionId={focusInteractionId}
         footer={({ openFirstPending }) => (
@@ -86,6 +91,7 @@ export function Conversation({
         draft={d.draft}
         setDraft={d.setDraft}
         clearDraft={d.clearDraft}
+        replyNotes={d.replyNotes}
         mobile={false}
       />
       {actions.dialogs}
@@ -244,6 +250,8 @@ export function MobileSession({
               sessionId={session.id}
               draftEmpty={d.draft.trim() === ""}
               onUseSuggestion={d.onUseSuggestion}
+              onQuote={d.onQuote}
+              onComment={d.onComment}
               interactionReadOnly={interactionReadOnly(ctx)}
               focusInteractionId={focusInteractionId}
               active={tab === "chat"}
@@ -256,6 +264,7 @@ export function MobileSession({
               draft={d.draft}
               setDraft={d.setDraft}
               clearDraft={d.clearDraft}
+              replyNotes={d.replyNotes}
               mobile
             />
           </section>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { keyboardOpen } from "../src/app/useComposing";
+import { appendQuote, applyReplyNotes, quoteBlock } from "../src/drafts";
 
 describe("keyboardOpen", () => {
   it("is false when no text field is focused", () => {
@@ -34,5 +35,31 @@ describe("keyboardOpen", () => {
     expect(
       keyboardOpen({ focused: true, viewportHeight: 700, baseline: null, screenHeight: 844 }),
     ).toBe(false);
+  });
+});
+
+describe("reply notes", () => {
+  const note = (quote: string, comment: string) => ({
+    id: "rn_1",
+    quote,
+    comment,
+    createdAt: "2026-11-01T10:00:00.000Z",
+  });
+
+  it("quotes every line, blank lines as a bare marker", () => {
+    expect(quoteBlock("a\n\nb")).toBe("> a\n>\n> b");
+  });
+
+  it("prepends notes to the message, notes only, or skips slash commands", () => {
+    expect(applyReplyNotes([], "hi")).toBe("hi");
+    expect(applyReplyNotes([note("x", "why?")], "hi")).toBe("> x\nwhy?\n\nhi");
+    expect(applyReplyNotes([note("x", "why?")], "")).toBe("> x\nwhy?");
+    expect(applyReplyNotes([note("x", "why?")], "/compact")).toBe("/compact");
+    expect(applyReplyNotes([note("a\nb", " c ")], "t")).toBe("> a\n> b\nc\n\nt");
+  });
+
+  it("appends a quote to a blank or existing draft", () => {
+    expect(appendQuote("", "q")).toBe("> q\n\n");
+    expect(appendQuote("hello  \n", "q")).toBe("hello\n\n> q\n\n");
   });
 });

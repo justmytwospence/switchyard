@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const DRAFT_PREFIX = "sy:draft:";
 const REVIEW_PREFIX = "sy:review:";
+const REPLY_PREFIX = "sy:replynotes:";
 export const DRAFT_DEBOUNCE_MS = 300;
 
 function read(key: string): string | null {
@@ -185,4 +186,101 @@ export function useReviewComments(sessionId: string | null) {
   );
   const clear = useCallback(() => update([]), [update]);
   return { comments, add, remove, clear, set: update };
+}
+
+/* Quotes and comments on parts of a reply, sent in front of the next message. */
+
+export interface ReplyNote {
+  id: string;
+  quote: string;
+  comment: string;
+  createdAt: string;
+}
+
+/** `> ` before every line; blank lines become `>`. */
+export function quoteBlock(text: string): string {
+  return text
+    .trim()
+    .split("\n")
+    .map((l) => (l.trim() === "" ? ">" : `> ${l}`))
+    .join("\n");
+}
+
+/** The draft with a quote appended, ready to type under it. */
+export function appendQuote(draft: string, quote: string): string {
+  const q = `${quoteBlock(quote)}\n\n`;
+  return draft.trim() === "" ? q : `${draft.replace(/\s*$/, "")}\n\n${q}`;
+}
+
+/** Notes go first in the message, except for slash commands. */
+export function applyReplyNotes(notes: ReplyNote[], text: string): string {
+  if (notes.length === 0 || text.trimStart().startsWith("/")) return text;
+  const parts = notes.map((n) => `${quoteBlock(n.quote)}\n${n.comment.trim()}`);
+  if (text.trim() !== "") parts.push(text.trim());
+  return parts.join("\n\n");
+}
+
+function loadReplyNotes(sessionId: string): ReplyNote[] {
+  const raw = read(REPLY_PREFIX + sessionId);
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? (v as ReplyNote[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export interface ReplyNotes {
+  notes: ReplyNote[];
+  add(n: { quote: string; comment: string }): void;
+  remove(id: string): void;
+  clear(): void;
+}
+
+export function useReplyNotes(sessionId: string | null): ReplyNotes {
+  const [notes, setNotes] = useState<ReplyNote[]>(() =>
+    sessionId ? loadReplyNotes(sessionId) : [],
+  );
+  useEffect(() => {
+    setNotes(sessionId ? loadReplyNotes(sessionId) : []);
+  }, [sessionId]);
+  const save = useCallback(
+    (next: ReplyNote[]) => {
+      if (sessionId) write(REPLY_PREFIX + sessionId, next.length ? JSON.stringify(next) : null);
+    },
+    [sessionId],
+  );
+  const add = useCallback(
+    (n: { quote: string; comment: string }) => {
+      setNotes((prev) => {
+        const next = [
+          ...prev,
+          {
+            ...n,
+            id: `rn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        save(next);
+        return next;
+      });
+    },
+    [save],
+  );
+  const remove = useCallback(
+    (id: string) => {
+      setNotes((prev) => {
+        const next = prev.filter((x) => x.id !== id);
+        save(next);
+        return next;
+      });
+    },
+    [save],
+  );
+  const clear = useCallback(() => {
+    setNotes([]);
+    save([]);
+  }, [save]);
+  return { notes, add, remove, clear };
 }

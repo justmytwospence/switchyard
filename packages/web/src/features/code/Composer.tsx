@@ -19,7 +19,7 @@ import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
-import { setDraftNow } from "../../drafts";
+import { applyReplyNotes, type ReplyNotes, setDraftNow } from "../../drafts";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
@@ -60,6 +60,7 @@ export interface ComposerProps {
   draft: string;
   setDraft: (t: string) => void;
   clearDraft: () => void;
+  replyNotes?: ReplyNotes;
   mobile: boolean;
   className?: string;
 }
@@ -72,7 +73,15 @@ const AUTOMATION_WARNING = "Automation is active; take over to stop automatic co
  * running it offers "Steer" (only when the runtime supports it) and "Queue
  * follow-up". The draft is cleared only after the coordinator acknowledged.
  */
-export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }: ComposerProps) {
+export function Composer({
+  ctx,
+  draft,
+  setDraft,
+  clearDraft,
+  replyNotes,
+  mobile,
+  className,
+}: ComposerProps) {
   const { session, host } = ctx;
   const sendWithEnter = usePrefs((s) => s.sendWithEnter);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
@@ -106,7 +115,8 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
   const modes = sendModes(session, host?.capabilities);
   const running = isBusy(session);
   const text = draft.trim();
-  const noText = !text;
+  const notesApply = !!replyNotes && replyNotes.notes.length > 0 && !text.startsWith("/");
+  const noText = !text && !notesApply;
   const slashOpen = !mobile && !slashDismissed && /^\/\S*$/.test(draft) && focused;
   const controls = piControlsAvailable(host, block);
   const {
@@ -211,7 +221,7 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
         return;
       }
       const res = await codeApi.prompt(session.id, {
-        text,
+        text: replyNotes ? applyReplyNotes(replyNotes.notes, text) : text,
         mode,
         images: attachments.map((a) => ({ mimeType: a.mimeType, data: a.data })),
         clientMessageId: `cm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
@@ -219,6 +229,7 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
       // Keep anything typed while sending.
       if (textRef.current?.value === sent) clearDraft();
       setAttachments([]);
+      if (notesApply) replyNotes?.clear();
       setSlashDismissed(false);
       if (res?.result?.view) setView(res.result.view);
       if (res?.automationActive) toast.info(AUTOMATION_WARNING);
@@ -395,6 +406,28 @@ export function Composer({ ctx, draft, setDraft, clearDraft, mobile, className }
             {session.queue.followUp.length > 0 &&
               `${session.queue.followUp.length} follow-up${session.queue.followUp.length === 1 ? "" : "s"} queued.`}
           </p>
+        )}
+
+        {replyNotes && replyNotes.notes.length > 0 && (
+          <ul aria-label="Comments on the reply" className="flex flex-wrap gap-2">
+            {replyNotes.notes.map((n) => (
+              <li
+                key={n.id}
+                className="flex max-w-full items-center gap-1 rounded-md border border-border bg-surface-2 py-1 pr-1 pl-2 text-xs"
+              >
+                <span className="min-w-0 truncate">
+                  <span className="text-muted">&ldquo;{n.quote.trim().slice(0, 40)}&rdquo;</span>{" "}
+                  {n.comment.trim().slice(0, 40)}
+                </span>
+                <IconButton
+                  size="sm"
+                  label="Remove comment"
+                  icon={<X className="size-3.5" />}
+                  onClick={() => replyNotes.remove(n.id)}
+                />
+              </li>
+            ))}
+          </ul>
         )}
 
         {attachments.length > 0 && (

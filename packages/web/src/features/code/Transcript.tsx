@@ -15,6 +15,7 @@ import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { usePendingInteractions, useStreams, useSyncStore, useTranscript } from "../../sync/store";
 import { buildTimeline, countAfter, foldTimeline, interactionDomId, isBusy } from "./model";
+import { ReplySelectionMenu } from "./ReplySelection";
 import { StartingCard, TimelineRow, WorkRow } from "./TranscriptItems";
 
 /**
@@ -49,6 +50,9 @@ export interface TranscriptProps {
   footer?: (api: { openFirstPending: () => void }) => ReactNode;
   /** False while the transcript is hidden (mobile tabs); restores the scroll position when shown. */
   active?: boolean;
+  /** Quote or comment on selected reply text. */
+  onQuote?: (text: string) => void;
+  onComment?: (quote: string, comment: string) => void;
 }
 
 /**
@@ -66,6 +70,8 @@ export function Transcript({
   className,
   footer,
   active = true,
+  onQuote,
+  onComment,
 }: TranscriptProps) {
   const t = useTranscript(sessionId);
   const streams = useStreams(sessionId);
@@ -233,6 +239,9 @@ export function Transcript({
   return (
     <div className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)}>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {onQuote && onComment && (
+          <ReplySelectionMenu containerRef={scrollRef} onQuote={onQuote} onComment={onComment} />
+        )}
         <div
           ref={scrollRef}
           data-testid="transcript"

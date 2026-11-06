@@ -170,7 +170,7 @@ function AssistantMessage({
   const shownText = useSmoothText(text, streaming);
   const shownThinking = useSmoothText(thinking, streaming);
   return (
-    <div className="min-w-0 px-1">
+    <div data-assistant-reply={streaming ? "live" : "done"} className="min-w-0 px-1">
       <RowLabel icon={Bot}>
         Pi
         {streaming && (
