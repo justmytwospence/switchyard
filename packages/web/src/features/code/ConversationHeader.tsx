@@ -1,3 +1,4 @@
+import type { View } from "@switchyard/protocol";
 import {
   Archive,
   ArchiveRestore,
@@ -18,6 +19,7 @@ import { Button, buttonClasses } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { StatusChip } from "../../components/ui/StatusChip";
+import { useSyncStore } from "../../sync/store";
 import { type SessionContext, useElementWidth } from "./hooks";
 import { AUTOMATION_LABEL, workspaceLabel } from "./model";
 import type { SessionActions } from "./SessionActions";
@@ -52,7 +54,11 @@ export function HostChip({ ctx }: { ctx: SessionContext }) {
   );
 }
 
-export function sessionMenuItems(ctx: SessionContext, a: SessionActions): MenuItem[] {
+export function sessionMenuItems(
+  ctx: SessionContext,
+  a: SessionActions,
+  views: View[] = [],
+): MenuItem[] {
   return [
     {
       id: "rename",
@@ -76,6 +82,15 @@ export function sessionMenuItems(ctx: SessionContext, a: SessionActions): MenuIt
           disabled: !!a.archiveBlocked,
           hint: a.archiveBlocked ?? undefined,
         },
+    ...views.map(
+      (v): MenuItem => ({
+        id: `view-${v.id}`,
+        label: `Pin to ${v.name}`,
+        kind: "checkbox",
+        checked: v.sessionIds.includes(ctx.session.id),
+        onSelect: () => a.setPinned(v.id, !v.sessionIds.includes(ctx.session.id)),
+      }),
+    ),
     {
       id: "info",
       label: "Session info",
@@ -97,6 +112,7 @@ export function ConversationHeader({
 }) {
   const { session, project, workspace, task } = ctx;
   const navigate = useNavigate();
+  const views = useSyncStore((st) => st.views);
   const [ref, width] = useElementWidth<HTMLElement>();
   const narrow = width > 0 && width < 640;
   const menuItems: MenuItem[] = [
@@ -110,7 +126,7 @@ export function ConversationHeader({
           },
         ]
       : []),
-    ...sessionMenuItems(ctx, actions),
+    ...sessionMenuItems(ctx, actions, Object.values(views)),
   ];
   return (
     <header

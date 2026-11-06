@@ -12,7 +12,7 @@ import {
   Server,
   SlidersHorizontal,
 } from "lucide-react";
-import { type CSSProperties, type ReactNode, useMemo } from "react";
+import { type CSSProperties, type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
@@ -41,6 +41,7 @@ import {
   navTreeIsEmpty,
   projectIdOfGroup,
 } from "./model";
+import { ViewsDialog } from "./ViewsDialog";
 import { useSelectedView } from "./views";
 
 interface NavPrefs {
@@ -89,6 +90,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const hostsMap = useSyncStore((s) => s.hosts);
   const views = useSyncStore((s) => s.views);
   const [selectedViewId, setSelectedViewId] = useSelectedView();
+  const [editingView, setEditingView] = useState<string | "new" | null>(null);
   const view = (selectedViewId ? views[selectedViewId] : null) ?? null;
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
@@ -317,8 +319,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             className="pl-8"
           />
         </div>
-        {Object.keys(views).length > 0 && (
-          <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex min-w-0 items-center gap-1">
             <Select
               aria-label="View"
               value={view?.id ?? ""}
@@ -331,16 +333,24 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
                 </option>
               ))}
             </Select>
-            {view && openClients(view).length > 0 && (
-              <p className="truncate text-subtle text-xs">
-                Open in:{" "}
-                {openClients(view)
-                  .map((c) => `${c.kind} ${c.name} (${c.machine})`)
-                  .join(", ")}
-              </p>
-            )}
+            <Button onClick={() => setEditingView(view?.id ?? "new")}>
+              {view ? "Edit" : "New view"}
+            </Button>
           </div>
-        )}
+          {view && openClients(view).length > 0 && (
+            <p className="truncate text-subtle text-xs">
+              Open in:{" "}
+              {openClients(view)
+                .map((c) => `${c.kind} ${c.name} (${c.machine})`)
+                .join(", ")}
+            </p>
+          )}
+        </div>
+        <ViewsDialog
+          editing={editingView}
+          onClose={() => setEditingView(null)}
+          onSaved={(id) => setSelectedViewId(id)}
+        />
         <div className="flex min-w-0 items-center gap-1">
           <SegmentedControl
             label="Session filter"

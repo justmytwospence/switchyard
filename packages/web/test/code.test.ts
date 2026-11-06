@@ -933,3 +933,24 @@ describe("new session helpers", () => {
     });
   });
 });
+
+describe("session menu view pins", () => {
+  it("lists a checkable pin item per view and toggles through setPinned", async () => {
+    const { sessionMenuItems } = await import("../src/features/code/ConversationHeader");
+    const calls: [string, boolean][] = [];
+    const ctx = { session: { id: "ses_1", readOnly: false, archivedAt: null } } as never;
+    const actions = { setPinned: (v: string, p: boolean) => calls.push([v, p]) } as never;
+    const view = (id: string, sessionIds: string[]) => ({ id, name: id, sessionIds }) as never;
+    const items = sessionMenuItems(ctx, actions, [view("a", ["ses_1"]), view("b", [])]);
+    const pins = items.filter((i) => i.id.startsWith("view-"));
+    expect(pins.map((i) => [i.label, i.checked])).toEqual([
+      ["Pin to a", true],
+      ["Pin to b", false],
+    ]);
+    for (const p of pins) p.onSelect();
+    expect(calls).toEqual([
+      ["a", false],
+      ["b", true],
+    ]);
+  });
+});

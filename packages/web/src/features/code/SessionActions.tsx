@@ -6,7 +6,8 @@ import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
 import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
-import { errorMessage } from "../../sync/api";
+import { apiDelete, apiPost, errorMessage } from "../../sync/api";
+import { useSyncStore } from "../../sync/store";
 import { codeApi } from "./api";
 import type { SessionContext } from "./hooks";
 import { useMutation } from "./hooks";
@@ -28,6 +29,8 @@ export interface SessionActions {
   requestArchive: () => void;
   openInfo: () => void;
   unarchive: () => void;
+  /** Pin the session to a view, or unpin it. */
+  setPinned: (viewId: string, pinned: boolean) => void;
   busy: { takeover: boolean; ret: boolean; stop: boolean; resume: boolean; unarchive: boolean };
   /** Confirmation and form dialogs; render once in the view. */
   dialogs: ReactNode;
@@ -186,6 +189,10 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
     },
     openInfo: () => setDialog("info"),
     unarchive: () => void unarchive.run(),
+    setPinned: (viewId, pinned) => {
+      const path = `/api/views/${encodeURIComponent(viewId)}/sessions/${encodeURIComponent(session.id)}`;
+      void (pinned ? apiPost(path) : apiDelete(path)).catch((e) => toast.error(errorMessage(e)));
+    },
     busy: {
       takeover: takeover.busy,
       ret: ret.busy,

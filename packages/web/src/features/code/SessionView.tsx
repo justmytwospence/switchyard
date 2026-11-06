@@ -140,6 +140,7 @@ export function MobileSession({
   );
 
   const changed = ctx.workspace?.git.changedFiles ?? 0;
+  const views = useSyncStore((st) => st.views);
   const menuItems: MenuItem[] = [
     ...(task
       ? [
@@ -162,7 +163,7 @@ export function MobileSession({
           },
         ]
       : []),
-    ...sessionMenuItems(ctx, actions),
+    ...sessionMenuItems(ctx, actions, Object.values(views)),
   ];
 
   return (
