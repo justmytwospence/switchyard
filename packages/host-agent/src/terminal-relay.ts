@@ -26,9 +26,10 @@ export class TerminalRelay {
   handle(streamId: string, msg: TermCoordinatorMsg): void {
     switch (msg.t) {
       case "open":
-        this.open(streamId, msg.sessionId, msg.cols, msg.rows);
+        this.open(streamId, msg.sessionId, msg.cols, msg.rows, msg.passive === true);
         return;
       case "in":
+      case "claim":
       case "resize": {
         const s = this.streams.get(streamId);
         if (s && !s.socket.destroyed) s.socket.write(`${JSON.stringify(msg)}\n`);
@@ -55,7 +56,13 @@ export class TerminalRelay {
     this.streams.clear();
   }
 
-  private open(streamId: string, sessionId: string, cols: number, rows: number): void {
+  private open(
+    streamId: string,
+    sessionId: string,
+    cols: number,
+    rows: number,
+    passive: boolean,
+  ): void {
     const existing = this.streams.get(streamId);
     if (existing) return;
     const rec = this.opts.supervisor.record(sessionId);
@@ -86,6 +93,6 @@ export class TerminalRelay {
       }
       if (!entry.closed) this.opts.send(streamId, parsed.data);
     });
-    socket.write(`${JSON.stringify({ role: "viewer", cols, rows })}\n`);
+    socket.write(`${JSON.stringify({ role: "viewer", cols, rows, passive })}\n`);
   }
 }

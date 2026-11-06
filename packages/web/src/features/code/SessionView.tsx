@@ -22,6 +22,8 @@ import type { SessionContext } from "./hooks";
 import { isSubagentView, SUBAGENT_READ_ONLY } from "./model";
 import type { SessionActions } from "./SessionActions";
 import { SessionStatusBar } from "./SessionStatusBar";
+import { canUseTerminal, useSessionSurface } from "./surface";
+import { TerminalView } from "./TerminalView";
 import { Transcript } from "./Transcript";
 
 function interactionReadOnly(ctx: SessionContext): string | null {
@@ -67,39 +69,53 @@ export function Conversation({
 }) {
   const d = useComposerDraft(ctx.session.id);
   useSubagentRefresh(ctx.session);
+  const [stored, setSurface] = useSessionSurface(ctx.session.id);
+  const terminalOk = canUseTerminal(ctx.session, ctx.host);
+  const surface = terminalOk ? stored : "chat";
   return (
     <section
       data-testid="conversation"
       aria-label="Conversation"
       className="flex h-full min-h-0 min-w-0 flex-col bg-bg"
     >
-      <ConversationHeader ctx={ctx} actions={actions} inspector={inspector} />
-      <Transcript
-        sessionId={ctx.session.id}
-        draftEmpty={d.draft.trim() === ""}
-        onUseSuggestion={d.onUseSuggestion}
-        onQuote={d.onQuote}
-        onComment={d.onComment}
-        interactionReadOnly={interactionReadOnly(ctx)}
-        focusInteractionId={focusInteractionId}
-        footer={({ openFirstPending }) => (
-          <SessionStatusBar ctx={ctx} actions={actions} onAnswer={openFirstPending} />
-        )}
-      />
-      <Composer
+      <ConversationHeader
         ctx={ctx}
-        draft={d.draft}
-        setDraft={d.setDraft}
-        clearDraft={d.clearDraft}
-        replyNotes={d.replyNotes}
-        mobile={false}
+        actions={actions}
+        inspector={inspector}
+        surface={terminalOk ? { value: surface, onChange: setSurface } : null}
       />
+      {surface === "terminal" ? (
+        <TerminalView session={ctx.session} />
+      ) : (
+        <>
+          <Transcript
+            sessionId={ctx.session.id}
+            draftEmpty={d.draft.trim() === ""}
+            onUseSuggestion={d.onUseSuggestion}
+            onQuote={d.onQuote}
+            onComment={d.onComment}
+            interactionReadOnly={interactionReadOnly(ctx)}
+            focusInteractionId={focusInteractionId}
+            footer={({ openFirstPending }) => (
+              <SessionStatusBar ctx={ctx} actions={actions} onAnswer={openFirstPending} />
+            )}
+          />
+          <Composer
+            ctx={ctx}
+            draft={d.draft}
+            setDraft={d.setDraft}
+            clearDraft={d.clearDraft}
+            replyNotes={d.replyNotes}
+            mobile={false}
+          />
+        </>
+      )}
       {actions.dialogs}
     </section>
   );
 }
 
-type MobileTab = "chat" | "changes" | "details";
+type MobileTab = "chat" | "changes" | "details" | "terminal";
 
 /** Mobile segment for a requested inspector tab (`?tab=`): Changes, else Details. */
 function mobileTabFor(tab: InspectorTab | null | undefined): MobileTab {
@@ -235,6 +251,9 @@ export function MobileSession({
                   badge: <CountBadge count={changed} label="changed files" tone="neutral" />,
                 },
                 { value: "details", label: "Details" },
+                ...(canUseTerminal(session, ctx.host)
+                  ? [{ value: "terminal" as const, label: "Terminal" }]
+                  : []),
               ]}
             />
           </div>
@@ -274,6 +293,15 @@ export function MobileSession({
             className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
           >
             {(tab === "changes" || visited.has("changes")) && <MobileChanges ctx={ctx} />}
+          </section>
+          <section
+            aria-label="Terminal"
+            hidden={tab !== "terminal"}
+            className="relative min-h-0 min-w-0 flex-1"
+          >
+            {(tab === "terminal" || visited.has("terminal")) && tab === "terminal" && (
+              <TerminalView session={session} />
+            )}
           </section>
           <section
             aria-label="Details"

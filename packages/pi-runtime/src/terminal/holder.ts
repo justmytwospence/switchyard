@@ -31,7 +31,7 @@ export interface HolderConfig {
   cols: number;
   rows: number;
   /** Several viewers: the smallest one sizes the pty (default), or the latest to report. */
-  sizing?: "smallest" | "latest";
+  sizing?: "smallest" | "latest" | "owner";
 }
 
 /**
@@ -170,8 +170,33 @@ export function runHolder(cfg: HolderConfig): void {
   };
 
   const sizes = new Map<Socket, { cols: number; rows: number }>();
+  const ownerMode = (cfg.sizing ?? "owner") === "owner";
+  /** Owner sizing: the active (non-passive) viewers in join order; the owner sizes the pty. */
+  let owner: Socket | null = null;
+  const active: Socket[] = [];
+  const sendSizes = () => {
+    if (viewers.size === 0) return;
+    for (const v of viewers) {
+      write(v, JSON.stringify({ t: "size", cols: term.cols, rows: term.rows, owner: v === owner }));
+    }
+  };
+  const makeOwner = (socket: Socket) => {
+    const i = active.indexOf(socket);
+    if (i >= 0) active.splice(i, 1);
+    active.push(socket);
+    owner = socket;
+    const z = sizes.get(socket);
+    if (z) resize(z.cols, z.rows);
+  };
   /** Size the pty for the attached viewers; `from` is the viewer that just reported. */
   const apply = (from?: Socket) => {
+    if (ownerMode) {
+      if (from && from === owner) {
+        const z = sizes.get(from);
+        if (z) resize(z.cols, z.rows);
+      }
+      return;
+    }
     if (cfg.sizing === "latest") {
       const z = from ? sizes.get(from) : undefined;
       if (z) resize(z.cols, z.rows);
@@ -190,6 +215,7 @@ export function runHolder(cfg: HolderConfig): void {
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 2) return;
     sizes.set(socket, { cols, rows });
     apply(socket);
+    sendSizes();
   };
 
   const toControl = (line: string) => {
@@ -359,6 +385,10 @@ export function runHolder(cfg: HolderConfig): void {
             return;
           }
           viewers.add(socket);
+          if (ownerMode && hello.passive !== true) {
+            sizes.set(socket, { cols: Number(hello.cols), rows: Number(hello.rows) });
+            makeOwner(socket);
+          }
           report(socket, Number(hello.cols), Number(hello.rows));
           // Paint the current screen once the resize has been applied.
           setImmediate(() => {
@@ -420,12 +450,23 @@ export function runHolder(cfg: HolderConfig): void {
         if (!exitInfo && proc) proc.write(Buffer.from(msg.d, "base64").toString("utf8"));
       } else if (msg?.t === "resize") {
         report(socket, Number(msg.cols), Number(msg.rows));
+      } else if (msg?.t === "claim" && ownerMode) {
+        makeOwner(socket);
+        sendSizes();
       }
     });
     socket.on("close", () => {
       if (role === "viewer") {
         viewers.delete(socket);
-        if (sizes.delete(socket)) apply();
+        const ai = active.indexOf(socket);
+        if (ai >= 0) active.splice(ai, 1);
+        if (ownerMode && owner === socket) {
+          owner = active.at(-1) ?? null;
+          const z = owner ? sizes.get(owner) : undefined;
+          if (z) resize(z.cols, z.rows);
+        }
+        if (sizes.delete(socket) && !ownerMode) apply();
+        sendSizes();
       } else if (role === "control" && control === socket) control = null;
       else if (role === "extension" && extension === socket) extension = null;
     });

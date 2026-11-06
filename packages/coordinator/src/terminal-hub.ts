@@ -30,7 +30,13 @@ export class TerminalHub {
     private readonly log: Logger,
   ) {}
 
-  handleSocket(socket: WebSocket, sessionId: string, cols: number, rows: number): void {
+  handleSocket(
+    socket: WebSocket,
+    sessionId: string,
+    cols: number,
+    rows: number,
+    passive = false,
+  ): void {
     const refuse = (reason: string) => {
       this.sendTo(socket, { t: "closed", reason });
       socket.close(1000, "closed");
@@ -67,7 +73,15 @@ export class TerminalHub {
       this.toHost(streamId, { t: "close" }, host.id);
     });
     socket.on("error", (err) => this.log.debug({ err, streamId }, "terminal socket error"));
-    if (!this.hostHub.sendTerm(host.id, streamId, { t: "open", sessionId, cols, rows })) {
+    if (
+      !this.hostHub.sendTerm(host.id, streamId, {
+        t: "open",
+        sessionId,
+        cols,
+        rows,
+        ...(passive ? { passive } : {}),
+      })
+    ) {
       this.streams.delete(streamId);
       refuse(`Host ${host.name} is not connected`);
     }

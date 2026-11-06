@@ -18,11 +18,13 @@ import { Link, useNavigate } from "react-router";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { useSyncStore } from "../../sync/store";
 import { type SessionContext, useElementWidth } from "./hooks";
 import { AUTOMATION_LABEL, workspaceLabel } from "./model";
 import type { SessionActions } from "./SessionActions";
+import type { Surface } from "./surface";
 
 /** Automation-control state as icon + text. */
 export function ControlChip({ ctx, className }: { ctx: SessionContext; className?: string }) {
@@ -112,10 +114,13 @@ export function ConversationHeader({
   ctx,
   actions,
   inspector,
+  surface,
 }: {
   ctx: SessionContext;
   actions: SessionActions;
   inspector: { open: boolean; toggle: () => void; label: string };
+  /** Chat/Terminal switch, shown when the session has a terminal. */
+  surface?: { value: Surface; onChange: (v: Surface) => void } | null;
 }) {
   const { session, project, workspace, task } = ctx;
   const navigate = useNavigate();
@@ -165,6 +170,17 @@ export function ConversationHeader({
           >
             Stop
           </Button>
+        )}
+        {surface && (
+          <SegmentedControl<Surface>
+            label="Session surface"
+            value={surface.value}
+            onChange={surface.onChange}
+            options={[
+              { value: "chat", label: "Chat" },
+              { value: "terminal", label: "Terminal" },
+            ]}
+          />
         )}
         <Menu
           label="Session menu"

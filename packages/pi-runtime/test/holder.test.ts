@@ -22,7 +22,7 @@ function startHolder(
   script: string,
   extraEnv: Record<string, string> = {},
   socketFile?: string,
-  sizing?: "smallest" | "latest",
+  sizing?: "smallest" | "latest" | "owner",
 ): { socketPath: string; pid: number; done: Promise<number | null> } {
   const dir = mkdtempSync(join(tmpdir(), "sy-holder-"));
   dirs.push(dir);
@@ -123,13 +123,36 @@ describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
     [...decoded(lines).matchAll(/SIZE:(\d+) (\d+)/g)].map((m) => `${m[2]}x${m[1]}`);
 
   it("smallest sizing uses the minimum over viewers", async () => {
-    const h = startHolder(SIZE_SCRIPT);
+    const h = startHolder(SIZE_SCRIPT, {}, undefined, "smallest");
     await new Promise((r) => setTimeout(r, 300));
     const a = await connect(h.socketPath, { role: "viewer", cols: 120, rows: 40 });
     await until(() => decoded(a.lines).includes("ready"));
     const b = await connect(h.socketPath, { role: "viewer", cols: 80, rows: 50 });
     await until(() => sizes(a.lines).at(-1) === "80x40");
     b.s.destroy();
+    await until(() => sizes(a.lines).at(-1) === "120x40");
+    const c = await connect(h.socketPath, { role: "control" });
+    c.send({ type: "holder_kill", signal: "SIGKILL" });
+    await h.done;
+  });
+
+  it("owner sizing: an active viewer owns the size, a passive one does not, claim takes it, and the owner's close hands it back", async () => {
+    const h = startHolder(SIZE_SCRIPT);
+    await new Promise((r) => setTimeout(r, 300));
+    const sz = (lines: any[]) => lines.filter((l) => l.t === "size");
+    const a = await connect(h.socketPath, { role: "viewer", cols: 120, rows: 40 });
+    await until(() => decoded(a.lines).includes("ready"));
+    expect(sz(a.lines).at(-1)).toMatchObject({ cols: 120, rows: 40, owner: true });
+    const p = await connect(h.socketPath, { role: "viewer", cols: 60, rows: 20, passive: true });
+    await until(() => sz(p.lines).length > 0);
+    expect(sz(p.lines).at(-1)).toMatchObject({ cols: 120, rows: 40, owner: false });
+    p.send({ t: "resize", cols: 50, rows: 20 });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(sizes(a.lines).at(-1) ?? "120x40").not.toBe("50x20");
+    p.send({ t: "claim" });
+    await until(() => sizes(a.lines).at(-1) === "50x20");
+    expect(sz(p.lines).at(-1)).toMatchObject({ owner: true });
+    p.s.destroy();
     await until(() => sizes(a.lines).at(-1) === "120x40");
     const c = await connect(h.socketPath, { role: "control" });
     c.send({ type: "holder_kill", signal: "SIGKILL" });

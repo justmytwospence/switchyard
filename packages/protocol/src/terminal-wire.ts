@@ -12,17 +12,26 @@ const Rows = z.number().int().min(5).max(500);
 export const TermViewerToServer = z.discriminatedUnion("t", [
   z.object({ t: z.literal("in"), d: z.string() }),
   z.object({ t: z.literal("resize"), cols: Cols, rows: Rows }),
+  z.object({ t: z.literal("claim") }),
 ]);
 export type TermViewerToServer = z.infer<typeof TermViewerToServer>;
 
 export const TermServerToViewer = z.discriminatedUnion("t", [
   z.object({ t: z.literal("out"), d: z.string() }),
   z.object({ t: z.literal("closed"), reason: z.string() }),
+  z.object({ t: z.literal("size"), cols: Cols, rows: Rows, owner: z.boolean() }),
 ]);
 export type TermServerToViewer = z.infer<typeof TermServerToViewer>;
 
 export const TermCoordinatorMsg = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("open"), sessionId: z.string(), cols: Cols, rows: Rows }),
+  z.object({
+    t: z.literal("open"),
+    sessionId: z.string(),
+    cols: Cols,
+    rows: Rows,
+    passive: z.boolean().optional(),
+  }),
+  z.object({ t: z.literal("claim") }),
   z.object({ t: z.literal("in"), d: z.string() }),
   z.object({ t: z.literal("resize"), cols: Cols, rows: Rows }),
   z.object({ t: z.literal("close") }),

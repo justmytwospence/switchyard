@@ -289,7 +289,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
     );
     scope.get("/ws/terminal/:sessionId", { websocket: true }, (socket, req) => {
       const { sessionId } = req.params as { sessionId: string };
-      const q = req.query as { cols?: string; rows?: string };
+      const q = req.query as { cols?: string; rows?: string; passive?: string };
       const size = (v: string | undefined, min: number, max: number, dflt: number) => {
         const n = Number.parseInt(v ?? "", 10);
         return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt;
@@ -299,6 +299,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
         sessionId,
         size(q.cols, 10, 1000, 80),
         size(q.rows, 5, 500, 24),
+        q.passive === "1",
       );
     });
   });

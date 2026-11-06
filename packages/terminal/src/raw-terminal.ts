@@ -122,7 +122,7 @@ export function runRawTerminal(opts: RawTerminalOptions): Promise<RawTerminalRes
       const msg = TermServerToViewer.safeParse(json);
       if (!msg.success) return;
       if (msg.data.t === "out") stdout.write(Buffer.from(msg.data.d, "base64"));
-      else finish({ reason: "closed", message: msg.data.reason });
+      else if (msg.data.t === "closed") finish({ reason: "closed", message: msg.data.reason });
     });
     ws.on("unexpected-response", (_req, res) => {
       finish({

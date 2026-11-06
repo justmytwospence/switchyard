@@ -246,7 +246,9 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       env,
       cols: opts.cols ?? 120,
       rows: opts.rows ?? 40,
-      sizing: process.env.SWITCHYARD_TERMINAL_SIZING === "latest" ? "latest" : "smallest",
+      sizing: ((v) => (v === "latest" || v === "smallest" ? v : "owner"))(
+        process.env.SWITCHYARD_TERMINAL_SIZING,
+      ),
     };
     const logPath =
       opts.logPath ?? join(dirname(socketPath), `${basename(socketPath, ".sock")}.log`);
