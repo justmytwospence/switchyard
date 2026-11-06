@@ -13,6 +13,7 @@ import { SwitchyardError } from "@switchyard/protocol";
 import { makeRepo, type TempRepo } from "@switchyard/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  copyWorktreeIncludes,
   createWorktree,
   diffWorkspace,
   discoverWorktrees,
@@ -198,6 +199,46 @@ describe("worktrees", () => {
     await createWorktree(r.path, "other", "main");
     const again = readFileSync(join(r.path, ".git", "info", "exclude"), "utf8");
     expect(again.split("\n").filter((l) => l === "/.worktrees/")).toHaveLength(1);
+  });
+
+  describe(".worktreeinclude", () => {
+    const setup = () => {
+      writeFileSync(join(r.path, ".gitignore"), ".env\nnode_modules/\n.worktrees/\n");
+      writeFileSync(join(r.path, ".worktreeinclude"), ".env\nnotignored.txt\n*.cfg\n");
+      writeFileSync(join(r.path, ".env"), "SECRET=1\n");
+      writeFileSync(join(r.path, "notignored.txt"), "x");
+    };
+
+    it("copies matching ignored files only", async () => {
+      setup();
+      const created = await createWorktree(r.path, "inc", "main");
+      expect(readFileSync(join(created.path, ".env"), "utf8")).toBe("SECRET=1\n");
+      expect(existsSync(join(created.path, "notignored.txt"))).toBe(false);
+      expect(existsSync(join(created.path, ".worktrees"))).toBe(false);
+    });
+
+    it("copies nothing without a .worktreeinclude", async () => {
+      writeFileSync(join(r.path, ".gitignore"), ".env\n");
+      writeFileSync(join(r.path, ".env"), "x");
+      const created = await createWorktree(r.path, "none", "main");
+      expect(existsSync(join(created.path, ".env"))).toBe(false);
+    });
+
+    it("skips files already present in the destination", async () => {
+      setup();
+      const dest = tempDir();
+      writeFileSync(join(dest, ".env"), "keep");
+      expect(await copyWorktreeIncludes(r.path, dest, ".worktrees")).toBe(0);
+      expect(readFileSync(join(dest, ".env"), "utf8")).toBe("keep");
+    });
+
+    it("fails over the limit and leaves no worktree or branch", async () => {
+      setup();
+      const dest = tempDir();
+      await expect(copyWorktreeIncludes(r.path, dest, ".worktrees", 0)).rejects.toMatchObject({
+        code: "invalid_request",
+      });
+    });
   });
 
   it("checks out an existing branch", async () => {

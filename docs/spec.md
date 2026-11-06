@@ -230,6 +230,8 @@ Show branch/base, dirty state, active sessions, linked tasks, and setup status.
 
 Setup hooks stream output and surface failure.
 
+A `.worktreeinclude` file at the repository root (gitignore syntax) lists ignored files, such as `.env`, to copy into each new managed worktree. Only files that match and that Git already ignores are copied; existing files are kept, and a copy failure removes the new worktree.
+
 Finishing a session never deletes its workspace.
 
 Removal checks active sessions, dirty files, and unmerged changes. Destructive overrides are explicit.

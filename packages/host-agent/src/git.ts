@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import { appendFile, lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { appendFile, copyFile, lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import {
   branchSlug,
   type CheckoutInfo,
@@ -323,6 +324,50 @@ async function ensureExcluded(commonDir: string, worktreeDir: string): Promise<v
   await appendFile(excludePath, `${prefix}${line}\n`);
 }
 
+export const WORKTREE_INCLUDE_LIMIT = 10_000;
+
+/**
+ * Copy the files matching `<root>/.worktreeinclude` (gitignore syntax) that git also ignores
+ * (`.env`, local config) into a new worktree. Existing files are kept; the managed worktree
+ * folder itself is skipped. Returns the number copied.
+ */
+export async function copyWorktreeIncludes(
+  root: string,
+  dest: string,
+  worktreeDir: string,
+  limit: number = WORKTREE_INCLUDE_LIMIT,
+): Promise<number> {
+  if (!(await exists(join(root, ".worktreeinclude")))) return 0;
+  const list = async (extra: string) =>
+    (await runGit(root, ["ls-files", "-z", "--others", "--ignored", extra])).stdout
+      .split("\0")
+      .filter(Boolean);
+  const ignored = new Set(await list("--exclude-standard"));
+  const matched = await list("--exclude-from=.worktreeinclude");
+  const files = matched.filter((f) => ignored.has(f) && !f.startsWith(`${worktreeDir}/`));
+  if (files.length > limit) {
+    throw new SwitchyardError(
+      "invalid_request",
+      `.worktreeinclude matches ${files.length} files; the limit is ${limit}`,
+    );
+  }
+  let copied = 0;
+  for (const rel of files) {
+    const src = join(root, rel);
+    const st = await lstat(src).catch(() => null);
+    if (!st?.isFile()) continue;
+    const dst = join(dest, rel);
+    await mkdir(dirname(dst), { recursive: true });
+    try {
+      await copyFile(src, dst, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
+      copied += 1;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+  }
+  return copied;
+}
+
 /** Create a managed worktree for `branch` (from `base` when the branch does not exist yet). */
 export async function createWorktree(
   checkoutPath: string,
@@ -386,6 +431,16 @@ export async function createWorktree(
     throw new SwitchyardError(
       "repo_mismatch",
       `Worktree at ${path} does not belong to the repository at ${info.root}`,
+    );
+  }
+  try {
+    await copyWorktreeIncludes(info.root, created, dir);
+  } catch (err) {
+    await runGit(info.root, ["worktree", "remove", "--force", path], { allowFail: true });
+    if (known.code !== 0) await runGit(info.root, ["branch", "-D", branch], { allowFail: true });
+    throw new SwitchyardError(
+      err instanceof SwitchyardError ? err.code : "internal",
+      `Could not copy .worktreeinclude files: ${(err as Error).message}`,
     );
   }
   return { path: created, branch, baseBranch: base, root: info.root };
