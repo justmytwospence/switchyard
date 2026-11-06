@@ -113,7 +113,7 @@ A missing Pi or git is a FAIL only on a machine with a host config; elsewhere (a
 ## Upgrading
 
 1. Back up (`coordinator backup`).
-2. Change the image tag in `deploy/compose.yaml` (for example `ghcr.io/justmytwospence/switchyard:0.10.0` to the new release), then `docker compose pull && docker compose up -d` (from `deploy/`). From source, pull, rebuild and restart.
+2. Change the image tag in `deploy/compose.yaml` (for example `ghcr.io/justmytwospence/switchyard:0.11.0` to the new release), then `docker compose pull && docker compose up -d` (from `deploy/`). From source, pull, rebuild and restart.
 3. Migrations apply automatically at start. If something goes wrong, stop the service and restore the backup with the previous image.
 
 Upgrade the coordinator before its hosts: a coordinator works with hosts one release older, not newer. Hosts are upgraded separately: `npm update -g @spencerboucher/switchyard`, then restart the installed service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux). Hosts and the coordinator reconnect on their own; running Pi sessions on a host stop when its agent restarts: sessions that were working show as interrupted until resumed; idle ones show as stopped and resume when you send to them.
