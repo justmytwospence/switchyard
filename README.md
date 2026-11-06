@@ -163,3 +163,4 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.6.0`
 | [Architecture](docs/architecture.md) | Components, data ownership, the host and client protocols, packages |
 | [Development](docs/development.md) | Building, testing (including against real Pi), contributing |
 | [Specification](docs/spec.md) | The product specification Switchyard is built to |
+| [Roadmap](docs/roadmap.md) | Planned phases: orchestration, policies and GitHub; plugin slots, SDK and relay |
