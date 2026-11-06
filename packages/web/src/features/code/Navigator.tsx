@@ -32,6 +32,8 @@ import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
+import { isMac } from "../palette/CommandPalette";
+import { usePalette } from "../palette/registry";
 import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import {
   buildNavTree,
@@ -311,6 +313,12 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           <h2 className={cn("min-w-0 flex-1 font-semibold", screen ? "text-lg" : "text-sm")}>
             Sessions
           </h2>
+          <IconButton
+            data-testid="open-palette"
+            label={`Search (${isMac() ? "⌘K" : "Ctrl+K"})`}
+            icon={<Search className="size-4" />}
+            onClick={() => usePalette.getState().setOpen(true)}
+          />
           <Button
             data-testid="new-session"
             size="sm"

@@ -17,6 +17,8 @@ import { Spinner } from "../components/ui/Spinner";
 import { statusInfo } from "../components/ui/StatusChip";
 import { ReconnectingBanner } from "../components/ui/states";
 import { Toaster } from "../components/ui/Toast";
+import { CommandPalette } from "../features/palette/CommandPalette";
+import { useGlobalShortcuts } from "../features/palette/useGlobalShortcuts";
 import { cn } from "../lib/cn";
 import { usePrefs } from "../prefs";
 import { syncClient } from "../sync/client";
@@ -91,6 +93,7 @@ export function AppShell() {
   const connState = useConnectionState();
   const staleSince = useStaleSince();
   const mobile = bp === "mobile";
+  useGlobalShortcuts();
   return (
     <div
       className={cn(
@@ -121,6 +124,7 @@ export function AppShell() {
         </main>
         {mobile && <BottomNav />}
       </div>
+      <CommandPalette />
       <Toaster />
     </div>
   );

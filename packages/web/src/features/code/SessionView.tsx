@@ -13,6 +13,8 @@ import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { appendQuote, useDraft, useReplyNotes } from "../../drafts";
 import { usePendingInteractions, useSyncStore } from "../../sync/store";
+import { useContributePalette } from "../palette/registry";
+import { TOGGLE_TERMINAL_EVENT } from "../palette/useGlobalShortcuts";
 import { MobileChanges } from "./Changes";
 import { Composer } from "./Composer";
 import { ConversationHeader, sessionMenuItems } from "./ConversationHeader";
@@ -72,6 +74,41 @@ export function Conversation({
   const [stored, setSurface] = useSessionSurface(ctx.session.id);
   const terminalOk = canUseTerminal(ctx.session, ctx.host);
   const surface = terminalOk ? stored : "chat";
+  useEffect(() => {
+    if (!terminalOk) return;
+    const toggle = () => setSurface(surface === "terminal" ? "chat" : "terminal");
+    window.addEventListener(TOGGLE_TERMINAL_EVENT, toggle);
+    return () => window.removeEventListener(TOGGLE_TERMINAL_EVENT, toggle);
+  }, [terminalOk, surface, setSurface]);
+  useContributePalette("session", [
+    ...(actions.canStop
+      ? [
+          {
+            id: "session:stop",
+            title: "Stop session",
+            group: "Actions" as const,
+            run: actions.requestStop,
+          },
+        ]
+      : []),
+    ...(terminalOk
+      ? [
+          {
+            id: "session:surface",
+            title: surface === "terminal" ? "Switch to chat" : "Switch to terminal",
+            group: "Actions" as const,
+            shortcut: "toggleTerminal" as const,
+            run: () => setSurface(surface === "terminal" ? "chat" : "terminal"),
+          },
+        ]
+      : []),
+    {
+      id: "session:rename",
+      title: "Rename session",
+      group: "Actions" as const,
+      run: actions.openRename,
+    },
+  ]);
   return (
     <section
       data-testid="conversation"

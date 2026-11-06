@@ -1,7 +1,7 @@
 import type { Session } from "@switchyard/protocol";
 import { MousePointerClick, SearchX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Drawer } from "../../components/ui/Overlay";
 import { Splitter } from "../../components/ui/Splitter";
@@ -66,6 +66,14 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
   const collapsed = usePrefs((s) => s.inspectorCollapsed);
   const setPref = usePrefs((s) => s.set);
   const [newFor, setNewFor] = useState<{ projectId: string | null } | null>(null);
+  const location = useLocation();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: react to a palette request only
+  useEffect(() => {
+    if ((location.state as { newSession?: boolean } | null)?.newSession) {
+      setNewFor({ projectId: null });
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const ctx = useSessionContext(props.session);
@@ -270,6 +278,14 @@ function SessionPanes({
 export function CodeMobile(props: LayoutProps) {
   const navigate = useNavigate();
   const [newFor, setNewFor] = useState<{ projectId: string | null } | null>(null);
+  const location = useLocation();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: react to a palette request only
+  useEffect(() => {
+    if ((location.state as { newSession?: boolean } | null)?.newSession) {
+      setNewFor({ projectId: null });
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state]);
   const ctx = useSessionContext(props.session);
   const onCreated = useCallback(
     (id: string) => {
