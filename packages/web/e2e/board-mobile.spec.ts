@@ -71,7 +71,8 @@ test.describe("mobile board", () => {
     expect(await main.evaluate((el) => el.scrollHeight > el.clientHeight + 200)).toBe(true);
 
     const target = cards.last();
-    const title = (await target.getAttribute("aria-label"))!;
+    const label = (await target.getAttribute("aria-label"))!;
+    const title = (await target.locator("[data-card-open]").textContent())!;
     await target.scrollIntoViewIfNeeded();
     const before = await mainScrollTop(page);
     expect(before).toBeGreaterThan(100);
@@ -89,7 +90,7 @@ test.describe("mobile board", () => {
     await expect(page).toHaveURL(/\/board$/);
     await expect.poll(() => mainScrollTop(page)).toBe(before);
     await expect(
-      page.getByRole("article", { name: title }).locator("[data-card-open]"),
+      page.getByRole("article", { name: label, exact: true }).locator("[data-card-open]"),
     ).toBeFocused();
   });
 

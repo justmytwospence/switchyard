@@ -34,6 +34,7 @@ import {
 } from "./BoardChrome";
 import {
   ALL_STATES,
+  columnTreeRows,
   DEFAULT_FILTERS,
   moveHint,
   moveTargets,
@@ -100,18 +101,21 @@ export function BoardMobile() {
   };
 
   const noProjects = hydrated && Object.keys(projects).length === 0;
-  const renderList = (tasks: Task[], state: TaskState) =>
-    tasks.length === 0 ? (
+  const renderList = (state: TaskState) =>
+    board.columns[state].length === 0 ? (
       <p className="px-1 py-3 text-sm text-muted">No {STATE_LABELS[state]} tasks.</p>
     ) : (
       <ul className="flex flex-col gap-2">
-        {tasks.map((t) => (
-          <li key={t.id}>
+        {columnTreeRows(board.trees[state]).map(({ task, depth, ancestors }) => (
+          <li key={task.id}>
             <TaskCard
-              task={t}
+              task={task}
+              depth={depth}
+              ancestors={ancestors}
+              progress={board.childProgress.get(task.id)}
               full
               showProject={board.showProject}
-              wait={board.waits.get(t.id)}
+              wait={board.waits.get(task.id)}
               onOpen={open}
             />
           </li>
@@ -262,7 +266,7 @@ export function BoardMobile() {
                 </TextLink>
               </p>
             ) : (
-              renderList(board.columns[tab], tab)
+              renderList(tab)
             )}
           </TabPanel>
         ) : (
@@ -280,7 +284,7 @@ export function BoardMobile() {
                   {STATE_LABELS[s]}
                   <span className="text-muted">({board.columns[s].length})</span>
                 </h2>
-                {renderList(board.columns[s], s)}
+                {renderList(s)}
               </section>
             ))
         )}

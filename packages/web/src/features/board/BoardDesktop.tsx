@@ -42,6 +42,8 @@ import {
 } from "./BoardChrome";
 import {
   ALL_STATES,
+  type BoardTaskNode,
+  columnTreeRows,
   DEFAULT_FILTERS,
   moveHint,
   planMove,
@@ -296,6 +298,7 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
                   task={activeTask}
                   showProject={board.showProject}
                   wait={board.waits.get(activeTask.id)}
+                  progress={board.childProgress.get(activeTask.id)}
                   onOpen={() => undefined}
                 />
               </div>
@@ -487,13 +490,13 @@ function Column({
               )}
             </li>
           ) : (
-            tasks.map((t) => (
-              <li key={t.id}>
+            columnTreeRows(board.trees[state]).map((node) => (
+              <li key={node.task.id}>
                 <DraggableCard
-                  task={t}
+                  node={node}
                   board={board}
                   onOpen={onOpen}
-                  selected={t.id === selectedId}
+                  selected={node.task.id === selectedId}
                 />
               </li>
             ))
@@ -505,16 +508,17 @@ function Column({
 }
 
 function DraggableCard({
-  task,
+  node,
   board,
   onOpen,
   selected,
 }: {
-  task: Task;
+  node: BoardTaskNode;
   board: BoardState;
   onOpen: (t: Task) => void;
   selected: boolean;
 }) {
+  const { task, depth, ancestors } = node;
   const drag = useDraggable({ id: `${TASK_PREFIX}${task.id}` });
   const drop = useDroppable({ id: `${CARD_PREFIX}${task.id}`, disabled: drag.isDragging });
   const { onPointerDown, onKeyDown } = (drag.listeners ?? {}) as {
@@ -535,6 +539,9 @@ function DraggableCard({
   return (
     <TaskCard
       task={task}
+      depth={depth}
+      ancestors={ancestors}
+      progress={board.childProgress.get(task.id)}
       showProject={board.showProject}
       wait={board.waits.get(task.id)}
       onOpen={onOpen}

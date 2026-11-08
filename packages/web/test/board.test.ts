@@ -3,13 +3,18 @@ import { describe, expect, it } from "vitest";
 import {
   activeFilterChips,
   buildColumns,
+  buildColumnTree,
+  childProgress,
+  columnTreeRows,
   DEFAULT_FILTERS,
   eligibilityText,
   moveHint,
   normalizeFilters,
+  parentCandidates,
   planMove,
   positionFor,
   previewEligibility,
+  taskAncestors,
   unresolvedForDone,
 } from "../src/features/board/logic";
 import { task } from "./fixtures";
@@ -139,6 +144,126 @@ describe("filters", () => {
     const chips = activeFilterChips({ ...f, hostId: "hst_1" }, () => "mac");
     expect(chips.map((c) => c.label)).toEqual(["Priority: High", "Host: mac"]);
     expect(chips[1]!.clear(f).hostId).toBeNull();
+  });
+});
+
+describe("task hierarchy", () => {
+  const parent = task("parent", { position: 2 });
+  const child = task("child", { parentTaskId: parent.id, position: 1 });
+  const grandchild = task("grandchild", { parentTaskId: child.id, position: 3 });
+  const sibling = task("sibling", { parentTaskId: parent.id, position: 4 });
+  const other = task("other", { position: 5 });
+  const all = { parent, child, grandchild, sibling, other };
+  const ids = (tasks: ReturnType<typeof columnTreeRows>) => tasks.map((n) => n.task.id);
+
+  it("nests visible same-column parents and preserves flat root/sibling order", () => {
+    const column = [child, parent, grandchild, other, sibling];
+    const tree = buildColumnTree(column, all);
+    expect(tree.map((n) => n.task.id)).toEqual(["parent", "other"]);
+    expect(tree[0]!.children.map((n) => n.task.id)).toEqual(["child", "sibling"]);
+    const rows = columnTreeRows(tree);
+    expect(ids(rows)).toEqual(["parent", "child", "grandchild", "sibling", "other"]);
+    expect(rows.map((n) => n.depth)).toEqual([0, 1, 2, 1, 0]);
+    expect(rows[2]!.ancestors.map((t) => t.id)).toEqual(["parent", "child"]);
+    expect(column.map((t) => t.id)).toEqual(["child", "parent", "grandchild", "other", "sibling"]);
+  });
+
+  it("keeps children of filtered, hidden, missing and other-state parents visible", () => {
+    const ctx = { projectId: "prj_1", runs: {}, attentionTaskIds: new Set<string>() };
+    const tasks = {
+      ...all,
+      parent: { ...parent, hiddenFromBoard: true },
+      other: { ...other, parentTaskId: "missing" },
+    };
+    const column = buildColumns(tasks, DEFAULT_FILTERS, ctx).backlog;
+    const tree = buildColumnTree(column, tasks);
+    expect(ids(columnTreeRows(tree))).toEqual(["child", "grandchild", "sibling", "other"]);
+    expect(tree[0]!.ancestors.map((t) => t.id)).toEqual(["parent"]);
+    const filtered = buildColumns(all, { ...DEFAULT_FILTERS, search: "grandchild" }, ctx);
+    expect(ids(columnTreeRows(buildColumnTree(filtered.backlog, all)))).toEqual(["grandchild"]);
+    const moved = { ...all, parent: { ...parent, state: "ready" as const } };
+    const cols = buildColumns(moved, DEFAULT_FILTERS, ctx);
+    expect(ids(buildColumnTree(cols.backlog, moved))).toEqual(["child", "sibling", "other"]);
+    expect(cols.ready).toHaveLength(1);
+    expect(buildColumnTree(cols.backlog, moved)[0]!.ancestors).toEqual([moved.parent]);
+  });
+
+  it("does not nest corrupt cross-project or cross-state relationships", () => {
+    const crossProject = { ...child, projectId: "prj_2" };
+    const crossState = { ...sibling, state: "ready" as const };
+    expect(buildColumnTree([parent, crossProject, crossState], all)).toHaveLength(3);
+    expect(taskAncestors(crossProject, all)).toEqual([]);
+  });
+
+  it.each([
+    { a: task("a", { parentTaskId: "a" }) },
+    { a: task("a", { parentTaskId: "b" }), b: task("b", { parentTaskId: "a" }) },
+    {
+      a: task("a", { parentTaskId: "b" }),
+      b: task("b", { parentTaskId: "c" }),
+      c: task("c", { parentTaskId: "a" }),
+      d: task("d", { parentTaskId: "c" }),
+    },
+  ])("breaks corrupt cycles without losing or duplicating a row: %j", (tasks) => {
+    const rows = columnTreeRows(buildColumnTree(Object.values(tasks), tasks));
+    expect(new Set(ids(rows))).toEqual(new Set(Object.keys(tasks)));
+    expect(rows).toHaveLength(Object.keys(tasks).length);
+    for (const node of rows) {
+      expect(node.ancestors.some((t) => t.id === node.task.id)).toBe(false);
+      expect(new Set(node.ancestors.map((t) => t.id)).size).toBe(node.ancestors.length);
+    }
+  });
+
+  it("preserves full depth and ancestry beyond the three-level visual cap", () => {
+    const tasks = Object.fromEntries(
+      Array.from({ length: 18 }, (_, i) => [
+        `t${i}`,
+        task(`t${i}`, { parentTaskId: i ? `t${i - 1}` : null }),
+      ]),
+    );
+    const rows = columnTreeRows(buildColumnTree(Object.values(tasks), tasks));
+    expect(rows[17]!.depth).toBe(17);
+    expect(rows[17]!.ancestors.map((t) => t.id)).toEqual(rows.slice(0, 17).map((n) => n.task.id));
+  });
+
+  it("counts all direct children across states and filters, including canceled in the total", () => {
+    const tasks = {
+      ...all,
+      child: { ...child, state: "done" as const, hiddenFromBoard: true },
+      sibling: { ...sibling, state: "canceled" as const },
+      other: { ...other, parentTaskId: parent.id, state: "ready" as const },
+      foreign: task("foreign", { parentTaskId: parent.id, projectId: "prj_2" }),
+    };
+    expect(childProgress(parent.id, tasks)).toEqual({ done: 1, total: 3, canceled: 1 });
+    expect(childProgress(child.id, tasks)).toEqual({ done: 0, total: 1, canceled: 0 });
+    expect(childProgress(other.id, tasks)).toEqual({ done: 0, total: 0, canceled: 0 });
+    expect(childProgress("missing", {})).toEqual({ done: 0, total: 0, canceled: 0 });
+    expect(childProgress("self", { self: task("self", { parentTaskId: "self" }) }).total).toBe(0);
+  });
+
+  it("offers same-project parents separately from dependencies, excluding self and descendants", () => {
+    const tasks = {
+      ...all,
+      parent: { ...parent, dependencies: ["other"] },
+      hidden: task("hidden", { hiddenFromBoard: true }),
+      canceled: task("canceled", { state: "canceled" }),
+      foreign: task("foreign", { projectId: "prj_2" }),
+    };
+    const candidates = parentCandidates("prj_1", tasks, parent.id).map((t) => t.id);
+    expect(candidates).toEqual(["canceled", "hidden", "other"]);
+    expect(parentCandidates("prj_1", tasks).map((t) => t.id)).toContain("parent");
+    expect(parentCandidates("prj_2", tasks).map((t) => t.id)).toEqual(["foreign"]);
+    expect(parentCandidates("missing", tasks)).toEqual([]);
+  });
+
+  it("uses flat destination positions when tree rows differ, moving one task only", () => {
+    const flat = [child, parent, grandchild, sibling, other];
+    expect(ids(columnTreeRows(buildColumnTree(flat, all)))).not.toEqual(flat.map((t) => t.id));
+    expect(positionFor(flat, parent.id, other.id)).toBe(1.5);
+    expect(positionFor(flat, grandchild.id, parent.id)).toBe(2);
+    expect(positionFor(flat, null, parent.id)).toBe(6);
+    expect(child.parentTaskId).toBe(parent.id);
+    expect(grandchild.state).toBe("backlog");
   });
 });
 

@@ -32,6 +32,7 @@ export interface CreateTaskBody {
   objective: string;
   acceptanceCriteria: string[];
   dependencies: string[];
+  parentTaskId?: string | null;
   priority: 0 | 1 | 2 | 3;
   state: "backlog" | "ready";
   notBefore?: string | null;
@@ -45,7 +46,11 @@ export async function createTask(body: CreateTaskBody): Promise<Task> {
   return t;
 }
 
-export async function updateTask(id: string, patch: Record<string, unknown>): Promise<Task | null> {
+export type UpdateTaskBody = Partial<Omit<CreateTaskBody, "projectId" | "state">> & {
+  position?: number;
+};
+
+export async function updateTask(id: string, patch: UpdateTaskBody): Promise<Task | null> {
   return upsertTask(await apiPatch<unknown>(base(id), patch));
 }
 

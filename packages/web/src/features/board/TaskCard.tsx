@@ -13,6 +13,7 @@ import {
 import type { HTMLAttributes, ReactNode, Ref } from "react";
 import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
+import { BACK_STATE } from "../../app/useBackTo";
 import { TONE_TEXT } from "../../components/ui/Badge";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { PriorityLabel } from "../../components/ui/Priority";
@@ -21,9 +22,10 @@ import { ATTENTION_STATUS, TASK_STATUS } from "../../components/ui/StatusChip";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { useSyncStore } from "../../sync/store";
-import { dependencySummary, moveTargets, STATE_LABELS } from "./logic";
+import { type ChildProgress, dependencySummary, moveTargets, STATE_LABELS } from "./logic";
 import { useTaskMover } from "./MoveProvider";
 import { executionLine, useTaskInfo } from "./taskInfo";
+import { boardMemory } from "./useBoard";
 
 export interface DragBindings {
   setNodeRef: Ref<HTMLElement>;
@@ -45,10 +47,24 @@ export interface TaskCardProps {
   /** Card occupies full width (mobile). */
   full?: boolean;
   selected?: boolean;
+  depth?: number;
+  ancestors?: Task[];
+  progress?: ChildProgress;
 }
 
 /** Board card: title (2 lines), priority, execution/blocked reason, host, branch, deps, attention, activity. */
-export function TaskCard({ task, showProject, wait, onOpen, drag, full, selected }: TaskCardProps) {
+export function TaskCard({
+  task,
+  showProject,
+  wait,
+  onOpen,
+  drag,
+  full,
+  selected,
+  depth = 0,
+  ancestors = [],
+  progress,
+}: TaskCardProps) {
   const info = useTaskInfo(task);
   const tasks = useSyncStore((s) => s.tasks);
   const mover = useTaskMover();
@@ -57,6 +73,10 @@ export function TaskCard({ task, showProject, wait, onOpen, drag, full, selected
   const exec = executionLine(task, info.run, wait);
   const deps = dependencySummary(task, tasks);
   const attention = info.attention[0];
+  const parent = task.parentTaskId ? tasks[task.parentTaskId] : undefined;
+  const ancestryLabel = ancestors.length
+    ? `, depth ${ancestors.length}, under ${ancestors.map((t) => t.title).join(" / ")}`
+    : "";
 
   const items: (MenuItem | "separator")[] = [
     {
@@ -90,15 +110,16 @@ export function TaskCard({ task, showProject, wait, onOpen, drag, full, selected
       ref={drag?.setNodeRef as Ref<HTMLElement>}
       data-testid="task-card"
       data-task-id={task.id}
-      aria-label={task.title}
+      aria-label={`${task.title}${ancestryLabel}`}
       aria-busy={busy || undefined}
-      style={drag?.style}
+      data-depth={depth}
+      style={{ marginInlineStart: `${Math.min(depth, 3) * 12}px`, ...drag?.style }}
       {...drag?.cardProps}
       className={cn(
         "group relative flex min-w-0 flex-col gap-1.5 rounded-lg border bg-surface p-3 text-sm shadow-sm",
         selected ? "border-accent" : "border-border",
         drag?.dragging && "opacity-60",
-        full ? "w-full" : "",
+        full ? "self-stretch" : "",
       )}
     >
       <div className="flex min-w-0 items-start gap-1">
@@ -107,7 +128,7 @@ export function TaskCard({ task, showProject, wait, onOpen, drag, full, selected
             type="button"
             ref={drag.setHandleRef}
             {...drag.handleProps}
-            aria-label={`Drag ${task.title}`}
+            aria-label={`Drag ${task.title}${ancestryLabel}`}
             title="Drag to move (Space to pick up, arrows to move, Space to drop)"
             className="tap -ml-1.5 inline-flex h-7 w-5 shrink-0 cursor-grab items-center justify-center rounded text-subtle hover:bg-surface-2 hover:text-text"
           >
@@ -146,6 +167,36 @@ export function TaskCard({ task, showProject, wait, onOpen, drag, full, selected
           <span className="min-w-0 truncate">{info.projectName}</span>
         )}
       </div>
+
+      {task.parentTaskId && (
+        <Link
+          to={ROUTES.task(task.parentTaskId)}
+          state={full ? BACK_STATE : undefined}
+          onClick={(e) => {
+            if (
+              !full ||
+              e.defaultPrevented ||
+              e.button !== 0 ||
+              e.metaKey ||
+              e.ctrlKey ||
+              e.shiftKey ||
+              e.altKey
+            )
+              return;
+            boardMemory.mainScrollTop = document.getElementById("main")?.scrollTop ?? 0;
+            boardMemory.focusTaskId = task.id;
+          }}
+          className="tap min-w-0 truncate rounded text-xs text-muted hover:underline"
+        >
+          Parent: {parent?.title ?? "Unavailable task"}
+        </Link>
+      )}
+      {progress && progress.total > 0 && (
+        <p className="text-xs text-muted">
+          {progress.done}/{progress.total} done
+          {progress.canceled > 0 && ` · ${progress.canceled} canceled`}
+        </p>
+      )}
 
       {exec && (
         <Line

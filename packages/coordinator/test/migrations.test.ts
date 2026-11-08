@@ -19,6 +19,82 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("010 rebuilds nullable completion senders without losing rows, receipts, indexes or sequence high-water", () => {
+    const db = dbAt(9);
+    const insert = db.prepare(`
+      INSERT INTO agent_messages VALUES
+      (?, ?, ?, ?, 'recipient', 'reply', 'chain', 2, '{"body":"private"}',
+        'steer', 'held', '2026-01-02', '2026-01-01', '2026-01-01', '2026-01-01')`);
+    insert.run(7, "ordinary", "message", "sender");
+    insert.run(12, "completion", "completion", "child-session");
+    insert.run(99, "deleted", "message", "sender");
+    db.exec("DELETE FROM agent_messages WHERE seq = 99");
+    db.exec(
+      "INSERT INTO agent_call_receipts VALUES ('caller', 'native', 'tool', 'inbox.read', 'hash', '{}', '2026-01-01')",
+    );
+    db.exec("INSERT INTO task_subscriptions VALUES ('child', 'creator', NULL, '2026-01-01')");
+    const rows = db.prepare("SELECT * FROM agent_messages ORDER BY seq").all();
+    const receipts = db.prepare("SELECT * FROM agent_call_receipts").all();
+    const subscriptions = db.prepare("SELECT * FROM task_subscriptions").all();
+    migrate(db);
+    expect(db.prepare("SELECT * FROM agent_messages ORDER BY seq").all()).toEqual(rows);
+    expect(db.prepare("SELECT * FROM agent_call_receipts").all()).toEqual(receipts);
+    expect(db.prepare("SELECT * FROM task_subscriptions").all()).toEqual(subscriptions);
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'agent_messages'",
+        )
+        .all(),
+    ).toEqual(
+      expect.arrayContaining([
+        { name: "agent_messages_pair_time" },
+        { name: "agent_messages_recipient_seq" },
+      ]),
+    );
+    const nullable = db.prepare(`
+      INSERT INTO agent_messages (id, kind, sender_session_id, recipient_session_id,
+        chain_id, depth, body_json, requested_mode, delivery_state, hold_until, created_at, updated_at)
+      VALUES (?, ?, ?, 'creator', 'chain', 0, '{}', 'queue', 'pending', '2026-01-02', '2026-01-01', '2026-01-01')`);
+    expect(Number(nullable.run("null-completion", "completion", null).lastInsertRowid)).toBe(100);
+    expect(() => nullable.run("null-message", "message", null)).toThrow(/CHECK/);
+    expect(() => nullable.run("empty-message", "message", "")).toThrow(/CHECK/);
+    expect(() => nullable.run("empty-completion", "completion", "")).toThrow(/CHECK/);
+    expect(() => nullable.run("unknown", "unknown", "sender")).toThrow(/CHECK/);
+    db.close();
+  });
+
+  it("010 preserves the sequence high-water even when every message was deleted", () => {
+    const db = dbAt(9);
+    db.exec(`INSERT INTO agent_messages VALUES
+      (50, 'deleted', 'message', 'sender', 'recipient', NULL, 'chain', 0, '{}',
+       'queue', 'pending', '2026-01-02', NULL, '2026-01-01', '2026-01-01');
+      DELETE FROM agent_messages;`);
+    migrate(db);
+    expect(
+      db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'agent_messages'").get(),
+    ).toEqual({ seq: 50 });
+    db.close();
+  });
+
+  it("010 rolls its entire rebuild back on invalid legacy data", () => {
+    const db = dbAt(9);
+    db.exec(`INSERT INTO agent_messages VALUES
+      (8, 'invalid', 'unknown', 'sender', 'recipient', NULL, 'chain', 0, '{}',
+       'queue', 'pending', '2026-01-02', NULL, '2026-01-01', '2026-01-01');`);
+    expect(() => migrate(db)).toThrow(/CHECK/);
+    expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
+      version: 9,
+    });
+    expect(db.prepare("SELECT id, seq FROM agent_messages").all()).toEqual([
+      { id: "invalid", seq: 8 },
+    ]);
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE name = 'agent_messages_rebuilt'").all(),
+    ).toEqual([]);
+    db.close();
+  });
+
   it("009 backfills indexed parents without rewriting legacy task JSON", () => {
     const db = dbAt(8);
     const insert = db.prepare(

@@ -33,6 +33,8 @@ export interface CoordinatorEventMap {
   /** A task was upserted (`task` set) or deleted (`task` null). */
   "task.changed": [{ id: string; task: Task | null }];
   "run.changed": [Run];
+  /** A durable inbox job committed; wake delivery without recapturing task state. */
+  "messages.pending": [];
   "attention.raised": [AttentionItem];
   "attention.resolved": [AttentionItem];
   "device.revoked": [{ deviceId: string }];

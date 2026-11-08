@@ -173,6 +173,122 @@ export function buildColumns(
   return out;
 }
 
+export interface ChildProgress {
+  done: number;
+  total: number;
+  canceled: number;
+}
+
+/** All direct children count, including hidden, filtered and canceled tasks. */
+export function childProgress(parentId: string, allTasks: Record<string, Task>): ChildProgress {
+  const progress = { done: 0, total: 0, canceled: 0 };
+  const parent = allTasks[parentId];
+  for (const task of Object.values(allTasks)) {
+    if (task.parentTaskId !== parentId || task.id === parentId) continue;
+    if (parent && task.projectId !== parent.projectId) continue;
+    progress.total++;
+    if (task.state === "done") progress.done++;
+    if (task.state === "canceled") progress.canceled++;
+  }
+  return progress;
+}
+
+/** Root-first full ancestry, independent of board filters and state. Tolerates corrupt cycles. */
+export function taskAncestors(task: Task, allTasks: Record<string, Task>): Task[] {
+  const ancestors: Task[] = [];
+  const seen = new Set([task.id]);
+  let parentId = task.parentTaskId;
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = allTasks[parentId];
+    if (!parent || parent.projectId !== task.projectId) break;
+    ancestors.push(parent);
+    parentId = parent.parentTaskId;
+  }
+  return ancestors.reverse();
+}
+
+export interface BoardTaskNode {
+  task: Task;
+  children: BoardTaskNode[];
+  /** Visible nesting depth; a parent in another column does not indent this row. */
+  depth: number;
+  /** Full ancestry for accessible labels, even when ancestors are filtered out. */
+  ancestors: Task[];
+}
+
+/** Display-only tree. Never changes flat columns, counts, or drag/reorder positions. */
+export function buildColumnTree(column: Task[], allTasks: Record<string, Task>): BoardTaskNode[] {
+  const nodes = new Map<string, BoardTaskNode>();
+  for (const task of column) {
+    nodes.set(task.id, { task, children: [], depth: 0, ancestors: taskAncestors(task, allTasks) });
+  }
+  const parents = new Map<string, string>();
+  for (const task of column) {
+    const parent = task.parentTaskId ? nodes.get(task.parentTaskId)?.task : undefined;
+    if (parent && parent.projectId === task.projectId && parent.state === task.state)
+      parents.set(task.id, parent.id);
+  }
+  // Break one edge per cycle, deterministically in flat-column order. No row is lost.
+  const checked = new Set<string>();
+  for (const task of column) {
+    const path = new Set<string>();
+    let id: string | undefined = task.id;
+    while (id && !checked.has(id)) {
+      if (path.has(id)) {
+        parents.delete(id);
+        break;
+      }
+      path.add(id);
+      id = parents.get(id);
+    }
+    for (const visited of path) checked.add(visited);
+  }
+  const roots: BoardTaskNode[] = [];
+  for (const node of nodes.values()) {
+    const parentId = parents.get(node.task.id);
+    if (parentId) nodes.get(parentId)!.children.push(node);
+    else roots.push(node);
+  }
+  const pending = [...roots];
+  while (pending.length) {
+    const node = pending.pop()!;
+    for (const child of node.children) {
+      child.depth = node.depth + 1;
+      pending.push(child);
+    }
+  }
+  return roots;
+}
+
+/** Preorder rows keep each card (not its subtree) an independent drag/drop target. */
+export function columnTreeRows(tree: BoardTaskNode[]): BoardTaskNode[] {
+  const rows: BoardTaskNode[] = [];
+  const pending = [...tree].reverse();
+  while (pending.length) {
+    const node = pending.pop()!;
+    rows.push(node);
+    for (let i = node.children.length - 1; i >= 0; i--) pending.push(node.children[i]!);
+  }
+  return rows;
+}
+
+/** Parent selection is separate from dependencies; descendants cannot become parents. */
+export function parentCandidates(
+  projectId: string,
+  allTasks: Record<string, Task>,
+  taskId?: string,
+): Task[] {
+  return Object.values(allTasks)
+    .filter(
+      (task) =>
+        task.projectId === projectId &&
+        task.id !== taskId &&
+        (!taskId || !taskAncestors(task, allTasks).some((ancestor) => ancestor.id === taskId)),
+    )
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
 export function visibleColumns(f: BoardFilters): TaskState[] {
   return f.showCanceled ? [...BOARD_COLUMNS, "canceled"] : BOARD_COLUMNS;
 }

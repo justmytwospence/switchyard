@@ -290,7 +290,13 @@ export class RunsService {
           putTaskState(this.ctx, task, task.state, { blocked: null });
         }
       }
-      if (Object.keys(patch).length > 0) saveRun(this.ctx, cur, patch);
+      if (Object.keys(patch).length > 0)
+        saveRun(
+          this.ctx,
+          cur,
+          patch,
+          patch.state === "failed" ? { completion: "final_failure" } : {},
+        );
     });
   }
 
@@ -597,12 +603,17 @@ export class RunsService {
     store.tx(() => {
       const run = store.runs.require(runId);
       if (!EVALUATED.has(run.state) && run.state !== "checking") return;
-      saveRun(this.ctx, run, {
-        state: "failed",
-        endedAt: store.nowIso(),
-        outcome: { kind, summary: reason },
-        ...(checks ? { checks } : {}),
-      });
+      saveRun(
+        this.ctx,
+        run,
+        {
+          state: "failed",
+          endedAt: store.nowIso(),
+          outcome: { kind, summary: reason },
+          ...(checks ? { checks } : {}),
+        },
+        { completion: "final_failure" },
+      );
       const task = store.tasks.require(run.taskId);
       if (task.currentRunId !== run.id) return;
       const blocked = putTaskState(this.ctx, task, task.state, { blocked: { reason } });

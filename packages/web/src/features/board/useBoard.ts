@@ -5,8 +5,12 @@ import { useSyncStore } from "../../sync/store";
 import { useNow } from "../queue/useNow";
 import {
   type BoardFilters,
+  type BoardTaskNode,
   buildColumns,
+  buildColumnTree,
+  type ChildProgress,
   type Columns,
+  childProgress,
   normalizeFilters,
   openAttentionByTask,
   visibleColumns,
@@ -18,6 +22,8 @@ export interface BoardState {
   projectId: string | null;
   setProjectId: (id: string | null) => void;
   columns: Columns;
+  trees: Record<TaskState, BoardTaskNode[]>;
+  childProgress: Map<string, ChildProgress>;
   states: TaskState[];
   /** Wait reason per queued task id (from /api/now). */
   waits: Map<string, Eligibility>;
@@ -47,6 +53,20 @@ export function useBoard(): BoardState {
     const attentionTaskIds = new Set(openAttentionByTask(attention).keys());
     return buildColumns(tasks, filters, { projectId: validProject, runs, attentionTaskIds });
   }, [tasks, filters, validProject, runs, attention]);
+
+  const hierarchy = useMemo(() => {
+    // Do not apply board filters here: hidden/completed/canceled children still count.
+    const allTasks = Object.fromEntries(
+      Object.entries(tasks).filter(([, t]) => !validProject || t.projectId === validProject),
+    );
+    const trees = {} as Record<TaskState, BoardTaskNode[]>;
+    for (const state of Object.keys(columns) as TaskState[])
+      trees[state] = buildColumnTree(columns[state], allTasks);
+    const progress = new Map<string, ChildProgress>();
+    const parentIds = new Set(Object.values(allTasks).map((t) => t.parentTaskId));
+    for (const id of parentIds) if (id) progress.set(id, childProgress(id, allTasks));
+    return { trees, progress };
+  }, [tasks, validProject, columns]);
 
   const waits = useMemo(() => {
     const m = new Map<string, Eligibility>();
@@ -83,6 +103,8 @@ export function useBoard(): BoardState {
     projectId: validProject,
     setProjectId: (id) => setPref("selectedProjectId", id),
     columns,
+    trees: hierarchy.trees,
+    childProgress: hierarchy.progress,
     states,
     waits,
     queueCount,

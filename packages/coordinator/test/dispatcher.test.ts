@@ -267,6 +267,7 @@ describe("dispatcher", () => {
     await until(() => task(h!, tk.id).state === "ready" && runOf(h!, tk.id).state === "queued");
     const queued = runOf(h, tk.id);
     expect(queued).toMatchObject({ infraRetries: 1, attempt: 1 });
+    expect(h.t.c.store.st.get("SELECT * FROM task_completions").all()).toHaveLength(0);
     expect(Date.parse(queued.nextAttemptAt!) - h.t.clock.now).toBe(30_000);
     expect(dispatcherOf(h).eligibility(task(h, tk.id))).toMatchObject({
       eligible: false,
@@ -279,6 +280,7 @@ describe("dispatcher", () => {
     h.t.clock.advance(31_000);
     dispatcherOf(h).tick();
     await until(() => runOf(h!, tk.id).infraRetries === 2 && runOf(h!, tk.id).state === "queued");
+    expect(h.t.c.store.st.get("SELECT * FROM task_completions").all()).toHaveLength(0);
     h.t.clock.advance(31_000);
     dispatcherOf(h).tick();
     await until(() => task(h!, tk.id).blocked !== null);
@@ -292,6 +294,9 @@ describe("dispatcher", () => {
       blocked: { reason: "Launch failed: spawn pi ENOENT" },
     });
     expect(runOf(h, tk.id)).toMatchObject({ state: "failed", infraRetries: 2 });
+    expect(h.t.c.store.st.get("SELECT child_task_id, outcome FROM task_completions").all()).toEqual(
+      [{ child_task_id: tk.id, outcome: "failed" }],
+    );
     const att = h.t.c.attention.open({ taskId: tk.id, reason: "failed" });
     expect(att).toHaveLength(1);
   });
@@ -306,6 +311,9 @@ describe("dispatcher", () => {
     await until(() => task(h!, tk.id).blocked !== null);
     expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
     expect(runOf(h, tk.id).state).toBe("failed");
+    expect(h.t.c.store.st.get("SELECT outcome FROM task_completions").all()).toEqual([
+      { outcome: "failed" },
+    ]);
   });
 
   it("a launch whose prompt was not delivered blocks the task without retrying", async () => {
@@ -326,6 +334,9 @@ describe("dispatcher", () => {
     expect(task(h, tk.id).blocked?.reason).toMatch(/Launch prompt was not delivered/);
     expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
     expect(runOf(h, tk.id)).toMatchObject({ state: "failed" });
+    expect(h.t.c.store.st.get("SELECT outcome FROM task_completions").all()).toEqual([
+      { outcome: "failed" },
+    ]);
     expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(1);
   });
 
@@ -364,6 +375,7 @@ describe("dispatcher", () => {
     expect(session.nativeHandle).toEqual(handle);
     expect(session.cwd).toBe(`${ROOT}/.worktrees/x`);
     expect(session.runtime).toBe("interrupted");
+    expect(h.t.c.store.st.get("SELECT * FROM task_completions").all()).toHaveLength(0);
   });
 
   it("a host restart after Pi may have started never replays the prompt (reconcile)", async () => {

@@ -12,8 +12,8 @@ import { toast } from "../../components/ui/Toast";
 import { errorMessage } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { createTask, fetchEligibility } from "./api";
-import { eligibilityText, isRunActive, previewEligibility } from "./logic";
-import { DependencyPicker, EligibilityNote } from "./TaskDetail";
+import { eligibilityText, isRunActive, parentCandidates, previewEligibility } from "./logic";
+import { DependencyPicker, EligibilityNote, ParentPicker } from "./TaskDetail";
 
 const DRAFT_KEY = "sy:new-task-draft";
 
@@ -24,6 +24,7 @@ interface Draft {
   advanced: boolean;
   priority: Priority;
   dependencies: string[];
+  parentTaskId: string;
   hostId: string;
   profileId: string;
   branch: string;
@@ -47,6 +48,7 @@ function emptyDraft(projectId: string): Draft {
     advanced: false,
     priority: 2,
     dependencies: [],
+    parentTaskId: "",
     hostId: "",
     profileId: "",
     branch: "",
@@ -158,6 +160,8 @@ export function NewTaskForm({
     .filter((t) => t.projectId === d.projectId && t.state !== "canceled" && !t.hiddenFromBoard)
     .sort((a, b) => a.title.localeCompare(b.title));
 
+  const parents = parentCandidates(d.projectId, tasks);
+
   const preview = useMemo(() => {
     const runningByProject: Record<string, number> = {};
     for (const r of Object.values(runs)) {
@@ -175,6 +179,8 @@ export function NewTaskForm({
     const errs: Record<string, string> = {};
     if (!d.title.trim()) errs.title = "Give the task a title.";
     if (!project) errs.projectId = "Choose a project.";
+    if (d.parentTaskId && !parents.some((t) => t.id === d.parentTaskId))
+      errs.parentTaskId = "Choose a parent in this project, or None.";
     const { policy, errors: pErr } = buildPolicy(d);
     Object.assign(errs, pErr);
     setErrors(errs);
@@ -191,6 +197,7 @@ export function NewTaskForm({
         objective: d.objective,
         acceptanceCriteria: lines(d.criteria),
         dependencies: d.dependencies,
+        parentTaskId: d.parentTaskId || null,
         priority: d.priority,
         state,
         ...(Object.keys(policy).length > 0 ? { policy } : {}),
@@ -250,7 +257,14 @@ export function NewTaskForm({
           <Select
             {...p}
             value={d.projectId}
-            onChange={(e) => setD((x) => ({ ...x, projectId: e.target.value, dependencies: [] }))}
+            onChange={(e) =>
+              setD((x) => ({
+                ...x,
+                projectId: e.target.value,
+                dependencies: [],
+                parentTaskId: "",
+              }))
+            }
           >
             {projects.length === 0 && <option value="">No projects yet</option>}
             {projects.map((pr) => (
@@ -261,6 +275,13 @@ export function NewTaskForm({
           </Select>
         )}
       </Field>
+
+      <ParentPicker
+        candidates={parents}
+        value={d.parentTaskId}
+        onChange={(v) => set("parentTaskId", v)}
+        error={errors.parentTaskId}
+      />
 
       <div>
         <TextLink

@@ -61,6 +61,9 @@ describe("runs", () => {
     const accepted = await h.t.admin("POST", `/api/tasks/${tk.id}/accept`);
     expect(accepted.status).toBe(200);
     expect(accepted.body.state).toBe("done");
+    expect(h.t.c.store.st.get("SELECT outcome FROM task_completions ORDER BY rowid").all()).toEqual(
+      [{ outcome: "review" }, { outcome: "done" }],
+    );
     await until(() => h!.t.c.attention.open({ taskId: tk.id }).length === 0);
 
     const history = await h.t.admin("GET", `/api/attention?resolvedOnly=true&taskId=${tk.id}`);
@@ -129,6 +132,9 @@ describe("runs", () => {
       blocked: { reason: "Checks failed: npm run lint" },
     });
     expect(runOf(h, tk.id)).toMatchObject({ state: "failed", outcome: { kind: "failed" } });
+    expect(h.t.c.store.st.get("SELECT outcome FROM task_completions").all()).toEqual([
+      { outcome: "failed" },
+    ]);
     expect(h.t.c.attention.open({ taskId: tk.id, reason: "failed" })).toHaveLength(1);
     // Moving to Done needs confirmation.
     const done = await h.t.admin("POST", `/api/tasks/${tk.id}/move`, { to: "done" });
@@ -149,6 +155,15 @@ describe("runs", () => {
     expect(commandsOf(h.host, "checks.run")).toHaveLength(0);
     const [att] = h.t.c.attention.open({ taskId: tk.id, reason: "failed" });
     expect(att!.summary).toBe("missing API key");
+    const captured = h.t.c.store.st.get("SELECT snapshot_json FROM task_completions").get() as {
+      snapshot_json: string;
+    };
+    expect(JSON.parse(captured.snapshot_json)).toMatchObject({
+      outcome: "failed",
+      runId: run.id,
+      childSessionId: run.sessionId,
+      failure: { kind: "blocked", summary: "missing API key" },
+    });
   });
 
   it("NO_CHANGE in watch mode finishes quietly and hides the routine task", async () => {
@@ -387,6 +402,26 @@ describe("runs", () => {
     );
   });
 
+  it("captures a final session runtime failure through the mirror path", async () => {
+    h = await setupHarness();
+    const { task: tk, run } = await startRun(h);
+    const cwd = h.t.c.store.sessions.require(run.sessionId!).cwd;
+    await h.host.event(
+      "session.updated",
+      hostSession(run.sessionId!, { cwd, runtime: "failed", runtimeDetail: "crashed" }),
+    );
+    expect(runOf(h, tk.id)).toMatchObject({ state: "failed", outcome: { kind: "failed" } });
+    const row = h.t.c.store.st.get("SELECT snapshot_json FROM task_completions").get() as {
+      snapshot_json: string;
+    };
+    expect(JSON.parse(row.snapshot_json)).toMatchObject({
+      outcome: "failed",
+      runId: run.id,
+      childSessionId: run.sessionId,
+      failure: { kind: "failed", summary: "Session failed: crashed" },
+    });
+  });
+
   it("mirrors waiting_input and interrupted session runtime into the run", async () => {
     h = await setupHarness();
     const { task: tk, run } = await startRun(h);
@@ -403,6 +438,7 @@ describe("runs", () => {
       hostSession(run.sessionId!, { cwd, runtime: "interrupted" }),
     );
     expect(runOf(h, tk.id).state).toBe("interrupted");
+    expect(h.t.c.store.st.get("SELECT * FROM task_completions").all()).toHaveLength(0);
     expect(task(h, tk.id).blocked).toEqual({ reason: "Session interrupted: resume to continue" });
     // A blocked task moves back without a pause/stop choice; dispatch resumes the same session.
     const back = await h.t.admin("POST", `/api/tasks/${tk.id}/move`, { to: "ready" });

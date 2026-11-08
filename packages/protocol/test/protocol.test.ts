@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AgentMessage,
   AgentRequestFrame,
   AgentResultFrame,
   branchSlug,
@@ -86,6 +87,45 @@ describe("ui", () => {
     expect(isFieldVisible(f, { a: "z" })).toBe(false);
     expect(isFieldVisible(f, { a: ["z", "x"] })).toBe(true);
     expect(isFieldVisible(f, {})).toBe(false);
+  });
+});
+
+describe("agent message senders", () => {
+  const message = {
+    seq: 1,
+    id: "message",
+    kind: "message",
+    senderSessionId: "sender",
+    recipientSessionId: "recipient",
+    replyTo: null,
+    chainId: "chain",
+    depth: 0,
+    body: "body",
+    requestedMode: "queue",
+    deliveryState: "pending",
+    holdUntil: "2026-01-01T00:10:00.000Z",
+    readAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  it("accepts nullable senders only for coordinator-origin completion notices", () => {
+    expect(AgentMessage.parse(message).senderSessionId).toBe("sender");
+    expect(AgentMessage.parse({ ...message, kind: "completion" }).senderSessionId).toBe("sender");
+    expect(
+      AgentMessage.parse({ ...message, kind: "completion", senderSessionId: null }).senderSessionId,
+    ).toBeNull();
+    expect(AgentMessage.safeParse({ ...message, senderSessionId: null }).success).toBe(false);
+  });
+  it("rejects empty/missing senders and missing/null recipients in both branches", () => {
+    for (const kind of ["message", "completion"]) {
+      for (const senderSessionId of ["", undefined, "s".repeat(201)]) {
+        expect(AgentMessage.safeParse({ ...message, kind, senderSessionId }).success).toBe(false);
+      }
+      for (const recipientSessionId of [null, "", undefined]) {
+        expect(AgentMessage.safeParse({ ...message, kind, recipientSessionId }).success).toBe(
+          false,
+        );
+      }
+    }
   });
 });
 

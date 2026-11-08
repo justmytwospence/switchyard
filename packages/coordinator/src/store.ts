@@ -26,6 +26,7 @@ import {
   type View,
   type Workspace,
 } from "@switchyard/protocol";
+import { captureFinalRunFailure, captureTaskCompletion } from "./agents/notifications.js";
 import type { Db, SqlValue } from "./db/index.js";
 import type { EventHub } from "./event-hub.js";
 
@@ -594,7 +595,9 @@ export class Store {
 
   putTask(t: Task): Task {
     return this.tx(() => {
+      const previous = this.tasks.get(t.id);
       this.tasks.upsert(t);
+      captureTaskCompletion(this, previous, t);
       this.appendEvent("task.updated", { taskId: t.id, projectId: t.projectId }, t);
       return t;
     });
@@ -623,9 +626,13 @@ export class Store {
     });
   }
 
-  putRun(r: Run, projectId?: string): Run {
+  putRun(r: Run, projectId?: string, { completion }: { completion?: "final_failure" } = {}): Run {
     return this.tx(() => {
       this.runs.upsert(r);
+      // Explicit classification is necessary: failed launch rows may still be retried.
+      if (completion === "final_failure") {
+        captureFinalRunFailure(this, r);
+      }
       this.appendEvent(
         "run.updated",
         { taskId: r.taskId, sessionId: r.sessionId ?? undefined, projectId },

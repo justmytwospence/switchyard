@@ -8,6 +8,7 @@ import { sql as uniqueNativeSession } from "./migrations/006_unique_native_sessi
 import { sql as views } from "./migrations/007_views.js";
 import { sql as itemRev } from "./migrations/008_item_rev.js";
 import { sql as agentTools } from "./migrations/009_agent_tools.js";
+import { sql as taskNotifications } from "./migrations/010_task_notifications.js";
 
 export interface Migration {
   version: number;
@@ -26,6 +27,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 7, name: "007_views", sql: views },
   { version: 8, name: "008_item_rev", sql: itemRev },
   { version: 9, name: "009_agent_tools", sql: agentTools },
+  { version: 10, name: "010_task_notifications", sql: taskNotifications },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

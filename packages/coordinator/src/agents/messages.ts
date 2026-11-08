@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type AgentInbox,
-  type AgentMessage,
+  AgentMessage,
   DeliveryState,
   ReadAgentInbox,
   SendAgentMessage,
@@ -107,7 +107,7 @@ export function createMessageDeliveryTransport(hostHub: HostHub): MessageDeliver
 /** Completion capture owns formatting and supplies its already-bounded immutable snapshot. */
 export interface CompletionMessageInput {
   id: string;
-  senderSessionId: string;
+  senderSessionId: string | null;
   recipientSessionId: string;
   body: unknown;
   text: string;
@@ -118,7 +118,7 @@ interface MessageRow {
   seq: number;
   id: string;
   kind: AgentMessage["kind"];
-  sender_session_id: string;
+  sender_session_id: string | null;
   recipient_session_id: string;
   reply_to: string | null;
   chain_id: string;
@@ -225,7 +225,8 @@ export class MessageService {
         );
       }
       const id = `msg_${randomUUID()}`;
-      return this.insert(
+      return insertMessage(
+        this.store,
         {
           id,
           kind: "message",
@@ -245,32 +246,7 @@ export class MessageService {
 
   /** For captureTaskCompletion's outer transaction; bypasses ordinary rate/pending limits. */
   captureCompletion(input: CompletionMessageInput): AgentMessage {
-    return this.store.tx(() => {
-      const existing = this.get(input.id);
-      if (existing) {
-        if (
-          existing.kind !== "completion" ||
-          existing.senderSessionId !== input.senderSessionId ||
-          existing.recipientSessionId !== input.recipientSessionId ||
-          JSON.stringify(existing.body) !== JSON.stringify(input.body) ||
-          this.payload(existing.id)?.text !== input.text
-        ) {
-          throw new SwitchyardError("conflict", "Completion message identity was reused.");
-        }
-        return existing;
-      }
-      return this.insert(
-        {
-          ...input,
-          kind: "completion",
-          replyTo: null,
-          chainId: input.id,
-          depth: 0,
-          requestedMode: "queue",
-        },
-        input.text,
-      );
-    });
+    return captureCompletionMessage(this.store, input);
   }
 
   /**
@@ -317,7 +293,7 @@ export class MessageService {
       const page: AgentInbox = { messages: [], nextAfter: args.after, hasMore: false };
       const now = this.store.nowIso();
       for (const row of rows) {
-        const message = this.fromRow(row);
+        const message = messageFromRow(row);
         if (options.markRead !== false) message.readAt ??= now;
         const candidate = {
           messages: [...page.messages, message],
@@ -353,10 +329,7 @@ export class MessageService {
   }
 
   get(id: string): AgentMessage | undefined {
-    const row = this.store.st.get("SELECT * FROM agent_messages WHERE id = ?").get(id) as
-      | MessageRow
-      | undefined;
-    return row ? this.fromRow(row) : undefined;
+    return getMessage(this.store, id);
   }
 
   start(): void {
@@ -364,6 +337,7 @@ export class MessageService {
     this.running = true;
     this.stopped = false;
     this.store.hub.on("host.connected", this.onHostConnected);
+    this.store.hub.on("messages.pending", this.onHostConnected);
     this.store.hub.on("event", this.onEvent);
     this.timer = setInterval(() => this.wake(), 1000);
     this.timer.unref();
@@ -376,6 +350,7 @@ export class MessageService {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.store.hub.off("host.connected", this.onHostConnected);
+    this.store.hub.off("messages.pending", this.onHostConnected);
     this.store.hub.off("event", this.onEvent);
     await Promise.allSettled([...this.inFlight.values()]);
   }
@@ -399,7 +374,7 @@ export class MessageService {
     for (const row of rows) {
       if (this.inFlight.has(row.recipient_session_id)) continue;
       const group = groups.get(row.recipient_session_id) ?? [];
-      group.push(this.fromRow(row));
+      group.push(messageFromRow(row));
       groups.set(row.recipient_session_id, group);
     }
     await Promise.all(
@@ -523,51 +498,6 @@ export class MessageService {
     });
   }
 
-  private insert(
-    input: Pick<
-      AgentMessage,
-      | "id"
-      | "kind"
-      | "senderSessionId"
-      | "recipientSessionId"
-      | "replyTo"
-      | "chainId"
-      | "depth"
-      | "body"
-      | "requestedMode"
-      | "createdAt"
-    >,
-    text: string,
-  ): AgentMessage {
-    const holdUntil = new Date(Date.parse(input.createdAt) + MESSAGE_HOLD_MS).toISOString();
-    this.store.st
-      .get(`INSERT INTO agent_messages
-      (id, kind, sender_session_id, recipient_session_id, reply_to, chain_id, depth, body_json,
-       requested_mode, delivery_state, hold_until, read_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`)
-      .run(
-        input.id,
-        input.kind,
-        input.senderSessionId,
-        input.recipientSessionId,
-        input.replyTo,
-        input.chainId,
-        input.depth,
-        JSON.stringify(input.body),
-        input.requestedMode,
-        holdUntil,
-        input.createdAt,
-        input.createdAt,
-      );
-    this.store.setSetting(this.payloadKey(input.id), {
-      deliveryId: input.id,
-      kind: input.kind,
-      text,
-    } satisfies MessagePayload);
-    this.store.afterCommit(() => this.wake());
-    return this.get(input.id)!;
-  }
-
   private requireCausalMessage(sessionId: string, id: string): AgentMessage {
     const message = this.get(id);
     if (!message || message.recipientSessionId !== sessionId) {
@@ -590,7 +520,7 @@ export class MessageService {
     return `agentMessageContext:${id}`;
   }
   private payloadKey(id: string): string {
-    return `agentMessagePayload:${id}`;
+    return payloadKey(id);
   }
   private acceptedKey(id: string): string {
     return `agentMessageAccepted:${id}`;
@@ -612,23 +542,115 @@ export class MessageService {
         );
     });
   }
+}
 
-  private fromRow(row: MessageRow): AgentMessage {
-    return {
-      seq: row.seq,
-      id: row.id,
-      kind: row.kind,
-      senderSessionId: row.sender_session_id,
-      recipientSessionId: row.recipient_session_id,
-      replyTo: row.reply_to,
-      chainId: row.chain_id,
-      depth: row.depth,
-      body: JSON.parse(row.body_json),
-      requestedMode: row.requested_mode,
-      deliveryState: row.delivery_state,
-      holdUntil: row.hold_until,
-      readAt: row.read_at,
-      createdAt: row.created_at,
-    };
-  }
+function payloadKey(id: string): string {
+  return `agentMessagePayload:${id}`;
+}
+
+function getMessage(store: Store, id: string): AgentMessage | undefined {
+  const row = store.st.get("SELECT * FROM agent_messages WHERE id = ?").get(id) as
+    | MessageRow
+    | undefined;
+  return row ? messageFromRow(row) : undefined;
+}
+
+export function captureCompletionMessage(
+  store: Store,
+  input: CompletionMessageInput,
+): AgentMessage {
+  return store.tx(() => {
+    const existing = getMessage(store, input.id);
+    if (existing) {
+      if (
+        existing.kind !== "completion" ||
+        existing.senderSessionId !== input.senderSessionId ||
+        existing.recipientSessionId !== input.recipientSessionId ||
+        JSON.stringify(existing.body) !== JSON.stringify(input.body) ||
+        store.getSetting<MessagePayload | null>(payloadKey(existing.id), null)?.text !== input.text
+      ) {
+        throw new SwitchyardError("conflict", "Completion message identity was reused.");
+      }
+      return existing;
+    }
+    return insertMessage(
+      store,
+      {
+        ...input,
+        kind: "completion",
+        replyTo: null,
+        chainId: input.id,
+        depth: 0,
+        requestedMode: "queue",
+      },
+      input.text,
+    );
+  });
+}
+
+function insertMessage(
+  store: Store,
+  input: Pick<
+    AgentMessage,
+    | "id"
+    | "kind"
+    | "senderSessionId"
+    | "recipientSessionId"
+    | "replyTo"
+    | "chainId"
+    | "depth"
+    | "body"
+    | "requestedMode"
+    | "createdAt"
+  >,
+  text: string,
+): AgentMessage {
+  const holdUntil = new Date(Date.parse(input.createdAt) + MESSAGE_HOLD_MS).toISOString();
+  // Enforce the sender contract by kind before insertion, not only on decoding.
+  AgentMessage.parse({ ...input, seq: 1, deliveryState: "pending", holdUntil, readAt: null });
+  store.st
+    .get(`INSERT INTO agent_messages
+      (id, kind, sender_session_id, recipient_session_id, reply_to, chain_id, depth, body_json,
+       requested_mode, delivery_state, hold_until, read_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`)
+    .run(
+      input.id,
+      input.kind,
+      input.senderSessionId,
+      input.recipientSessionId,
+      input.replyTo,
+      input.chainId,
+      input.depth,
+      JSON.stringify(input.body),
+      input.requestedMode,
+      holdUntil,
+      input.createdAt,
+      input.createdAt,
+    );
+  store.setSetting(payloadKey(input.id), {
+    deliveryId: input.id,
+    kind: input.kind,
+    text,
+  } satisfies MessagePayload);
+  store.afterCommit(() => store.hub.emit("messages.pending"));
+  return getMessage(store, input.id)!;
+}
+
+function messageFromRow(row: MessageRow): AgentMessage {
+  return AgentMessage.parse({
+    seq: row.seq,
+    id: row.id,
+    kind: row.kind,
+    senderSessionId: row.sender_session_id,
+    recipientSessionId: row.recipient_session_id,
+    replyTo: row.reply_to,
+    chainId: row.chain_id,
+    depth: row.depth,
+    body: JSON.parse(row.body_json),
+    requestedMode: row.requested_mode,
+    deliveryState: row.delivery_state,
+    holdUntil: row.hold_until,
+    readAt: row.read_at,
+    createdAt: row.created_at,
+  });
 }

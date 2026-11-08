@@ -48,11 +48,9 @@ export const DeliveryState = z.enum([
   "failed",
 ]);
 export type DeliveryState = z.infer<typeof DeliveryState>;
-export const AgentMessage = z.object({
+const AgentMessageFields = {
   seq: z.number().int().positive(),
   id: Id,
-  kind: z.enum(["message", "completion"]),
-  senderSessionId: Id,
   recipientSessionId: Id,
   replyTo: Id.nullable(),
   chainId: Id,
@@ -63,7 +61,15 @@ export const AgentMessage = z.object({
   holdUntil: z.string(),
   readAt: z.string().nullable(),
   createdAt: z.string(),
-});
+};
+export const AgentMessage = z.discriminatedUnion("kind", [
+  z.object({ ...AgentMessageFields, kind: z.literal("message"), senderSessionId: Id }),
+  z.object({
+    ...AgentMessageFields,
+    kind: z.literal("completion"),
+    senderSessionId: Id.nullable(),
+  }),
+]);
 export type AgentMessage = z.infer<typeof AgentMessage>;
 export const AgentInbox = z.object({
   messages: z.array(AgentMessage),

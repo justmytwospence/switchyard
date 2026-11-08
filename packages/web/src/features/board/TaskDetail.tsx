@@ -20,6 +20,7 @@ import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
 import { ConfirmDialog } from "../../components/ui/Overlay";
 import { PriorityLabel, PrioritySelect } from "../../components/ui/Priority";
+import { Select } from "../../components/ui/Select";
 import { StatusChip } from "../../components/ui/StatusChip";
 import {
   ErrorState,
@@ -37,7 +38,13 @@ import { errorMessage, isApiError } from "../../sync/api";
 import { countPendingInteractions } from "../../sync/selectors";
 import { runsForTask, useSyncStore } from "../../sync/store";
 import { deleteTask, fetchEligibility, fetchRuns, requestChanges, updateTask } from "./api";
-import { eligibilityText, isRunActive, previewEligibility, STATE_LABELS } from "./logic";
+import {
+  eligibilityText,
+  isRunActive,
+  parentCandidates,
+  previewEligibility,
+  STATE_LABELS,
+} from "./logic";
 import { useTaskMover } from "./MoveProvider";
 import { executionLine, useTaskInfo } from "./taskInfo";
 
@@ -255,7 +262,11 @@ export function EligibilityNote({ e, prefix = "" }: { e: Eligibility; prefix?: s
 /* ------------------------------------------------------------------ */
 
 /** All task drawer / detail sections (spec 13 task drawer, spec 14 detail). */
-export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: () => void }) {
+export function TaskDetailBody(props: { task: Task; onDeleted?: () => void }) {
+  return <TaskDetailContent key={props.task.id} {...props} />;
+}
+
+function TaskDetailContent({ task, onDeleted }: { task: Task; onDeleted?: () => void }) {
   const info = useTaskInfo(task);
   const { eligibility, error: eligibilityError } = useEligibility(task);
   const tasks = useSyncStore((s) => s.tasks);
@@ -279,6 +290,11 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
     );
   }, [runsRes.data, storeRuns, task.id]);
   const [editing, setEditing] = useState(false);
+  const sessions = useSyncStore((s) => s.sessions);
+  const parent = task.parentTaskId ? tasks[task.parentTaskId] : undefined;
+  const children = Object.values(tasks)
+    .filter((t) => t.parentTaskId === task.id && t.id !== task.id && t.projectId === task.projectId)
+    .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title));
   const project = projects[task.projectId];
   const run = info.run;
   const exec = executionLine(task, run, eligibility);
@@ -427,6 +443,50 @@ export function TaskDetailBody({ task, onDeleted }: { task: Task; onDeleted?: ()
       </Section>
 
       {task.state === "review" && <ReviewPanel task={task} />}
+
+      <Section title="Parent and subtasks">
+        <dl className="flex flex-col gap-1">
+          <DetailRow label="Parent">
+            {parent ? (
+              <TextLink to={ROUTES.task(parent.id)} variant="action">
+                {parent.title}
+              </TextLink>
+            ) : task.parentTaskId ? (
+              "A task that is no longer available"
+            ) : (
+              "None"
+            )}
+          </DetailRow>
+          {task.agentOrigin && (
+            <DetailRow label="Created by">
+              Agent in{" "}
+              <TextLink to={ROUTES.session(task.agentOrigin.sessionId)} variant="action">
+                {sessions[task.agentOrigin.sessionId]?.title ?? task.agentOrigin.sessionId}
+              </TextLink>
+              <span className="block text-xs text-muted">
+                Tool call: {task.agentOrigin.toolCallId}
+              </span>
+            </DetailRow>
+          )}
+        </dl>
+        {children.length === 0 ? (
+          <p className="text-sm text-muted">No subtasks.</p>
+        ) : (
+          <ul aria-label="Subtasks" className="flex flex-col gap-1">
+            {children.map((child) => (
+              <li key={child.id} className="flex min-w-0 items-center gap-2 text-sm">
+                <StatusChip kind="task" value={child.state} size="sm" />
+                <TextLink to={ROUTES.task(child.id)} variant="action" className="truncate">
+                  {child.title}
+                </TextLink>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-muted">
+          Parent relationships do not add dependencies. Each task moves and runs independently.
+        </p>
+      </Section>
 
       <Section title="Dependencies">
         {task.dependencies.length === 0 ? (
@@ -728,6 +788,7 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
   const [criteria, setCriteria] = useState(task.acceptanceCriteria.join("\n"));
   const [priority, setPriority] = useState<Priority>(task.priority);
   const [deps, setDeps] = useState<string[]>(task.dependencies);
+  const [parentId, setParentId] = useState(task.parentTaskId ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const id = useId();
@@ -761,6 +822,7 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
               .filter(Boolean),
             priority,
             dependencies: deps,
+            parentTaskId: parentId || null,
           });
           toast.success("Task saved");
           onDone();
@@ -800,6 +862,11 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
       <Field id={`${id}-prio`} label="Priority">
         {(p) => <PrioritySelect {...p} value={priority} onChange={setPriority} />}
       </Field>
+      <ParentPicker
+        candidates={parentCandidates(task.projectId, tasks, task.id)}
+        value={parentId}
+        onChange={setParentId}
+      />
       <DependencyPicker candidates={candidates} value={deps} onChange={setDeps} />
       {error && (
         <p role="alert" className="text-sm text-danger">
@@ -815,6 +882,44 @@ function EditTaskForm({ task, onDone }: { task: Task; onDone: () => void }) {
         </Button>
       </div>
     </form>
+  );
+}
+
+export function ParentPicker({
+  candidates,
+  value,
+  onChange,
+  error,
+}: {
+  candidates: Task[];
+  value: string;
+  onChange: (id: string) => void;
+  error?: string;
+}) {
+  const id = useId();
+  return (
+    <Field
+      id={id}
+      label="Parent task"
+      hint="Optional grouping only; dependencies are selected separately."
+      error={error}
+    >
+      {(p) => (
+        <Select {...p} value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="">None</option>
+          {value && !candidates.some((t) => t.id === value) && (
+            <option value={value} disabled>
+              Unavailable parent — choose another or None
+            </option>
+          )}
+          {candidates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title} ({STATE_LABELS[t.state]})
+            </option>
+          ))}
+        </Select>
+      )}
+    </Field>
   );
 }
 

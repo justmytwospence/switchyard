@@ -47,11 +47,17 @@ export function putTaskState(
 }
 
 /** Persist a run with `updatedAt` and the project scope. Joins the caller's transaction. */
-export function saveRun(ctx: CoordinatorContext, run: Run, patch: Partial<Run> = {}): Run {
+export function saveRun(
+  ctx: CoordinatorContext,
+  run: Run,
+  patch: Partial<Run> = {},
+  options: { completion?: "final_failure" } = {},
+): Run {
   const task = ctx.store.tasks.get(run.taskId);
   return ctx.store.putRun(
     { ...run, ...patch, updatedAt: ctx.store.nowIso() },
     task?.projectId ?? undefined,
+    options,
   );
 }
 

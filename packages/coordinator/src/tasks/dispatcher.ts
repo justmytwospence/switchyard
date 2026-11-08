@@ -1043,11 +1043,16 @@ export class Dispatcher {
       const run = store.runs.get(runId);
       if (!run || !(run.state === "running" || run.state === "waiting_input")) return;
       const reason = `Launch prompt was not delivered: ${promptError}`;
-      saveRun(this.ctx, run, {
-        state: "failed",
-        endedAt: store.nowIso(),
-        outcome: { kind: "failed", summary: reason },
-      });
+      saveRun(
+        this.ctx,
+        run,
+        {
+          state: "failed",
+          endedAt: store.nowIso(),
+          outcome: { kind: "failed", summary: reason },
+        },
+        { completion: "final_failure" },
+      );
       const task = store.tasks.get(run.taskId);
       if (!task || task.currentRunId !== run.id) return;
       const blocked = putTaskState(this.ctx, task, task.state, { blocked: { reason } });
@@ -1102,22 +1107,27 @@ export class Dispatcher {
       };
       const started =
         details.started === true || details.state === "started" || details.stage === "started";
-      const failed = saveRun(this.ctx, run, {
-        state: "failed",
-        endedAt: now,
-        outcome: { kind: "failed", summary: `Launch failed: ${error.message}` },
-      });
+      const retry =
+        mayRetry &&
+        !started &&
+        !DETERMINISTIC_ERRORS.has(error.code) &&
+        run.controlMode === "automation" &&
+        run.infraRetries < this.opts.maxInfraRetries;
+      const failed = saveRun(
+        this.ctx,
+        run,
+        {
+          state: "failed",
+          endedAt: now,
+          outcome: { kind: "failed", summary: `Launch failed: ${error.message}` },
+        },
+        retry ? {} : { completion: "final_failure" },
+      );
       const session = run.sessionId ? store.sessions.get(run.sessionId) : undefined;
       if (session && session.runtime === "starting") {
         store.putSession({ ...session, runtime: "failed", runtimeDetail: error.message });
       }
       if (!task || task.currentRunId !== run.id) return;
-      const retry =
-        mayRetry &&
-        !started &&
-        !DETERMINISTIC_ERRORS.has(error.code) &&
-        failed.controlMode === "automation" &&
-        failed.infraRetries < this.opts.maxInfraRetries;
       if (retry) {
         const id = newId("run");
         const queued: Run = {
