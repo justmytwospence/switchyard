@@ -58,6 +58,7 @@ describe("queueKey", () => {
 describe("read-only and checkout lanes", () => {
   it("runs read-only commands without a queue and serializes mutations per checkout", () => {
     const reads: HostCommand[] = [
+      { type: "session.messageStatus", sessionId: "ses_1", messageIds: ["message1"] },
       { type: "session.importable" },
       { type: "session.readNative", sessionFile: "/x.jsonl" },
       { type: "checkout.inspect", path: "/r" },

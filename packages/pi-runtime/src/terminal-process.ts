@@ -15,6 +15,15 @@ import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  type BridgeAgentResult,
+  type BridgeFeatures,
+  type BridgeMethod,
+  type BridgeRequestOptions,
+  BridgeRequests,
+  parseBridgeRecord,
+  validateAgentResult,
+} from "./bridge-wire.js";
 import { JsonlReader, writeJsonl } from "./jsonl.js";
 import {
   type PiExit,
@@ -148,6 +157,9 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
   readonly stderr = "";
   private socket: Socket;
   private readonly pending = new Map<string, PendingRequest>();
+  private readonly bridgePending = new BridgeRequests();
+  private bridgeFeatures: BridgeFeatures | null = null;
+  private readonly agentRequests = new Set<string>();
   private nextId = 0;
   private seq = 0;
   private closeRequested = false;
@@ -176,11 +188,14 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     });
     JsonlReader.attach(
       socket,
-      (record) => this.onRecord(record),
+      (record) => {
+        if (socket === this.socket && !this.detached && !this.exitInfo) this.onRecord(record);
+      },
       (err, line) => this.emit("protocol_error", err, line),
     );
     socket.on("close", () => {
       if (this.detached || this.exitInfo || socket !== this.socket) return;
+      this.resetBridge("Terminal control socket closed");
       if (this.abandoned || this.reconnects >= MAX_RECONNECTS) {
         this.finishLost();
         return;
@@ -371,6 +386,31 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     });
   }
 
+  bridgeRequest<T = unknown>(
+    method: BridgeMethod,
+    args: unknown,
+    options?: BridgeRequestOptions,
+  ): Promise<T> {
+    if (this.exitInfo || this.detached || this.socket.destroyed || !this.bridgeFeatures) {
+      return Promise.reject(new PiRpcError(method, "Bridge is not connected", "transport"));
+    }
+    if (method === "configure") this.agentRequests.clear();
+    const socket = this.socket;
+    return this.bridgePending.request<T>(
+      method,
+      args,
+      (frame) => writeJsonl(socket, frame),
+      options,
+    );
+  }
+
+  replyAgent(frame: BridgeAgentResult): void {
+    const reply = validateAgentResult(frame);
+    const key = JSON.stringify([reply.runtimeId, reply.bindingId, reply.requestId]);
+    if (!this.agentRequests.delete(key) || this.detached || this.exitInfo) return;
+    void writeJsonl(this.socket, reply).catch(() => {});
+  }
+
   respondUi(id: string, body: PiUiResponseBody): Promise<void> {
     return writeJsonl(this.socket, { type: "extension_ui_response", id, ...body });
   }
@@ -410,7 +450,16 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       p.reject(new PiRpcError(p.command, "Detached from the terminal holder", "transport"));
     }
     this.pending.clear();
+    this.resetBridge("Detached from the terminal holder");
     this.socket.destroy();
+  }
+
+  private resetBridge(reason: string): void {
+    this.bridgePending.cancel(reason);
+    this.bridgeFeatures = null;
+    this.agentRequests.clear();
+    this.bridgeConnected = false;
+    this.emit("bridge_lost");
   }
 
   private finish(info: PiExit): void {
@@ -422,6 +471,7 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       p.reject(new PiRpcError(p.command, reason, "transport"));
     }
     this.pending.clear();
+    this.resetBridge(reason);
     this.socket.destroy();
     this.resolveExit(info);
     this.emit("exit", info);
@@ -430,6 +480,33 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
   private onRecord(record: unknown): void {
     if (!record || typeof record !== "object") return;
     const rec = record as Record<string, any>;
+    try {
+      const local = parseBridgeRecord(record);
+      if (local?.type === "bridge.receipt") {
+        this.bridgePending.receive(local);
+        return;
+      }
+      if (local?.type === "agent.hello") {
+        this.bridgePending.setHello(local);
+        this.agentRequests.clear();
+        this.bridgeFeatures = local;
+        this.bridgeConnected = true;
+        this.emit("bridge_features", local);
+        return;
+      }
+      if (local?.type === "agent.request") {
+        if (!this.bridgePending.accepts(local)) return;
+        const key = JSON.stringify([local.runtimeId, local.bindingId, local.requestId]);
+        if (this.agentRequests.has(key)) return;
+        if (this.agentRequests.size >= 256) throw new Error("Too many pending agent requests");
+        this.agentRequests.add(key);
+        this.emit("agent_request", local);
+        return;
+      }
+    } catch (error) {
+      this.emit("protocol_error", error, JSON.stringify(record));
+      return;
+    }
     switch (rec.type) {
       case "response": {
         const id = typeof rec.id === "string" ? rec.id : undefined;
@@ -498,6 +575,13 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
         });
         return;
       default:
+        if (
+          rec.type === "switchyard_native" &&
+          this.bridgeFeatures &&
+          rec.sessionId !== this.bridgeFeatures.nativeSessionId
+        ) {
+          this.resetBridge("Native session changed");
+        }
         this.emit("event", rec);
     }
   }

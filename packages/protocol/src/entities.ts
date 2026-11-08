@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { GitHubIssue, HostGitHub, WorkspaceGitHub } from "./github.js";
+import { PolicyPermission, PolicyPhase } from "./policies.js";
 import { UINodeSchema } from "./ui.js";
 
 const Iso = z.string();
@@ -44,6 +46,9 @@ export const RuntimeCapabilities = CoreCapabilities.extend({
   sessionControls: z.boolean().optional(),
   /** The host answers session.navigate for terminal sessions. */
   treeNavigation: z.boolean().optional(),
+  agentRequests: z.boolean().optional(),
+  messageDelivery: z.boolean().optional(),
+  policies: z.boolean().optional(),
   unsupported: z.array(z.object({ capability: z.string(), reason: z.string() })),
 });
 export type RuntimeCapabilities = z.infer<typeof RuntimeCapabilities>;
@@ -97,6 +102,7 @@ export const Host = z.object({
   projectScan: ProjectScan.nullable().optional(),
   /** Subscription limits (host-reported, refreshed every few minutes). */
   usage: z.array(ProviderUsage).optional(),
+  github: HostGitHub.optional(),
 });
 export type Host = z.infer<typeof Host>;
 
@@ -164,6 +170,7 @@ export const Workspace = z.object({
   }),
   archivedAt: Iso.nullable(),
   updatedAt: Iso,
+  github: WorkspaceGitHub.optional(),
 });
 export type Workspace = z.infer<typeof Workspace>;
 
@@ -319,6 +326,17 @@ export const Session = z.object({
   unreadSince: Iso.nullable().optional(),
   /** Bumped when the transcript is rebuilt (rewind); clients drop cached copies (coordinator-owned). */
   transcriptEpoch: z.number().int().min(0).optional(),
+  bridge: z
+    .object({
+      version: z.literal(1),
+      runtimeId: Id,
+      nativeSessionId: Id,
+      agentTools: z.boolean(),
+      messageDelivery: z.boolean(),
+      policyState: z.enum(["initializing", "active", "unsupported", "lost"]),
+      policyPhases: z.array(PolicyPhase),
+    })
+    .optional(),
   /** Last assistant message's cache usage (host-owned). */
   promptCache: PromptCacheInfo.nullable().optional(),
   /** Warn before the prompt cache expires; non-null means on (coordinator-owned). */
@@ -408,6 +426,9 @@ export const Task = z.object({
   policy: TaskPolicy,
   origin: TaskOrigin,
   groupingKey: z.string().nullable(),
+  parentTaskId: Id.nullable().optional(),
+  agentOrigin: z.object({ sessionId: Id, toolCallId: Id }).optional(),
+  githubIssue: GitHubIssue.optional(),
   currentRunId: Id.nullable(),
   sessionId: Id.nullable(),
   review: z.object({ feedback: z.array(z.string()), changesRequested: z.boolean() }),
@@ -560,6 +581,7 @@ export const Interaction = z.object({
     z.object({ kind: z.literal("unsupported_custom"), title: z.string().nullable() }),
   ]),
   adapterId: z.string().nullable(),
+  permission: PolicyPermission.optional(),
   title: z.string(),
   presentation: UINodeSchema,
   state: InteractionState,

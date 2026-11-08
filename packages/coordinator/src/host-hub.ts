@@ -1,5 +1,8 @@
 import {
   AdapterInfo,
+  AGENT_FRAME_MAX_BYTES,
+  AgentRequestFrame,
+  AgentResultFrame,
   AttentionReason,
   type CoordinatorToHost,
   Diagnostic,
@@ -42,6 +45,7 @@ export interface HostHubOptions {
 interface Pending {
   hostId: string;
   frame: string;
+  command: HostCommand;
   resolve: (r: Receipt) => void;
   reject: (e: Error) => void;
   timer: NodeJS.Timeout;
@@ -50,7 +54,16 @@ interface Pending {
 interface Conn {
   socket: WebSocket;
   alive: boolean;
+  features: Set<string>;
 }
+
+export type AgentRequestHandler = (
+  authenticatedHostId: string,
+  frame: AgentRequestFrame,
+) => Promise<AgentResultFrame>;
+
+// Do not advertise policy enforcement until the coordinator policy service is installed.
+const AGENT_FEATURES = ["agentRequests.v1"] as const;
 
 /** Session fields the host is authoritative for; the rest belong to the coordinator. */
 const HOST_SESSION_FIELDS = [
@@ -69,6 +82,7 @@ const HOST_SESSION_FIELDS = [
   "lastAssistantText",
   "lastActivityAt",
   "terminal",
+  "bridge",
 ] as const;
 
 /** Where host terminal frames go (the coordinator's TerminalHub). */
@@ -103,6 +117,7 @@ export class HostHub {
   private workspaceBuffer = new Map<string, Record<string, unknown>>();
   private pingTimer: NodeJS.Timeout | null = null;
   private terminalSink: TerminalSink | null = null;
+  private agentHandler: AgentRequestHandler | null = null;
 
   constructor(
     private readonly store: Store,
@@ -138,6 +153,15 @@ export class HostHub {
 
   setTerminalSink(sink: TerminalSink): void {
     this.terminalSink = sink;
+  }
+
+  /** Separate request lane: never await agent tools behind host events or command receipts. */
+  setAgentHandler(handler: AgentRequestHandler | null): void {
+    this.agentHandler = handler;
+  }
+
+  negotiatedFeatures(hostId: string): ReadonlySet<string> {
+    return new Set(this.conns.get(hostId)?.features);
   }
 
   /** Send a terminal relay frame; false when the host is not connected. */
@@ -177,13 +201,26 @@ export class HostHub {
     command: HostCommand,
     opts: { timeoutMs?: number; commandId?: string } = {},
   ): Promise<Receipt> {
-    const parsed = HostCommand.parse(command);
+    let parsed = HostCommand.parse(command);
     const conn = this.conns.get(hostId);
     if (!conn || conn.socket.readyState !== WsOpen) {
       const name = this.store.hosts.get(hostId)?.name ?? hostId;
       return Promise.reject(
         new SwitchyardError("host_unreachable", `Host ${name} is not connected`, { hostId }),
       );
+    }
+    if (!this.supportsCommand(conn, parsed)) {
+      return Promise.reject(
+        new SwitchyardError("unsupported_capability", `Host does not support ${parsed.type}`),
+      );
+    }
+    if (
+      (parsed.type === "session.start" || parsed.type === "dispatch.start") &&
+      !conn.features.has("policies.v1")
+    ) {
+      // Optional legacy launches stay usable, without new protection fields on old hosts.
+      const { policyRequired: _policyRequired, ...legacy } = parsed;
+      parsed = legacy;
     }
     const commandId = opts.commandId ?? newId("cmd");
     const existing = this.pending.get(commandId);
@@ -218,9 +255,22 @@ export class HostHub {
         );
       }, timeoutMs);
       timer.unref();
-      this.pending.set(commandId, { hostId, frame, resolve, reject, timer });
+      this.pending.set(commandId, { hostId, frame, command: parsed, resolve, reject, timer });
       conn.socket.send(frame);
     });
+  }
+
+  private supportsCommand(conn: Conn, command: HostCommand): boolean {
+    if (command.type === "session.deliverMessage" || command.type === "session.messageStatus") {
+      return conn.features.has("agentRequests.v1");
+    }
+    if (
+      (command.type === "session.start" || command.type === "dispatch.start") &&
+      command.policyRequired
+    ) {
+      return conn.features.has("agentRequests.v1") && conn.features.has("policies.v1");
+    }
+    return true;
   }
 
   /**
@@ -272,13 +322,27 @@ export class HostHub {
     helloTimer.unref();
 
     socket.on("message", (raw) => {
+      if (hostId && !this.isCurrentSocket(hostId, socket)) return;
+      let json: unknown;
       let frame: HostToCoordinator;
       try {
-        frame = HostToCoordinator.parse(JSON.parse(raw.toString()));
+        json = JSON.parse(raw.toString());
+        const loose = json as { type?: unknown } | null;
+        if (
+          hostId &&
+          loose?.type === "agent.request" &&
+          Buffer.byteLength(raw.toString()) > AGENT_FRAME_MAX_BYTES
+        ) {
+          this.invalidAgentRequest(hostId, socket, json, "Agent request exceeds 128 KiB");
+          return;
+        }
+        frame = HostToCoordinator.parse(json);
       } catch (err) {
         this.log.warn({ err, hostId }, "invalid host frame");
         if (!hostId) {
           this.reject(socket, "invalid_request", "Expected hello");
+        } else {
+          this.invalidAgentRequest(hostId, socket, json, "Invalid agent request");
         }
         return;
       }
@@ -291,7 +355,7 @@ export class HostHub {
         hostId = this.onHello(socket, frame);
         return;
       }
-      if (this.conns.get(hostId)?.socket !== socket) return;
+      if (!this.isCurrentSocket(hostId, socket)) return;
       try {
         this.onFrame(hostId, socket, frame);
       } catch (err) {
@@ -353,7 +417,8 @@ export class HostHub {
     }
     const hostId = hello.hostId;
     const old = this.conns.get(hostId);
-    this.conns.set(hostId, { socket, alive: true });
+    const features = new Set(AGENT_FEATURES.filter((f) => hello.features?.includes(f)));
+    this.conns.set(hostId, { socket, alive: true, features });
     if (old && old.socket !== socket) old.socket.close(4000, "replaced by a newer connection");
     const t = this.unreachableTimers.get(hostId);
     if (t) clearTimeout(t);
@@ -382,9 +447,20 @@ export class HostHub {
       type: "welcome",
       coordinatorVersion: COORDINATOR_VERSION,
       ackedHostSeq: this.store.ackedHostSeq(hostId),
+      ...(hello.features === undefined ? {} : { features: [...features] }),
     });
     // Snapshot first: the setControl frames sent below would otherwise go out twice.
-    const resend = [...this.pending.entries()].filter(([, p]) => p.hostId === hostId);
+    const resend = [...this.pending.entries()].filter(([id, p]) => {
+      if (p.hostId !== hostId) return false;
+      if (this.supportsCommand(this.conns.get(hostId)!, p.command)) return true;
+      // A replacement may be older than the original host. Do not replay new commands to it.
+      clearTimeout(p.timer);
+      this.pending.delete(id);
+      p.reject(
+        new SwitchyardError("unsupported_capability", "Replacement host lacks command support"),
+      );
+      return false;
+    });
     const sent = new Set<string>();
     // The host learns current control before any re-sent automated command can run.
     for (const run of this.store.activeRunsOnHost(hostId)) {
@@ -421,6 +497,11 @@ export class HostHub {
     switch (frame.type) {
       case "hello":
         return;
+      case "agent.request":
+        void this.onAgentRequest(hostId, socket, frame).catch((err) =>
+          this.log.warn({ err, hostId, requestId: frame.requestId }, "agent response failed"),
+        );
+        return;
       case "event": {
         this.applyHostEvent(hostId, frame.hostSeq, frame.event);
         this.sendFrame(socket, { type: "ack", hostSeq: this.store.ackedHostSeq(hostId) });
@@ -454,6 +535,100 @@ export class HostHub {
         this.terminalSink?.frame(hostId, frame.streamId, frame.msg);
         return;
     }
+  }
+
+  private isCurrentSocket(hostId: string, socket: WebSocket): boolean {
+    const host = this.store.hosts.get(hostId);
+    return (
+      this.conns.get(hostId)?.socket === socket &&
+      socket.readyState === WsOpen &&
+      !!host &&
+      !host.revokedAt
+    );
+  }
+
+  /** Malformed requests with usable correlation ids receive an error, not a link rejection. */
+  private invalidAgentRequest(
+    hostId: string,
+    socket: WebSocket,
+    json: unknown,
+    message: string,
+  ): void {
+    if (!this.isCurrentSocket(hostId, socket)) return;
+    if ((json as { type?: unknown } | null)?.type !== "agent.request") return;
+    const ids = AgentRequestFrame.pick({ requestId: true, runtimeId: true }).safeParse(json);
+    if (!ids.success) return;
+    this.sendFrame(socket, {
+      type: "agent.result",
+      ...ids.data,
+      ok: false,
+      error: { code: "invalid_request", message },
+    });
+  }
+
+  private async onAgentRequest(
+    hostId: string,
+    socket: WebSocket,
+    frame: AgentRequestFrame,
+  ): Promise<void> {
+    let response: AgentResultFrame;
+    try {
+      if (!this.isCurrentSocket(hostId, socket)) return;
+      const features = this.conns.get(hostId)!.features;
+      if (
+        !features.has("agentRequests.v1") ||
+        (frame.method.startsWith("policy.") && !features.has("policies.v1"))
+      ) {
+        throw new SwitchyardError(
+          "unsupported_capability",
+          "Agent request feature was not negotiated",
+        );
+      }
+      const session = this.ownedSession(hostId, frame.sessionId);
+      if (!session) throw new SwitchyardError("not_found", `Session ${frame.sessionId} not found`);
+      if (
+        (frame.method === "task.create" || frame.method === "message.send") &&
+        !frame.toolCallId
+      ) {
+        throw new SwitchyardError("invalid_request", "Mutating agent tools require toolCallId");
+      }
+      if (!this.agentHandler)
+        throw new SwitchyardError("unsupported_capability", "Agent requests are unavailable");
+      response = AgentResultFrame.parse(await this.agentHandler(hostId, frame));
+      if (response.requestId !== frame.requestId || response.runtimeId !== frame.runtimeId) {
+        throw new SwitchyardError("internal", "Agent handler returned mismatched correlation ids");
+      }
+      if (Buffer.byteLength(JSON.stringify(response)) > AGENT_FRAME_MAX_BYTES) {
+        throw new SwitchyardError("invalid_request", "Agent result exceeds 128 KiB");
+      }
+    } catch (err) {
+      const error =
+        err instanceof SwitchyardError
+          ? err.toBody()
+          : { code: "internal" as const, message: "Agent request failed" };
+      response = {
+        type: "agent.result",
+        requestId: frame.requestId,
+        runtimeId: frame.runtimeId,
+        ok: false,
+        error,
+      };
+      // Error details are also untrusted output and must fit the transport's size bound.
+      try {
+        if (Buffer.byteLength(JSON.stringify(response)) > AGENT_FRAME_MAX_BYTES)
+          throw new Error("oversized error");
+      } catch {
+        response = {
+          type: "agent.result",
+          requestId: frame.requestId,
+          runtimeId: frame.runtimeId,
+          ok: false,
+          error: { code: "invalid_request", message: "Invalid agent error result" },
+        };
+      }
+    }
+    // A slow policy status/ASK must never reply over a replacement or revoked connection.
+    if (this.isCurrentSocket(hostId, socket)) this.sendFrame(socket, response);
   }
 
   private heartbeat(): void {
@@ -708,6 +883,27 @@ export class HostHub {
         connectivity,
       });
     }
+    if (next.bridge) {
+      // Bind owns native identity even before Pi has created a session file. Preserve it across
+      // partial/older host projections whose bridge schema does not yet include that field.
+      const bridge = next.bridge as NonNullable<Session["bridge"]> & { nativeSessionId?: string };
+      const previousBridge = existing?.bridge as typeof bridge | undefined;
+      if (bridge.runtimeId === previousBridge?.runtimeId && previousBridge?.nativeSessionId) {
+        next.bridge = {
+          ...bridge,
+          nativeSessionId: previousBridge.nativeSessionId,
+        } as typeof bridge;
+      }
+      if (!this.negotiatedFeatures(hostId).has("agentRequests.v1")) {
+        next.bridge = { ...next.bridge!, agentTools: false, messageDelivery: false };
+      }
+      next.bridge = {
+        ...next.bridge!,
+        policyState:
+          next.bridge!.policyState === "active" ? "unsupported" : next.bridge!.policyState,
+        policyPhases: [],
+      };
+    }
     const prev = existing?.runtime;
     const finished = (prev === "running" || prev === "waiting_input") && next.runtime === "idle";
     const failed = next.runtime === "failed" && prev !== "failed";
@@ -748,6 +944,9 @@ export class HostHub {
   private projectInteraction(hostId: string, i: Interaction): void {
     const session = this.ownedSession(hostId, i.sessionId);
     const existing = this.store.interactions.get(i.id);
+    if (i.permission?.kind === "policy" || existing?.permission?.kind === "policy") {
+      throw new SwitchyardError("forbidden", "Policy interactions are coordinator-owned");
+    }
     if (existing && JSON.stringify(existing) === JSON.stringify(i)) return;
     this.store.putInteraction(i, { hostId, projectId: session?.projectId ?? undefined });
     this.reconcileInputAttention(i);

@@ -13,6 +13,7 @@ import type { Dispatcher } from "./dispatch.js";
 import { listDir, readWorkspaceFile } from "./files.js";
 import { diffWorkspace, discoverWorktrees, inspectCheckout, worktreeStatus } from "./git.js";
 import type { Logger } from "./logger.js";
+import type { MessageDeliveryWorker } from "./message-delivery.js";
 import { scanProjectFolder } from "./project-folders.js";
 import { suggestProjects } from "./project-suggestions.js";
 import type { SessionSupervisor } from "./supervisor.js";
@@ -44,6 +45,7 @@ export interface CommandRouterOptions {
   log: Logger;
   sendReceipt: (receipt: Receipt) => void;
   testHooks?: HostTestHooks;
+  delivery?: Pick<MessageDeliveryWorker, "accept" | "getStatus">;
   /** Environment for checks. */
   env?: Record<string, string | undefined>;
   /** Timeout per check command (default 30 min). */
@@ -52,8 +54,9 @@ export interface CommandRouterOptions {
 
 export const RESTARTED_WHILE_RUNNING = "Host restarted while running";
 
-/** Sessionless commands that only read: they never queue (bounded by READ_CONCURRENCY). */
+/** Read-only commands, including message status: never queue behind prompts (bounded reads). */
 export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostCommandType>([
+  "session.messageStatus",
   "session.importable",
   "session.readNative",
   "checkout.inspect",
@@ -70,11 +73,14 @@ export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostComm
 export const READ_CONCURRENCY = 8;
 
 /**
- * Commands safe to run again after a restart: reads, checks, and dispatch (idempotent by its
- * dispatch key). Every other command leaves a pending marker while it runs; a marker found at
- * startup means the host died mid-command, and the command is answered with an error, never rerun.
+ * Commands safe to run again after a restart: reads, checks, dispatch (idempotent by its
+ * dispatch key), and durable message acceptance (idempotent by its immutable delivery ID).
+ * Every other command leaves a pending marker while it runs; a marker found at startup means
+ * the host died mid-command, and the command is answered with an error, never rerun.
  */
 const RERUNNABLE = new Set<HostCommand["type"]>([
+  "session.deliverMessage",
+  "session.messageStatus",
   "dispatch.start",
   "dispatch.reconcile",
   "checks.run",
@@ -114,6 +120,7 @@ export function toErrorBody(err: unknown): ErrorBody {
  */
 export function queueKey(command: HostCommand): string | null {
   if (READ_ONLY_COMMANDS.has(command.type)) return null;
+  if (command.type === "session.deliverMessage") return `message:${command.sessionId}`;
   if (command.type === "checks.run") return `checks:${command.sessionId}`;
   // Control commands get their own per-session lane. A prompt that runs a slash command which
   // opens a dialog does not return until that dialog is answered, so the answer (and Stop) must
@@ -173,8 +180,8 @@ export class CommandRouter {
   }
 
   /**
-   * Answer every command a previous run left pending (the host died while it ran) with an error,
-   * so a resend gets that answer instead of running it a second time. Call before the link starts.
+   * Recover commands a previous run left pending before the link starts. Only durable message
+   * acceptance can safely discard its old marker and retry; other mutations get a restarted error.
    */
   recoverPending(): number {
     const { db } = this.opts;
@@ -184,6 +191,10 @@ export class CommandRouter {
       );
       for (const row of rows) {
         const type = (JSON.parse(row.json) as { type?: string }).type;
+        if (type === "session.deliverMessage") {
+          db.run("DELETE FROM receipts WHERE command_id = ?", [row.command_id]);
+          continue;
+        }
         const receipt: Receipt = {
           commandId: row.command_id,
           ok: false,
@@ -355,6 +366,7 @@ export class CommandRouter {
           controlMode: c.controlMode,
           origin: c.origin,
           readOnly: c.readOnly,
+          policyRequired: c.policyRequired,
         });
       case "session.prompt": {
         if (c.origin === "automation") {
@@ -372,7 +384,27 @@ export class CommandRouter {
           }
           sup.noteRevision(c.sessionId, c.controlRevision);
         }
-        return sup.prompt(c.sessionId, c.text, c.images, c.mode);
+        return sup.prompt(c.sessionId, c.text, c.images, c.mode, c.origin);
+      }
+      case "session.deliverMessage": {
+        const worker = this.opts.delivery;
+        if (!worker)
+          throw new SwitchyardError(
+            "unsupported_capability",
+            "Message delivery worker is unavailable",
+          );
+        if (!sup.record(c.sessionId))
+          throw new SwitchyardError("not_found", `Session ${c.sessionId} not found`);
+        // Acceptance only persists/reuses the job. The independent worker owns all Pi effects.
+        return worker.accept(c);
+      }
+      case "session.messageStatus": {
+        if (!this.opts.delivery)
+          throw new SwitchyardError(
+            "unsupported_capability",
+            "Message delivery worker is unavailable",
+          );
+        return this.opts.delivery.getStatus(c.sessionId, c.messageIds);
       }
       case "session.abort":
         return sup.abort(c.sessionId, c.clearQueue);

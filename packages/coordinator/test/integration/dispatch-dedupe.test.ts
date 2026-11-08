@@ -110,11 +110,13 @@ describe("dispatch dedupe after a lost receipt", { timeout: 180_000 }, () => {
 
   it("receipt lost, link drops at once: the resent command gets the stored receipt", async () => {
     let dropped: string | null = null;
+    let linkStopped: Promise<void> | undefined;
     env.hooks.dropReceipt = (commandId, cmd) => {
       if (cmd.type === "dispatch.start" && dropped === null) {
         dropped = commandId;
-        // The link drops right after the lost receipt; it reconnects after the short backoff.
-        env.agent!.link.dropConnection();
+        // Hold reconnect until the coordinator observes the disconnect: a fast replacement can
+        // arrive before the old socket's close event and legitimately skip the uncertain state.
+        linkStopped = env.agent!.link.stop();
         return true;
       }
       return false;
@@ -130,6 +132,10 @@ describe("dispatch dedupe after a lost receipt", { timeout: 180_000 }, () => {
     await waitFor(() => dropped !== null, "receipt dropped");
     // The disconnect makes the launch uncertain right away.
     await waitFor(() => (seen.get(run0.id) ?? []).includes("uncertain"), "uncertain");
+    await linkStopped;
+    // Reconnect before the receipt deadline, unlike the reconciliation case above.
+    expect(awaitingReceipt(dropped!)).toBe(true);
+    env.agent!.link.start();
     await env.waitHostConnected();
     const adopted = await env.waitRun(
       task.id,
@@ -139,8 +145,9 @@ describe("dispatch dedupe after a lost receipt", { timeout: 180_000 }, () => {
     expect(adopted.id).toBe(run0.id);
     expect(adopted.sessionId).toBe(run0.sessionId);
 
-    // The same commandId may have been delivered again; the host answered it from its receipt.
+    // The pending command is replayed with the same commandId and answered from its receipt.
     const log = env.agent!.router.commandLog.filter((e) => e.commandId === dropped);
+    expect(log.length).toBeGreaterThanOrEqual(2);
     expect(log[0]!.outcome).toBe("ok");
     for (const dup of log.slice(1)) expect(dup.outcome).toBe("duplicate");
     const starts = env

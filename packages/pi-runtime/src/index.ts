@@ -1,5 +1,28 @@
 export { modelInfo, supportedThinkingLevels } from "./bridge/pi-model.js";
 export {
+  AgentContextIds,
+  BridgeAgentRequest,
+  BridgeAgentResult,
+  BridgeCapabilities,
+  BridgeCommand,
+  BridgeCommandHeader,
+  BridgeConfiguration,
+  type BridgeFeatures,
+  BridgeHello,
+  type BridgeMethod,
+  BridgeReceipt,
+  type BridgeRequestOptions,
+  type BridgeState,
+  DeliveryAcceptArgs,
+  DeliveryAttempt,
+  DeliveryEvidence,
+  DeliveryOffer,
+  DeliveryStatusArgs,
+  deliveryOfferHash,
+  parseBridgeRecord,
+  validateAgentResult,
+} from "./bridge-wire.js";
+export {
   assertCompatible,
   detectPi,
   incompatibleMessage,

@@ -80,4 +80,40 @@ CREATE TABLE panels (
     name: "002_interaction_canceled",
     sql: "UPDATE interactions SET state = 'canceled', json = json_set(json, '$.state', 'canceled') WHERE state = 'cancelled';",
   },
+  {
+    name: "003_agent_messages",
+    sql: `
+-- Logical delivery receipts outlive generic command receipts. An applying claim means Pi may
+-- have received the message; only native append evidence or a live queue can reconcile it.
+CREATE TABLE message_receipts (
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  requested_mode TEXT NOT NULL CHECK (requested_mode IN ('steer', 'queue')),
+  hold_until TEXT NOT NULL,
+  offer_hash TEXT NOT NULL CHECK (length(offer_hash) = 64 AND offer_hash NOT GLOB '*[^0-9a-f]*'),
+  attempt_id TEXT,
+  attempt_runtime_id TEXT,
+  attempt_native_session_id TEXT,
+  -- Latch confirmed invocation evidence: a later missing queue must never authorize reaccept.
+  effect_confirmed INTEGER NOT NULL DEFAULT 0 CHECK (effect_confirmed IN (0, 1)),
+  next_attempt_at TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN (
+    'accepted', 'applying', 'held', 'deferred', 'queued', 'appended', 'uncertain', 'failed'
+  )),
+  claimed_at TEXT,
+  result_json TEXT,
+  reason TEXT CHECK (reason IN ('draft', 'dialog', 'effect_unknown')),
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (attempt_id IS NULL AND attempt_runtime_id IS NULL AND attempt_native_session_id IS NULL)
+    OR (attempt_id IS NOT NULL AND attempt_runtime_id IS NOT NULL AND attempt_native_session_id IS NOT NULL)
+  ),
+  CHECK (state NOT IN ('applying', 'held', 'queued', 'appended', 'uncertain') OR attempt_id IS NOT NULL),
+  PRIMARY KEY (session_id, message_id)
+);
+CREATE INDEX message_receipts_due ON message_receipts (next_attempt_at)
+  WHERE state NOT IN ('appended', 'failed');
+`,
+  },
 ];

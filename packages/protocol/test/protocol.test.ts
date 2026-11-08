@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  AgentRequestFrame,
+  AgentResultFrame,
   branchSlug,
   CAPABILITY_KEYS,
   CoordinatorToHost,
+  CreateAgentTask,
   DEFAULT_WORKTREE_DIR,
   DeviceKind,
   EventEnvelope,
@@ -14,7 +17,9 @@ import {
   newId,
   Profile,
   parseFrameMessage,
+  ReadAgentInbox,
   RuntimeCapabilities,
+  SendAgentMessage,
   Session,
   SwitchyardError,
   TaskPolicy,
@@ -110,6 +115,59 @@ describe("wire", () => {
     expect(Profile.safeParse({ ...base, extraArgs: ["--verbose"] }).success).toBe(true);
     expect(Profile.safeParse({ ...base, extraArgs: ["--session=x"] }).success).toBe(false);
     expect(Profile.safeParse({ ...base, extraArgs: ["--mode"] }).success).toBe(false);
+  });
+});
+
+describe("agent wire", () => {
+  const base = {
+    type: "agent.request",
+    requestId: "req_1",
+    sessionId: "ses_1",
+    nativeSessionId: "native_1",
+    runtimeId: "run_1",
+    context: { humanInputId: null, causalMessageId: null },
+    method: "task.create",
+    args: {},
+  };
+  it("accepts correlated requests and rejects unknown methods or oversized ids", () => {
+    expect(AgentRequestFrame.safeParse(base).success).toBe(true);
+    expect(AgentRequestFrame.safeParse({ ...base, method: "unknown" }).success).toBe(false);
+    expect(AgentRequestFrame.safeParse({ ...base, requestId: "x".repeat(201) }).success).toBe(
+      false,
+    );
+  });
+  it("preserves explicit null parent and defaults agent inputs", () => {
+    expect(CreateAgentTask.parse({ objective: "Build", parentTaskId: null })).toMatchObject({
+      parentTaskId: null,
+      acceptance: [],
+      dependencies: [],
+      notifyOnFinish: true,
+    });
+    expect(CreateAgentTask.parse({ objective: "Build" }).parentTaskId).toBeUndefined();
+    expect(SendAgentMessage.safeParse({ sessionId: "s", body: "", mode: "steer" }).success).toBe(
+      false,
+    );
+    expect(ReadAgentInbox.parse({})).toEqual({ after: 0, limit: 20 });
+  });
+  it("parses success and error replies", () => {
+    expect(
+      AgentResultFrame.safeParse({
+        type: "agent.result",
+        requestId: "r",
+        runtimeId: "x",
+        ok: true,
+        result: {},
+      }).success,
+    ).toBe(true);
+    expect(
+      AgentResultFrame.safeParse({
+        type: "agent.result",
+        requestId: "r",
+        runtimeId: "x",
+        ok: false,
+        error: { code: "forbidden", message: "no" },
+      }).success,
+    ).toBe(true);
   });
 });
 

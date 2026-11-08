@@ -1,11 +1,21 @@
 import { existsSync } from "node:fs";
+import type { AddressInfo } from "node:net";
+import {
+  AGENT_FRAME_MAX_BYTES,
+  type AgentRequestFrame,
+  type HostToCoordinator,
+} from "@switchyard/protocol";
 import { makeRepo, type TempRepo } from "@switchyard/test-fixtures";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type WebSocket, WebSocketServer } from "ws";
+import { HostDb } from "../src/db/index.js";
 import {
   RESTART_TERMINAL_LOST_DETAIL,
   RESTARTED_WHILE_RUNNING,
   terminalLostNotice,
 } from "../src/index.js";
+import { CoordinatorLink } from "../src/link.js";
+import { silentLogger } from "../src/logger.js";
 import { type HostHarness, seedSession, sleep, startHarness, waitFor } from "./helpers.js";
 
 function diag(h: HostHarness, message: string): void {
@@ -117,6 +127,240 @@ describe("coordinator link", () => {
     expect(h.agent.link.pending(before).map((r) => (r.event.data as any).message)).toEqual([
       "mafter",
     ]);
+  });
+});
+
+describe("agent request transport", () => {
+  let db: HostDb;
+  let server: WebSocketServer;
+  let socket: WebSocket;
+  let link: CoordinatorLink;
+  let frames: HostToCoordinator[];
+  let connections: number;
+  const onCommand = vi.fn();
+
+  beforeEach(async () => {
+    frames = [];
+    connections = 0;
+    onCommand.mockReset();
+    db = new HostDb(":memory:");
+    db.migrate();
+    server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    server.on("connection", (ws) => {
+      connections++;
+      socket = ws;
+      ws.on("message", (raw) => frames.push(JSON.parse(raw.toString())));
+    });
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    link = new CoordinatorLink({
+      db,
+      coordinatorUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      hostId: "hst_agent",
+      credential: "secret",
+      hello: () => ({
+        name: "host",
+        agentVersion: "test",
+        piVersion: null,
+        piCompatible: false,
+        platform: "darwin",
+        capabilities: null,
+        protocolVersion: 1,
+      }),
+      onCommand,
+      log: silentLogger(),
+      backoffMs: [10],
+    });
+    link.start();
+    await waitFor(() => frames.some((f) => f.type === "hello"));
+  });
+
+  afterEach(async () => {
+    await link.stop();
+    for (const ws of server.clients) ws.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    db.close();
+  });
+
+  async function welcome(features?: string[]) {
+    socket.send(
+      JSON.stringify({
+        type: "welcome",
+        coordinatorVersion: "test",
+        ackedHostSeq: 0,
+        ...(features === undefined ? {} : { features }),
+      }),
+    );
+    await waitFor(() => link.connected);
+  }
+  const requests = () => frames.filter((f): f is AgentRequestFrame => f.type === "agent.request");
+  const request = (opts: Parameters<CoordinatorLink["requestAgent"]>[5] = {}) =>
+    link.requestAgent("ses_a", "native_a", "runtime_a", "inbox.read", {}, opts);
+  const reply = (frame: AgentRequestFrame, result: unknown = null) =>
+    socket.send(
+      JSON.stringify({
+        type: "agent.result",
+        requestId: frame.requestId,
+        runtimeId: frame.runtimeId,
+        ok: true,
+        result,
+      }),
+    );
+
+  it("advertises optional features but sends no agent frames before negotiation or to old coordinators", async () => {
+    expect(frames[0]).toMatchObject({
+      type: "hello",
+      features: ["agentRequests.v1", "policies.v1"],
+    });
+    await expect(request()).rejects.toMatchObject({ code: "host_unreachable" });
+    await welcome();
+    expect([...link.negotiatedFeatures]).toEqual([]);
+    await expect(request()).rejects.toMatchObject({ code: "unsupported_capability" });
+    expect(requests()).toHaveLength(0);
+  });
+
+  it("intersects welcome features and gates policy requests independently", async () => {
+    await welcome(["agentRequests.v1", "unknown.v1"]);
+    expect([...link.negotiatedFeatures]).toEqual(["agentRequests.v1"]);
+    await expect(
+      link.requestAgent("ses_a", "native_a", "runtime_a", "policy.evaluate", {}),
+    ).rejects.toMatchObject({ code: "unsupported_capability" });
+    const pending = request();
+    await waitFor(() => requests().length === 1);
+    reply(requests()[0]!, "ok");
+    await expect(pending).resolves.toBe("ok");
+  });
+
+  it("correlates out-of-order results directly, ignoring another runtime, without using the outbox", async () => {
+    await welcome(["agentRequests.v1", "policies.v1"]);
+    const seq = link.lastHostSeq();
+    const context = { humanInputId: "human_a", causalMessageId: "msg_a" };
+    const first = request({ context });
+    const second = request().catch((e) => e);
+    await waitFor(() => requests().length === 2);
+    const [a, b] = requests() as [AgentRequestFrame, AgentRequestFrame];
+    expect(a.context).toEqual(context);
+    socket.send(
+      JSON.stringify({
+        type: "agent.result",
+        requestId: a.requestId,
+        runtimeId: "obsolete",
+        ok: true,
+        result: "wrong",
+      }),
+    );
+    socket.send(
+      JSON.stringify({
+        type: "command",
+        commandId: "cmd_a",
+        command: { type: "session.importable" },
+      }),
+    );
+    socket.send(
+      JSON.stringify({
+        type: "agent.result",
+        requestId: b.requestId,
+        runtimeId: b.runtimeId,
+        ok: false,
+        error: { code: "forbidden", message: "denied", details: { reason: "test" } },
+      }),
+    );
+    reply(a, { messages: [] });
+    await expect(first).resolves.toEqual({ messages: [] });
+    expect(await second).toMatchObject({ code: "forbidden", details: { reason: "test" } });
+    expect(onCommand).toHaveBeenCalledWith("cmd_a", { type: "session.importable" });
+    expect(link.lastHostSeq()).toBe(seq);
+    expect(link.pending()).toEqual([]);
+  });
+
+  it("bounds pending calls and releases slots on abort and timeout", async () => {
+    await welcome(["agentRequests.v1"]);
+    const abort = new AbortController();
+    const calls = Array.from({ length: 256 }, () => request({ signal: abort.signal }));
+    const settled = Promise.allSettled(calls);
+    await expect(request()).rejects.toMatchObject({ code: "rate_limited" });
+    abort.abort(new Error("canceled"));
+    expect((await settled).every((r) => r.status === "rejected")).toBe(true);
+    await expect(request({ timeoutMs: 10 })).rejects.toMatchObject({ code: "timeout" });
+    await expect(request({ signal: abort.signal })).rejects.toThrow("canceled");
+    const next = request();
+    await waitFor(() => requests().length === 258);
+    reply(requests().at(-1)!, "free slot");
+    await expect(next).resolves.toBe("free slot");
+  });
+
+  it("rejects malformed and UTF-8 oversized frames without dropping a healthy link", async () => {
+    await welcome(["agentRequests.v1"]);
+    await expect(
+      link.requestAgent("", "native_a", "runtime_a", "inbox.read", {}),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      link.requestAgent("ses_a", "native_a", "runtime_a", "task.create", {}),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      link.requestAgent(
+        "ses_a",
+        "native_a",
+        "runtime_a",
+        "inbox.read",
+        "é".repeat(AGENT_FRAME_MAX_BYTES / 2),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(requests()).toHaveLength(0);
+    const malformed = request();
+    await waitFor(() => requests().length === 1);
+    const a = requests()[0]!;
+    socket.send(
+      JSON.stringify({
+        type: "agent.result",
+        requestId: a.requestId,
+        runtimeId: a.runtimeId,
+        ok: "yes",
+      }),
+    );
+    await expect(malformed).rejects.toMatchObject({ code: "invalid_request" });
+    const oversized = request();
+    await waitFor(() => requests().length === 2);
+    reply(requests()[1]!, "é".repeat(AGENT_FRAME_MAX_BYTES / 2));
+    await expect(oversized).rejects.toMatchObject({ code: "invalid_request" });
+    expect(link.connected).toBe(true);
+  });
+
+  it("fails and clears on disconnect, retries only explicitly with fresh ids, and resets negotiation", async () => {
+    await welcome(["agentRequests.v1"]);
+    const opts = { toolCallId: "tool_same" };
+    const first = request(opts).catch((e) => e);
+    await waitFor(() => requests().length === 1);
+    const old = requests()[0]!;
+    socket.terminate();
+    expect(await first).toMatchObject({ code: "host_unreachable" });
+    expect([...link.negotiatedFeatures]).toEqual([]);
+    await waitFor(() => connections === 2 && frames.filter((f) => f.type === "hello").length === 2);
+    expect(requests()).toHaveLength(1);
+    await expect(request()).rejects.toMatchObject({ code: "host_unreachable" });
+    await welcome(["agentRequests.v1"]);
+    const retry = request(opts);
+    await waitFor(() => requests().length === 2);
+    const current = requests()[1]!;
+    expect(current.requestId).not.toBe(old.requestId);
+    expect(current.toolCallId).toBe(old.toolCallId);
+    reply(old, "obsolete");
+    reply(current, "current");
+    await expect(retry).resolves.toBe("current");
+    const rejected = request().catch((e) => e);
+    socket.send(
+      JSON.stringify({ type: "reject", error: { code: "forbidden", message: "revoked" } }),
+    );
+    expect(await rejected).toMatchObject({ code: "forbidden" });
+    expect(link.connected).toBe(false);
+    expect([...link.negotiatedFeatures]).toEqual([]);
+  });
+
+  it("fails pending calls when stopped", async () => {
+    await welcome(["agentRequests.v1"]);
+    const pending = request().catch((e) => e);
+    await link.stop();
+    expect(await pending).toMatchObject({ code: "host_unreachable" });
+    expect([...link.negotiatedFeatures]).toEqual([]);
   });
 });
 

@@ -13,6 +13,7 @@ import type { CoordinatorContext } from "../context.js";
 import { parse } from "../http.js";
 import { getService } from "../services.js";
 import { putTaskState, shortError, taskDoneAt } from "../tasks/common.js";
+import { createTask } from "../tasks/service.js";
 import { isLiveRun } from "../tasks/state.js";
 import {
   dateTimeIn,
@@ -407,46 +408,31 @@ export class AutomationService {
   }
 
   private createTask(a: Automation, r: Rendered, occurrenceId: string): Task {
-    const { store } = this.ctx;
-    const now = store.nowIso();
-    const max = store.tasks
-      .list("project_id = ?", [a.projectId])
-      .reduce((m, t) => Math.max(m, t.position), 0);
-    const task: Task = {
-      id: newId("tsk"),
-      projectId: a.projectId,
-      title: r.title,
-      objective: r.objective,
-      acceptanceCriteria: r.acceptanceCriteria,
-      dependencies: [],
-      priority: r.priority,
-      position: max + 1024,
-      state: "ready",
-      blocked: null,
-      notBefore: null,
-      policy: {
-        hostId: a.hostId,
-        profileId: a.profileId,
-        workspace: { mode: "new_worktree", branch: null, base: null },
-        continuation: a.continuation,
-        completion: a.completion,
+    return createTask(
+      this.ctx,
+      {
+        projectId: a.projectId,
+        title: r.title,
+        objective: r.objective,
+        acceptanceCriteria: r.acceptanceCriteria,
+        priority: r.priority,
+        state: "ready",
+        policy: {
+          hostId: a.hostId,
+          profileId: a.profileId,
+          workspace: { mode: "new_worktree", branch: null, base: null },
+          continuation: a.continuation,
+          completion: a.completion,
+        },
+        groupingKey: r.groupingKey,
       },
-      origin: {
+      {
         kind: "automation",
         automationId: a.id,
         occurrenceId,
         routine: a.trigger.kind === "cron" || a.trigger.kind === "once",
       },
-      groupingKey: r.groupingKey,
-      currentRunId: null,
-      sessionId: null,
-      review: { feedback: [], changesRequested: false },
-      hiddenFromBoard: false,
-      lastActivityAt: now,
-      createdAt: now,
-      updatedAt: now,
-    };
-    return store.putTask(task);
+    );
   }
 
   /** Continue mode: the grouped task becomes Ready again on its existing session/workspace. */

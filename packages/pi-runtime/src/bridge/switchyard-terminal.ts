@@ -17,7 +17,10 @@
  */
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
+import { createAgentChannel } from "./agent-channel.js";
+import { registerAgentTools } from "./agent-tools.js";
 import { LineSplitter } from "./lines.js";
+import { createMessageDelivery } from "./message-delivery.js";
 import { modelInfo } from "./pi-model.js";
 
 const PATCHED = Symbol.for("switchyard.terminal");
@@ -114,6 +117,41 @@ export default function switchyardTerminal(pi: any): void {
   const queue = { steering: [] as string[], followUp: [] as string[] };
   let socket: Socket | null = null;
   let remoteBacked = 0;
+  let nativeDialogs = 0;
+  const channel = createAgentChannel({
+    send: (record) => {
+      try {
+        if (!socket || socket.destroyed || socket.connecting) return false;
+        socket.write(`${JSON.stringify(record)}\n`);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    getContext: () => ctx,
+    appendEntry: (customType, data) => pi.appendEntry(customType, data),
+    mode: "terminal",
+    getCapabilities: () => ({
+      agentTools: true,
+      messageDelivery: true,
+      editorDraftGuard: (() => {
+        try {
+          return typeof ctx?.ui?.getEditorText?.() === "string";
+        } catch {
+          return false;
+        }
+      })(),
+      toolPolicy: false,
+    }),
+    policyRequired: process.env.SWITCHYARD_POLICY_REQUIRED === "1",
+  });
+  registerAgentTools(pi, channel);
+  const delivery = createMessageDelivery(pi, {
+    channel,
+    getContext: () => ctx,
+    isDialogOpen: () => nativeDialogs > 0 || pending.size > 0,
+    mode: "terminal",
+  });
 
   const send = (obj: unknown): void => {
     try {
@@ -723,6 +761,7 @@ export default function switchyardTerminal(pi: any): void {
       return;
     }
     if (!msg || typeof msg !== "object") return;
+    if (channel.receive(msg)) return;
     if (msg.type === "extension_ui_response") {
       pending.get(String(msg.id))?.onRemote(msg as Body);
       return;
@@ -731,6 +770,7 @@ export default function switchyardTerminal(pi: any): void {
       // A controller re-attached (host agent restart): it starts from scratch, so announce the
       // session again before re-sending the dialogs it has not answered.
       announce();
+      channel.onControlAttached();
       return;
     }
     if (typeof msg.type === "string" && msg.id !== undefined) handleCommand(msg);
@@ -757,12 +797,19 @@ export default function switchyardTerminal(pi: any): void {
     s.once("connect", () => {
       connected = true;
       if (attempt > 1) announce();
+      channel.onConnect();
     });
     s.on("error", () => {
-      if (socket === s) socket = null;
+      if (socket === s) {
+        channel.onDisconnect();
+        socket = null;
+      }
     });
     s.on("close", () => {
-      if (socket === s) socket = null;
+      if (socket === s) {
+        channel.onDisconnect();
+        socket = null;
+      }
       if (!connected && attempt < CONNECT_ATTEMPTS) {
         setTimeout(() => connect(attempt + 1), CONNECT_RETRY_MS).unref();
       }
@@ -817,6 +864,7 @@ export default function switchyardTerminal(pi: any): void {
     hello();
     sendModelState();
     sendLeaf();
+    channel.announce();
     if (event?.reason && event.reason !== "startup") {
       send({ type: "switchyard_native", sessionId, sessionFile });
     }
@@ -885,20 +933,28 @@ export default function switchyardTerminal(pi: any): void {
   on("session_before_compact", (event) =>
     send({ type: "compaction_start", reason: event?.reason ?? "manual" }),
   );
-  on("ui_prompt_start", (event) =>
+  on("ui_prompt_start", (event) => {
+    nativeDialogs++;
     send({
       type: "ui_prompt",
       event: event.type,
       kind: event.kind,
       title: event.title ?? null,
       remoteBacked: event.kind === "custom" && remoteBacked > 0,
-    }),
-  );
-  on("ui_prompt_end", (event) =>
-    send({ type: "ui_prompt", event: event.type, kind: event.kind, title: event.title ?? null }),
-  );
+    });
+  });
+  on("ui_prompt_end", (event) => {
+    nativeDialogs = Math.max(0, nativeDialogs - 1);
+    send({ type: "ui_prompt", event: event.type, kind: event.kind, title: event.title ?? null });
+  });
+  on("session_shutdown", () => {
+    delivery.close();
+    channel.close();
+  });
   on("input", (event) => {
-    if (event?.source !== "interactive" || !event.streamingBehavior) return;
+    if (event?.source !== "interactive") return;
+    channel.noteHumanInput();
+    if (!event.streamingBehavior) return;
     (event.streamingBehavior === "steer" ? queue.steering : queue.followUp).push(
       String(event.text ?? ""),
     );

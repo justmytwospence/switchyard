@@ -23,6 +23,7 @@ import {
   ViewClient,
   WorktreeDir,
 } from "./entities.js";
+import { GitHubIssueUrl, githubIssueFromUrl } from "./github.js";
 import { ProjectSuggestion } from "./host-wire.js";
 import { InteractionResponseSchema, UINodeSchema } from "./ui.js";
 
@@ -298,22 +299,68 @@ export function mergePatch(base: unknown, patch: unknown): unknown {
   return out;
 }
 
-export const CreateTaskRequest = z.object({
-  projectId: z.string(),
-  title: z.string().min(1).max(300),
-  objective: z.string().default(""),
-  acceptanceCriteria: z.array(z.string()).default([]),
-  dependencies: z.array(z.string()).default([]),
-  priority: Priority.default(2),
-  state: z.enum(["backlog", "ready"]).default("backlog"),
-  notBefore: z.string().nullable().optional(),
-  policy: TaskPolicyPatch.optional(),
-});
+export const CreateTaskRequest = z
+  .object({
+    projectId: z.string(),
+    title: z.string().max(300).optional(),
+    githubIssueUrl: GitHubIssueUrl.optional(),
+    githubIssue: z.never().optional(),
+    launchPrompt: z.never().optional(),
+    objective: z.string().default(""),
+    acceptanceCriteria: z.array(z.string()).default([]),
+    dependencies: z.array(z.string()).default([]),
+    parentTaskId: z.string().nullable().optional(),
+    priority: Priority.default(2),
+    state: z.enum(["backlog", "ready"]).default("backlog"),
+    notBefore: z.string().nullable().optional(),
+    policy: TaskPolicyPatch.optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.githubIssueUrl === undefined) {
+      if (v.title === undefined || v.title.length === 0)
+        ctx.addIssue({ code: "custom", path: ["title"], message: "Title is required." });
+      return;
+    }
+    if (v.objective.trim())
+      ctx.addIssue({
+        code: "custom",
+        path: ["objective"],
+        message: "Issue imports use the issue as their initial objective; leave Objective empty.",
+      });
+    if (v.acceptanceCriteria.length)
+      ctx.addIssue({
+        code: "custom",
+        path: ["acceptanceCriteria"],
+        message:
+          "Issue imports read acceptance from the issue; leave acceptance criteria empty at creation.",
+      });
+    if (v.policy?.continuation?.enabled === true)
+      ctx.addIssue({
+        code: "custom",
+        path: ["policy", "continuation", "enabled"],
+        message: "Issue imports start with continuation disabled.",
+      });
+    if (v.policy?.completion?.requireHumanReview === false)
+      ctx.addIssue({
+        code: "custom",
+        path: ["policy", "completion", "requireHumanReview"],
+        message: "Issue imports require human review when created.",
+      });
+  })
+  .transform((v) => {
+    if (v.githubIssueUrl === undefined) return { ...v, title: v.title! };
+    const issue = githubIssueFromUrl(v.githubIssueUrl);
+    return { ...v, title: v.title?.trim() || `${issue.repository} #${issue.number}` };
+  });
 export const UpdateTaskRequest = z.object({
+  githubIssueUrl: z.never().optional(),
+  githubIssue: z.never().optional(),
+  launchPrompt: z.never().optional(),
   title: z.string().min(1).max(300).optional(),
   objective: z.string().optional(),
   acceptanceCriteria: z.array(z.string()).optional(),
   dependencies: z.array(z.string()).optional(),
+  parentTaskId: z.string().nullable().optional(),
   priority: Priority.optional(),
   position: z.number().optional(),
   notBefore: z.string().nullable().optional(),

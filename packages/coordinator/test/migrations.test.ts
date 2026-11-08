@@ -19,12 +19,76 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("009 backfills indexed parents without rewriting legacy task JSON", () => {
+    const db = dbAt(8);
+    const insert = db.prepare(
+      "INSERT INTO tasks (id, project_id, state, json, created_at, updated_at) VALUES (?, 'p', 'backlog', ?, '2026-01-01', '2026-01-01')",
+    );
+    const legacy = '{"id":"root"}';
+    insert.run("root", legacy);
+    insert.run("null", '{"id":"null","parentTaskId":null}');
+    insert.run("child", '{"id":"child","parentTaskId":"root"}');
+    expect(migrate(db)).toBe(MIGRATIONS.at(-1)!.version);
+    expect(db.prepare("SELECT parent_task_id, json FROM tasks WHERE id = 'root'").get()).toEqual({
+      parent_task_id: null,
+      json: legacy,
+    });
+    expect(db.prepare("SELECT parent_task_id FROM tasks WHERE id = 'null'").get()).toEqual({
+      parent_task_id: null,
+    });
+    expect(db.prepare("SELECT id FROM tasks WHERE parent_task_id = 'root'").all()).toEqual([
+      { id: "child" },
+    ]);
+    const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all();
+    expect(indexes).toEqual(
+      expect.arrayContaining([
+        { name: "tasks_parent" },
+        { name: "agent_messages_pair_time" },
+        { name: "agent_messages_recipient_seq" },
+      ]),
+    );
+    db.close();
+  });
+
+  it("009 keys receipts by caller/native/tool/method and subscriptions by child/subscriber", () => {
+    const db = dbAt(8);
+    migrate(db);
+    const receipt = db.prepare(
+      "INSERT INTO agent_call_receipts VALUES (?, ?, ?, ?, 'hash', '{}', '2026-01-01')",
+    );
+    receipt.run("caller", "native", "tool", "task.create");
+    expect(() => receipt.run("caller", "native", "tool", "task.create")).toThrow(/UNIQUE/);
+    receipt.run("other", "native", "tool", "task.create");
+    receipt.run("caller", "other", "tool", "task.create");
+    receipt.run("caller", "native", "tool", "message.send");
+    const subscription = db.prepare(
+      "INSERT INTO task_subscriptions VALUES (?, ?, ?, '2026-01-01')",
+    );
+    subscription.run("child", "creator", null);
+    expect(() => subscription.run("child", "creator", "parent")).toThrow(/UNIQUE/);
+    subscription.run("child", "other", "parent");
+    db.close();
+  });
+
+  it("009 assigns immutable increasing inbox cursors independently of retention", () => {
+    const db = dbAt(8);
+    migrate(db);
+    const insert = db.prepare(
+      "INSERT INTO agent_messages (id, kind, sender_session_id, recipient_session_id, chain_id, depth, body_json, requested_mode, delivery_state, hold_until, created_at, updated_at) VALUES (?, 'message', 'sender', 'recipient', 'chain', 0, '{}', 'queue', 'pending', '2026-01-01', '2026-01-01', '2026-01-01')",
+    );
+    expect(Number(insert.run("first").lastInsertRowid)).toBe(1);
+    expect(() => insert.run("first")).toThrow(/UNIQUE/);
+    db.exec("DELETE FROM agent_messages");
+    expect(Number(insert.run("second").lastInsertRowid)).toBe(2);
+    db.close();
+  });
+
   it("008 adds the item revision column", () => {
     const db = dbAt(7);
     db.prepare(
       "INSERT INTO session_items (session_id, item_id, ord, json) VALUES ('s','i',0,'{}')",
     ).run();
-    expect(migrate(db)).toBe(8);
+    expect(migrate(db)).toBe(MIGRATIONS.at(-1)!.version);
     expect(db.prepare("SELECT rev FROM session_items").get()).toEqual({ rev: 0 });
   });
 

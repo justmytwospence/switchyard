@@ -218,6 +218,7 @@ export class Dispatcher {
         origin: "automation",
         runId: cmd.runId,
         taskId: cmd.taskId,
+        policyRequired: cmd.policyRequired,
       });
       const result: DispatchStartResult = {
         sessionId: started.sessionId,

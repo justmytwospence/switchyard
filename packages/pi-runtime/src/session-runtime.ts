@@ -19,7 +19,17 @@ import {
   type ToolItemData,
   type TranscriptItem,
 } from "@switchyard/protocol";
+import { z } from "zod";
 import { modelInfo } from "./bridge/pi-model.js";
+import type {
+  BridgeAgentRequest,
+  BridgeAgentResult,
+  BridgeConfiguration,
+  BridgeFeatures,
+  BridgeMethod,
+  BridgeRequestOptions,
+  BridgeState,
+} from "./bridge-wire.js";
 import { readArgumentHint } from "./command-hints.js";
 import { readSessionNameSync } from "./importable.js";
 import { type PiExit, PiRpcError, PiRpcProcess, screenTail } from "./rpc-process.js";
@@ -141,12 +151,16 @@ export interface PartialBlock {
   text: string;
 }
 
+type SessionBridgeState = BridgeState & Pick<BridgeFeatures, "nativeSessionId">;
+
 export interface SessionSnapshot {
   runtime: RuntimeState;
   detail: string | null;
   nativeHandle: NativeHandle | null;
   queue: QueueState;
   pendingUi: PiDialogRequest[];
+  bridge: SessionBridgeState | null;
+  policyWaiting: string[];
   partial: PartialBlock[];
   nextOrder: number;
 }
@@ -162,6 +176,10 @@ export interface ManagedSessionEventMap {
   ui_resolved: [UiResolved];
   /** Raw bridge socket line. */
   bridge: [BridgeEvent];
+  /** Direct lane: never serialized behind a prompt waiting on this request. */
+  agent_request: [BridgeAgentRequest];
+  bridge_features: [BridgeFeatures];
+  bridge_lost: [];
   runtime: [RuntimeChange];
   settled: [SettledInfo];
   queue: [QueueState];
@@ -203,6 +221,16 @@ export function piErrorToSwitchyard(err: PiRpcError): SwitchyardError {
 
 const RUNNING_MESSAGE = "Session is running: choose Steer or Queue follow-up";
 const TRACKED_ITEMS = 500;
+const ConfiguredBridge = z
+  .object({
+    configured: z.literal(true),
+    agentTools: z.boolean(),
+    messageDelivery: z.boolean(),
+    policyRequired: z.boolean(),
+    policyState: z.enum(["initializing", "active", "unsupported", "lost"]),
+    policyPhases: z.array(z.enum(["tool_call", "request"])),
+  })
+  .strict();
 
 /**
  * One live Pi session: owns a `PiRpcProcess`, maps its events to transcript items, tracks runtime
@@ -234,6 +262,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   private pendingUserItemId: string | null = null;
   private _queue: QueueState = { steering: [], followUp: [] };
   private readonly pending = new Map<string, PiDialogRequest>();
+  private readonly policyWaiting = new Set<string>();
+  private _bridgeFeatures: BridgeFeatures | null = null;
+  private _bridge: SessionBridgeState | null = null;
 
   private current: { blocks: Map<number, Block> } | null = null;
   private readonly tools = new Map<string, ToolItem>();
@@ -319,6 +350,82 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   }
   get isAlive(): boolean {
     return this.proc !== null && this.proc.exited === null;
+  }
+  get bridgeState(): SessionBridgeState | null {
+    return this._bridge ? structuredClone(this._bridge) : null;
+  }
+  get bridgeFeatures(): BridgeFeatures | null {
+    return this._bridgeFeatures ? structuredClone(this._bridgeFeatures) : null;
+  }
+
+  bridgeRequest<T = unknown>(
+    method: BridgeMethod,
+    args: unknown,
+    options?: BridgeRequestOptions,
+  ): Promise<T> {
+    if (!this.proc || this.proc.exited) {
+      return Promise.reject(new SwitchyardError("host_unreachable", "Bridge is not connected"));
+    }
+    return this.proc.bridgeRequest<T>(method, args, options);
+  }
+
+  replyAgent(frame: BridgeAgentResult): void {
+    if (frame.runtimeId !== this._bridgeFeatures?.runtimeId) return;
+    this.proc?.replyAgent(frame);
+  }
+
+  /** Startup uses this before get_state/initial prompt; it cannot require a started session. */
+  async configureAgent(
+    args: BridgeConfiguration,
+    options?: BridgeRequestOptions,
+  ): Promise<unknown> {
+    const features = this._bridgeFeatures;
+    if (!features)
+      throw new SwitchyardError(
+        "unsupported_capability",
+        "The live bridge does not support agent requests",
+      );
+    if (
+      args.sessionId !== this.sessionId ||
+      args.runtimeId !== features.runtimeId ||
+      args.nativeSessionId !== features.nativeSessionId
+    ) {
+      throw new SwitchyardError("conflict", "Bridge configuration identity changed");
+    }
+    // A hello advertises installed capabilities, not negotiated or active protection.
+    // Reconfiguration must also stop advertising the previous receipt's enabled state.
+    this._bridge = {
+      version: features.version,
+      runtimeId: features.runtimeId,
+      nativeSessionId: features.nativeSessionId,
+      agentTools: false,
+      messageDelivery: false,
+      policyState: "initializing",
+      policyPhases: [],
+    };
+    const result = await this.bridgeRequest("configure", args, options);
+    // Every hello (even the same runtime/native pair) fences the old controller binding.
+    if (this._bridgeFeatures !== features)
+      throw new SwitchyardError("conflict", "Bridge runtime changed during configuration");
+    const receipt = ConfiguredBridge.safeParse(result);
+    if (!receipt.success)
+      throw new SwitchyardError("invalid_request", "Invalid bridge configure receipt");
+    this._bridge = {
+      version: features.version,
+      runtimeId: features.runtimeId,
+      nativeSessionId: features.nativeSessionId,
+      agentTools: receipt.data.agentTools,
+      messageDelivery: receipt.data.messageDelivery,
+      policyState: receipt.data.policyState,
+      policyPhases: [...receipt.data.policyPhases],
+    };
+    return result;
+  }
+
+  setPolicyWaiting(decisionId: string, waiting: boolean): void {
+    if (waiting) this.policyWaiting.add(decisionId);
+    else this.policyWaiting.delete(decisionId);
+    this.setRuntime();
   }
 
   /** Build the Pi arguments for this session (without `--mode rpc` and the bridge). */
@@ -457,6 +564,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
 
   /** Terminal transport: attach to a running holder and adopt its Pi's state. */
   private async attachTerminal(socketPath: string, signal?: AbortSignal): Promise<void> {
+    this._bridgeFeatures = null;
+    this._bridge = null;
+    this.policyWaiting.clear();
     try {
       this.proc = await PiTerminalProcess.attach(socketPath);
     } catch (err) {
@@ -518,6 +628,9 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     proc.on("error", () => {});
     proc.detach();
     this.proc = null;
+    // Invalidate protection while retaining Pi's live runtime: only the controller detached.
+    // Reset the start flag afterward so losing the bridge cannot emit a fictitious "starting".
+    this.loseBridge();
     this.started = false;
   }
 
@@ -825,6 +938,8 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       nativeHandle: this._native ? { ...this._native } : null,
       queue: this.queue,
       pendingUi: this.pendingUi,
+      bridge: this.bridgeState,
+      policyWaiting: [...this.policyWaiting],
       partial,
       nextOrder: this.order,
     };
@@ -894,7 +1009,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   private computeRuntime(): RuntimeState {
     if (this.terminal) return this.terminal;
     if (!this.started) return "starting";
-    if (this.pending.size > 0) return "waiting_input";
+    if (this.pending.size > 0 || this.policyWaiting.size > 0) return "waiting_input";
     return this.busy ? "running" : "idle";
   }
 
@@ -907,7 +1022,43 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     this.emit("runtime", { runtime: next, detail: nextDetail });
   }
 
+  private loseBridge(): void {
+    const changed =
+      this._bridgeFeatures !== null ||
+      (this._bridge !== null && this._bridge.policyState !== "lost");
+    this._bridgeFeatures = null;
+    if (this._bridge) this._bridge.policyState = "lost";
+    this.policyWaiting.clear();
+    this.setRuntime();
+    if (changed) this.emit("bridge_lost");
+  }
+
   private wire(proc: PiTransport): void {
+    proc.on("agent_request", (frame: BridgeAgentRequest) => {
+      if (
+        frame.sessionId !== this.sessionId ||
+        frame.runtimeId !== this._bridgeFeatures?.runtimeId ||
+        frame.nativeSessionId !== this._bridgeFeatures.nativeSessionId
+      )
+        return;
+      this.emit("agent_request", frame);
+    });
+    proc.on("bridge_features", (features: BridgeFeatures) => {
+      this.policyWaiting.clear();
+      this._bridgeFeatures = structuredClone(features);
+      this._bridge = {
+        version: features.version,
+        runtimeId: features.runtimeId,
+        nativeSessionId: features.nativeSessionId,
+        agentTools: false,
+        messageDelivery: false,
+        policyState: "initializing",
+        policyPhases: [],
+      };
+      this.setRuntime();
+      this.emit("bridge_features", this.bridgeFeatures!);
+    });
+    proc.on("bridge_lost", () => this.loseBridge());
     proc.on("event", (ev: PiEvent) => {
       try {
         this.onEvent(ev);
@@ -985,6 +1136,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   }
 
   private onExit(info: PiExit): void {
+    this.loseBridge();
     for (const [id, req] of this.pending)
       this.emit("ui_resolved", { id, by: "exit", request: req });
     this.pending.clear();
@@ -1227,6 +1379,8 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
         break;
       case "switchyard_native":
         if (typeof ev.sessionId === "string" && typeof ev.sessionFile === "string") {
+          if (this._bridgeFeatures && ev.sessionId !== this._bridgeFeatures.nativeSessionId)
+            this.loseBridge();
           this._native = { sessionId: ev.sessionId, sessionFile: ev.sessionFile };
           this.emit("native", { ...this._native });
         }

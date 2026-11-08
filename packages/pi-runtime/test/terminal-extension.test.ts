@@ -69,6 +69,9 @@ function fakePi() {
       for (const fn of handlers.get(name) ?? []) fn({ type: name, ...event }, ctx);
     },
     sendUserMessage: vi.fn(),
+    sendMessage: vi.fn(),
+    appendEntry: vi.fn(),
+    registerTool: vi.fn(),
     setSessionName: vi.fn(),
     getSessionName: () => "named",
     commands: [] as any[],
@@ -160,6 +163,60 @@ describe("switchyard terminal extension", () => {
     const pi = fakePi();
     switchyardTerminal(pi);
     expect(pi.handlers.size).toBe(0);
+  });
+
+  it("announces capabilities, reattaches with the same runtime and marks interactive input", async () => {
+    const { ui } = fakeUi();
+    ui.getEditorText = () => "";
+    const { pi, ctx } = await load(ui);
+    await until(() => holder.lines.some((l) => l.type === "agent.hello"));
+    const hello = holder.lines.find((l) => l.type === "agent.hello");
+    expect(hello).toMatchObject({
+      mode: "terminal",
+      nativeSessionId: "nat-1",
+      capabilities: {
+        agentTools: true,
+        messageDelivery: true,
+        editorDraftGuard: true,
+        toolPolicy: false,
+      },
+    });
+    expect(pi.registerTool).toHaveBeenCalledTimes(3);
+    pi.emit("input", { source: "interactive", text: "hello" }, ctx);
+    expect(pi.appendEntry).toHaveBeenCalledWith(
+      "switchyard-human-input",
+      expect.objectContaining({ version: 1, humanInputId: expect.any(String) }),
+    );
+    const count = holder.lines.filter((l) => l.type === "agent.hello").length;
+    holder.send({ type: "control_attached" });
+    await until(() => holder.lines.filter((l) => l.type === "agent.hello").length > count);
+    expect(holder.lines.filter((l) => l.type === "agent.hello").at(-1).runtimeId).toBe(
+      hello.runtimeId,
+    );
+  });
+
+  it("announces a changed native session without claiming a missing draft guard", async () => {
+    const { ui } = fakeUi();
+    const { pi, ctx } = await load(ui);
+    await until(() => holder.lines.some((l) => l.type === "agent.hello"));
+    const first = holder.lines.find((l) => l.type === "agent.hello");
+    expect(first.capabilities.editorDraftGuard).toBe(false);
+    const next = fakeCtx(ui, {
+      sessionManager: {
+        getSessionId: () => "nat-2",
+        getSessionFile: () => null,
+        getEntries: () => [],
+        getBranch: () => [],
+      },
+    });
+    pi.emit("session_start", { reason: "switch" }, next);
+    await until(() =>
+      holder.lines.some((l) => l.type === "agent.hello" && l.nativeSessionId === "nat-2"),
+    );
+    expect(
+      holder.lines.find((l) => l.type === "agent.hello" && l.nativeSessionId === "nat-2").runtimeId,
+    ).toBe(first.runtimeId);
+    expect(ctx).not.toBe(next);
   });
 
   it("lets a remote answer win a select and closes the terminal dialog", async () => {

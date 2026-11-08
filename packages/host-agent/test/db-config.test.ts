@@ -29,7 +29,7 @@ describe("host db", () => {
       "INSERT INTO interactions (id, session_id, revision, state, json) VALUES (?, ?, ?, ?, ?)",
       ["int_1", "ses_1", 1, "cancelled", '{"id":"int_1","state":"cancelled"}'],
     );
-    expect(db.migrate()).toEqual(["002_interaction_canceled"]);
+    expect(db.migrate()).toEqual(["002_interaction_canceled", "003_agent_messages"]);
     const row = db.get<{ state: string; json: string }>(
       "SELECT state, json FROM interactions WHERE id = 'int_1'",
     );
@@ -42,7 +42,7 @@ describe("host db", () => {
     const d = tempDir();
     dirs.push(d);
     const db = openHostDb(join(d.path, "host.db"));
-    expect(db.migrationLevel()).toBe("002_interaction_canceled");
+    expect(db.migrationLevel()).toBe(MIGRATIONS.at(-1)!.name);
     expect(db.migrate()).toEqual([]);
     expect(db.get<{ journal_mode: string }>("PRAGMA journal_mode")?.journal_mode).toBe("wal");
     for (const t of [
@@ -54,11 +54,17 @@ describe("host db", () => {
       "interactions",
       "adapter_state",
       "panels",
+      "message_receipts",
     ]) {
       expect(
         db.get("SELECT name FROM sqlite_master WHERE type='table' AND name = ?", [t]),
       ).toBeTruthy();
     }
+    expect(
+      db.get("SELECT name FROM sqlite_master WHERE type='index' AND name = ?", [
+        "message_receipts_due",
+      ]),
+    ).toBeTruthy();
     db.close();
   });
 

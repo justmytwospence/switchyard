@@ -1,3 +1,5 @@
+import type { MessageService } from "./agents/messages.js";
+import type { AgentService } from "./agents/service.js";
 import type { NotificationRouter } from "./attention/router.js";
 import type { Scheduler } from "./automations/scheduler.js";
 import type { AutomationService } from "./automations/service.js";
@@ -10,6 +12,8 @@ import type { RunsService } from "./tasks/runs.js";
 
 /** Built-in services registered in `ctx.services` by `createCoordinator`. */
 export interface BuiltinServices {
+  agents: AgentService;
+  messages: MessageService;
   dispatcher: Dispatcher;
   runs: RunsService;
   automations: AutomationService;

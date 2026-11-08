@@ -384,8 +384,10 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
       if (stopped) return;
       stopped = true;
       if (retentionTimer) clearInterval(retentionTimer);
-      builtins.stop();
+      // Stop scheduling first, then fail pending host requests before draining delivery work.
+      const builtinsStopped = builtins.stop();
       hostHub.stop();
+      await builtinsStopped;
       clientHub.stop();
       await app.close();
       db.close();

@@ -1,5 +1,12 @@
-import type { Session } from "@switchyard/protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  AGENT_FRAME_MAX_BYTES,
+  type AgentRequestFrame,
+  type AgentResultFrame,
+  type Interaction,
+  type Session,
+  SwitchyardError,
+} from "@switchyard/protocol";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionSettled } from "../src/index.js";
 import {
   enrollDevice,
@@ -28,6 +35,50 @@ async function connect(tc: TestCoordinator, creds: { hostId: string; credential:
   return h;
 }
 
+async function connectAgent(
+  tc: TestCoordinator,
+  creds: { hostId: string; credential: string },
+  features = ["agentRequests.v1", "policies.v1"],
+) {
+  const h = new FakeHost(tc.c.localUrl.replace("http", "ws"), creds.hostId, creds.credential);
+  hosts.push(h);
+  await h.open({ features });
+  return h;
+}
+
+function agentRequest(
+  requestId: string,
+  overrides: Partial<AgentRequestFrame> = {},
+): AgentRequestFrame {
+  return {
+    type: "agent.request",
+    requestId,
+    sessionId: "ses_agent",
+    nativeSessionId: "native_agent",
+    runtimeId: "runtime_agent",
+    context: { humanInputId: null, causalMessageId: null },
+    method: "inbox.read",
+    args: {},
+    ...overrides,
+  };
+}
+
+function agentResult(h: FakeHost, requestId: string): Promise<AgentResultFrame> {
+  return h.inbox.waitFor(
+    (m) => m.type === "agent.result" && m.requestId === requestId,
+  ) as Promise<AgentResultFrame>;
+}
+
+function success(frame: AgentRequestFrame, result: unknown = null): AgentResultFrame {
+  return {
+    type: "agent.result",
+    requestId: frame.requestId,
+    runtimeId: frame.runtimeId,
+    ok: true,
+    result,
+  };
+}
+
 function eventCount(tc: TestCoordinator, type: string): number {
   return (
     tc.c.store.db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = ?").get(type) as {
@@ -50,6 +101,308 @@ describe("host link", () => {
     expect(host.connectivity).toBe("connected");
     expect(host.piVersion).toBe("1.4.0");
     expect(host.piCompatible).toBe(true);
+  });
+
+  it("negotiates only advertised known features, resetting them on replacement", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds, ["policies.v1", "unknown.v1", "agentRequests.v1"]);
+    expect(h.inbox.messages[0]).toMatchObject({
+      type: "welcome",
+      features: ["agentRequests.v1"],
+    });
+    expect([...t.c.hostHub.negotiatedFeatures(creds.hostId)]).toEqual(["agentRequests.v1"]);
+    const old = await connect(t, creds);
+    expect(old.inbox.messages[0]).not.toHaveProperty("features");
+    expect([...t.c.hostHub.negotiatedFeatures(creds.hostId)]).toEqual([]);
+    const empty = await connectAgent(t, creds, ["unknown.v1"]);
+    expect(empty.inbox.messages[0]).toMatchObject({ type: "welcome", features: [] });
+  });
+
+  it("does not replay pending delivery commands to a legacy replacement", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds);
+    h.handler = () => NO_REPLY;
+    const command = {
+      type: "session.deliverMessage" as const,
+      sessionId: "recipient",
+      messageId: "message",
+      payload: { deliveryId: "message", kind: "message" as const, text: "header" },
+      mode: "queue" as const,
+      holdUntil: new Date().toISOString(),
+    };
+    const pending = t.c.hostHub.request(creds.hostId, command);
+    const failure = expect(pending).rejects.toMatchObject({ code: "unsupported_capability" });
+    await until(() => h.commands.length === 1);
+    await h.close();
+    const legacy = await connect(t, creds);
+    await failure;
+    expect(legacy.commands).toHaveLength(0);
+    await expect(t.c.hostHub.request(creds.hostId, command)).rejects.toMatchObject({
+      code: "unsupported_capability",
+    });
+    await expect(
+      t.c.hostHub.request(creds.hostId, {
+        type: "session.messageStatus",
+        sessionId: "recipient",
+        messageIds: ["message"],
+      }),
+    ).rejects.toMatchObject({ code: "unsupported_capability" });
+    expect(legacy.commands).toHaveLength(0);
+  });
+
+  it("refuses protected launches without implemented policies and omits optional fields for old hosts", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connect(t, creds);
+    const command = {
+      type: "session.start" as const,
+      sessionId: "session",
+      title: "Session",
+      workspacePath: "/repo",
+      projectId: null,
+      profile: t.c.store.profiles.list()[0]!,
+      nativeHandle: null,
+      initialPrompt: null,
+      dispatchKey: null,
+      controlRevision: 1,
+      controlMode: "human" as const,
+      origin: "human" as const,
+      readOnly: false,
+    };
+    await expect(
+      t.c.hostHub.request(creds.hostId, { ...command, policyRequired: true }),
+    ).rejects.toMatchObject({ code: "unsupported_capability" });
+    await t.c.hostHub.request(creds.hostId, { ...command, policyRequired: false });
+    expect(h.commands[0]!.command).not.toHaveProperty("policyRequired");
+    const capable = await connectAgent(t, creds);
+    await expect(
+      t.c.hostHub.request(creds.hostId, { ...command, policyRequired: true }),
+    ).rejects.toMatchObject({ code: "unsupported_capability" });
+    expect(capable.commands).toHaveLength(0);
+  });
+
+  it("checks negotiation and session ownership before invoking the injected agent handler", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const other = await enrollHost(t, "other");
+    const owner = await connect(t, other);
+    await owner.event("session.updated", hostSession("ses_foreign"));
+    const old = await connect(t, creds);
+    const handler = vi.fn(async (_hostId: string, frame: AgentRequestFrame) => success(frame));
+    t.c.hostHub.setAgentHandler(handler);
+    old.sendRaw(agentRequest("unnegotiated"));
+    expect(await agentResult(old, "unnegotiated")).toMatchObject({
+      ok: false,
+      error: { code: "unsupported_capability" },
+    });
+    const h = await connectAgent(t, creds, ["agentRequests.v1"]);
+    h.sendRaw(agentRequest("policy_unnegotiated", { method: "policy.evaluate" }));
+    expect(await agentResult(h, "policy_unnegotiated")).toMatchObject({
+      ok: false,
+      error: { code: "unsupported_capability" },
+    });
+    h.sendRaw(agentRequest("foreign", { sessionId: "ses_foreign" }));
+    expect(await agentResult(h, "foreign")).toMatchObject({
+      ok: false,
+      error: { code: "forbidden" },
+    });
+    h.sendRaw(agentRequest("missing"));
+    expect(await agentResult(h, "missing")).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    await h.event("session.updated", hostSession("ses_agent"));
+    const frame = agentRequest("valid", {
+      context: { humanInputId: "human", causalMessageId: "message" },
+    });
+    h.sendRaw({ ...frame, hostId: other.hostId });
+    expect(await agentResult(h, "valid")).toEqual(success(frame));
+    expect(handler).toHaveBeenCalledExactlyOnceWith(creds.hostId, frame);
+  });
+
+  it("handles agent requests outside event projection and pending command receipts", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds);
+    await h.event("session.updated", hostSession("ses_agent"));
+    let release!: (frame: AgentResultFrame) => void;
+    const waiting = new Promise<AgentResultFrame>((resolve) => {
+      release = resolve;
+    });
+    const handler = vi.fn(async (_hostId: string, frame: AgentRequestFrame) =>
+      frame.requestId === "slow" ? waiting : success(frame, "fast"),
+    );
+    t.c.hostHub.setAgentHandler(handler);
+    const slow = agentRequest("slow");
+    h.sendRaw(slow);
+    await until(() => handler.mock.calls.length === 1);
+    await h.event("session.updated", { id: "ses_agent", runtime: "waiting_input" });
+    expect(t.c.store.sessions.require("ses_agent").runtime).toBe("waiting_input");
+    await expect(
+      t.c.hostHub.request(creds.hostId, { type: "session.importable" }),
+    ).resolves.toBeNull();
+    h.sendRaw(agentRequest("fast"));
+    expect(await agentResult(h, "fast")).toMatchObject({ ok: true, result: "fast" });
+    expect(h.inbox.messages.some((m) => m.type === "agent.result" && m.requestId === "slow")).toBe(
+      false,
+    );
+    release(success(slow, "finished"));
+    expect(await agentResult(h, "slow")).toMatchObject({ ok: true, result: "finished" });
+  });
+
+  it("rejects unknown methods, malformed and oversized agent frames without dropping the host", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds);
+    await h.event("session.updated", hostSession("ses_agent"));
+    const handler = vi.fn(async (_hostId: string, frame: AgentRequestFrame) => success(frame));
+    t.c.hostHub.setAgentHandler(handler);
+    for (const [id, overrides] of [
+      ["unknown", { method: "unknown.method" }],
+      ["invalid", { sessionId: "" }],
+      ["missing_tool", { method: "task.create" }],
+      ["oversized", { args: "é".repeat(AGENT_FRAME_MAX_BYTES / 2) }],
+      ["extra_oversized", { ignored: "x".repeat(AGENT_FRAME_MAX_BYTES) }],
+    ] as const) {
+      h.sendRaw({ ...agentRequest(id), ...overrides });
+      expect(await agentResult(h, id)).toMatchObject({
+        requestId: id,
+        runtimeId: "runtime_agent",
+        ok: false,
+        error: { code: "invalid_request" },
+      });
+    }
+    h.sendRaw({ type: "agent.request", requestId: "missing_runtime" });
+    expect(handler).not.toHaveBeenCalled();
+    await h.event("session.updated", { id: "ses_agent", title: "still healthy" });
+    h.sendRaw(agentRequest("healthy"));
+    expect(await agentResult(h, "healthy")).toMatchObject({ ok: true });
+    expect(t.c.hostHub.isConnected(creds.hostId)).toBe(true);
+  });
+
+  it("returns bounded errors for unavailable, failing, malformed or oversized handlers", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds);
+    await h.event("session.updated", hostSession("ses_agent"));
+    // A deliberately unwired hub still fails closed (production installs the builtin handler).
+    t.c.hostHub.setAgentHandler(null);
+    h.sendRaw(agentRequest("no_handler"));
+    expect(await agentResult(h, "no_handler")).toMatchObject({
+      ok: false,
+      error: { code: "unsupported_capability" },
+    });
+    t.c.hostHub.setAgentHandler(async (_hostId, frame) => {
+      if (frame.requestId === "forbidden")
+        throw new SwitchyardError("forbidden", "denied", { reason: "test" });
+      if (frame.requestId === "internal") throw new Error("private details");
+      if (frame.requestId === "wrong_ids") return success({ ...frame, requestId: "other" });
+      if (frame.requestId === "error_size")
+        throw new SwitchyardError("internal", "large", "x".repeat(AGENT_FRAME_MAX_BYTES));
+      return success(frame, "é".repeat(AGENT_FRAME_MAX_BYTES / 2));
+    });
+    for (const [id, code] of [
+      ["forbidden", "forbidden"],
+      ["internal", "internal"],
+      ["wrong_ids", "internal"],
+      ["large", "invalid_request"],
+      ["error_size", "invalid_request"],
+    ]) {
+      h.sendRaw(agentRequest(id!));
+      const result = await agentResult(h, id!);
+      expect(result).toMatchObject({ ok: false, error: { code } });
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(AGENT_FRAME_MAX_BYTES);
+      expect(JSON.stringify(result)).not.toContain("private details");
+    }
+  });
+
+  it("does not send a delayed response to a replaced or revoked authenticated socket", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds);
+    await h.event("session.updated", hostSession("ses_agent"));
+    const releases = new Map<string, (frame: AgentResultFrame) => void>();
+    const handler = vi.fn(
+      (_hostId: string, frame: AgentRequestFrame) =>
+        new Promise<AgentResultFrame>((resolve) => releases.set(frame.requestId, resolve)),
+    );
+    t.c.hostHub.setAgentHandler(handler);
+    h.sendRaw(agentRequest("replaced"));
+    await until(() => releases.has("replaced"));
+    const current = await connectAgent(t, creds);
+    releases.get("replaced")!(success(agentRequest("replaced")));
+    current.sendRaw(agentRequest("revoked"));
+    await until(() => releases.has("revoked"));
+    t.c.store.putHost({ ...t.c.store.hosts.require(creds.hostId), revokedAt: t.c.store.nowIso() });
+    releases.get("revoked")!(success(agentRequest("revoked")));
+    current.sendRaw(agentRequest("after_revocation"));
+    await sleep(50);
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(
+      [...h.inbox.messages, ...current.inbox.messages].filter((m) => m.type === "agent.result"),
+    ).toEqual([]);
+  });
+
+  it("projects bridge state and blocks all host changes to coordinator policy interactions", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds);
+    const bridge = {
+      version: 1,
+      runtimeId: "runtime_agent",
+      nativeSessionId: "native-ses_agent",
+      agentTools: true,
+      messageDelivery: true,
+      policyState: "active",
+      policyPhases: ["tool_call", "request"],
+    } as const;
+    await h.event("session.updated", hostSession("ses_agent"));
+    await h.event("session.updated", { id: "ses_agent", bridge });
+    expect(t.c.store.sessions.require("ses_agent").bridge).toEqual({
+      ...bridge,
+      policyState: "unsupported",
+      policyPhases: [],
+    });
+    const i: Interaction = {
+      id: "int_policy",
+      sessionId: "ses_agent",
+      revision: 1,
+      source: { kind: "extension_ui", method: "confirm", piRequestIds: [] },
+      adapterId: null,
+      title: "Allow?",
+      presentation: { t: "text", text: "Allow?" },
+      state: "pending",
+      resolution: null,
+      createdAt: t.c.store.nowIso(),
+      permission: {
+        kind: "policy",
+        decisionId: "decision_a",
+        rootTaskId: null,
+        ruleId: "rule_a",
+        ruleRevision: 1,
+        fingerprint: "a".repeat(64),
+      },
+    };
+    await h.event("interaction.updated", i);
+    expect(t.c.store.interactions.get(i.id)).toBeUndefined();
+    t.c.store.putInteraction(i, { hostId: creds.hostId });
+    t.c.hostHub.reconcileInputAttention(i);
+    expect(t.c.store.attention.list("resolved_at IS NULL")).toHaveLength(1);
+    const { permission: _permission, ...withoutMarker } = i;
+    await h.event("interaction.updated", { ...withoutMarker, state: "resolved", revision: 2 });
+    await h.event("interaction.updated", { ...i, state: "resolved", revision: 2 });
+    expect(t.c.store.interactions.require(i.id)).toEqual(i);
+    expect(t.c.store.attention.list("resolved_at IS NULL")).toHaveLength(1);
+    const resolved = { ...i, state: "resolved" as const, revision: 2 };
+    t.c.store.putInteraction(resolved, { hostId: creds.hostId });
+    t.c.hostHub.reconcileInputAttention(resolved);
+    expect(t.c.store.attention.list("resolved_at IS NULL")).toHaveLength(0);
+    const ordinary = { ...withoutMarker, id: "int_ordinary" };
+    await h.event("interaction.updated", ordinary);
+    expect(t.c.store.interactions.require(ordinary.id)).toEqual(ordinary);
   });
 
   it("rejects a bad credential", async () => {

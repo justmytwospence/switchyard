@@ -6,6 +6,15 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  type BridgeAgentResult,
+  type BridgeFeatures,
+  type BridgeMethod,
+  type BridgeRequestOptions,
+  BridgeRequests,
+  parseBridgeRecord,
+  validateAgentResult,
+} from "./bridge-wire.js";
 import { JsonlReader, writeJsonl } from "./jsonl.js";
 import type { BridgeEvent, PiEvent, PiUiRequest, PiUiResponseBody } from "./types.js";
 
@@ -151,6 +160,10 @@ export class PiRpcProcess extends EventEmitter {
   private readonly server: Server | null;
   private readonly pending = new Map<string, PendingRequest>();
   private readonly bridgeSockets = new Set<Socket>();
+  private bridgeOrigin: Socket | null = null;
+  private bridgeFeatures: BridgeFeatures | null = null;
+  private readonly bridgePending = new BridgeRequests();
+  private readonly agentOrigins = new Map<string, Socket>();
   private nextId = 0;
   private closeRequested = false;
   private exitInfo: PiExit | null = null;
@@ -317,6 +330,33 @@ export class PiRpcProcess extends EventEmitter {
     });
   }
 
+  bridgeRequest<T = unknown>(
+    method: BridgeMethod,
+    args: unknown,
+    options?: BridgeRequestOptions,
+  ): Promise<T> {
+    const socket = this.bridgeOrigin;
+    if (this.exitInfo || !socket || socket.destroyed || !this.bridgeFeatures) {
+      return Promise.reject(new PiRpcError(method, "Bridge is not connected", "transport"));
+    }
+    if (method === "configure") this.agentOrigins.clear();
+    return this.bridgePending.request<T>(
+      method,
+      args,
+      (frame) => writeJsonl(socket, frame),
+      options,
+    );
+  }
+
+  replyAgent(frame: BridgeAgentResult): void {
+    const reply = validateAgentResult(frame);
+    const key = JSON.stringify([reply.runtimeId, reply.bindingId, reply.requestId]);
+    const socket = this.agentOrigins.get(key);
+    if (!socket) return;
+    this.agentOrigins.delete(key);
+    void writeJsonl(socket, reply).catch(() => {});
+  }
+
   /** Answer a dialog `extension_ui_request`. */
   respondUi(id: string, body: PiUiResponseBody): Promise<void> {
     return writeJsonl(this.child.stdin, { type: "extension_ui_response", id, ...body });
@@ -355,21 +395,71 @@ export class PiRpcProcess extends EventEmitter {
 
   private attachBridgeSocket(socket: Socket): void {
     this.bridgeSockets.add(socket);
-    socket.on("close", () => this.bridgeSockets.delete(socket));
+    socket.on("close", () => {
+      this.bridgeSockets.delete(socket);
+      for (const [key, origin] of this.agentOrigins) {
+        if (origin === socket) this.agentOrigins.delete(key);
+      }
+      if (this.bridgeOrigin === socket) {
+        this.bridgeOrigin = null;
+        this.bridgeFeatures = null;
+        this.bridgeConnected = false;
+        this.bridgePending.cancel("Bridge socket closed");
+        this.emit("bridge_lost");
+      }
+    });
     socket.on("error", () => {
       // the bridge disables itself; nothing to do here
     });
-    JsonlReader.attach(socket, (record) => {
-      const msg = record as BridgeEvent;
-      if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
-      if (msg.type === "hello") {
-        this.bridgeConnected = true;
-      }
-      this.emit("bridge", msg);
-    });
+    JsonlReader.attach(
+      socket,
+      (record) => {
+        try {
+          const local = parseBridgeRecord(record);
+          if (local?.type === "bridge.receipt") {
+            if (socket === this.bridgeOrigin) this.bridgePending.receive(local);
+            return;
+          }
+          if (local?.type === "agent.hello") {
+            this.bridgePending.setHello(local);
+            this.agentOrigins.clear();
+            this.bridgeOrigin = socket;
+            this.bridgeFeatures = local;
+            this.bridgeConnected = true;
+            this.emit("bridge_features", local);
+            return;
+          }
+          if (local?.type === "agent.request") {
+            if (socket !== this.bridgeOrigin || !this.bridgePending.accepts(local)) return;
+            const key = JSON.stringify([local.runtimeId, local.bindingId, local.requestId]);
+            if (this.agentOrigins.has(key)) return;
+            if (this.agentOrigins.size >= 256) throw new Error("Too many pending agent requests");
+            this.agentOrigins.set(key, socket);
+            this.emit("agent_request", local);
+            return;
+          }
+          const msg = record as BridgeEvent;
+          if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
+          if (msg.type === "hello") {
+            this.bridgeConnected = true;
+            // Legacy bridges can still report dialogs, but cannot originate agent requests.
+            if (!this.bridgeOrigin) this.bridgeOrigin = socket;
+          }
+          this.emit("bridge", msg);
+        } catch (error) {
+          this.emit("protocol_error", error, JSON.stringify(record));
+        }
+      },
+      (error, line) => this.emit("protocol_error", error, line),
+    );
   }
 
   private cleanupBridge(): void {
+    this.bridgePending.cancel("Pi exited");
+    this.agentOrigins.clear();
+    this.bridgeFeatures = null;
+    this.bridgeOrigin = null;
+    this.bridgeConnected = false;
     for (const s of this.bridgeSockets) s.destroy();
     this.bridgeSockets.clear();
     if (this.server) {
@@ -399,6 +489,17 @@ export class PiRpcProcess extends EventEmitter {
     if (rec.type === "extension_ui_request") {
       this.emit("ui_request", rec as PiUiRequest);
       return;
+    }
+    if (
+      rec.type === "switchyard_native" &&
+      this.bridgeFeatures &&
+      rec.sessionId !== this.bridgeFeatures.nativeSessionId
+    ) {
+      this.bridgePending.cancel("Native session changed");
+      this.agentOrigins.clear();
+      this.bridgeFeatures = null;
+      this.bridgeConnected = false;
+      this.emit("bridge_lost");
     }
     this.emit("event", rec as PiEvent);
   }

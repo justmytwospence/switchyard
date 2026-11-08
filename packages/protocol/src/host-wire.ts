@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentRequestFrame, AgentResultFrame } from "./agent-wire.js";
 import {
   CheckResult,
   ControlMode,
@@ -16,6 +17,12 @@ import {
 } from "./entities.js";
 import { ErrorBody } from "./errors.js";
 import { HostEvent, StreamDelta } from "./events.js";
+import {
+  GitHubHostLogsRequest,
+  GitHubHostMergeRequest,
+  GitHubHostViewRequest,
+  HostGitHub,
+} from "./github.js";
 import { TermCoordinatorMsg, TermServerToViewer } from "./terminal-wire.js";
 import { InteractionResponseSchema } from "./ui.js";
 
@@ -36,6 +43,24 @@ export const HostCommand = z.discriminatedUnion("type", [
     controlMode: ControlMode,
     origin: Origin,
     readOnly: z.boolean().default(false),
+    policyRequired: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("session.deliverMessage"),
+    sessionId: z.string(),
+    messageId: z.string(),
+    payload: z.object({
+      deliveryId: z.string(),
+      kind: z.enum(["message", "completion"]),
+      text: z.string(),
+    }),
+    mode: z.enum(["steer", "queue"]),
+    holdUntil: z.string(),
+  }),
+  z.object({
+    type: z.literal("session.messageStatus"),
+    sessionId: z.string(),
+    messageIds: z.array(z.string().min(1)).min(1).max(100),
   }),
   z.object({
     type: z.literal("session.prompt"),
@@ -143,6 +168,9 @@ export const HostCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("workspace.files"), path: z.string(), dir: z.string() }),
   z.object({ type: z.literal("workspace.readFile"), path: z.string(), file: z.string() }),
+  GitHubHostViewRequest.extend({ type: z.literal("workspace.prView") }),
+  GitHubHostLogsRequest.extend({ type: z.literal("workspace.prFailedLogs") }),
+  GitHubHostMergeRequest.extend({ type: z.literal("workspace.prMerge") }),
   z.object({
     type: z.literal("dispatch.start"),
     dispatchKey: z.string(),
@@ -169,6 +197,7 @@ export const HostCommand = z.discriminatedUnion("type", [
     /** The launch's own revision; a takeover always carries a newer one. */
     controlRevision: z.number().int(),
     controlMode: ControlMode.default("automation"),
+    policyRequired: z.boolean().optional(),
   }),
   z.object({ type: z.literal("dispatch.reconcile"), dispatchKey: z.string() }),
   z.object({
@@ -317,8 +346,11 @@ export const HostToCoordinator = z.discriminatedUnion("type", [
     piCompatible: z.boolean(),
     platform: Platform,
     capabilities: RuntimeCapabilities.nullable(),
+    github: HostGitHub.optional(),
     protocolVersion: z.number().int(),
+    features: z.array(z.string()).optional(),
   }),
+  AgentRequestFrame,
   z.object({ type: z.literal("event"), hostSeq: z.number().int(), event: HostEvent }),
   z.object({ type: z.literal("stream"), delta: StreamDelta }),
   z.object({ type: z.literal("receipt"), receipt: Receipt }),
@@ -334,7 +366,9 @@ export const CoordinatorToHost = z.discriminatedUnion("type", [
     type: z.literal("welcome"),
     coordinatorVersion: z.string(),
     ackedHostSeq: z.number().int(),
+    features: z.array(z.string()).optional(),
   }),
+  AgentResultFrame,
   z.object({ type: z.literal("ack"), hostSeq: z.number().int() }),
   z.object({ type: z.literal("command"), commandId: z.string(), command: HostCommand }),
   z.object({ type: z.literal("ping") }),

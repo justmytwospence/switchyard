@@ -1,4 +1,12 @@
 import type { CommandView } from "@switchyard/protocol";
+import type { BridgeAgentRequest, BridgeFeatures } from "./bridge-wire.js";
+
+/** Direct transport lane; it must not wait behind a prompt or ordinary session events. */
+export interface AgentTransportEventMap {
+  agent_request: [BridgeAgentRequest];
+  bridge_features: [BridgeFeatures];
+  bridge_lost: [];
+}
 
 /**
  * Wire shapes of Pi's RPC mode (Pi 1.4.x), from docs/rpc*.md, docs/json.md and rpc-types.d.ts.

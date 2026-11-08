@@ -1,14 +1,9 @@
 import {
   CreateTaskRequest,
-  DEFAULT_TASK_POLICY,
   MoveTaskRequest,
-  mergePatch,
-  newId,
   RequestChangesRequest,
   SwitchyardError,
   type Task,
-  TaskPolicy,
-  type TaskPolicyPatch,
   type TaskState,
   UpdateTaskRequest,
 } from "@switchyard/protocol";
@@ -20,7 +15,8 @@ import { requireService } from "../services.js";
 import { stopSession, takeoverRun } from "../sessions/control.js";
 import { LIVE_RUNTIMES } from "../sessions/service.js";
 import { effectiveChecks, putTaskState, saveRun } from "../tasks/common.js";
-import { detectCycle, isLiveRun, isTerminalTask, move, STATE_LABELS } from "../tasks/state.js";
+import { createTask, mergePolicy, validateDependencies, validateParent } from "../tasks/service.js";
+import { isLiveRun, isTerminalTask, move, STATE_LABELS } from "../tasks/state.js";
 
 const ListQuery = z.object({
   projectId: z.string().optional(),
@@ -32,26 +28,6 @@ const ReopenRequest = z.object({ to: z.enum(["ready", "backlog"]).default("ready
 const CancelRequest = z.object({ onRunning: z.enum(["pause", "stop"]).optional() });
 const NewAttemptQuery = z.object({ fresh: z.enum(["true", "false"]).optional() });
 const PauseRequest = z.object({ paused: z.boolean() });
-
-function mergePolicy(base: TaskPolicy, patch: TaskPolicyPatch | undefined): TaskPolicy {
-  return parse(TaskPolicy, mergePatch(base, patch), "policy");
-}
-
-function nextPosition(ctx: CoordinatorContext, projectId: string): number {
-  const max = ctx.store.tasks
-    .list("project_id = ?", [projectId])
-    .reduce((m, t) => Math.max(m, t.position), 0);
-  return max + 1024;
-}
-
-function validateDeps(ctx: CoordinatorContext, taskId: string, title: string, deps: string[]) {
-  for (const d of deps) {
-    if (d === taskId)
-      throw new SwitchyardError("dependency_cycle", "A task cannot depend on itself");
-    ctx.store.tasks.require(d);
-  }
-  detectCycle(taskId, deps, (id) => ctx.store.tasks.get(id), title);
-}
 
 /**
  * Apply a move: validate (`invalid_transition` with a concrete reason), pause or stop live work
@@ -180,36 +156,7 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: CoordinatorContext
 
   app.post("/api/tasks", async (req, reply) => {
     const body = parse(CreateTaskRequest, req.body);
-    const task = store.tx(() => {
-      store.projects.require(body.projectId);
-      const id = newId("tsk");
-      validateDeps(ctx, id, body.title, body.dependencies);
-      const now = store.nowIso();
-      const task: Task = {
-        id,
-        projectId: body.projectId,
-        title: body.title,
-        objective: body.objective,
-        acceptanceCriteria: body.acceptanceCriteria,
-        dependencies: body.dependencies,
-        priority: body.priority,
-        position: nextPosition(ctx, body.projectId),
-        state: body.state,
-        blocked: null,
-        notBefore: body.notBefore ?? null,
-        policy: mergePolicy(DEFAULT_TASK_POLICY, body.policy),
-        origin: { kind: "manual" },
-        groupingKey: null,
-        currentRunId: null,
-        sessionId: null,
-        review: { feedback: [], changesRequested: false },
-        hiddenFromBoard: false,
-        lastActivityAt: now,
-        createdAt: now,
-        updatedAt: now,
-      };
-      return store.putTask(task);
-    });
+    const task = createTask(ctx, body, { kind: "manual" });
     dispatcher().schedule();
     return reply.code(201).send(task);
   });
@@ -221,13 +168,26 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: CoordinatorContext
     const task = store.tx(() => {
       const cur = store.tasks.require(idOf(req));
       const title = body.title ?? cur.title;
-      if (body.dependencies) validateDeps(ctx, cur.id, title, body.dependencies);
+      if (body.dependencies) {
+        validateDependencies(
+          ctx,
+          cur.id,
+          cur.projectId,
+          title,
+          body.dependencies,
+          cur.dependencies,
+        );
+      }
+      if (body.parentTaskId !== undefined) {
+        validateParent(ctx, cur.id, cur.projectId, body.parentTaskId);
+      }
       const next: Task = {
         ...cur,
         title,
         objective: body.objective ?? cur.objective,
         acceptanceCriteria: body.acceptanceCriteria ?? cur.acceptanceCriteria,
         dependencies: body.dependencies ?? cur.dependencies,
+        ...(body.parentTaskId !== undefined ? { parentTaskId: body.parentTaskId } : {}),
         priority: body.priority ?? cur.priority,
         position: body.position ?? cur.position,
         notBefore: body.notBefore !== undefined ? body.notBefore : cur.notBefore,
@@ -248,15 +208,6 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: CoordinatorContext
           "invalid_transition",
           "Only Backlog or Canceled tasks can be deleted; cancel it first",
         );
-      }
-      for (const t of store.tasks.list()) {
-        if (t.dependencies.includes(task.id)) {
-          store.putTask({
-            ...t,
-            dependencies: t.dependencies.filter((d) => d !== task.id),
-            updatedAt: store.nowIso(),
-          });
-        }
       }
       store.deleteTask(task);
     });

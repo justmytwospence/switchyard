@@ -16,6 +16,7 @@ import {
 import {
   type BridgeEvent,
   branchSession,
+  type DeliveryEvidence,
   entriesToMessages,
   type HolderSweep,
   listImportable,
@@ -56,9 +57,11 @@ import {
   ui,
 } from "@switchyard/protocol";
 import type { AdapterCatalog } from "./adapters.js";
+import type { AgentBroker, AgentBrokerHandle } from "./agent-broker.js";
 import type { HostDb } from "./db/index.js";
 import type { CoordinatorLink } from "./link.js";
 import type { Logger } from "./logger.js";
+import type { MessageDeliveryBridge } from "./message-delivery.js";
 
 export const RESTART_NOTICE = "Host agent restarted while Pi was working; resume to continue";
 export const RESTART_DETAIL = "Host agent restarted";
@@ -90,6 +93,11 @@ const NOT_LIVE = {
 
 export const SESSION_LIVE_CONFLICT = "Session already live on this host";
 
+/** Potential A.1 support; actual protection still requires a live configure receipt. */
+export function supportsAgentBridge(version: string | null | undefined): boolean {
+  return typeof version === "string" && /^1\.5\.\d+$/.test(version);
+}
+
 /** What a session the previous agent lost becomes: mid-turn work is interrupted, idle is stopped. */
 export function lostRuntime(
   rec: Pick<HostSessionRecord, "runtime" | "compacting">,
@@ -118,6 +126,9 @@ export interface HostSessionRecord {
   dispatchKey: string | null;
   profile: Profile;
   nativeHandle: NativeHandle | null;
+  /** Protection is a launch requirement, latched across resumes. */
+  policyRequired?: boolean;
+  bridge?: Session["bridge"];
   runtime: RuntimeState;
   runtimeDetail: string | null;
   controlRevision: number;
@@ -157,6 +168,7 @@ export interface StartParams {
   controlMode: "automation" | "human";
   origin: "human" | "automation";
   readOnly?: boolean;
+  policyRequired?: boolean;
   runId?: string | null;
   taskId?: string | null;
 }
@@ -185,7 +197,10 @@ export interface SupervisorOptions {
   /** Directory for bridge sockets. */
   runtimeDir?: string;
   /** Pi compatibility; sessions are refused when not compatible. */
-  pi: () => { compatible: boolean; reason: string | null };
+  pi: () => { compatible: boolean; reason: string | null; version?: string | null };
+  broker?: AgentBroker;
+  /** Wake durable delivery work, outside the session event chain. */
+  onDeliveryWake?: (sessionId: string) => void;
   /** Run new sessions as interactive Pi in a terminal holder. */
   terminalSessions?: boolean;
 }
@@ -193,6 +208,8 @@ export interface SupervisorOptions {
 interface Live {
   rec: HostSessionRecord;
   ms: ManagedSession | null;
+  broker: AgentBrokerHandle | null;
+  binding: Promise<void> | null;
   registry: AdapterRegistry | null;
   adapters: AdapterSession | null;
   claims: Map<string, ClaimedInteraction>;
@@ -397,6 +414,14 @@ export class SessionSupervisor {
     const next = lostRuntime(was);
     rec.runtime = next;
     rec.runtimeDetail = next === "interrupted" ? lost.detail : null;
+    if (rec.bridge)
+      rec.bridge = {
+        ...rec.bridge,
+        policyState: "lost",
+        agentTools: false,
+        messageDelivery: false,
+        policyPhases: [],
+      };
     rec.compacting = false;
     rec.queue = { steering: [], followUp: [] };
     rec.terminal = null;
@@ -542,6 +567,8 @@ export class SessionSupervisor {
     return {
       rec,
       ms: null,
+      broker: null,
+      binding: null,
       registry: null,
       adapters: null,
       claims: new Map(),
@@ -590,6 +617,84 @@ export class SessionSupervisor {
     return this.live.get(sessionId)?.ms ?? null;
   }
 
+  /** Delivery is a direct, binding-fenced lane, never a native Pi prompt/RPC. */
+  deliveryBridge(sessionId: string): MessageDeliveryBridge | null {
+    const l = this.live.get(sessionId);
+    const ms = l?.ms;
+    const snapshot = l?.broker?.snapshot();
+    const configuration = snapshot?.configuration;
+    if (!l || !ms?.isAlive || !configuration || !snapshot?.bridge?.messageDelivery) return null;
+    const { runtimeId, nativeSessionId, bindingId } = configuration;
+    const assertCurrent = (accept: boolean) => {
+      const current = l.broker?.snapshot();
+      const c = current?.configuration;
+      const hello = ms.bridgeFeatures;
+      if (
+        this.closing ||
+        this.live.get(sessionId) !== l ||
+        l.ms !== ms ||
+        !ms.isAlive ||
+        !current?.bridge?.messageDelivery ||
+        !c ||
+        c.runtimeId !== runtimeId ||
+        c.nativeSessionId !== nativeSessionId ||
+        c.bindingId !== bindingId ||
+        hello?.runtimeId !== runtimeId ||
+        hello.nativeSessionId !== nativeSessionId ||
+        (accept && (!this.link.connected || !c.coordinatorConnected))
+      )
+        throw new SwitchyardError(
+          "host_unreachable",
+          "Message delivery binding is unavailable or obsolete",
+        );
+    };
+    return {
+      runtimeId,
+      nativeSessionId,
+      bindingId,
+      accept: (args, options) => {
+        assertCurrent(true);
+        return ms.bridgeRequest<DeliveryEvidence>("delivery.accept", args, options);
+      },
+      status: (args, options) => {
+        assertCurrent(false);
+        return ms.bridgeRequest<DeliveryEvidence>("delivery.status", args, options);
+      },
+    };
+  }
+
+  /** Required launches refuse unsupported installations/coordinators before spawning Pi. */
+  private assertPolicySupport(): void {
+    const pi = this.opts.pi();
+    if (
+      !pi.compatible ||
+      !supportsAgentBridge(pi.version) ||
+      !this.opts.broker ||
+      !this.link.connected ||
+      !this.link.negotiatedFeatures.has("agentRequests.v1") ||
+      !this.link.negotiatedFeatures.has("policies.v1")
+    )
+      throw new SwitchyardError(
+        "unsupported_capability",
+        "Required policies need Pi >=1.5.0 <1.6.0 and a negotiated policy broker",
+      );
+  }
+
+  private async recordHumanInput(l: Live): Promise<void> {
+    // Legacy live holders/coordinators stay usable, but cannot claim agent causality/protection.
+    if (!l.broker || !l.ms?.bridgeFeatures) {
+      if (l.rec.policyRequired)
+        throw new SwitchyardError(
+          "unsupported_capability",
+          "Required human-input recording is unavailable",
+        );
+      return;
+    }
+    // Disabled local configurations still support native input history on old coordinators.
+    await l.binding;
+    await l.broker.humanInput();
+  }
+
   /** Whether a live session runs in `path` (or below it). */
   hasActiveSession(path: string): boolean {
     const target = realpathOr(path);
@@ -630,6 +735,7 @@ export class SessionSupervisor {
       lastAssistantText: rec.lastAssistantText,
       createdAt: rec.createdAt,
       terminal: rec.terminal != null,
+      ...(rec.bridge ? { bridge: rec.bridge } : {}),
     };
   }
 
@@ -687,6 +793,23 @@ export class SessionSupervisor {
     await this.starts.get(p.sessionId)?.done.catch(() => {});
     if (this.closing) throw new SwitchyardError("host_unreachable", "Host agent is shutting down");
     const existing = this.live.get(p.sessionId);
+    const policyRequired =
+      p.policyRequired === true || this.getRecord(p.sessionId)?.policyRequired === true;
+    if (policyRequired) {
+      this.assertPolicySupport();
+      // An optional/legacy live process cannot acquire the required startup latch retroactively.
+      if (existing && !existing.rec.policyRequired) {
+        throw new SwitchyardError(
+          "unsupported_capability",
+          "Live session was not launched with required protection; explicitly stop and resume it",
+        );
+      }
+      if (existing?.ms?.isAlive) {
+        if (!existing.broker)
+          throw new SwitchyardError("unsupported_capability", "Live session has no agent broker");
+        await existing.broker.ready({ require: "policies" });
+      }
+    }
     if (existing) {
       if (existing.ms?.isAlive || existing.rec.runtime === "starting") {
         const promptError = await this.promptOnReuse(existing, p);
@@ -729,6 +852,8 @@ export class SessionSupervisor {
       throw new SwitchyardError("not_found", `Workspace ${p.workspacePath} does not exist`);
     }
     const prev = this.getRecord(p.sessionId);
+    const policyRequired = p.policyRequired === true || prev?.policyRequired === true;
+    if (policyRequired) this.assertPolicySupport();
     const nativeHandle = p.nativeHandle ?? prev?.nativeHandle ?? null;
     if (nativeHandle) {
       const file = realpathOr(nativeHandle.sessionFile);
@@ -776,6 +901,7 @@ export class SessionSupervisor {
       dispatchKey: p.dispatchKey ?? prev?.dispatchKey ?? null,
       profile: p.profile,
       nativeHandle,
+      policyRequired,
       runtime: "starting",
       runtimeDetail: "Starting Pi…",
       controlRevision: control.controlRevision,
@@ -813,7 +939,7 @@ export class SessionSupervisor {
       profile: p.profile,
       nativeHandle,
       piBin: this.opts.piBin,
-      env: this.opts.env,
+      env: { ...this.opts.env, SWITCHYARD_POLICY_REQUIRED: policyRequired ? "1" : "0" },
       extensions: this.opts.extraExtensions,
       runtimeDir: this.opts.runtimeDir,
       nextOrder,
@@ -824,6 +950,11 @@ export class SessionSupervisor {
     const piStart = Date.now();
     try {
       await ms.start(signal);
+      if (policyRequired) {
+        if (!l.broker)
+          throw new SwitchyardError("unsupported_capability", "Agent broker is unavailable");
+        await l.broker.ready({ require: "policies", signal, timeoutMs: 30_000 });
+      }
       if (signal.aborted || ms.runtime === "stopped") {
         if (ms.process) this.spawned++;
         return this.canceledStart(l);
@@ -843,6 +974,8 @@ export class SessionSupervisor {
       this.db.tx(() => this.saveAndEmit(rec));
     } catch (err) {
       if (ms.process) this.spawned++;
+      // A protected startup must not leave an unprotected live Pi behind.
+      if (policyRequired && !this.closing) await ms.stop();
       this.teardown(l);
       if (signal.aborted) return this.canceledStart(l);
       if (this.closing && rec.terminal) {
@@ -917,6 +1050,8 @@ export class SessionSupervisor {
       this.db.tx(() => this.saveRecord(l.rec));
     }
     try {
+      if (l.rec.policyRequired) await l.broker!.ready({ require: "policies" });
+      if (p.origin === "human") await this.recordHumanInput(l);
       await ms.prompt(p.initialPrompt, [], "prompt");
       return null;
     } catch (err) {
@@ -955,8 +1090,12 @@ export class SessionSupervisor {
     text: string,
     images: { mimeType: string; data: string }[],
     mode: "prompt" | "steer" | "followUp",
+    origin: "human" | "automation" = "human",
   ) {
     const ms = this.requireLive(sessionId, "prompt");
+    const l = this.live.get(sessionId)!;
+    if (l.rec.policyRequired) await l.broker!.ready({ require: "policies" });
+    if (origin === "human") await this.recordHumanInput(l);
     const { disposition, view } = await ms.prompt(text, images, mode);
     if (mode === "prompt" && disposition === "started") await this.autoTitle(sessionId, text);
     return { disposition, view };
@@ -1370,6 +1509,45 @@ export class SessionSupervisor {
 
   private wire(l: Live, ms: ManagedSession): void {
     const rec = l.rec;
+    // Persisted protection is not evidence of this controller's current binding.
+    if (rec.bridge)
+      rec.bridge = {
+        ...rec.bridge,
+        policyState: "lost",
+        agentTools: false,
+        messageDelivery: false,
+        policyPhases: [],
+      };
+    const handle = this.opts.broker?.attach({
+      sessionId: rec.id,
+      mode: ms.transport,
+      policyRequired: rec.policyRequired === true,
+      configureAgent: (configuration, options) => ms.configureAgent(configuration, options),
+      bridgeRequest: (method, args, options) => ms.bridgeRequest(method, args, options),
+      replyAgent: (frame) => ms.replyAgent(frame),
+      setPolicyWaiting: (decisionId, waiting) => ms.setPolicyWaiting(decisionId, waiting),
+      onState: (state) => {
+        if (l.ms !== ms || this.live.get(rec.id) !== l) return;
+        rec.bridge = state;
+        this.db.tx(() => this.saveAndEmit(rec));
+        if (state.messageDelivery) this.opts.onDeliveryWake?.(rec.id);
+      },
+    });
+    l.broker = handle ?? null;
+    // These lanes must never wait behind a prompt, slash command or adapter callback.
+    ms.on("bridge_features", (hello) => {
+      l.binding = handle?.hello(hello) ?? null;
+      void l.binding?.catch((err: unknown) =>
+        this.opts.log.warn(
+          { sessionId: rec.id, err: errorMessage(err) },
+          "agent bridge bind failed",
+        ),
+      );
+    });
+    ms.on("agent_request", (frame) => {
+      void handle?.request(frame);
+    });
+    ms.on("bridge_lost", () => handle?.lost());
     ms.on("item", (item) => {
       rec.nextOrder = Math.max(rec.nextOrder, ms.nextOrder, item.order + 1);
       rec.lastActivityAt = nowIso();
@@ -1403,11 +1581,13 @@ export class SessionSupervisor {
         return;
       }
       this.db.tx(() => this.saveAndEmit(rec));
+      if (runtime === "idle") this.opts.onDeliveryWake?.(rec.id);
     });
     ms.on("settled", (info: SettledInfo) => {
       l.awaitingSettled = false;
       if (info.lastAssistantText !== null) rec.lastAssistantText = info.lastAssistantText;
       rec.lastActivityAt = nowIso();
+      this.opts.onDeliveryWake?.(rec.id);
       this.db.tx(() =>
         this.saveAndEmit(rec, {
           settled: { aborted: info.aborted, lastAssistantText: info.lastAssistantText },
@@ -1418,6 +1598,7 @@ export class SessionSupervisor {
     ms.on("queue", (q) => {
       rec.queue = q;
       this.db.tx(() => this.saveAndEmit(rec));
+      this.opts.onDeliveryWake?.(rec.id);
     });
     ms.on("native", (handle) => {
       rec.nativeHandle = handle;
@@ -1449,10 +1630,14 @@ export class SessionSupervisor {
       this.opts.log.debug({ sessionId: rec.id, stderr: text.slice(0, 2000) }, "pi stderr"),
     );
     ms.on("ui_request", (req) => this.enqueue(l, () => this.onUiRequest(l, req)));
-    ms.on("ui_resolved", (r) => this.enqueue(l, () => this.onUiResolved(l, r)));
+    ms.on("ui_resolved", (r) => {
+      this.enqueue(l, () => this.onUiResolved(l, r));
+      this.opts.onDeliveryWake?.(rec.id);
+    });
     ms.on("bridge", (b) => this.enqueue(l, () => this.onBridge(l, b)));
     ms.on("pi_event", (ev) => this.enqueue(l, () => this.onPiEvent(l, ev)));
     ms.on("exit", () => {
+      handle?.close();
       // Runtime (stopped/interrupted) was already recorded by the runtime handler.
       if (rec.terminal) {
         rec.terminal = null;
@@ -1463,6 +1648,9 @@ export class SessionSupervisor {
   }
 
   private teardown(l: Live): void {
+    l.broker?.close();
+    l.broker = null;
+    l.binding = null;
     if (this.live.get(l.rec.id) === l) this.live.delete(l.rec.id);
     l.adapters?.close();
     l.registry?.closeSession(l.rec.id);

@@ -5,6 +5,7 @@ import { piAgentDir } from "@switchyard/adapter-sdk";
 import { detectPi, type PiDetection, terminalSupport } from "@switchyard/pi-runtime";
 import { PROTOCOL_VERSION, type Receipt } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
+import { AgentBroker } from "./agent-broker.js";
 import { stopAllShells } from "./checks.js";
 import { CommandRouter, type HostTestHooks } from "./commands.js";
 import {
@@ -20,7 +21,8 @@ import { type HostDb, openHostDb, PRUNE_INTERVAL_MS, pruneHostDb } from "./db/in
 import { Dispatcher } from "./dispatch.js";
 import { CoordinatorLink } from "./link.js";
 import { createLogger, type Logger } from "./logger.js";
-import { SessionSupervisor } from "./supervisor.js";
+import { MessageDeliveryWorker } from "./message-delivery.js";
+import { SessionSupervisor, supportsAgentBridge } from "./supervisor.js";
 import { TerminalRelay } from "./terminal-relay.js";
 import { UsagePoller } from "./usage.js";
 import { WorkspaceService } from "./workspaces.js";
@@ -151,6 +153,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   if (!pi.compatible) log.warn({ reason: pi.reason }, "Pi is not usable; sessions will be refused");
   else log.info({ version: pi.version }, "Pi detected");
 
+  const agentSupport = pi.compatible && supportsAgentBridge(pi.version);
   const wantTerminal = terminalSessionsWanted(opts.terminalSessions, config, mergedEnv);
   const termSupport = wantTerminal ? terminalSupport() : null;
   const terminalEnabled = termSupport?.ok === true;
@@ -181,8 +184,16 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
       piCompatible: pi.compatible,
       platform: hostPlatform(),
       capabilities: pi.capabilities
-        ? { ...pi.capabilities, terminal: terminalEnabled, treeNavigation: terminalEnabled }
+        ? {
+            ...pi.capabilities,
+            terminal: terminalEnabled,
+            treeNavigation: terminalEnabled,
+            agentRequests: agentSupport,
+            messageDelivery: agentSupport,
+            policies: agentSupport,
+          }
         : null,
+      features: agentSupport ? ["agentRequests.v1", "policies.v1"] : [],
       protocolVersion: PROTOCOL_VERSION,
     }),
     onTerm: (streamId, msg) => relay.handle(streamId, msg),
@@ -194,7 +205,27 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     },
   });
 
+  const broker = new AgentBroker({
+    link,
+    onError: (err, sessionId) => log.warn({ sessionId, err }, "agent broker failed"),
+  });
   let supervisor!: SessionSupervisor;
+  const delivery = new MessageDeliveryWorker({
+    db,
+    getBridge: (id) => supervisor.deliveryBridge(id),
+  });
+  const wakeDelivery = (sessionId?: string) => {
+    void delivery
+      .reconcile(sessionId)
+      .catch((err: unknown) =>
+        log.warn({ sessionId, err }, "message delivery reconciliation failed"),
+      );
+  };
+  link.events.on("welcome", () => wakeDelivery());
+  const deliveryTimer = setInterval(() => {
+    void delivery.tick().catch((err: unknown) => log.warn({ err }, "message delivery tick failed"));
+  }, 1000);
+  deliveryTimer.unref();
   const catalog = new AdapterCatalog({
     env: mergedEnv,
     ownerDir: opts.ownerAdapterDir,
@@ -218,8 +249,10 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     env,
     extraExtensions: opts.extraExtensions,
     runtimeDir: paths.runtime,
-    pi: () => ({ compatible: pi.compatible, reason: pi.reason }),
+    pi: () => ({ compatible: pi.compatible, reason: pi.reason, version: pi.version }),
     terminalSessions: terminalEnabled,
+    broker,
+    onDeliveryWake: wakeDelivery,
   });
   relay = new TerminalRelay({
     supervisor,
@@ -286,6 +319,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     env,
     testHooks: opts.testHooks,
     checkTimeoutMs: opts.checkTimeoutMs,
+    delivery,
     sendReceipt: (r: Receipt) => {
       link.sendReceipt(r);
     },
@@ -410,6 +444,9 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         process.off("SIGINT", onSignal);
         relay.closeAll();
         usagePoller.stop();
+        clearInterval(deliveryTimer);
+        await delivery.stop();
+        broker.close();
         await Promise.all([supervisor.stopAll(stopOpts), stopAllShells()]);
         // Let the final session.updated events go out before closing the socket.
         await new Promise((r) => setTimeout(r, 50));

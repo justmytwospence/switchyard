@@ -279,6 +279,7 @@ export class Store {
       "Task",
       {
         project_id: (t) => t.projectId,
+        parent_task_id: (t) => t.parentTaskId ?? null,
         state: (t) => t.state,
         current_run_id: (t) => t.currentRunId,
         session_id: (t) => t.sessionId,
@@ -601,6 +602,22 @@ export class Store {
 
   deleteTask(t: Task): void {
     this.tx(() => {
+      for (const task of this.tasks.list()) {
+        const isChild = task.parentTaskId === t.id;
+        if (isChild || task.dependencies.includes(t.id)) {
+          this.putTask({
+            ...task,
+            ...(isChild ? { parentTaskId: null } : {}),
+            dependencies: task.dependencies.filter((id) => id !== t.id),
+            updatedAt: this.nowIso(),
+          });
+        }
+      }
+      this.st.get("DELETE FROM task_subscriptions WHERE child_task_id = ?").run(t.id);
+      // Surviving children keep their fixed creator session even when its parent task is gone.
+      this.st
+        .get("UPDATE task_subscriptions SET parent_task_id = NULL WHERE parent_task_id = ?")
+        .run(t.id);
       this.tasks.delete(t.id);
       this.appendEvent("task.deleted", { taskId: t.id, projectId: t.projectId }, { id: t.id });
     });

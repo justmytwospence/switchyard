@@ -32,6 +32,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { CoordinatorContext } from "../context.js";
 import { parse } from "../http.js";
+import { requireService } from "../services.js";
 import { returnToAutomation, stopSession, takeover } from "../sessions/control.js";
 import {
   createSession,
@@ -77,6 +78,10 @@ const TranscriptQuery = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(200),
   afterRev: z.coerce.number().int().min(0).optional(),
   epoch: z.coerce.number().int().min(0).optional(),
+});
+const InboxQuery = z.object({
+  after: z.coerce.number().int().nonnegative().default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 const AbortRequest = z.object({ clearQueue: z.boolean().default(false) });
 const ImportableQuery = z.object({ hostId: z.string() });
@@ -222,6 +227,13 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   });
 
   app.get("/api/sessions/:id", async (req) => get(idOf(req)));
+
+  // Device-authenticated owner inspection, not an agent tool invocation or read acknowledgement.
+  app.get("/api/sessions/:id/inbox", async (req) => {
+    const session = get(idOf(req));
+    const query = parse(InboxQuery, req.query, "query");
+    return requireService(ctx, "messages").readInbox(session.id, query, { markRead: false });
+  });
 
   app.post("/api/sessions", async (req, reply) => {
     const body = parse(CreateSessionRequest, req.body);
