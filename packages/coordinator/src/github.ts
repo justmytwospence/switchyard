@@ -658,7 +658,10 @@ export class GitHubService {
         const parsed = GitHubMergeResult.safeParse(raw);
         if (!parsed.success)
           throw new SwitchyardError("internal", "Invalid merge response from host");
-        result = parsed.data;
+        result =
+          parsed.data.status === "outcome_unknown"
+            ? { ...parsed.data, reason: UNKNOWN_MERGE_REASON }
+            : parsed.data;
         if (
           !sameRepo(result.repository, ws.github!.repository) ||
           result.number !== pr.number ||
@@ -667,7 +670,13 @@ export class GitHubService {
         )
           throw new SwitchyardError("internal", "Invalid merge association from host");
       } catch (err) {
+        // Only the committed write-ahead reservation establishes the attempt boundary.
+        // A generic host conflict cannot attest that no external mutation occurred.
         if (fence) {
+          this.ctx.log.warn(
+            { err, workspaceId: id, hostId: ws.hostId, attemptId, commandId, fenceId: fence.id },
+            "Merge outcome unknown after fenced attempt",
+          );
           result = {
             status: "outcome_unknown",
             github: this.ctx.store.hosts.get(ws.hostId)?.github ?? {
