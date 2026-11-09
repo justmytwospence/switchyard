@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-export type InspectorTab = "changes" | "files" | "task" | "extensions";
+export type InspectorTab = "changes" | "files" | "task" | "extensions" | "pr";
 
 /** Cross-pane wiring inside one session view. */
 export interface CodeViewContext {

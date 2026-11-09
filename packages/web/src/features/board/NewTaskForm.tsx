@@ -1,4 +1,11 @@
-import type { Priority, Task, TaskPolicy } from "@switchyard/protocol";
+import {
+  DEFAULT_TASK_POLICY,
+  GitHubIssueUrl,
+  githubIssueFromUrl,
+  type Priority,
+  type Task,
+  type TaskPolicy,
+} from "@switchyard/protocol";
 import { ChevronDown, ChevronRight, Inbox, Play } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
@@ -20,6 +27,7 @@ const DRAFT_KEY = "sy:new-task-draft";
 
 interface Draft {
   title: string;
+  githubIssueUrl: string;
   objective: string;
   projectId: string;
   advanced: boolean;
@@ -44,6 +52,7 @@ interface Draft {
 function emptyDraft(projectId: string): Draft {
   return {
     title: "",
+    githubIssueUrl: "",
     objective: "",
     projectId,
     advanced: false,
@@ -89,11 +98,14 @@ export function buildPolicy(d: Draft): {
 } {
   const errors: Record<string, string> = {};
   const policy: Partial<TaskPolicy> = {};
+  const issueMode = !!d.githubIssueUrl.trim();
   if (d.hostId) policy.hostId = d.hostId;
   if (d.profileId) policy.profileId = d.profileId;
   if (d.branch.trim())
     policy.workspace = { mode: "new_worktree", branch: d.branch.trim(), base: null };
-  if (d.continuation) {
+  if (issueMode) {
+    policy.continuation = { ...DEFAULT_TASK_POLICY.continuation, enabled: false };
+  } else if (d.continuation) {
     const max = Number(d.maxContinuations);
     const minutes = Number(d.maxMinutes);
     const tokens = d.maxTokens.trim() ? Number(d.maxTokens) : null;
@@ -115,10 +127,10 @@ export function buildPolicy(d: Draft): {
       maxCostUsd: cost,
     };
   }
-  if (d.checksMode === "custom" || !d.humanReview) {
+  if (issueMode || d.checksMode === "custom" || !d.humanReview) {
     policy.completion = {
       checks: d.checksMode === "custom" ? lines(d.checks) : null,
-      requireHumanReview: d.humanReview,
+      requireHumanReview: issueMode || d.humanReview,
     };
   }
   return { policy, errors };
@@ -154,6 +166,9 @@ export function NewTaskForm({
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
   }, [d]);
 
+  const issueMode = !!d.githubIssueUrl.trim();
+  const parsedIssue = GitHubIssueUrl.safeParse(d.githubIssueUrl);
+  const issue = parsedIssue.success ? githubIssueFromUrl(parsedIssue.data) : null;
   const project = projects.find((p) => p.id === d.projectId);
   const defaultHost = project?.defaultHostId ? hostsById[project.defaultHostId] : undefined;
   const defaultProfile = project?.defaultProfileId ? profiles[project.defaultProfileId] : undefined;
@@ -178,7 +193,10 @@ export function NewTaskForm({
 
   const submit = async (state: "backlog" | "ready") => {
     const errs: Record<string, string> = {};
-    if (!d.title.trim()) errs.title = "Give the task a title.";
+    if (!issueMode && !d.title.trim()) errs.title = "Give the task a title.";
+    if (issueMode && !parsedIssue.success)
+      errs.githubIssueUrl =
+        "Use https://github.com/OWNER/REPO/issues/NUMBER with no query or fragment.";
     if (!project) errs.projectId = "Choose a project.";
     if (d.parentTaskId && !parents.some((t) => t.id === d.parentTaskId))
       errs.parentTaskId = "Choose a parent in this project, or None.";
@@ -195,8 +213,9 @@ export function NewTaskForm({
       const task = await createTask({
         projectId: d.projectId,
         title: d.title.trim(),
-        objective: d.objective,
-        acceptanceCriteria: lines(d.criteria),
+        ...(issueMode ? { githubIssueUrl: d.githubIssueUrl } : {}),
+        objective: issueMode ? "" : d.objective,
+        acceptanceCriteria: issueMode ? [] : lines(d.criteria),
         dependencies: d.dependencies,
         parentTaskId: d.parentTaskId || null,
         priority: d.priority,
@@ -232,27 +251,54 @@ export function NewTaskForm({
         void submit("backlog");
       }}
     >
-      <Field id={`${id}-title`} label="Title" error={errors.title}>
+      <Field
+        id={`${id}-issue`}
+        label="GitHub issue URL"
+        hint="Optional. The first run sends only the issue link and a gh issue view instruction, with continuation off and human review required."
+        error={errors.githubIssueUrl}
+      >
+        {(p) => (
+          <TextInput
+            {...p}
+            value={d.githubIssueUrl}
+            onChange={(e) => set("githubIssueUrl", e.target.value)}
+            placeholder="https://github.com/OWNER/REPO/issues/17"
+          />
+        )}
+      </Field>
+      <Field
+        id={`${id}-title`}
+        label="Title"
+        hint={
+          issueMode
+            ? "Optional for issue imports; leave blank to use the issue reference."
+            : undefined
+        }
+        error={errors.title}
+      >
         {(p) => (
           <TextInput
             {...p}
             value={d.title}
             autoFocus
             onChange={(e) => set("title", e.target.value)}
-            placeholder="What should be done?"
+            placeholder={issue ? `${issue.repository} #${issue.number}` : "What should be done?"}
+            maxLength={300}
           />
         )}
       </Field>
-      <Field id={`${id}-objective`} label="Objective">
-        <TextArea
-          id={`${id}-objective`}
-          minRows={3}
-          maxHeight="35vh"
-          value={d.objective}
-          onChange={(e) => set("objective", e.target.value)}
-          placeholder="Context, constraints and what done looks like"
-        />
-      </Field>
+      {!issueMode && (
+        <Field id={`${id}-objective`} label="Objective">
+          <TextArea
+            id={`${id}-objective`}
+            minRows={3}
+            maxHeight="35vh"
+            value={d.objective}
+            onChange={(e) => set("objective", e.target.value)}
+            placeholder="Context, constraints and what done looks like"
+          />
+        </Field>
+      )}
       <Field id={`${id}-project`} label="Project" error={errors.projectId}>
         {(p) => (
           <Select
@@ -310,15 +356,17 @@ export function NewTaskForm({
               <PrioritySelect {...p} value={d.priority} onChange={(v) => set("priority", v)} />
             )}
           </Field>
-          <Field id={`${id}-criteria`} label="Acceptance criteria (one per line)">
-            <TextArea
-              id={`${id}-criteria`}
-              minRows={2}
-              maxHeight="25vh"
-              value={d.criteria}
-              onChange={(e) => set("criteria", e.target.value)}
-            />
-          </Field>
+          {!issueMode && (
+            <Field id={`${id}-criteria`} label="Acceptance criteria (one per line)">
+              <TextArea
+                id={`${id}-criteria`}
+                minRows={2}
+                maxHeight="25vh"
+                value={d.criteria}
+                onChange={(e) => set("criteria", e.target.value)}
+              />
+            </Field>
+          )}
           <DependencyPicker
             candidates={candidates}
             value={d.dependencies}
@@ -374,81 +422,87 @@ export function NewTaskForm({
             )}
           </Field>
 
-          <fieldset className="flex flex-col gap-2">
-            <legend className="text-sm font-medium">Continuation limits</legend>
-            <Checkbox
-              label="Continue automatically until done (off by default)"
-              checked={d.continuation}
-              onChange={(on) => set("continuation", on)}
-            />
-            {d.continuation && (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field
-                  id={`${id}-cobj`}
-                  label="Continuation objective"
-                  error={errors.contObjective}
-                  className="sm:col-span-2"
-                >
-                  {(p) => (
-                    <TextInput
-                      {...p}
-                      value={d.contObjective}
-                      onChange={(e) => set("contObjective", e.target.value)}
-                    />
-                  )}
-                </Field>
-                <Field id={`${id}-cmax`} label="Max continuations" error={errors.maxContinuations}>
-                  {(p) => (
-                    <TextInput
-                      {...p}
-                      inputMode="decimal"
-                      value={d.maxContinuations}
-                      onChange={(e) => set("maxContinuations", e.target.value)}
-                    />
-                  )}
-                </Field>
-                <Field id={`${id}-cmin`} label="Max minutes" error={errors.maxMinutes}>
-                  {(p) => (
-                    <TextInput
-                      {...p}
-                      inputMode="decimal"
-                      value={d.maxMinutes}
-                      onChange={(e) => set("maxMinutes", e.target.value)}
-                    />
-                  )}
-                </Field>
-                <Field
-                  id={`${id}-ctok`}
-                  label="Continuation budget: tokens (optional)"
-                  error={errors.maxTokens}
-                >
-                  {(p) => (
-                    <TextInput
-                      {...p}
-                      inputMode="decimal"
-                      value={d.maxTokens}
-                      onChange={(e) => set("maxTokens", e.target.value)}
-                    />
-                  )}
-                </Field>
-                <Field
-                  id={`${id}-ccost`}
-                  label="Continuation budget: cost USD (optional)"
-                  error={errors.maxCost}
-                >
-                  {(p) => (
-                    <TextInput
-                      {...p}
-                      inputMode="decimal"
-                      value={d.maxCost}
-                      onChange={(e) => set("maxCost", e.target.value)}
-                    />
-                  )}
-                </Field>
-                <p className="text-xs text-muted sm:col-span-2">{CONTINUATION_BUDGET_HELP}</p>
-              </div>
-            )}
-          </fieldset>
+          {!issueMode && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-sm font-medium">Continuation limits</legend>
+              <Checkbox
+                label="Continue automatically until done (off by default)"
+                checked={d.continuation}
+                onChange={(on) => set("continuation", on)}
+              />
+              {d.continuation && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    id={`${id}-cobj`}
+                    label="Continuation objective"
+                    error={errors.contObjective}
+                    className="sm:col-span-2"
+                  >
+                    {(p) => (
+                      <TextInput
+                        {...p}
+                        value={d.contObjective}
+                        onChange={(e) => set("contObjective", e.target.value)}
+                      />
+                    )}
+                  </Field>
+                  <Field
+                    id={`${id}-cmax`}
+                    label="Max continuations"
+                    error={errors.maxContinuations}
+                  >
+                    {(p) => (
+                      <TextInput
+                        {...p}
+                        inputMode="decimal"
+                        value={d.maxContinuations}
+                        onChange={(e) => set("maxContinuations", e.target.value)}
+                      />
+                    )}
+                  </Field>
+                  <Field id={`${id}-cmin`} label="Max minutes" error={errors.maxMinutes}>
+                    {(p) => (
+                      <TextInput
+                        {...p}
+                        inputMode="decimal"
+                        value={d.maxMinutes}
+                        onChange={(e) => set("maxMinutes", e.target.value)}
+                      />
+                    )}
+                  </Field>
+                  <Field
+                    id={`${id}-ctok`}
+                    label="Continuation budget: tokens (optional)"
+                    error={errors.maxTokens}
+                  >
+                    {(p) => (
+                      <TextInput
+                        {...p}
+                        inputMode="decimal"
+                        value={d.maxTokens}
+                        onChange={(e) => set("maxTokens", e.target.value)}
+                      />
+                    )}
+                  </Field>
+                  <Field
+                    id={`${id}-ccost`}
+                    label="Continuation budget: cost USD (optional)"
+                    error={errors.maxCost}
+                  >
+                    {(p) => (
+                      <TextInput
+                        {...p}
+                        inputMode="decimal"
+                        value={d.maxCost}
+                        onChange={(e) => set("maxCost", e.target.value)}
+                      />
+                    )}
+                  </Field>
+                  <p className="text-xs text-muted sm:col-span-2">{CONTINUATION_BUDGET_HELP}</p>
+                </div>
+              )}
+            </fieldset>
+          )}
 
           <fieldset className="flex flex-col gap-2">
             <legend className="text-sm font-medium">Checks and review</legend>
@@ -476,11 +530,15 @@ export function NewTaskForm({
                 />
               </Field>
             )}
-            <Checkbox
-              label="Require human review before Done"
-              checked={d.humanReview}
-              onChange={(on) => set("humanReview", on)}
-            />
+            {issueMode ? (
+              <p className="text-xs text-muted">Issue imports require human review before Done.</p>
+            ) : (
+              <Checkbox
+                label="Require human review before Done"
+                checked={d.humanReview}
+                onChange={(on) => set("humanReview", on)}
+              />
+            )}
           </fieldset>
         </div>
       )}

@@ -35,6 +35,7 @@ import type { AttentionService } from "./attention.js";
 import { safeEqualHex, sha256 } from "./auth.js";
 import { COORDINATOR_VERSION } from "./context.js";
 import type { EventHub } from "./event-hub.js";
+import { githubForBranch } from "./github.js";
 import { linkSubagentItem } from "./sessions/subagents.js";
 import type { Store } from "./store.js";
 
@@ -54,6 +55,7 @@ interface Pending {
   command: HostCommand;
   beforeSend?: BeforeSend;
   deferred: boolean;
+  sent: boolean;
   resolve: (r: Receipt) => void;
   reject: (e: Error) => void;
   timer: NodeJS.Timeout;
@@ -63,6 +65,7 @@ interface Conn {
   socket: WebSocket;
   alive: boolean;
   features: Set<string>;
+  github: boolean;
 }
 
 export type AgentRequestHandler = (
@@ -254,6 +257,11 @@ export class HostHub {
         new SwitchyardError("stale_control", "Continuation requires a send guard"),
       );
     }
+    if (parsed.type === "workspace.prMerge" && !opts.beforeSend) {
+      return Promise.reject(
+        new SwitchyardError("conflict", "Merge requires a write-ahead send guard"),
+      );
+    }
     const existing = this.pending.get(commandId);
     if (existing) {
       return new Promise((resolve, reject) => {
@@ -292,6 +300,7 @@ export class HostHub {
         command: parsed,
         beforeSend: opts.beforeSend,
         deferred: false,
+        sent: false,
         resolve,
         reject,
         timer,
@@ -319,6 +328,8 @@ export class HostHub {
     // A guard may commit store writes: do not recursively pump this frame from those writes.
     pending.deferred = false;
     try {
+      if (pending.command.type === "workspace.prMerge" && pending.sent)
+        throw new SwitchyardError("conflict", "An uncertain merge must not be retransmitted");
       const readiness = pending.beforeSend?.();
       if (readiness?.defer) {
         pending.deferred = true;
@@ -331,11 +342,18 @@ export class HostHub {
       return;
     }
     // The synchronous guard may itself have withdrawn the command or closed the connection.
-    if (this.pending.get(commandId) === pending && this.isCurrentSocket(pending.hostId, socket))
+    if (this.pending.get(commandId) === pending && this.isCurrentSocket(pending.hostId, socket)) {
+      pending.sent = true;
       socket.send(pending.frame);
+    }
   }
 
   private supportsCommand(conn: Conn, command: HostCommand): boolean {
+    if (
+      ["workspace.prView", "workspace.prFailedLogs", "workspace.prMerge"].includes(command.type)
+    ) {
+      return conn.github;
+    }
     if (command.type === "session.deliverMessage" || command.type === "session.messageStatus") {
       return conn.features.has("agentRequests.v1");
     }
@@ -495,7 +513,9 @@ export class HostHub {
     const features = new Set(
       [...this.availableAgentFeatures].filter((f) => hello.features?.includes(f)),
     );
-    this.conns.set(hostId, { socket, alive: true, features });
+    // An unresolved external merge is never automatically replayed, including on replacement.
+    if (old) this.rejectPendingMerges(hostId);
+    this.conns.set(hostId, { socket, alive: true, features, github: hello.github !== undefined });
     if (old && old.socket !== socket) old.socket.close(4000, "replaced by a newer connection");
     const t = this.unreachableTimers.get(hostId);
     if (t) clearTimeout(t);
@@ -510,6 +530,7 @@ export class HostHub {
         piVersion: hello.piVersion,
         piCompatible: hello.piCompatible,
         capabilities: hello.capabilities,
+        github: hello.github,
         connectivity: "connected",
         lastSeenAt: this.store.nowIso(),
       };
@@ -736,7 +757,19 @@ export class HostHub {
 
   // ---- connectivity ----------------------------------------------------------------------
 
+  private rejectPendingMerges(hostId: string): void {
+    for (const [id, pending] of this.pending) {
+      if (pending.hostId !== hostId || pending.command.type !== "workspace.prMerge") continue;
+      clearTimeout(pending.timer);
+      this.pending.delete(id);
+      pending.reject(
+        new SwitchyardError("host_unreachable", "Merge connection lost; refresh before retrying"),
+      );
+    }
+  }
+
   private onDisconnected(hostId: string): void {
+    this.rejectPendingMerges(hostId);
     this.terminalSink?.disconnected(hostId);
     this.log.info({ hostId }, "host disconnected");
     this.setConnectivity(hostId, "reconnecting");
@@ -1134,7 +1167,10 @@ export class HostHub {
     if (!existing) {
       const full = Workspace.safeParse({ ...raw, hostId });
       if (full.success) {
-        this.store.putWorkspace(full.data);
+        this.store.putWorkspace({
+          ...full.data,
+          github: githubForBranch(full.data.github, full.data.branch, this.store),
+        });
         return;
       }
       if (partial.path) {
@@ -1153,6 +1189,17 @@ export class HostHub {
       branch: partial.branch !== undefined ? partial.branch : existing.branch,
       git: partial.git ?? existing.git,
       setup: partial.setup ?? existing.setup,
+      github: partial.github
+        ? githubForBranch(
+            partial.github,
+            partial.branch !== undefined ? partial.branch : existing.branch,
+            this.store,
+          )
+        : githubForBranch(
+            existing.github,
+            partial.branch !== undefined ? partial.branch : existing.branch,
+            this.store,
+          ),
       updatedAt: partial.updatedAt ?? this.store.nowIso(),
     };
     if (JSON.stringify(next) === JSON.stringify(existing)) return;

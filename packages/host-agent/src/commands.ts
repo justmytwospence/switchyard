@@ -12,6 +12,7 @@ import type { HostDb } from "./db/index.js";
 import type { Dispatcher } from "./dispatch.js";
 import { listDir, readWorkspaceFile } from "./files.js";
 import { diffWorkspace, discoverWorktrees, inspectCheckout, worktreeStatus } from "./git.js";
+import type { GitHubService } from "./github.js";
 import type { Logger } from "./logger.js";
 import type { MessageDeliveryWorker } from "./message-delivery.js";
 import { scanProjectFolder } from "./project-folders.js";
@@ -46,6 +47,7 @@ export interface CommandRouterOptions {
   sendReceipt: (receipt: Receipt) => void;
   testHooks?: HostTestHooks;
   delivery?: Pick<MessageDeliveryWorker, "accept" | "getStatus">;
+  github?: Pick<GitHubService, "refresh" | "failedLogs" | "merge">;
   /** Environment for checks. */
   env?: Record<string, string | undefined>;
   /** Timeout per check command (default 30 min). */
@@ -68,6 +70,8 @@ export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostComm
   "workspace.diff",
   "workspace.files",
   "workspace.readFile",
+  "workspace.prView",
+  "workspace.prFailedLogs",
   "dispatch.reconcile",
 ]);
 /** Read-only commands in flight at once. */
@@ -102,6 +106,8 @@ const RERUNNABLE = new Set<HostCommand["type"]>([
   "workspace.diff",
   "workspace.files",
   "workspace.readFile",
+  "workspace.prView",
+  "workspace.prFailedLogs",
 ]);
 
 /** Map any thrown value to a protocol error body. */
@@ -122,6 +128,7 @@ export function toErrorBody(err: unknown): ErrorBody {
  */
 export function queueKey(command: HostCommand): string | null {
   if (READ_ONLY_COMMANDS.has(command.type)) return null;
+  if (command.type === "workspace.prMerge") return `workspace:${command.path}`;
   if (command.type === "session.deliverMessage") return `message:${command.sessionId}`;
   if (command.type === "checks.run") return `checks:${command.sessionId}`;
   // Control commands get their own per-session lane. A prompt that runs a slash command which
@@ -474,6 +481,20 @@ export class CommandRouter {
           c.worktreeDir,
         );
         return created;
+      }
+      case "workspace.prView":
+      case "workspace.prFailedLogs":
+      case "workspace.prMerge": {
+        const github = this.opts.github;
+        if (!github)
+          throw new SwitchyardError("unsupported_capability", "GitHub integration is unavailable");
+        if (c.type === "workspace.prView") return github.refresh(c.path);
+        if (c.type === "workspace.prFailedLogs") {
+          const { type: _type, ...request } = c;
+          return github.failedLogs(request);
+        }
+        const { type: _type, ...request } = c;
+        return github.merge(request);
       }
       case "workspace.status":
         return { path: c.path, git: await worktreeStatus(c.path, c.base) };

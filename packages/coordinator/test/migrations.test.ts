@@ -19,6 +19,95 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("013 imports legacy uncertainty without rewriting snapshots and preserves audit identity", () => {
+    const db = dbAt(12);
+    const snapshot = {
+      id: "workspace",
+      github: {
+        repository: "Owner/Repo",
+        headRepository: "fork/repo",
+        branch: "topic",
+        pullRequest: { number: 42, headRefOid: "a".repeat(40) },
+        reason: "Merge outcome unknown. Refresh before retrying.",
+        attemptedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+    const insert = db.prepare(`INSERT INTO workspaces
+      (id, project_id, checkout_id, host_id, path, json) VALUES (?, 'project', 'checkout', 'host', ?, ?)`);
+    insert.run("workspace", "/repo", JSON.stringify(snapshot));
+    insert.run(
+      "alias",
+      "/alias",
+      JSON.stringify({
+        ...snapshot,
+        id: "alias",
+        github: { ...snapshot.github, repository: "owner/repo" },
+      }),
+    );
+    insert.run(
+      "corrupt",
+      "/corrupt",
+      JSON.stringify({
+        id: "corrupt",
+        github: { reason: snapshot.github.reason, repository: null, pullRequest: null },
+      }),
+    );
+    insert.run("ordinary", "/ordinary", JSON.stringify({ id: "ordinary" }));
+    const originals = db.prepare("SELECT * FROM workspaces ORDER BY id").all();
+    expect(migrate(db)).toBe(13);
+    expect(db.prepare("SELECT * FROM workspaces ORDER BY id").all()).toEqual(originals);
+    const rows = db.prepare("SELECT * FROM github_merge_fences").all();
+    expect(rows).toEqual([
+      expect.objectContaining({
+        fence_key: "legacy:github.com:owner/repo:42",
+        hostname: "github.com",
+        pull_request_node_id: null,
+        repository: "Owner/Repo",
+        pr_number: 42,
+        expected_head_oid: "a".repeat(40),
+        workspace_id: "workspace",
+        host_id: "host",
+        head_repository: "fork/repo",
+        head_ref_name: "topic",
+        state: "unknown",
+        started_at: snapshot.github.attemptedAt,
+      }),
+    ]);
+    expect(
+      db.prepare("SELECT key FROM settings WHERE key GLOB 'githubCorruptedMergeMarker:*'").all(),
+    ).toEqual([{ key: "githubCorruptedMergeMarker:corrupt" }]);
+    expect(db.prepare("PRAGMA foreign_key_list(github_merge_fences)").all()).toEqual([]);
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'github_merge_fences'",
+        )
+        .all(),
+    ).toContainEqual({ name: "github_merge_fences_target" });
+    db.exec("DELETE FROM workspaces; DELETE FROM hosts;");
+    expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual(rows);
+    expect(migrate(db)).toBe(13);
+    db.close();
+  });
+
+  it("013 keeps generations increasing after all fences are cleared and validates states/uniqueness", () => {
+    const db = dbAt(12);
+    migrate(db);
+    const insert = db.prepare(`INSERT INTO github_merge_fences
+      (fence_key, hostname, pull_request_node_id, repository, pr_number, attempt_id, command_id,
+       expected_head_oid, workspace_id, host_id, state, started_at, updated_at)
+      VALUES (?, 'github.com', 'node', 'owner/repo', 1, ?, 'command', 'sha', 'workspace', 'host', ?, 'start', 'update')`);
+    const first = Number(insert.run("github.com:node", "attempt", "pending").lastInsertRowid);
+    expect(() => insert.run("github.com:node", "different", "unknown")).toThrow(/UNIQUE/);
+    expect(() => insert.run("different", "attempt", "unknown")).toThrow(/UNIQUE/);
+    expect(() => insert.run("different", "different", "invalid")).toThrow(/CHECK/);
+    db.exec("DELETE FROM github_merge_fences");
+    expect(
+      Number(insert.run("github.com:node", "next", "unknown").lastInsertRowid),
+    ).toBeGreaterThan(first);
+    db.close();
+  });
+
   it("012 adds a nullable wait lease without changing legacy evaluations or indexes", () => {
     const db = dbAt(11);
     db.exec(`INSERT INTO policy_evaluations

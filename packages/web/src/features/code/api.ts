@@ -2,6 +2,9 @@ import type {
   CommandView,
   DiffResult,
   FileEntry,
+  GitHubLogs,
+  GitHubMergeResult,
+  GitHubViewResponse,
   ImportableSession,
   ModelStateResult,
   NavigateResult,
@@ -110,6 +113,14 @@ export const codeApi = {
   file: async (workspaceId: string, path: string, signal?: AbortSignal) =>
     normalizeFile(await apiGet<unknown>(`${w(workspaceId)}/file`, { path }, signal)),
   refreshWorkspace: (workspaceId: string) => apiPost(`${w(workspaceId)}/refresh`),
+  pr: (workspaceId: string, signal?: AbortSignal) =>
+    apiGet<GitHubViewResponse>(`${w(workspaceId)}/pr`, undefined, signal),
+  refreshPr: (workspaceId: string, signal?: AbortSignal) =>
+    apiPost<GitHubViewResponse>(`${w(workspaceId)}/pr/refresh`, {}, signal),
+  prFailedLogs: (workspaceId: string, expectedHeadOid: string) =>
+    apiPost<GitHubLogs>(`${w(workspaceId)}/pr/failed-logs`, { expectedHeadOid }),
+  prMerge: (workspaceId: string, expectedHeadOid: string) =>
+    apiPost<GitHubMergeResult>(`${w(workspaceId)}/pr/merge`, { expectedHeadOid }),
 
   requestChanges: (taskId: string, feedback: string[]) =>
     apiPost<Task>(`${t(taskId)}/request-changes`, { feedback }),

@@ -19,6 +19,7 @@ import {
 } from "./config.js";
 import { type HostDb, openHostDb, PRUNE_INTERVAL_MS, pruneHostDb } from "./db/index.js";
 import { Dispatcher } from "./dispatch.js";
+import { GitHubService } from "./github.js";
 import { CoordinatorLink } from "./link.js";
 import { createLogger, type Logger } from "./logger.js";
 import { MessageDeliveryWorker } from "./message-delivery.js";
@@ -169,6 +170,13 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   let link!: CoordinatorLink;
   let router!: CommandRouter;
   let relay!: TerminalRelay;
+  const github = new GitHubService({
+    env: mergedEnv,
+    db,
+    publish: (path, snapshot) =>
+      link.emit({ type: "workspace.updated", data: { path, github: snapshot } }),
+  });
+  await github.probe();
   link = new CoordinatorLink({
     db,
     coordinatorUrl: config.coordinatorUrl,
@@ -195,6 +203,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         : null,
       features: agentSupport ? ["agentRequests.v1", "policies.v1"] : [],
       protocolVersion: PROTOCOL_VERSION,
+      github: github.github,
     }),
     onTerm: (streamId, msg) => relay.handle(streamId, msg),
     onCommand: (commandId, command) => {
@@ -253,6 +262,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     terminalSessions: terminalEnabled,
     broker,
     onDeliveryWake: wakeDelivery,
+    observeToolOutput: (path, result) => github.observeToolOutput(path, result),
   });
   relay = new TerminalRelay({
     supervisor,
@@ -320,6 +330,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     testHooks: opts.testHooks,
     checkTimeoutMs: opts.checkTimeoutMs,
     delivery,
+    github,
     sendReceipt: (r: Receipt) => {
       link.sendReceipt(r);
     },
@@ -447,7 +458,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         clearInterval(deliveryTimer);
         await delivery.stop();
         broker.close();
-        await Promise.all([supervisor.stopAll(stopOpts), stopAllShells()]);
+        await Promise.all([supervisor.stopAll(stopOpts), stopAllShells(), github.stop()]);
         // Let the final session.updated events go out before closing the socket.
         await new Promise((r) => setTimeout(r, 50));
         await link.stop();

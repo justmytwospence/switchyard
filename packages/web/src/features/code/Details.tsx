@@ -20,7 +20,9 @@ import { ControlChip } from "./ConversationHeader";
 import { useCodeContext } from "./context";
 import type { SessionContext } from "./hooks";
 import { contextMeter, modelLabel, workspaceLabel } from "./model";
+import { GitHubStatus } from "./PullRequest";
 import type { SessionActions } from "./SessionActions";
+import type { PullRequestState } from "./usePullRequest";
 
 function Section({
   title,
@@ -481,7 +483,16 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
 }
 
 /** Mobile Details: facts, control, task, subagents, extensions. */
-export function MobileDetails({ ctx, actions }: { ctx: SessionContext; actions: SessionActions }) {
+export function MobileDetails({
+  ctx,
+  actions,
+  github,
+}: {
+  ctx: SessionContext;
+  actions: SessionActions;
+  github: PullRequestState;
+}) {
+  const { openInspector } = useCodeContext();
   const transcript = useTranscript(ctx.session.id);
   const subagents = transcript.items.filter((i) => i.kind === "subagent");
   return (
@@ -489,6 +500,7 @@ export function MobileDetails({ ctx, actions }: { ctx: SessionContext; actions: 
       <Section title="Session">
         <SessionFacts ctx={ctx} />
       </Section>
+      <GitHubStatus ctx={ctx} state={github} onOpen={() => openInspector?.("pr")} />
       <Section title="Automation and control">
         <ControlButtons ctx={ctx} actions={actions} />
       </Section>

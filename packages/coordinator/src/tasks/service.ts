@@ -1,6 +1,7 @@
 import {
   CreateTaskRequest,
   DEFAULT_TASK_POLICY,
+  githubIssueFromUrl,
   mergePatch,
   newId,
   SwitchyardError,
@@ -116,12 +117,8 @@ export function createTask(
   agentOrigin?: Task["agentOrigin"],
 ): Task {
   const body = parse(CreateTaskRequest, input);
-  if (body.githubIssueUrl !== undefined) {
-    throw new SwitchyardError(
-      "unsupported_capability",
-      "GitHub issue task import is not enabled yet.",
-    );
-  }
+  const issue =
+    body.githubIssueUrl === undefined ? undefined : githubIssueFromUrl(body.githubIssueUrl);
   const { store } = ctx;
   return store.tx(() => {
     store.projects.require(body.projectId);
@@ -149,8 +146,9 @@ export function createTask(
       id,
       projectId: body.projectId,
       title: body.title,
-      objective: body.objective,
-      acceptanceCriteria: body.acceptanceCriteria,
+      objective: issue ? issue.url : body.objective,
+      acceptanceCriteria: issue ? [] : body.acceptanceCriteria,
+      ...(issue ? { githubIssue: issue } : {}),
       dependencies: body.dependencies,
       parentTaskId,
       priority: body.priority,

@@ -8,10 +8,14 @@ import type { InspectorTab } from "./context";
 import { ExtensionsSection, TaskSection } from "./Details";
 import { FilesTab } from "./Files";
 import type { SessionContext } from "./hooks";
+import { GitHubStatus, PullRequest } from "./PullRequest";
 import type { SessionActions } from "./SessionActions";
+import type { PullRequestState } from "./usePullRequest";
 
 export interface InspectorProps {
   ctx: SessionContext;
+  github: PullRequestState;
+  visible: boolean;
   actions: SessionActions;
   tab: InspectorTab;
   onTab: (t: InspectorTab) => void;
@@ -21,9 +25,11 @@ export interface InspectorProps {
   hideTitle?: boolean;
 }
 
-/** Inspector: Changes, Files (read-only), Task, Extensions. */
+/** Inspector: Changes, Files (read-only), Details, PR and Extensions. */
 export function Inspector({
   ctx,
+  github,
+  visible,
   actions,
   tab,
   onTab,
@@ -40,7 +46,16 @@ export function Inspector({
   const panes: { id: InspectorTab; body: ReactNode; flush?: boolean }[] = [
     { id: "changes", body: <ChangesTab ctx={ctx} diff={diff} /> },
     { id: "files", body: <FilesTab ctx={ctx} diff={diff} openPath={openPath} />, flush: true },
-    { id: "task", body: <TaskSection ctx={ctx} actions={actions} /> },
+    {
+      id: "task",
+      body: (
+        <div className="flex flex-col gap-4">
+          <GitHubStatus ctx={ctx} state={github} onOpen={() => onTab("pr")} />
+          <TaskSection ctx={ctx} actions={actions} />
+        </div>
+      ),
+    },
+    { id: "pr", body: <PullRequest ctx={ctx} state={github} active={visible && tab === "pr"} /> },
     { id: "extensions", body: <ExtensionsSection ctx={ctx} /> },
   ];
   return (
@@ -64,7 +79,8 @@ export function Inspector({
             badge: <CountBadge count={changed} label="changed files" tone="neutral" />,
           },
           { id: "files", label: "Files" },
-          { id: "task", label: "Task" },
+          { id: "task", label: "Details" },
+          ...(github.snapshot?.pullRequest ? [{ id: "pr", label: "PR" }] : []),
           {
             id: "extensions",
             label: "Extensions",

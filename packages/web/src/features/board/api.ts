@@ -28,7 +28,8 @@ export function upsertTask(res: unknown): Task | null {
 
 export interface CreateTaskBody {
   projectId: string;
-  title: string;
+  title?: string;
+  githubIssueUrl?: string;
   objective: string;
   acceptanceCriteria: string[];
   dependencies: string[];
@@ -46,7 +47,9 @@ export async function createTask(body: CreateTaskBody): Promise<Task> {
   return t;
 }
 
-export type UpdateTaskBody = Partial<Omit<CreateTaskBody, "projectId" | "state">> & {
+export type UpdateTaskBody = Partial<
+  Omit<CreateTaskBody, "projectId" | "state" | "githubIssueUrl">
+> & {
   position?: number;
 };
 

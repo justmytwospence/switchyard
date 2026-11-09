@@ -74,11 +74,28 @@ describe("read-only and checkout lanes", () => {
       { type: "projects.suggest", days: 30 },
       { type: "workspace.discover", checkoutPath: "/r", worktreeDir: ".worktrees" },
       { type: "workspace.status", path: "/r", base: null },
+      { type: "workspace.prView", path: "/r" },
+      {
+        type: "workspace.prFailedLogs",
+        path: "/r",
+        repository: "owner/repo",
+        number: 1,
+        expectedHeadOid: "a".repeat(40),
+      },
       { type: "workspace.diff", path: "/r", base: null, file: null },
       { type: "workspace.files", path: "/r", dir: "" },
       { type: "workspace.readFile", path: "/r", file: "a" },
       { type: "dispatch.reconcile", dispatchKey: "k" },
     ];
+    expect(
+      queueKey({
+        type: "workspace.prMerge",
+        path: "/r",
+        repository: "owner/repo",
+        number: 1,
+        expectedHeadOid: "a".repeat(40),
+      }),
+    ).toBe("workspace:/r");
     expect(new Set(reads.map((c) => c.type))).toEqual(READ_ONLY_COMMANDS);
     for (const c of reads) expect(queueKey(c)).toBeNull();
     expect(

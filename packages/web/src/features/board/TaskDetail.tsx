@@ -345,6 +345,22 @@ function TaskDetailContent({ task, onDeleted }: { task: Task; onDeleted?: () => 
           )
         }
       >
+        {task.githubIssue && (
+          <>
+            <a
+              href={task.githubIssue.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-accent underline"
+            >
+              {task.githubIssue.repository} #{task.githubIssue.number}
+            </a>
+            <p className="text-xs text-muted">
+              The first run reads the linked issue. Changes to the objective or acceptance text do
+              not alter its saved initial prompt; later attempts use the current task details.
+            </p>
+          </>
+        )}
         {editing ? (
           <EditTaskForm task={task} onDone={() => setEditing(false)} />
         ) : (

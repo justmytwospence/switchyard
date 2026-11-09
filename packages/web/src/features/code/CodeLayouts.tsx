@@ -15,6 +15,7 @@ import { Navigator } from "./Navigator";
 import { NewSessionFlow } from "./NewSession";
 import { useSessionActions } from "./SessionActions";
 import { Conversation, MobileSession } from "./SessionView";
+import { usePullRequest } from "./usePullRequest";
 
 function NoSession({ missing, error }: { missing: boolean; error?: string | null }) {
   if (error) {
@@ -172,6 +173,8 @@ function SessionPanes({
 }) {
   const actions = useSessionActions(ctx);
   const [tab, setTab] = useState<InspectorTab>(tabRequest?.tab ?? "changes");
+  const inspectorVisible = compact ? drawerOpen : showInspector;
+  const github = usePullRequest(ctx, inspectorVisible && tab === "pr");
   const [openPath, setOpenPath] = useState<{ path: string; nonce: number } | null>(null);
 
   const openInspector = useCallback(
@@ -242,6 +245,8 @@ function SessionPanes({
             >
               <Inspector
                 ctx={ctx}
+                github={github}
+                visible={inspectorVisible}
                 actions={actions}
                 tab={tab}
                 onTab={setTab}
@@ -262,6 +267,8 @@ function SessionPanes({
         >
           <Inspector
             ctx={ctx}
+            github={github}
+            visible={drawerOpen}
             actions={actions}
             tab={tab}
             onTab={setTab}

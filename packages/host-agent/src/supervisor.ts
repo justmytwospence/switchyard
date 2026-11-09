@@ -216,6 +216,8 @@ export interface SupervisorOptions {
   broker?: AgentBroker;
   /** Wake durable delivery work, outside the session event chain. */
   onDeliveryWake?: (sessionId: string) => void;
+  /** Synchronous hint capture only; network refreshes run outside the event chain. */
+  observeToolOutput?: (path: string, result: unknown) => void;
   /** Run new sessions as interactive Pi in a terminal holder. */
   terminalSessions?: boolean;
 }
@@ -2026,6 +2028,7 @@ export class SessionSupervisor {
         return;
       }
       case "tool_execution_end": {
+        this.opts.observeToolOutput?.(l.rec.cwd, ev.result);
         if (ev.parentToolCallId || !adapters) return;
         const result = ev.result;
         const details =

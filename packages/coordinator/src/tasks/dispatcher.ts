@@ -105,11 +105,14 @@ function stillLaunching(error: { code: string; details?: unknown }): boolean {
 
 /** The prompt that starts a run. */
 export function buildRunPrompt(
-  task: Pick<Task, "title" | "objective" | "acceptanceCriteria">,
+  task: Pick<Task, "title" | "objective" | "acceptanceCriteria" | "githubIssue">,
   attempt: number,
   feedback: string[] = [],
   opts: { watch?: boolean } = {},
 ): string {
+  // Infrastructure retries retain their logical attempt; only a new/reviewer attempt
+  // uses the current task details and the ordinary completion-marker instructions.
+  if (attempt === 1 && task.githubIssue) return task.githubIssue.launchPrompt;
   const parts = [`# Task: ${task.title}`];
   if (task.objective.trim()) parts.push(task.objective.trim());
   if (task.acceptanceCriteria.length > 0) {

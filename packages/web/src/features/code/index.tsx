@@ -8,7 +8,7 @@ import { CodeDesktop, CodeMobile } from "./CodeLayouts";
 import type { InspectorTab } from "./context";
 import { useSessionLookup } from "./hooks";
 
-const INSPECTOR_TABS: readonly string[] = ["changes", "files", "task", "extensions"];
+const INSPECTOR_TABS: readonly string[] = ["changes", "files", "task", "extensions", "pr"];
 
 /**
  * Code view: `/code` and `/code/:sessionId` (`?interaction=<id>` scrolls to and

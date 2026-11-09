@@ -22,11 +22,13 @@ import { CodeContext, type CodeViewContext, type InspectorTab } from "./context"
 import { MobileDetails, SessionFacts } from "./Details";
 import type { SessionContext } from "./hooks";
 import { isSubagentView, SUBAGENT_READ_ONLY } from "./model";
+import { PullRequest } from "./PullRequest";
 import type { SessionActions } from "./SessionActions";
 import { SessionStatusBar } from "./SessionStatusBar";
 import { canUseTerminal, useSessionSurface } from "./surface";
 import { TerminalView } from "./TerminalView";
 import { Transcript } from "./Transcript";
+import { usePullRequest } from "./usePullRequest";
 
 function interactionReadOnly(ctx: SessionContext): string | null {
   if (ctx.session.readOnly) return `${SUBAGENT_READ_ONLY} Answer in the parent session.`;
@@ -152,15 +154,15 @@ export function Conversation({
   );
 }
 
-type MobileTab = "chat" | "changes" | "details" | "terminal";
+type MobileTab = "chat" | "changes" | "details" | "terminal" | "pr";
 
-/** Mobile segment for a requested inspector tab (`?tab=`): Changes, else Details. */
+/** Mobile segment for a requested inspector tab (`?tab=`): PR, Changes, else Details. */
 function mobileTabFor(tab: InspectorTab | null | undefined): MobileTab {
   if (!tab) return "chat";
-  return tab === "changes" ? "changes" : "details";
+  return tab === "pr" ? "pr" : tab === "changes" ? "changes" : "details";
 }
 
-/** Mobile session screen: one surface at a time (Chat, Changes, Details). */
+/** Mobile session screen: one surface at a time (Chat, Changes, PR, Details, Terminal). */
 export function MobileSession({
   ctx,
   actions,
@@ -177,6 +179,7 @@ export function MobileSession({
   const { session, task } = ctx;
   const navigate = useNavigate();
   const [tab, setTab] = useState<MobileTab>(() => mobileTabFor(tabRequest?.tab));
+  const github = usePullRequest(ctx, tab === "pr");
   const [visited, setVisited] = useState<Set<MobileTab>>(
     () => new Set([mobileTabFor(tabRequest?.tab)]),
   );
@@ -194,13 +197,16 @@ export function MobileSession({
   useEffect(() => setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab))), [tab]);
 
   const codeCtx = useMemo<CodeViewContext>(
-    () => ({ mobile: true, openInspector: (t) => setTab(t === "changes" ? "changes" : "details") }),
+    () => ({ mobile: true, openInspector: (t) => setTab(mobileTabFor(t)) }),
     [],
   );
 
   const changed = ctx.workspace?.git.changedFiles ?? 0;
   const views = useSyncStore((st) => st.views);
   const menuItems: MenuItem[] = [
+    ...(github.snapshot?.pullRequest
+      ? [{ id: "pr", label: "Pull request", onSelect: () => setTab("pr") }]
+      : []),
     ...(task
       ? [
           {
@@ -288,6 +294,7 @@ export function MobileSession({
                   badge: <CountBadge count={changed} label="changed files" tone="neutral" />,
                 },
                 { value: "details", label: "Details" },
+                ...(github.snapshot?.pullRequest ? [{ value: "pr" as const, label: "PR" }] : []),
                 ...(canUseTerminal(session, ctx.host)
                   ? [{ value: "terminal" as const, label: "Terminal" }]
                   : []),
@@ -332,6 +339,15 @@ export function MobileSession({
             {(tab === "changes" || visited.has("changes")) && <MobileChanges ctx={ctx} />}
           </section>
           <section
+            aria-label="PR"
+            hidden={tab !== "pr"}
+            className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3"
+          >
+            {(tab === "pr" || visited.has("pr")) && (
+              <PullRequest ctx={ctx} state={github} active={tab === "pr"} />
+            )}
+          </section>
+          <section
             aria-label="Terminal"
             hidden={tab !== "terminal"}
             className="relative min-h-0 min-w-0 flex-1"
@@ -346,7 +362,7 @@ export function MobileSession({
             className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
           >
             {(tab === "details" || visited.has("details")) && (
-              <MobileDetails ctx={ctx} actions={actions} />
+              <MobileDetails ctx={ctx} actions={actions} github={github} />
             )}
           </section>
         </div>

@@ -13,6 +13,7 @@ import { Scheduler } from "./automations/scheduler.js";
 import { AutomationService } from "./automations/service.js";
 import { CacheAlertService } from "./cache-alerts.js";
 import type { CoordinatorContext } from "./context.js";
+import { GitHubService } from "./github.js";
 import { parse } from "./http.js";
 import type { PolicyOwner } from "./policies/contracts.js";
 import { PolicyService } from "./policies/service.js";
@@ -169,7 +170,9 @@ export function installBuiltins(
     intervalMs: opts.projectScanIntervalMs ?? PROJECT_SCAN_INTERVAL_MS,
   });
   const cacheAlerts = new CacheAlertService(ctx, { tickMs: opts.cacheAlertTickMs ?? 15_000 });
+  const github = new GitHubService(ctx);
   const services: BuiltinServices = {
+    github,
     policies,
     agents,
     messages,
@@ -201,11 +204,13 @@ export function installBuiltins(
       projectFolders.start();
       cacheAlerts.start();
       messages.start();
+      github.start();
     },
     async stop() {
       ctx.hostHub.setAgentHandler(null);
       lifetime.abort(new SwitchyardError("host_unreachable", "The coordinator is stopping."));
       const messagesStopped = messages.stop();
+      github.stop();
       cacheAlerts.stop();
       projectFolders.stop();
       scheduler.stop();

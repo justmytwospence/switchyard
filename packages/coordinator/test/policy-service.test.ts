@@ -10,7 +10,7 @@ import {
   type Session,
 } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MIGRATIONS, migrate, openDb } from "../src/db/index.js";
+import { LATEST_MIGRATION, MIGRATIONS, migrate, openDb } from "../src/db/index.js";
 import { EventHub } from "../src/event-hub.js";
 import { BUDGET_ACCOUNTING_UNAVAILABLE, builtinPolicyRules } from "../src/policies/builtins.js";
 import type { PolicyAuthorizeInput, PolicyOwner } from "../src/policies/contracts.js";
@@ -261,7 +261,7 @@ describe("policy migration and trusted runtime boundaries", () => {
     );
     db.prepare("INSERT INTO schema_migrations VALUES (10,'010_task_notifications',?)").run(now);
     db.prepare("INSERT INTO settings(key,value) VALUES ('preserved','123')").run();
-    expect(migrate(db)).toBe(12);
+    expect(migrate(db)).toBe(LATEST_MIGRATION);
     expect(db.prepare("SELECT value FROM settings WHERE key='preserved'").get()).toEqual({
       value: "123",
     });

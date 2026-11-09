@@ -11,6 +11,7 @@ import {
 } from "@switchyard/protocol";
 import { z } from "zod";
 import type { CoordinatorContext } from "./context.js";
+import { githubForBranch } from "./github.js";
 
 /** A project's worktree folder (rows written before 0.2 have none: the default). */
 export function worktreeDirOf(project: Pick<Project, "worktreeDir"> | undefined): string {
@@ -70,6 +71,7 @@ export function recordCreatedWorkspace(
       provenance: "managed",
       git: git.success ? git.data : (existing?.git ?? ZERO_GIT),
       setup: setup.success ? setup.data : (existing?.setup ?? NO_SETUP),
+      github: githubForBranch(buffered?.github ?? existing?.github, info.branch, ctx.store),
       archivedAt: null,
       updatedAt: ctx.store.nowIso(),
     };
@@ -113,6 +115,7 @@ export async function refreshCheckoutWorkspaces(
         provenance: existing?.provenance === "managed" ? "managed" : wt.provenance,
         git: wt.git ?? existing?.git ?? ZERO_GIT,
         setup: existing?.setup ?? NO_SETUP,
+        github: githubForBranch(existing?.github, stripRef(wt.branch), ctx.store),
         archivedAt: null,
         updatedAt: existing?.updatedAt ?? now,
       };

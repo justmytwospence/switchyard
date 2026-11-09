@@ -185,6 +185,7 @@ export const GitHubThread = z
   .strict();
 export const GitHubPullRequest = z
   .object({
+    nodeId: z.string().min(1).optional(),
     number: positive,
     url: prUrl,
     title: z.string().min(1).max(1000),
@@ -358,7 +359,9 @@ export const GitHubHostViewRequest = z.object({ path }).strict();
 export const GitHubHostLogsRequest = z
   .object({ path, repository: GitHubRepository, number: positive, expectedHeadOid: GitHubSha })
   .strict();
-export const GitHubHostMergeRequest = GitHubHostLogsRequest;
+export const GitHubHostMergeRequest = GitHubHostLogsRequest.extend({
+  expectedPullRequestNodeId: z.string().min(1),
+});
 
 export type GitHubRepository = z.infer<typeof GitHubRepository>;
 export type GitHubSha = z.infer<typeof GitHubSha>;

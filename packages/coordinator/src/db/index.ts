@@ -11,6 +11,7 @@ import { sql as agentTools } from "./migrations/009_agent_tools.js";
 import { sql as taskNotifications } from "./migrations/010_task_notifications.js";
 import { sql as policies } from "./migrations/011_policies.js";
 import { sql as policyWaitLeases } from "./migrations/012_policy_wait_leases.js";
+import { sql as githubMergeFences } from "./migrations/013_github_merge_fences.js";
 
 export interface Migration {
   version: number;
@@ -32,6 +33,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 10, name: "010_task_notifications", sql: taskNotifications },
   { version: 11, name: "011_policies", sql: policies },
   { version: 12, name: "012_policy_wait_leases", sql: policyWaitLeases },
+  { version: 13, name: "013_github_merge_fences", sql: githubMergeFences },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 
