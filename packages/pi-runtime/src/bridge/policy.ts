@@ -1,59 +1,35 @@
 import { createHash } from "node:crypto";
 import type { AgentBindingIdentity, AgentChannel } from "./agent-channel.js";
+import {
+  type AgentToolPreflightOwner,
+  agentToolMethod,
+  beginAgentToolPreflight,
+  clearAgentToolPreflights,
+  DuplicateAgentToolPreflightError,
+  releaseAgentToolPreflight,
+  rememberAgentToolPreflight,
+  requireAgentToolPreflight,
+  sweepUnclaimedAgentToolPreflights,
+  toolArgs,
+} from "./tool-preflight.js";
 
 type ToolCall = { toolCallId: string; toolName: string; input: unknown };
 type PolicyContext = {
   signal?: AbortSignal;
+  isIdle?(): boolean;
   sessionManager?: { getSessionId(): string };
   ui?: { notify(message: string, type?: string): void };
 };
-type Block = { block: true; reason: string; terminate: true };
+type Block = { block: true; reason: string; terminate: boolean };
 type PolicyPi = {
   on(
     name: "tool_call",
     handler: (event: ToolCall, ctx: PolicyContext) => Promise<Block | undefined>,
   ): unknown;
   on(name: "cache_warming_decision", handler: () => { action: "stop" }): unknown;
+  on(name: "agent_settled", handler: (event: unknown, ctx: PolicyContext) => void): unknown;
+  on(name: "session_shutdown", handler: () => void): unknown;
 };
-type Json = null | string | boolean | number | Json[] | { [key: string]: Json };
-
-// A detached, canonical JSON action, not a freeze of Pi's shared mutable event.input.
-function cloneJson(value: unknown, ancestors = new Set<object>(), depth = 0): Json {
-  if (depth > 20) throw new Error("Policy tool input is too deeply nested.");
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    (!Number.isInteger(value) || Number.isSafeInteger(value))
-  )
-    return value;
-  if (typeof value !== "object" || value === null || ancestors.has(value))
-    throw new Error("Policy tool input must be JSON.");
-  const prototype = Object.getPrototypeOf(value);
-  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null)
-    throw new Error("Policy tool input must be a plain JSON object.");
-  ancestors.add(value);
-  try {
-    if (Array.isArray(value)) return Array.from(value, (v) => cloneJson(v, ancestors, depth + 1));
-    const result: Record<string, Json> = {};
-    for (const key of Object.keys(value).sort()) {
-      if (key === "__proto__" || key === "constructor" || key === "prototype")
-        throw new Error("Policy tool input contains a forbidden key.");
-      result[key] = cloneJson((value as Record<string, unknown>)[key], ancestors, depth + 1);
-    }
-    return result;
-  } finally {
-    ancestors.delete(value);
-  }
-}
-
-function toolArgs(input: unknown): Record<string, Json> {
-  const args = cloneJson(input);
-  if (!args || typeof args !== "object" || Array.isArray(args))
-    throw new Error("Policy tool input must be a JSON object.");
-  return args;
-}
-
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid policy reply.");
@@ -80,6 +56,7 @@ export function installPolicyHooks(pi: PolicyPi, channel: AgentChannel): true {
     let decisionId: string | null = null;
     let binding: AgentBindingIdentity | null = null;
     let cancelSent = false;
+    let owner: AgentToolPreflightOwner | undefined;
     const cancel = () => {
       if (!decisionId || !binding || cancelSent) return;
       cancelSent = true;
@@ -103,9 +80,12 @@ export function installPolicyHooks(pi: PolicyPi, channel: AgentChannel): true {
       )
         return;
 
+      requireAgentToolPreflight(channel);
       const toolCallId = text(event.toolCallId);
       const name = text(event.toolName);
       const args = toolArgs(event.input);
+      const method = agentToolMethod(channel, name);
+      if (method) owner = beginAgentToolPreflight(channel, method, toolCallId, args, signal);
       const normalized = JSON.stringify(args);
       const nativeAtStart = ctx.sessionManager?.getSessionId();
       const deadline = Date.now() + 30000;
@@ -151,14 +131,47 @@ export function installPolicyHooks(pi: PolicyPi, channel: AgentChannel): true {
             "Tool input changed during policy authorization; the action was blocked.",
           );
       };
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new Error("Coordinator communication timed out.");
+      const remaining = () => {
+        const ms = deadline - Date.now();
+        if (ms <= 0) throw new Error("Coordinator communication timed out.");
+        return ms;
+      };
+      checkAction();
+      if (owner) {
+        const method = owner.method;
+        const peek = record(
+          await channel.request(
+            "receipt.peek",
+            { method, args },
+            { toolCallId, signal, binding, timeoutMs: remaining() },
+          ),
+        );
+        if (
+          (peek.found !== false && peek.found !== true) ||
+          Object.keys(peek).length !== (peek.found ? 2 : 1) ||
+          (peek.found &&
+            (typeof peek.requestHash !== "string" || !/^[a-f0-9]{64}$/.test(peek.requestHash)))
+        )
+          throw new Error("Invalid tool receipt lookup reply.");
+        checkAction();
+        if (peek.found) {
+          rememberAgentToolPreflight(channel, owner, {
+            method,
+            toolCallId,
+            binding,
+            mode: "receipt",
+            requestHash: peek.requestHash as string,
+          });
+          checkAction();
+          return;
+        }
+      }
       const evaluation = record(
         await channel.request("policy.evaluate", request, {
           toolCallId,
           signal,
           binding,
-          timeoutMs: remaining,
+          timeoutMs: remaining(),
         }),
       );
 
@@ -209,8 +222,18 @@ export function installPolicyHooks(pi: PolicyPi, channel: AgentChannel): true {
       }
 
       checkAction();
+      if (owner)
+        rememberAgentToolPreflight(channel, owner, {
+          method: owner.method,
+          toolCallId,
+          binding,
+          mode: "normal",
+        });
       return;
     } catch (error) {
+      if (owner) releaseAgentToolPreflight(channel, owner);
+      if (error instanceof DuplicateAgentToolPreflightError)
+        return { block: true, reason: "Tool preflight is already active", terminate: false };
       cancel();
       return {
         block: true,
@@ -225,6 +248,12 @@ export function installPolicyHooks(pi: PolicyPi, channel: AgentChannel): true {
       signal?.removeEventListener("abort", cancel);
     }
   });
+  pi.on("agent_settled", (_event, ctx) => {
+    // End events cannot identify an invocation. Only a proven final idle retires handoffs
+    // abandoned by a later trusted hook, and never an adapter still awaiting its result.
+    if (ctx.isIdle?.() === true) sweepUnclaimedAgentToolPreflights(channel);
+  });
+  pi.on("session_shutdown", () => clearAgentToolPreflights(channel));
   // Synchronous and network-free. Last override wins in Pi; trusted extensions can override us.
   pi.on("cache_warming_decision", () => ({ action: "stop" }));
   return true;

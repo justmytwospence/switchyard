@@ -33,6 +33,8 @@ export type AgentBindingIdentity = {
 };
 export type RequestOptions = {
   toolCallId?: string;
+  /** Restricts a tool request to retrieving an already committed result, never execution. */
+  receiptReplay?: { requestHash: string };
   signal?: AbortSignal;
   timeoutMs?: number;
   /** Local-only invocation fence; never encoded as a caller-controlled wire field. */
@@ -69,6 +71,7 @@ export interface AgentChannel {
       | "task.create"
       | "message.send"
       | "inbox.read"
+      | "receipt.peek"
       | "policy.evaluate"
       | "policy.status"
       | "policy.cancel",
@@ -443,6 +446,19 @@ export function createAgentChannel(options: {
       return ready(o.require, deadlineFor(o.timeoutMs), o.signal, syncNative(), binding, true);
     },
     async request(method, args, opts = {}) {
+      const toolMethod = ["task.create", "message.send", "inbox.read"].includes(method);
+      const receiptReplay =
+        opts.receiptReplay !== undefined ? { ...opts.receiptReplay } : undefined;
+      if (
+        receiptReplay &&
+        (!toolMethod ||
+          Object.keys(receiptReplay).length !== 1 ||
+          typeof receiptReplay.requestHash !== "string" ||
+          !/^[a-f0-9]{64}$/.test(receiptReplay.requestHash))
+      )
+        throw channelError("invalid_request", "Invalid receipt-only tool request");
+      if ((method === "receipt.peek" || receiptReplay) && !opts.toolCallId)
+        throw channelError("invalid_request", "Receipt requests require a tool call identity");
       if (activeRequests >= 64)
         throw channelError("rate_limited", "Too many pending agent requests");
       activeRequests++;
@@ -479,6 +495,7 @@ export function createAgentChannel(options: {
             bindingId: c.bindingId,
             context: contextIds(),
             ...(opts.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+            ...(receiptReplay ? { receiptReplay } : {}),
             deadlineAt,
             method,
             args,

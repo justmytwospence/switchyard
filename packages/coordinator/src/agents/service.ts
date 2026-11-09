@@ -3,6 +3,7 @@ import {
   AGENT_FRAME_MAX_BYTES,
   type AgentInbox,
   type AgentMessage,
+  AgentReceiptPeekRequest,
   AgentRequestFrame,
   type AgentResultFrame,
   type AgentToolPolicyWait,
@@ -160,6 +161,9 @@ export class AgentService {
         throw new SwitchyardError("invalid_request", "Agent request exceeds 128 KiB");
       }
       const frame = parse(AgentRequestFrame, JSON.parse(json));
+      if (frame.receiptReplay !== undefined && !TOOL_METHODS.has(frame.method)) {
+        throw new SwitchyardError("invalid_request", "Receipt replay is restricted to agent tools");
+      }
       if ((frame.method === "policy.evaluate") !== (hostPolicyContext !== undefined)) {
         throw new SwitchyardError(
           "forbidden",
@@ -183,7 +187,7 @@ export class AgentService {
         return { ...envelope, ok: true, result: this.store.tx(() => this.bind(caller, frame)) };
       }
       this.boundCaller(caller, frame);
-      if (!TOOL_METHODS.has(frame.method)) {
+      if (!TOOL_METHODS.has(frame.method) && frame.method !== "receipt.peek") {
         if (!this.options.negotiatedFeatures?.(authenticatedHostId).has("policies.v1")) {
           throw new SwitchyardError("unsupported_capability", "Agent policies were not negotiated");
         }
@@ -203,20 +207,30 @@ export class AgentService {
       if (!frame.toolCallId) {
         throw new SwitchyardError("invalid_request", "Agent tools require toolCallId");
       }
+      if (frame.method === "receipt.peek") {
+        const peek = parse(AgentReceiptPeekRequest, frame.args);
+        const { hash } = this.normalizedArguments(peek.method, peek.args);
+        const receipt = this.receipt({ ...frame, method: peek.method }, hash);
+        return {
+          ...envelope,
+          ok: true,
+          result: receipt ? { found: true, requestHash: hash } : { found: false },
+        };
+      }
       if (frame.deadlineAt === undefined) {
         throw new SwitchyardError("invalid_request", "Agent tools require deadlineAt");
       }
       // This request's budget is fixed at ingress, including across an authorization await.
       const deadline = Math.min(Date.parse(frame.deadlineAt), receivedAt + 30_000);
       const method = frame.method as ToolMethod;
-      let args: unknown = frame.args;
-      let argumentError: SwitchyardError | undefined;
-      try {
-        args = this.arguments(method, args);
-      } catch (error) {
-        argumentError = errorOf(error);
+      const { args, argumentError, hash } = this.normalizedArguments(method, frame.args);
+      if (frame.receiptReplay !== undefined) {
+        // This marker can only narrow access to a past result, never authorize new work.
+        if (frame.receiptReplay.requestHash !== hash) this.unavailableReceipt();
+        const recorded = this.receipt(frame, hash, true);
+        if (!recorded) this.unavailableReceipt();
+        return { ...envelope, ...recorded };
       }
-      const hash = createHash("sha256").update(canonical(args)).digest("hex");
       const replay = this.receipt(frame, hash);
       if (replay) return { ...envelope, ...replay };
       this.assertDeadline(deadline);
@@ -443,6 +457,22 @@ export class AgentService {
     }
   }
 
+  /** Keep defaults and permanent validation-error identity identical for all receipt paths. */
+  private normalizedArguments(method: ToolMethod, input: unknown) {
+    let args = input;
+    let argumentError: SwitchyardError | undefined;
+    try {
+      args = this.arguments(method, input);
+    } catch (error) {
+      argumentError = errorOf(error);
+    }
+    return {
+      args,
+      argumentError,
+      hash: createHash("sha256").update(canonical(args)).digest("hex"),
+    };
+  }
+
   private target(method: ToolMethod, caller: Session, args: unknown): Session | null {
     if (method !== "message.send") return null;
     const { sessionId } = args as SendAgentMessage;
@@ -512,19 +542,35 @@ export class AgentService {
     ]);
   }
 
-  private receipt(frame: AgentRequestFrame, hash: string): StoredResult | undefined {
+  private unavailableReceipt(): never {
+    throw new SwitchyardError(
+      "conflict",
+      "The recorded tool result is no longer available; no action was executed.",
+    );
+  }
+
+  private receipt(
+    frame: AgentRequestFrame,
+    hash: string,
+    replayOnly = false,
+  ): StoredResult | undefined {
     const row = this.store.st
       .get(`SELECT request_hash, result_json FROM agent_call_receipts
       WHERE caller_session_id = ? AND native_session_id = ? AND tool_call_id = ? AND method = ?`)
       .get(frame.sessionId, frame.nativeSessionId, frame.toolCallId!, frame.method) as
       | { request_hash: string; result_json: string }
       | undefined;
-    if (!row) return undefined;
-    if (row.request_hash !== hash)
+    if (!row) {
+      if (replayOnly) this.unavailableReceipt();
+      return undefined;
+    }
+    if (row.request_hash !== hash) {
+      if (replayOnly) this.unavailableReceipt();
       throw new SwitchyardError(
         "conflict",
         "Agent call identity was reused with different arguments",
       );
+    }
     return JSON.parse(row.result_json) as StoredResult;
   }
 

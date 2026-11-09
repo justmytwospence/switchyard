@@ -137,7 +137,12 @@ async function beginAsk(f: ReturnType<typeof fixture>) {
 describe("Pi policy hook", () => {
   it("installs the awaited tool hook synchronously and stops cache warming without I/O", () => {
     const f = fixture();
-    expect([...f.handlers.keys()]).toEqual(["tool_call", "cache_warming_decision"]);
+    expect([...f.handlers.keys()]).toEqual([
+      "tool_call",
+      "agent_settled",
+      "session_shutdown",
+      "cache_warming_decision",
+    ]);
     const count = f.sent.length;
     expect(f.handlers.get("cache_warming_decision")!()).toEqual({ action: "stop" });
     expect(f.sent).toHaveLength(count);

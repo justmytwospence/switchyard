@@ -1,7 +1,19 @@
 import { type AgentBindingIdentity, type AgentChannel, channelError } from "./agent-channel.js";
 
-type ToolMethod = "task.create" | "message.send" | "inbox.read";
-type ToolContext = { ui?: { notify(message: string, type?: string): void } };
+import {
+  type AgentToolMethod,
+  agentToolPreflightRequired,
+  consumeAgentToolPreflight,
+  registerAgentToolMethod,
+  releaseAgentToolPreflight,
+  toolArgs,
+} from "./tool-preflight.js";
+
+type ToolMethod = AgentToolMethod;
+type ToolContext = {
+  ui?: { notify(message: string, type?: string): void };
+  sessionManager?: { getSessionId(): string };
+};
 // Plain local mirror of AgentToolPolicyWait: bridge scripts have no workspace dependencies.
 type AgentToolPolicyWait = {
   type: "policy.required";
@@ -40,10 +52,11 @@ async function requestAuthorizedTool(
   toolCallId: string,
   signal?: AbortSignal,
   ctx?: ToolContext,
+  capturedBinding?: AgentBindingIdentity,
 ): Promise<unknown> {
   const configuration = channel.snapshot().configuration;
-  let initialBinding: AgentBindingIdentity | undefined;
-  if (configuration) {
+  let initialBinding = capturedBinding;
+  if (!initialBinding && configuration) {
     const { sessionId, runtimeId, nativeSessionId, bindingId } = configuration;
     initialBinding = { sessionId, runtimeId, nativeSessionId, bindingId };
   }
@@ -208,6 +221,7 @@ export function registerAgentTools(pi: any, channel: AgentChannel): void {
     },
   ];
   for (const { method, ...definition } of definitions) {
+    registerAgentToolMethod(channel, definition.name, method);
     pi.registerTool({
       ...definition,
       async execute(
@@ -217,8 +231,56 @@ export function registerAgentTools(pi: any, channel: AgentChannel): void {
         _update?: unknown,
         ctx?: ToolContext,
       ) {
-        const result = await requestAuthorizedTool(channel, method, args, toolCallId, signal, ctx);
-        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+        // Consume by the original invocation identity, not by whatever binding exists now.
+        // A stale receipt restriction must never disappear into the ordinary mutation path.
+        const claim = consumeAgentToolPreflight(channel, method, toolCallId, args);
+        try {
+          const preflight = claim?.preflight;
+          if (!preflight && agentToolPreflightRequired(channel))
+            throw channelError("conflict", "Required Switchyard tool preflight is missing");
+          const checkPreflight = () => {
+            if (signal?.aborted) throw channelError("conflict", "Policy approval canceled");
+            if (!preflight) return;
+            const current = channel.snapshot();
+            const binding = preflight.binding;
+            if (
+              current.policyState !== "active" ||
+              current.configuration?.sessionId !== binding.sessionId ||
+              current.configuration.runtimeId !== binding.runtimeId ||
+              current.configuration.nativeSessionId !== binding.nativeSessionId ||
+              current.configuration.bindingId !== binding.bindingId ||
+              (ctx?.sessionManager && ctx.sessionManager.getSessionId() !== binding.nativeSessionId)
+            )
+              throw channelError("stale_control", "Bridge binding changed after tool preflight");
+          };
+          checkPreflight();
+          let result: unknown;
+          if (preflight?.mode === "receipt") {
+            result = await channel.request(method, toolArgs(args), {
+              toolCallId,
+              signal,
+              binding: preflight.binding,
+              receiptReplay: { requestHash: preflight.requestHash },
+              timeoutMs: 30000,
+            });
+            checkPreflight();
+            if (policyWait(result))
+              throw channelError("conflict", "Receipt-only tool request cannot request approval");
+          } else {
+            result = await requestAuthorizedTool(
+              channel,
+              method,
+              args,
+              toolCallId,
+              signal,
+              ctx,
+              preflight?.binding,
+            );
+          }
+          return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+        } finally {
+          if (claim) releaseAgentToolPreflight(channel, claim.owner);
+        }
       },
     });
   }

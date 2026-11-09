@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import {
   AGENT_FRAME_MAX_BYTES,
   type AgentMethod,
+  AgentReceiptPeekRequest,
   type AgentRequestFrame,
   type AgentResultFrame,
   CoordinatorToHost,
@@ -32,6 +33,8 @@ const AGENT_FEATURES = ["agentRequests.v1", "policies.v1"] as const;
 
 export interface AgentRequestOptions {
   toolCallId?: string;
+  /** Restricts an existing tool call to its committed receipt; never authorizes execution. */
+  receiptReplay?: AgentRequestFrame["receiptReplay"];
   /** Trusted bridge context, supplied by the broker rather than tool arguments. */
   context?: AgentRequestFrame["context"];
   /** Host-only tool attestation, never sourced from local frame/args fields. */
@@ -307,6 +310,9 @@ export class CoordinatorLink {
       runtimeId,
       context: opts.context ?? { humanInputId: null, causalMessageId: null },
       toolCallId: opts.toolCallId,
+      // Preserve even an explicitly supplied marker so schema validation cannot discard it
+      // on a disallowed method and turn a receipt-only request into ordinary execution.
+      ...(Object.hasOwn(opts, "receiptReplay") ? { receiptReplay: opts.receiptReplay } : {}),
       method,
       args,
       deadlineAt: new Date(deadline).toISOString(),
@@ -314,7 +320,12 @@ export class CoordinatorLink {
     });
     if (
       !parsed.success ||
-      ((method === "task.create" || method === "message.send") && !opts.toolCallId)
+      (method === "receipt.peek" && !AgentReceiptPeekRequest.safeParse(args).success) ||
+      ((method === "task.create" ||
+        method === "message.send" ||
+        method === "receipt.peek" ||
+        opts.receiptReplay !== undefined) &&
+        !opts.toolCallId)
     ) {
       throw new SwitchyardError("invalid_request", "Invalid agent request or missing toolCallId");
     }

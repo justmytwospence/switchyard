@@ -98,6 +98,11 @@ function fixture(configured = true) {
       { toolCallId: "call", toolName: "bash", input: { command: "echo safe" } },
       ctx,
     );
+  const runToolHook = (index = 0) =>
+    handlers.get("tool_call")!(
+      { toolCallId: "call", toolName: tools[index].name, input: { objective: "work" } },
+      ctx,
+    );
   const execute = (index = 0) =>
     tools[index].execute("call", { objective: "work" }, controller.signal, undefined, ctx);
   return {
@@ -109,6 +114,7 @@ function fixture(configured = true) {
     requests,
     reply,
     runHook,
+    runToolHook,
     execute,
     ctx,
     controller,
@@ -150,7 +156,16 @@ async function hookAt(f: ReturnType<typeof fixture>, phase: string) {
   return { outcome };
 }
 
+async function finishToolHook(f: ReturnType<typeof fixture>, hook: Promise<unknown>) {
+  await flush();
+  f.reply(f.requests("receipt.peek").at(-1), { found: false });
+  await flush();
+  f.reply(f.requests("policy.evaluate").at(-1), { verdict: "ALLOW" });
+  expect(await hook).toBeUndefined();
+}
+
 async function toolAt(f: ReturnType<typeof fixture>, phase: string, index = 0) {
+  await finishToolHook(f, f.runToolHook(index));
   const method = ["task.create", "message.send", "inbox.read"][index];
   const outcome: Promise<unknown> = f.execute(index);
   await flush();
@@ -280,15 +295,13 @@ describe("first legitimate startup readiness", () => {
     "does not launder a %s through replacement before its readiness continuation",
     async (kind) => {
       const f = fixture(false);
-      const outcome: Promise<unknown> = kind === "hook" ? f.runHook() : f.execute();
-      const checked =
-        kind === "hook"
-          ? expect(outcome).resolves.toMatchObject({ block: true, terminate: true })
-          : expect(outcome).rejects.toMatchObject({ code: "stale_control" });
+      const outcome: Promise<unknown> = kind === "hook" ? f.runHook() : f.runToolHook();
+      const checked = expect(outcome).resolves.toMatchObject({ block: true, terminate: true });
       // Both configurations arrive in one turn, before any promise continuation runs.
       f.configure("first-ready");
       f.configure("replacement");
       await checked;
+      if (kind === "tool") await expect(f.execute()).rejects.toThrow("preflight is missing");
       expect(f.requests()).toEqual([]);
     },
   );
@@ -394,12 +407,14 @@ describe("tool-call policy invocation binding", () => {
 describe("request-tool invocation binding", () => {
   it.each([0, 1, 2])("pins tool %i before initial readiness", async (index) => {
     const f = fixture();
+    await finishToolHook(f, f.runToolHook(index));
+    const count = f.requests().length;
     f.command("connection.update", { connected: false });
     const outcome = f.execute(index);
     const rejected = expect(outcome).rejects.toMatchObject({ code: "stale_control" });
     f.configure("replacement");
     await rejected;
-    expect(f.requests()).toEqual([]);
+    expect(f.requests()).toHaveLength(count);
   });
 
   it.each(["request", "status", "resume"])(
@@ -432,8 +447,10 @@ describe("request-tool invocation binding", () => {
 
   it("captures startup readiness without requiring a native session file", async () => {
     const f = fixture(false);
-    const outcome = f.execute();
+    const hook = f.runToolHook();
     f.configure();
+    await finishToolHook(f, hook);
+    const outcome = f.execute();
     await flush();
     f.reply(f.requests("task.create")[0], { taskId: "task" });
     await expect(outcome).resolves.toMatchObject({ details: { taskId: "task" } });

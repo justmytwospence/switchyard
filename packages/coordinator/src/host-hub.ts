@@ -31,6 +31,7 @@ import {
 } from "@switchyard/protocol";
 import type { Logger } from "pino";
 import type { WebSocket } from "ws";
+import { z } from "zod";
 import type { AttentionService } from "./attention.js";
 import { safeEqualHex, sha256 } from "./auth.js";
 import { COORDINATOR_VERSION } from "./context.js";
@@ -656,10 +657,15 @@ export class HostHub {
     if (!this.isCurrentSocket(hostId, socket)) return;
     if ((json as { type?: unknown } | null)?.type !== "agent.request") return;
     const correlation = json as Record<string, unknown>;
-    const ids = AgentRequestFrame.pick({ requestId: true, runtimeId: true }).safeParse({
-      requestId: correlation.requestId,
-      runtimeId: correlation.runtimeId,
-    });
+    const ids = z
+      .object({
+        requestId: AgentRequestFrame.shape.requestId,
+        runtimeId: AgentRequestFrame.shape.runtimeId,
+      })
+      .safeParse({
+        requestId: correlation.requestId,
+        runtimeId: correlation.runtimeId,
+      });
     if (!ids.success) return;
     this.sendFrame(socket, {
       type: "agent.result",

@@ -2,6 +2,7 @@ import { AgentToolPolicyWait } from "@switchyard/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentChannel } from "../src/bridge/agent-channel.js";
 import { registerAgentTools } from "../src/bridge/agent-tools.js";
+import { installPolicyHooks } from "../src/bridge/policy.js";
 import { BridgeAgentRequest } from "../src/bridge-wire.js";
 
 const channels: ReturnType<typeof createAgentChannel>[] = [];
@@ -19,8 +20,11 @@ function fixture() {
   vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
   const sent: any[] = [];
   const tools: any[] = [];
+  const handlers = new Map<string, (...args: any[]) => any>();
   let native = "native";
+  const controller = new AbortController();
   const ctx = {
+    signal: controller.signal,
     ui: { notify: vi.fn() },
     sessionManager: { getSessionId: () => native, getBranch: () => [] },
   };
@@ -41,6 +45,7 @@ function fixture() {
     policyRequired: true,
   });
   channels.push(channel);
+  installPolicyHooks({ on: (name: string, handler: any) => handlers.set(name, handler) }, channel);
   registerAgentTools({ registerTool: (tool: any) => tools.push(tool) }, channel);
   channel.onConnect();
   let bindingId = "binding";
@@ -80,7 +85,17 @@ function fixture() {
       ok,
       ...(ok ? { result } : { error: result }),
     });
-  const controller = new AbortController();
+  const preflight = async (index = 0, args: unknown = { objective: "work" }) => {
+    const hook = handlers.get("tool_call")!(
+      { toolCallId: "call", toolName: tools[index].name, input: args },
+      ctx,
+    );
+    await flush();
+    reply(requests("receipt.peek").at(-1), { found: false });
+    await flush();
+    reply(requests("policy.evaluate").at(-1), { verdict: "ALLOW" });
+    expect(await hook).toBeUndefined();
+  };
   const execute = (index = 0, args: unknown = { objective: "work" }) =>
     tools[index].execute("call", args, controller.signal, undefined, ctx);
   return {
@@ -88,6 +103,7 @@ function fixture() {
     ctx,
     controller,
     execute,
+    preflight,
     requests,
     reply,
     command,
@@ -108,6 +124,7 @@ const ask = (decisionId = "decision") => ({
 
 async function beginAsk(f: ReturnType<typeof fixture>, index = 0, args?: unknown) {
   const method = ["task.create", "message.send", "inbox.read"][index];
+  await f.preflight(index, args);
   const outcome = f.execute(index, args);
   await flush();
   f.reply(f.requests(method)[0], ask());
@@ -295,6 +312,7 @@ describe("request-phase tool policy resumption", () => {
     { ...ask(), interactionId: "" },
   ])("rejects malformed or unsafe wait envelopes", async (wait) => {
     const f = fixture();
+    await f.preflight();
     const outcome = f.execute();
     const rejected = expect(outcome).rejects.toMatchObject({ code: "invalid_request" });
     await flush();

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAgentChannel } from "../src/bridge/agent-channel.js";
 import { registerAgentTools } from "../src/bridge/agent-tools.js";
+import { installPolicyHooks } from "../src/bridge/policy.js";
 
 function fixture() {
   const sent: any[] = [];
@@ -59,6 +60,11 @@ describe("agent tools and channel", () => {
   it("registers synchronously and correlates fenced results with causal context", async () => {
     const { channel, sent, entries, configure } = fixture();
     const tools: any[] = [];
+    const handlers = new Map<string, (...args: any[]) => any>();
+    installPolicyHooks(
+      { on: (name: string, handler: any) => handlers.set(name, handler) },
+      channel,
+    );
     registerAgentTools({ registerTool: (t: any) => tools.push(t) }, channel);
     expect(tools.map((t) => t.name)).toEqual([
       "switchyard_create_task",
@@ -71,9 +77,34 @@ describe("agent tools and channel", () => {
       type: "custom_message",
       message: { customType: "switchyard-inbox", details: { deliveryId: "msg" } },
     });
-    const result = tools[0].execute("call", { objective: "work" });
-    await vi.waitFor(() => expect(sent.some((r) => r.type === "agent.request")).toBe(true));
-    const request = sent.find((r) => r.type === "agent.request");
+    const args = { objective: "work" };
+    const hook = handlers.get("tool_call")!(
+      { toolName: tools[0].name, toolCallId: "call", input: args },
+      { sessionManager: { getSessionId: () => "native" } },
+    );
+    const reply = (request: any, result: unknown) =>
+      channel.receive({
+        type: "agent.result",
+        requestId: request.requestId,
+        runtimeId: request.runtimeId,
+        bindingId: request.bindingId,
+        ok: true,
+        result,
+      });
+    await vi.waitFor(() => expect(sent.some((r) => r.method === "receipt.peek")).toBe(true));
+    reply(
+      sent.find((r) => r.method === "receipt.peek"),
+      { found: false },
+    );
+    await vi.waitFor(() => expect(sent.some((r) => r.method === "policy.evaluate")).toBe(true));
+    reply(
+      sent.find((r) => r.method === "policy.evaluate"),
+      { verdict: "ALLOW" },
+    );
+    expect(await hook).toBeUndefined();
+    const result = tools[0].execute("call", args);
+    await vi.waitFor(() => expect(sent.some((r) => r.method === "task.create")).toBe(true));
+    const request = sent.find((r) => r.method === "task.create");
     expect(request).toMatchObject({
       method: "task.create",
       toolCallId: "call",

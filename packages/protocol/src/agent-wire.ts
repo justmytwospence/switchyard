@@ -13,11 +13,26 @@ export const AgentMethod = z.enum([
   "task.create",
   "message.send",
   "inbox.read",
+  "receipt.peek",
   "policy.evaluate",
   "policy.status",
   "policy.cancel",
 ]);
 export type AgentMethod = z.infer<typeof AgentMethod>;
+
+const AgentToolMethod = z.enum(["task.create", "message.send", "inbox.read"]);
+const RequestHash = z.string().regex(/^[a-f0-9]{64}$/);
+export const AgentReceiptPeekRequest = z
+  .object({ method: AgentToolMethod, args: z.record(z.string(), z.json()) })
+  .strict();
+export type AgentReceiptPeekRequest = z.infer<typeof AgentReceiptPeekRequest>;
+export const AgentReceiptPeekResult = z.discriminatedUnion("found", [
+  z.object({ found: z.literal(false) }).strict(),
+  z.object({ found: z.literal(true), requestHash: RequestHash }).strict(),
+]);
+export type AgentReceiptPeekResult = z.infer<typeof AgentReceiptPeekResult>;
+export const AgentReceiptReplay = z.object({ requestHash: RequestHash }).strict();
+export type AgentReceiptReplay = z.infer<typeof AgentReceiptReplay>;
 
 export const CreateAgentTask = z.object({
   objective: z.string().min(1).max(16000),
@@ -99,12 +114,31 @@ export const AgentRequestFrame = z
     runtimeId: Id,
     context: z.object({ humanInputId: Id.nullable(), causalMessageId: Id.nullable() }).strict(),
     toolCallId: Id.optional(),
+    receiptReplay: AgentReceiptReplay.optional(),
     // Tool-method ingress requires this separately; legacy/non-tool frames remain compatible.
     deadlineAt: Instant.optional(),
     method: AgentMethod,
     args: z.unknown(),
   })
-  .strict();
+  .strict()
+  .superRefine((frame, ctx) => {
+    if (frame.method === "receipt.peek") {
+      if (!frame.toolCallId) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["toolCallId"],
+          message: "Receipt lookup requires a tool call ID.",
+        });
+      }
+    }
+    if (Object.hasOwn(frame, "receiptReplay") && !AgentToolMethod.safeParse(frame.method).success) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["receiptReplay"],
+        message: "Receipt replay is only valid for tool methods.",
+      });
+    }
+  });
 export type AgentRequestFrame = z.infer<typeof AgentRequestFrame>;
 export const AgentResultFrame = z.discriminatedUnion("ok", [
   z.object({

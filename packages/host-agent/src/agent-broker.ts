@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   AGENT_FRAME_MAX_BYTES,
+  AgentReceiptPeekRequest,
   AgentRequestFrame,
   type AgentResultFrame,
   AgentToolPolicyWait,
@@ -53,7 +54,8 @@ const Configured = z
     policyPhases: z.array(z.enum(["tool_call", "request"])),
   })
   .strict();
-const LocalRequest = AgentRequestFrame.extend({
+// Keep the shared receipt-mode refinements when adding the host-local binding fence.
+const LocalRequest = AgentRequestFrame.safeExtend({
   bindingId: Id,
   context: Context.strict(),
 }).strict();
@@ -302,8 +304,19 @@ export class AgentBrokerHandle {
       this.assertBinding(frame);
       if (frame.method === "session.bind")
         throw new SwitchyardError("forbidden", "Session binding is broker-only");
-      if ((frame.method === "task.create" || frame.method === "message.send") && !frame.toolCallId)
-        throw new SwitchyardError("invalid_request", "Tool mutation requires toolCallId");
+      if (
+        (frame.method === "task.create" ||
+          frame.method === "message.send" ||
+          frame.method === "receipt.peek" ||
+          frame.receiptReplay !== undefined) &&
+        !frame.toolCallId
+      )
+        throw new SwitchyardError(
+          "invalid_request",
+          "Tool mutation or receipt requires toolCallId",
+        );
+      if (frame.method === "receipt.peek" && !AgentReceiptPeekRequest.safeParse(frame.args).success)
+        throw new SwitchyardError("invalid_request", "Invalid receipt lookup arguments");
       const policy = frame.method.startsWith("policy.");
       if (
         !this.configuration?.features.includes("agentRequests.v1") ||
@@ -360,6 +373,11 @@ export class AgentBrokerHandle {
           evaluation ?? frame.args,
           {
             toolCallId: frame.toolCallId,
+            // This is a restriction to reading a committed receipt, not an authorization.
+            // Never strip it and accidentally forward a normal, potentially mutating call.
+            ...(Object.hasOwn(frame, "receiptReplay")
+              ? { receiptReplay: frame.receiptReplay }
+              : {}),
             context: { ...frame.context },
             ...(policyContext === undefined ? {} : { policyContext }),
             signal: controller.signal,

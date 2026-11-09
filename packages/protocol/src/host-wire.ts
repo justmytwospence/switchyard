@@ -339,7 +339,7 @@ export type Receipt = z.infer<typeof Receipt>;
 declare const TextEncoder: { new (): { encode(input: string): Uint8Array } };
 
 /** Trusted host attestation is not part of the extension's global/local request envelope. */
-export const HostAgentRequestFrame = AgentRequestFrame.extend({
+export const HostAgentRequestFrame = AgentRequestFrame.safeExtend({
   policyContext: HostToolPolicyContext.optional(),
 })
   .strict()
