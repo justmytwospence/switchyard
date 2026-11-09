@@ -450,6 +450,7 @@ describe("AgentBroker binding and configuration", () => {
 
 describe("AgentBroker direct request lane", () => {
   it("uses the owning session, strips bindingId, copies trusted branch context, and restores local correlation", async () => {
+    vi.useFakeTimers();
     const f = fixture();
     await f.announce();
     f.link.requestAgent.mockClear();

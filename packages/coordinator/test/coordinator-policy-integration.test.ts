@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { request } from "node:http";
 import {
   type AgentRequestFrame,
   type AgentResultFrame,
@@ -549,23 +550,51 @@ describe("read-only policy sample host wiring", () => {
     const test = vi.spyOn(policies(), "test");
     host.handler = async () => NO_REPLY;
     const controller = new AbortController();
-    const response = fetch(`${t.c.localUrl}/api/policies/test`, {
+    const client = request(`${t.c.localUrl}/api/policies/test`, {
       method: "POST",
       headers: { authorization: `Bearer ${t.c.adminToken}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "ses_policy_wiring",
-        phase: "tool_call",
-        tool: { name: "bash", args: { command: "echo safe" } },
-        request: null,
-      }),
+      agent: false,
       signal: controller.signal,
-    }).catch((error: unknown) => error);
-    await host.waitForCommand("session.classifyPolicySample");
-    controller.abort();
-    await response;
-    await until(() => test.mock.calls[0]?.[1]?.signal?.aborted === true);
-    expect(t.c.store.db.prepare("SELECT * FROM policy_evaluations").all()).toHaveLength(0);
-    expect(pending()).toHaveLength(0);
+    });
+    let error: Error | undefined;
+    let receivedResponse = false;
+    let socket: typeof client.socket;
+    let socketClosed: Promise<void> = Promise.resolve();
+    client.on("error", (err) => {
+      error = err;
+    });
+    client.on("response", (response) => {
+      receivedResponse = true;
+      response.resume();
+    });
+    client.on("socket", (assigned) => {
+      socket = assigned;
+      socketClosed = new Promise((resolve) => assigned.once("close", resolve));
+    });
+    const closed = new Promise<void>((resolve) => client.once("close", resolve));
+    try {
+      client.end(
+        JSON.stringify({
+          sessionId: "ses_policy_wiring",
+          phase: "tool_call",
+          tool: { name: "bash", args: { command: "echo safe" } },
+          request: null,
+        }),
+      );
+      await host.waitForCommand("session.classifyPolicySample");
+      controller.abort();
+      await closed;
+      expect(receivedResponse).toBe(false);
+      expect(error?.name).toBe("AbortError");
+      await until(() => test.mock.calls[0]?.[1]?.signal?.aborted === true);
+      expect(t.c.store.db.prepare("SELECT * FROM policy_evaluations").all()).toHaveLength(0);
+      expect(pending()).toHaveLength(0);
+    } finally {
+      client.destroy();
+      socket?.destroy();
+      await closed;
+      await socketClosed;
+    }
   });
 
   it("routes a sample to the stored owning host with negotiated policies and a 10-second timeout", async () => {
