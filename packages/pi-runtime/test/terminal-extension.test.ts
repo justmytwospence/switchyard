@@ -178,7 +178,7 @@ describe("switchyard terminal extension", () => {
         agentTools: true,
         messageDelivery: true,
         editorDraftGuard: true,
-        toolPolicy: false,
+        toolPolicy: true,
       },
     });
     expect(pi.registerTool).toHaveBeenCalledTimes(3);

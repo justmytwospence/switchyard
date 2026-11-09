@@ -89,7 +89,7 @@ describe("bridge extension", () => {
     }
   });
 
-  it("announces actual RPC capabilities and rejects a required policy as unsupported", async () => {
+  it("announces installed RPC policy capability and activates required protection", async () => {
     const dir = mkdtempSync(join(tmpdir(), "sy-agent-"));
     const path = join(dir, "b.sock");
     const lines: any[] = [];
@@ -127,7 +127,7 @@ describe("bridge extension", () => {
           agentTools: true,
           messageDelivery: true,
           editorDraftGuard: true,
-          toolPolicy: false,
+          toolPolicy: true,
         },
       });
       const config = {
@@ -150,7 +150,11 @@ describe("bridge extension", () => {
       expect(parseBridgeRecord(actualReceipt)).toEqual(actualReceipt);
       expect(actualReceipt).toMatchObject({
         ok: true,
-        result: { policyRequired: true, policyState: "unsupported", policyPhases: [] },
+        result: {
+          policyRequired: true,
+          policyState: "active",
+          policyPhases: ["tool_call", "request"],
+        },
       });
       pi.fire("session_shutdown", {});
     } finally {

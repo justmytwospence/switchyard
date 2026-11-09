@@ -5,6 +5,7 @@ import type { Scheduler } from "./automations/scheduler.js";
 import type { AutomationService } from "./automations/service.js";
 import type { CacheAlertService } from "./cache-alerts.js";
 import type { CoordinatorContext } from "./context.js";
+import type { PolicyService } from "./policies/service.js";
 import type { ProjectFolderService } from "./project-folders.js";
 import type { PushService } from "./push.js";
 import type { Dispatcher } from "./tasks/dispatcher.js";
@@ -12,6 +13,7 @@ import type { RunsService } from "./tasks/runs.js";
 
 /** Built-in services registered in `ctx.services` by `createCoordinator`. */
 export interface BuiltinServices {
+  policies: PolicyService;
   agents: AgentService;
   messages: MessageService;
   dispatcher: Dispatcher;

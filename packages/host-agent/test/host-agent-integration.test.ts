@@ -143,6 +143,19 @@ async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
+async function waitForBinding(supervisor: SessionSupervisor, nativeSessionId = "native1") {
+  await vi.waitFor(() => {
+    expect(supervisor.deliveryBridge("ses_1")?.nativeSessionId).toBe(nativeSessionId);
+    expect(supervisor.record("ses_1")?.bridge?.policyState).toBe("active");
+  });
+}
+
+async function waitForConfigure() {
+  await vi.waitFor(() => {
+    expect(runtime.sessions[0]?.calls.map((c: any) => c.method)).toContain("configure");
+  });
+}
+
 function fixture(
   options: {
     features?: string[];
@@ -269,7 +282,7 @@ describe("supervisor A.1 integration", () => {
       policyRequired: true,
       initialPrompt: "work",
     });
-    await flush();
+    await waitForConfigure();
     const ms = runtime.sessions[0];
     expect(ms.options.env.SWITCHYARD_POLICY_REQUIRED).toBe("1");
     expect(ms.calls.map((c: any) => c.method)).toEqual(["configure"]);
@@ -338,7 +351,7 @@ describe("supervisor A.1 integration", () => {
   it("records a fresh human id before a native prompt, never for automation", async () => {
     const f = fixture();
     await f.supervisor.start(f.params);
-    await flush();
+    await waitForBinding(f.supervisor);
     const ms = runtime.sessions[0];
     const gate = deferred();
     runtime.inputGate = gate.promise;
@@ -362,7 +375,7 @@ describe("supervisor A.1 integration", () => {
     runtime.promptGate = gate.promise;
     const f = fixture();
     await f.supervisor.start(f.params);
-    await flush();
+    await waitForBinding(f.supervisor);
     const prompt = f.router.handle("prompt", {
       type: "session.prompt",
       sessionId: "ses_1",
@@ -391,15 +404,23 @@ describe("supervisor A.1 integration", () => {
   it("routes policy ASK waiting state directly and clears it on disconnect", async () => {
     const f = fixture();
     await f.supervisor.start(f.params);
-    await flush();
+    await waitForBinding(f.supervisor);
     const ms = runtime.sessions[0];
     f.requestAgent.mockImplementationOnce(async () => ({
       verdict: "ASK",
       decisionId: "decision1",
     }));
-    ms.emit("agent_request", frame(ms, "policy.evaluate"));
-    await flush();
-    expect(ms.waits).toEqual([{ id: "decision1", waiting: true }]);
+    ms.emit("agent_request", {
+      ...frame(ms, "policy.evaluate", {
+        evaluationId: "evaluation1",
+        toolCallId: "call1",
+        tool: { name: "read", args: { path: f.params.workspacePath } },
+      }),
+      toolCallId: "call1",
+    });
+    await vi.waitFor(() => {
+      expect(ms.waits).toEqual([{ id: "decision1", waiting: true }]);
+    });
     f.link.connected = false;
     f.link.events.emit("disconnected", { code: 1006, reason: "lost" });
     expect(ms.waits.at(-1)).toEqual({ id: "decision1", waiting: false });
@@ -409,7 +430,7 @@ describe("supervisor A.1 integration", () => {
   it("fences old delivery adapters across native rebinds and permits offline status only", async () => {
     const f = fixture();
     await f.supervisor.start(f.params);
-    await flush();
+    await waitForBinding(f.supervisor);
     const ms = runtime.sessions[0];
     const old = f.supervisor.deliveryBridge("ses_1")!;
     expect(old).not.toBeNull();
@@ -420,9 +441,9 @@ describe("supervisor A.1 integration", () => {
     expect(() => old.accept({} as any, { signal })).toThrow(/obsolete/);
     f.link.connected = true;
     f.link.events.emit("welcome", { coordinatorVersion: "test", ackedHostSeq: 0 });
-    await flush();
+    await waitForBinding(f.supervisor);
     ms.announce("native2");
-    await flush();
+    await waitForBinding(f.supervisor, "native2");
     const current = f.supervisor.deliveryBridge("ses_1")!;
     expect(current.nativeSessionId).toBe("native2");
     expect(current.bindingId).not.toBe(old.bindingId);
@@ -434,7 +455,7 @@ describe("supervisor A.1 integration", () => {
   it("wires terminal reattachment through the same broker without replacing Pi", async () => {
     const f = fixture({ terminal: true });
     await f.supervisor.start(f.params);
-    await flush();
+    await waitForBinding(f.supervisor);
     runtime.sessions[0].emit("terminal", { socketPath: "/holder.sock" });
     await f.supervisor.stopAll();
     const next = new SessionSupervisor({
@@ -452,7 +473,7 @@ describe("supervisor A.1 integration", () => {
     });
     next.recoverAfterRestart();
     expect((await next.reattachTerminals()).reattached).toEqual(["ses_1"]);
-    await flush();
+    await waitForBinding(next);
     expect(runtime.sessions).toHaveLength(2);
     expect(runtime.sessions[1].options.terminalSocket).toBe("/holder.sock");
     expect(runtime.sessions[1].configuration.nativeSessionId).toBe("native1");
@@ -464,7 +485,7 @@ describe("supervisor A.1 integration", () => {
     const gate = deferred();
     runtime.adapterGate = gate.promise;
     await f.supervisor.start(f.params);
-    await flush();
+    await waitForBinding(f.supervisor);
     const ms = runtime.sessions[0];
     const request = frame(ms);
     ms.emit("exit");
@@ -529,7 +550,7 @@ describe("durable message command integration", () => {
   it("serves acceptance and changing statuses while a prompt is in flight", async () => {
     const f = fixture();
     await f.supervisor.start(f.params);
-    await flush();
+    await waitForBinding(f.supervisor);
     const gate = deferred();
     runtime.promptGate = gate.promise;
     const prompt = f.router.handle("prompt", {
@@ -606,7 +627,7 @@ describe("durable message command integration", () => {
     runtime.configureGate = gate.promise;
     const command = dispatchCommand(f.params.workspacePath);
     const pending = f.router.handle("dispatch", command);
-    await flush();
+    await waitForConfigure();
     const ms = runtime.sessions[0];
     expect(ms.options.env.SWITCHYARD_POLICY_REQUIRED).toBe("1");
     expect(ms.calls.map((c: any) => c.method)).toEqual(["configure"]);

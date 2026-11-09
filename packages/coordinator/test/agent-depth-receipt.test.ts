@@ -131,6 +131,7 @@ it("persists a depth denial across human reset and reevaluates a fresh tool call
     ...base,
     method: "message.send",
     toolCallId: "denied-call",
+    deadlineAt: new Date(Date.parse(store.nowIso()) + 30_000).toISOString(),
     context: { humanInputId: null, causalMessageId: causal },
     args: { sessionId: "target", body: "reply", mode: "queue" },
   };

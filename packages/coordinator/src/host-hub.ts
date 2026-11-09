@@ -4,12 +4,15 @@ import {
   AgentRequestFrame,
   AgentResultFrame,
   AttentionReason,
+  CompletedUsageWatermark,
   type CoordinatorToHost,
   Diagnostic,
   type Host,
+  HostAgentRequestFrame,
   HostCommand,
   type HostEvent,
   HostToCoordinator,
+  type HostToolPolicyContext,
   Interaction,
   newId,
   Panel,
@@ -42,10 +45,15 @@ export interface HostHubOptions {
   helloTimeoutMs?: number;
 }
 
+// biome-ignore lint/suspicious/noConfusingVoidType: A ready synchronous guard returns void.
+type BeforeSend = () => void | { defer: true; reason: string };
+
 interface Pending {
   hostId: string;
   frame: string;
   command: HostCommand;
+  beforeSend?: BeforeSend;
+  deferred: boolean;
   resolve: (r: Receipt) => void;
   reject: (e: Error) => void;
   timer: NodeJS.Timeout;
@@ -60,10 +68,10 @@ interface Conn {
 export type AgentRequestHandler = (
   authenticatedHostId: string,
   frame: AgentRequestFrame,
+  hostPolicyContext?: HostToolPolicyContext,
 ) => Promise<AgentResultFrame>;
 
-// Do not advertise policy enforcement until the coordinator policy service is installed.
-const AGENT_FEATURES = ["agentRequests.v1"] as const;
+// Negotiated support is a snapshot of initialized implementation availability at hello.
 
 /** Session fields the host is authoritative for; the rest belong to the coordinator. */
 const HOST_SESSION_FIELDS = [
@@ -118,6 +126,7 @@ export class HostHub {
   private pingTimer: NodeJS.Timeout | null = null;
   private terminalSink: TerminalSink | null = null;
   private agentHandler: AgentRequestHandler | null = null;
+  private availableAgentFeatures: ReadonlySet<string> = new Set();
 
   constructor(
     private readonly store: Store,
@@ -158,6 +167,15 @@ export class HostHub {
   /** Separate request lane: never await agent tools behind host events or command receipts. */
   setAgentHandler(handler: AgentRequestHandler | null): void {
     this.agentHandler = handler;
+    this.availableAgentFeatures = handler ? new Set(["agentRequests.v1"]) : new Set();
+  }
+
+  /** Affects future hellos only; never mutate an established connection's negotiation. */
+  setAvailableAgentFeatures(features: ReadonlySet<string>): void {
+    if (features.has("policies.v1") && !features.has("agentRequests.v1"))
+      throw new Error("policies.v1 requires agentRequests.v1");
+    if (features.size && !this.agentHandler) throw new Error("Agent features require a handler");
+    this.availableAgentFeatures = new Set(features);
   }
 
   negotiatedFeatures(hostId: string): ReadonlySet<string> {
@@ -199,7 +217,12 @@ export class HostHub {
   send(
     hostId: string,
     command: HostCommand,
-    opts: { timeoutMs?: number; commandId?: string } = {},
+    opts: {
+      timeoutMs?: number;
+      commandId?: string;
+      preserveLaunchCommand?: boolean;
+      beforeSend?: BeforeSend;
+    } = {},
   ): Promise<Receipt> {
     let parsed = HostCommand.parse(command);
     const conn = this.conns.get(hostId);
@@ -209,20 +232,28 @@ export class HostHub {
         new SwitchyardError("host_unreachable", `Host ${name} is not connected`, { hostId }),
       );
     }
+    if (
+      (parsed.type === "session.start" || parsed.type === "dispatch.start") &&
+      !parsed.policyRequired &&
+      !opts.preserveLaunchCommand &&
+      !conn.features.has("policies.v1")
+    ) {
+      // Only a fresh optional command can omit the field. Never rewrite a persisted launch
+      // on replacement/reconnect, even from explicit false to absent.
+      const { policyRequired: _policyRequired, ...legacy } = parsed;
+      parsed = legacy;
+    }
     if (!this.supportsCommand(conn, parsed)) {
       return Promise.reject(
         new SwitchyardError("unsupported_capability", `Host does not support ${parsed.type}`),
       );
     }
-    if (
-      (parsed.type === "session.start" || parsed.type === "dispatch.start") &&
-      !conn.features.has("policies.v1")
-    ) {
-      // Optional legacy launches stay usable, without new protection fields on old hosts.
-      const { policyRequired: _policyRequired, ...legacy } = parsed;
-      parsed = legacy;
-    }
     const commandId = opts.commandId ?? newId("cmd");
+    if (parsed.type === "session.prompt" && /^cont_.+_\d+$/.test(commandId) && !opts.beforeSend) {
+      return Promise.reject(
+        new SwitchyardError("stale_control", "Continuation requires a send guard"),
+      );
+    }
     const existing = this.pending.get(commandId);
     if (existing) {
       return new Promise((resolve, reject) => {
@@ -255,9 +286,53 @@ export class HostHub {
         );
       }, timeoutMs);
       timer.unref();
-      this.pending.set(commandId, { hostId, frame, command: parsed, resolve, reject, timer });
-      conn.socket.send(frame);
+      const pending: Pending = {
+        hostId,
+        frame,
+        command: parsed,
+        beforeSend: opts.beforeSend,
+        deferred: false,
+        resolve,
+        reject,
+        timer,
+      };
+      this.pending.set(commandId, pending);
+      this.sendPending(commandId, pending, conn.socket);
     });
+  }
+
+  /** Retry only held frames, never commands already sent and awaiting a receipt. */
+  retryDeferred(hostId: string): void {
+    const conn = this.conns.get(hostId);
+    if (!conn || !this.isCurrentSocket(hostId, conn.socket)) return;
+    for (const [id, pending] of [...this.pending]) {
+      if (pending.hostId === hostId && pending.deferred) {
+        this.sendPending(id, pending, conn.socket);
+      }
+    }
+  }
+
+  private sendPending(commandId: string, pending: Pending, socket: WebSocket): void {
+    // A reconnect snapshot or commit callback may outlive a timeout/withdrawal/receipt.
+    if (this.pending.get(commandId) !== pending || !this.isCurrentSocket(pending.hostId, socket))
+      return;
+    // A guard may commit store writes: do not recursively pump this frame from those writes.
+    pending.deferred = false;
+    try {
+      const readiness = pending.beforeSend?.();
+      if (readiness?.defer) {
+        pending.deferred = true;
+        return;
+      }
+    } catch (error) {
+      clearTimeout(pending.timer);
+      if (this.pending.get(commandId) === pending) this.pending.delete(commandId);
+      pending.reject(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    // The synchronous guard may itself have withdrawn the command or closed the connection.
+    if (this.pending.get(commandId) === pending && this.isCurrentSocket(pending.hostId, socket))
+      socket.send(pending.frame);
   }
 
   private supportsCommand(conn: Conn, command: HostCommand): boolean {
@@ -266,7 +341,7 @@ export class HostHub {
     }
     if (
       (command.type === "session.start" || command.type === "dispatch.start") &&
-      command.policyRequired
+      command.policyRequired !== undefined
     ) {
       return conn.features.has("agentRequests.v1") && conn.features.has("policies.v1");
     }
@@ -305,7 +380,7 @@ export class HostHub {
   async request<T = unknown>(
     hostId: string,
     command: HostCommand,
-    opts: { timeoutMs?: number; commandId?: string } = {},
+    opts: { timeoutMs?: number; commandId?: string; beforeSend?: BeforeSend } = {},
   ): Promise<T> {
     const r = await this.send(hostId, command, opts);
     if (r.ok) return r.result as T;
@@ -417,7 +492,9 @@ export class HostHub {
     }
     const hostId = hello.hostId;
     const old = this.conns.get(hostId);
-    const features = new Set(AGENT_FEATURES.filter((f) => hello.features?.includes(f)));
+    const features = new Set(
+      [...this.availableAgentFeatures].filter((f) => hello.features?.includes(f)),
+    );
     this.conns.set(hostId, { socket, alive: true, features });
     if (old && old.socket !== socket) old.socket.close(4000, "replaced by a newer connection");
     const t = this.unreachableTimers.get(hostId);
@@ -468,7 +545,7 @@ export class HostHub {
       const commandId = `ctl_${run.dispatchKey}_${run.controlRevision}`;
       const existing = this.pending.get(commandId);
       if (existing) {
-        socket.send(existing.frame);
+        this.sendPending(commandId, existing, socket);
         sent.add(commandId);
         continue;
       }
@@ -485,7 +562,8 @@ export class HostHub {
         this.log.warn({ err, hostId, runId: run.id }, "session.setControl on reconnect failed"),
       );
     }
-    for (const [id, p] of resend) if (!sent.has(id)) socket.send(p.frame);
+    // Welcome pumps held frames as well as replaying unacknowledged writes, once each.
+    for (const [id, p] of resend) if (!sent.has(id)) this.sendPending(id, p, socket);
     const reconnect = this.everConnected.has(hostId);
     this.everConnected.add(hostId);
     this.log.info({ hostId, name: hello.name, reconnect }, "host connected");
@@ -556,7 +634,11 @@ export class HostHub {
   ): void {
     if (!this.isCurrentSocket(hostId, socket)) return;
     if ((json as { type?: unknown } | null)?.type !== "agent.request") return;
-    const ids = AgentRequestFrame.pick({ requestId: true, runtimeId: true }).safeParse(json);
+    const correlation = json as Record<string, unknown>;
+    const ids = AgentRequestFrame.pick({ requestId: true, runtimeId: true }).safeParse({
+      requestId: correlation.requestId,
+      runtimeId: correlation.runtimeId,
+    });
     if (!ids.success) return;
     this.sendFrame(socket, {
       type: "agent.result",
@@ -569,11 +651,16 @@ export class HostHub {
   private async onAgentRequest(
     hostId: string,
     socket: WebSocket,
-    frame: AgentRequestFrame,
+    input: HostAgentRequestFrame,
   ): Promise<void> {
+    let frame = input;
     let response: AgentResultFrame;
     try {
       if (!this.isCurrentSocket(hostId, socket)) return;
+      // Only the authenticated host wire may carry this proof. Reparse, then separate it
+      // before constructing the strict Pi/base frame passed to the service.
+      const { policyContext, ...base } = HostAgentRequestFrame.parse(input);
+      frame = AgentRequestFrame.parse(base);
       const features = this.conns.get(hostId)!.features;
       if (
         !features.has("agentRequests.v1") ||
@@ -594,7 +681,7 @@ export class HostHub {
       }
       if (!this.agentHandler)
         throw new SwitchyardError("unsupported_capability", "Agent requests are unavailable");
-      response = AgentResultFrame.parse(await this.agentHandler(hostId, frame));
+      response = AgentResultFrame.parse(await this.agentHandler(hostId, frame, policyContext));
       if (response.requestId !== frame.requestId || response.runtimeId !== frame.runtimeId) {
         throw new SwitchyardError("internal", "Agent handler returned mismatched correlation ids");
       }
@@ -897,28 +984,69 @@ export class HostHub {
       if (!this.negotiatedFeatures(hostId).has("agentRequests.v1")) {
         next.bridge = { ...next.bridge!, agentTools: false, messageDelivery: false };
       }
-      next.bridge = {
-        ...next.bridge!,
-        policyState:
-          next.bridge!.policyState === "active" ? "unsupported" : next.bridge!.policyState,
-        policyPhases: [],
-      };
+      const host = this.store.hosts.require(hostId);
+      const protection =
+        this.negotiatedFeatures(hostId).has("policies.v1") &&
+        host.capabilities?.agentRequests === true &&
+        host.capabilities.policies === true &&
+        (next.nativeHandle === null ||
+          next.nativeHandle.sessionId === next.bridge!.nativeSessionId) &&
+        this.store.db
+          .prepare(`SELECT 1 FROM policy_runtime_boundaries
+          WHERE session_id=? AND native_session_id=? AND runtime_id=? AND host_id=?`)
+          .get(id, next.bridge!.nativeSessionId, next.bridge!.runtimeId, hostId);
+      if (!protection)
+        next.bridge = {
+          ...next.bridge!,
+          policyState:
+            next.bridge!.policyState === "active" ? "unsupported" : next.bridge!.policyState,
+          policyPhases: [],
+        };
     }
     const prev = existing?.runtime;
     const finished = (prev === "running" || prev === "waiting_input") && next.runtime === "idle";
+    const settled = (raw.settled ?? null) as {
+      aborted?: boolean;
+      lastAssistantText?: string;
+      watermark?: unknown;
+    } | null;
+    const completed = CompletedUsageWatermark.safeParse(settled?.watermark);
+    const watermark =
+      finished &&
+      completed.success &&
+      completed.data &&
+      partial.stats?.watermark &&
+      completed.data.runtimeId === partial.stats.watermark.runtimeId &&
+      completed.data.settleSeq === partial.stats.watermark.settleSeq
+        ? completed.data
+        : undefined;
+    const previousWatermark = existing?.stats?.watermark;
+    const unchangedWatermark =
+      previousWatermark &&
+      next.stats?.watermark &&
+      previousWatermark.runtimeId === next.stats.watermark.runtimeId &&
+      previousWatermark.settleSeq === next.stats.watermark.settleSeq &&
+      existing?.stats?.tokens === next.stats.tokens &&
+      existing?.stats?.costUsd === next.stats.costUsd;
+    if (next.stats && (next.runtime !== "idle" || (finished ? !watermark : !unchangedWatermark))) {
+      // Old hosts still settle, but inherited, busy or mismatched totals never prove freshness.
+      const { watermark: _, ...stats } = next.stats;
+      next.stats = stats;
+    }
     const failed = next.runtime === "failed" && prev !== "failed";
     if ((finished || failed) && !next.unreadSince && !this.beingViewed(id)) {
       next.unreadSince = this.store.nowIso();
     }
     if (existing && JSON.stringify(existing) === JSON.stringify(next)) return;
     this.store.putSession(next);
+    if (partial.bridge !== undefined) {
+      // Recheck the current guard only after the bridge projection is durable.
+      this.store.afterCommit(() => this.retryDeferred(hostId));
+    }
     if ((prev === "running" || prev === "waiting_input") && next.runtime === "idle") {
-      const settled = (raw.settled ?? null) as {
-        aborted?: boolean;
-        lastAssistantText?: string;
-      } | null;
       const payload = {
         session: next,
+        ...(watermark ? { watermark } : {}),
         previousRuntime: prev,
         aborted: settled?.aborted ?? next.runtimeDetail === "aborted",
         lastAssistantText: settled?.lastAssistantText ?? next.lastAssistantText,

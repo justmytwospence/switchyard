@@ -30,7 +30,8 @@ afterEach(async () => {
 });
 
 async function connect(tc: TestCoordinator, creds: { hostId: string; credential: string }) {
-  const h = await FakeHost.connect(tc, creds);
+  const h = new FakeHost(tc.c.localUrl.replace("http", "ws"), creds.hostId, creds.credential);
+  await h.open({ features: undefined, capabilities: null, piVersion: "1.4.0" });
   hosts.push(h);
   return h;
 }
@@ -109,9 +110,12 @@ describe("host link", () => {
     const h = await connectAgent(t, creds, ["policies.v1", "unknown.v1", "agentRequests.v1"]);
     expect(h.inbox.messages[0]).toMatchObject({
       type: "welcome",
-      features: ["agentRequests.v1"],
+      features: ["agentRequests.v1", "policies.v1"],
     });
-    expect([...t.c.hostHub.negotiatedFeatures(creds.hostId)]).toEqual(["agentRequests.v1"]);
+    expect([...t.c.hostHub.negotiatedFeatures(creds.hostId)]).toEqual([
+      "agentRequests.v1",
+      "policies.v1",
+    ]);
     const old = await connect(t, creds);
     expect(old.inbox.messages[0]).not.toHaveProperty("features");
     expect([...t.c.hostHub.negotiatedFeatures(creds.hostId)]).toEqual([]);
@@ -152,7 +156,7 @@ describe("host link", () => {
     expect(legacy.commands).toHaveLength(0);
   });
 
-  it("refuses protected launches without implemented policies and omits optional fields for old hosts", async () => {
+  it("refuses protected launches on legacy hosts and sends protection to initialized capable hosts", async () => {
     t = await startCoordinator();
     const creds = await enrollHost(t);
     const h = await connect(t, creds);
@@ -177,10 +181,8 @@ describe("host link", () => {
     await t.c.hostHub.request(creds.hostId, { ...command, policyRequired: false });
     expect(h.commands[0]!.command).not.toHaveProperty("policyRequired");
     const capable = await connectAgent(t, creds);
-    await expect(
-      t.c.hostHub.request(creds.hostId, { ...command, policyRequired: true }),
-    ).rejects.toMatchObject({ code: "unsupported_capability" });
-    expect(capable.commands).toHaveLength(0);
+    await t.c.hostHub.request(creds.hostId, { ...command, policyRequired: true });
+    expect(capable.commands[0]!.command).toMatchObject({ policyRequired: true });
   });
 
   it("checks negotiation and session ownership before invoking the injected agent handler", async () => {
@@ -199,9 +201,10 @@ describe("host link", () => {
     });
     const h = await connectAgent(t, creds, ["agentRequests.v1"]);
     h.sendRaw(agentRequest("policy_unnegotiated", { method: "policy.evaluate" }));
+    // Missing host proof is rejected during frame validation, before negotiation.
     expect(await agentResult(h, "policy_unnegotiated")).toMatchObject({
       ok: false,
-      error: { code: "unsupported_capability" },
+      error: { code: "invalid_request" },
     });
     h.sendRaw(agentRequest("foreign", { sessionId: "ses_foreign" }));
     expect(await agentResult(h, "foreign")).toMatchObject({
@@ -219,8 +222,15 @@ describe("host link", () => {
       context: { humanInputId: "human", causalMessageId: "message" },
     });
     h.sendRaw({ ...frame, hostId: other.hostId });
-    expect(await agentResult(h, "valid")).toEqual(success(frame));
-    expect(handler).toHaveBeenCalledExactlyOnceWith(creds.hostId, frame);
+    expect(await agentResult(h, "valid")).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    const cleanFrame = { ...frame, requestId: "clean" };
+    h.sendRaw(cleanFrame);
+    expect(await agentResult(h, "clean")).toEqual(success(cleanFrame));
+    expect(handler).toHaveBeenCalledExactlyOnceWith(creds.hostId, cleanFrame, undefined);
   });
 
   it("handles agent requests outside event projection and pending command receipts", async () => {

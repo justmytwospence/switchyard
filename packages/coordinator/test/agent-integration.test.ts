@@ -24,6 +24,7 @@ async function request(over: Partial<AgentRequestFrame>): Promise<AgentResultFra
     nativeSessionId: "native-caller",
     context: { humanInputId: null, causalMessageId: null },
     method: "inbox.read",
+    deadlineAt: new Date(Date.parse(t.c.store.nowIso()) + 30_000).toISOString(),
     args: {},
     ...over,
   };
@@ -90,11 +91,18 @@ beforeEach(async () => {
         sessionFile: null,
         mode: "rpc",
         policyRequired: false,
+        controllerEpoch: "controller-caller",
         capabilities: {
           agentTools: true,
           messageDelivery: true,
           editorDraftGuard: true,
-          toolPolicy: false,
+          toolPolicy: true,
+        },
+        policyBoundary: {
+          cwd: "/tmp/repo",
+          cwdReal: "/tmp/repo",
+          workspaceRoot: "/tmp/repo",
+          workspaceRootReal: "/tmp/repo",
         },
       },
     }),
@@ -105,9 +113,9 @@ beforeEach(async () => {
       sessionId: "caller",
       nativeSessionId: "native-caller",
       runtimeId: "runtime-caller",
-      features: ["agentRequests.v1"],
-      policyRequired: false,
-      sessionUrl: null,
+      features: ["agentRequests.v1", "policies.v1"],
+      policyRequired: true,
+      sessionUrl: `${t.c.config.publicUrl}/code/caller`,
     },
   });
 });
@@ -145,7 +153,7 @@ describe("coordinator agent builtins", () => {
     });
     expect(t.c.store.sessions.require("caller")).toMatchObject({
       nativeHandle: null,
-      bridge: { nativeSessionId: "native-caller" },
+      bridge: { nativeSessionId: "native-caller", controllerEpoch: "controller-caller" },
     });
     const response = await request({
       method: "task.create",
@@ -255,7 +263,7 @@ describe("coordinator agent builtins", () => {
 
   it("does not deliver to a legacy replacement host even with stale capable session state", async () => {
     await host.close();
-    await host.open();
+    await host.open({ features: undefined, capabilities: null, piVersion: "1.4.0" });
     expect(host.inbox.messages[0]).not.toHaveProperty("features");
     const messages = requireService(t.c.ctx, "messages");
     const message = messages.send("caller", {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentRequestFrame, AgentResultFrame } from "./agent-wire.js";
+import { AGENT_FRAME_MAX_BYTES, AgentRequestFrame, AgentResultFrame } from "./agent-wire.js";
 import {
   CheckResult,
   ControlMode,
@@ -23,6 +23,7 @@ import {
   GitHubHostViewRequest,
   HostGitHub,
 } from "./github.js";
+import { HostPolicySampleRequest, HostToolPolicyContext } from "./policies.js";
 import { TermCoordinatorMsg, TermServerToViewer } from "./terminal-wire.js";
 import { InteractionResponseSchema } from "./ui.js";
 
@@ -57,6 +58,7 @@ export const HostCommand = z.discriminatedUnion("type", [
     mode: z.enum(["steer", "queue"]),
     holdUntil: z.string(),
   }),
+  HostPolicySampleRequest.extend({ type: z.literal("session.classifyPolicySample") }),
   z.object({
     type: z.literal("session.messageStatus"),
     sessionId: z.string(),
@@ -334,6 +336,34 @@ export const Receipt = z.union([
 ]);
 export type Receipt = z.infer<typeof Receipt>;
 
+declare const TextEncoder: { new (): { encode(input: string): Uint8Array } };
+
+/** Trusted host attestation is not part of the extension's global/local request envelope. */
+export const HostAgentRequestFrame = AgentRequestFrame.extend({
+  policyContext: HostToolPolicyContext.optional(),
+})
+  .strict()
+  .superRefine((frame, ctx) => {
+    if (
+      frame.method === "policy.evaluate"
+        ? frame.policyContext === undefined
+        : Object.hasOwn(frame, "policyContext")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["policyContext"],
+        message: "Host policy context is required only for policy.evaluate.",
+      });
+    }
+    try {
+      if (new TextEncoder().encode(JSON.stringify(frame)).length <= AGENT_FRAME_MAX_BYTES) return;
+    } catch {
+      // Circular/non-JSON records cannot be sent on the host wire.
+    }
+    ctx.addIssue({ code: "custom", message: "Host agent frame exceeds 128 KiB or is not JSON." });
+  });
+export type HostAgentRequestFrame = z.infer<typeof HostAgentRequestFrame>;
+
 /** Host -> coordinator frames. */
 export const HostToCoordinator = z.discriminatedUnion("type", [
   z.object({
@@ -350,7 +380,7 @@ export const HostToCoordinator = z.discriminatedUnion("type", [
     protocolVersion: z.number().int(),
     features: z.array(z.string()).optional(),
   }),
-  AgentRequestFrame,
+  HostAgentRequestFrame,
   z.object({ type: z.literal("event"), hostSeq: z.number().int(), event: HostEvent }),
   z.object({ type: z.literal("stream"), delta: StreamDelta }),
   z.object({ type: z.literal("receipt"), receipt: Receipt }),

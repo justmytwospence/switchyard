@@ -39,6 +39,7 @@ import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { apiDelete, apiGet, apiPatch, apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
+import { CONTINUATION_BUDGET_HELP } from "../settings/policyLogic";
 import { automationPath, useLocalAutomations, useMergedAutomation, useRunNow } from "./controls";
 import {
   type AutomationDraft,
@@ -1234,7 +1235,7 @@ function LimitsSection({ draft, update, err }: SectionProps) {
                 />
               )}
             </Field>
-            <Field label="Max tokens" optional error={err("maxTokens")}>
+            <Field label="Continuation budget: tokens" optional error={err("maxTokens")}>
               {(p) => (
                 <TextInput
                   {...p}
@@ -1247,7 +1248,7 @@ function LimitsSection({ draft, update, err }: SectionProps) {
                 />
               )}
             </Field>
-            <Field label="Max cost (USD)" optional error={err("maxCostUsd")}>
+            <Field label="Continuation budget: cost (USD)" optional error={err("maxCostUsd")}>
               {(p) => (
                 <TextInput
                   {...p}
@@ -1261,10 +1262,7 @@ function LimitsSection({ draft, update, err }: SectionProps) {
               )}
             </Field>
           </div>
-          <p className="text-xs text-muted">
-            Token and cost limits are enforced only when the provider reports accounting; otherwise
-            the run shows that accounting is unavailable and only the count and time limits apply.
-          </p>
+          <p className="text-xs text-muted">{CONTINUATION_BUDGET_HELP}</p>
         </>
       )}
     </Card>

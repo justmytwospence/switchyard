@@ -146,6 +146,7 @@ export const BridgeReceipt = z.discriminatedUnion("ok", [
   ReceiptHeader.extend({ ok: z.literal(false), error: ErrorBody }),
 ]);
 export type BridgeReceipt = z.infer<typeof BridgeReceipt>;
+/** Inherit the optional canonical deadline and strict trust metadata; only ingress requires it. */
 export const BridgeAgentRequest = AgentRequestFrame.extend({ bindingId: Id });
 export type BridgeAgentRequest = z.infer<typeof BridgeAgentRequest>;
 export const BridgeAgentResult = z.discriminatedUnion("ok", [

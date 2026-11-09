@@ -16,6 +16,11 @@ import {
   type Task,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
+import {
+  assertPolicyLaunchHost,
+  currentPolicyLaunchRequirement,
+  POLICY_LAUNCH_UNAVAILABLE,
+} from "../policies/launch.js";
 import { LIVE_RUNTIMES, resolveProfile } from "../sessions/service.js";
 import { predictedWorktreePath, recordCreatedWorkspace, worktreeDirOf } from "../workspaces.js";
 import { putTaskState, raiseFailed, saveRun, shortError } from "./common.js";
@@ -75,11 +80,14 @@ const DETERMINISTIC_ERRORS = new Set([
   "invalid_request",
   "forbidden",
   "workspace_active_sessions",
+  "unsupported_capability",
 ]);
 
 const VIA_PREFIX = "runVia:";
 /** The revision a launch was created with; takeovers and returns only ever raise the run's. */
 const LAUNCH_REV_PREFIX = "runLaunchRev:";
+/** First outbound command, frozen across uncertain launch/reconnect reconciliation. */
+const LAUNCH_COMMAND_PREFIX = "runLaunchCommand:";
 
 export const TAKEN_OVER_BEFORE_LAUNCH = "Taken over before launch was confirmed";
 export const HOST_RESTARTED_DURING_LAUNCH = "Host restarted during launch; verify and resume";
@@ -333,6 +341,21 @@ export class Dispatcher {
       profile = resolveProfile(this.ctx, task.policy.profileId, project);
     } catch {
       return wait("invalid_configuration", "No Pi profile could be resolved for this task");
+    }
+    try {
+      const viaPrompt = target.session?.runtime === "idle";
+      assertPolicyLaunchHost(
+        this.ctx,
+        host.id,
+        currentPolicyLaunchRequirement(this.ctx, {
+          sessionId: target.session?.id ?? null,
+          profileId: viaPrompt ? target.session!.profileSnapshot.id : profile.id,
+          continuation: task.policy.continuation,
+        }),
+        viaPrompt ? target.session!.id : undefined,
+      );
+    } catch {
+      return wait("invalid_configuration", POLICY_LAUNCH_UNAVAILABLE);
     }
     const active = this.activeRunCount(project.id);
     if (active >= project.maxConcurrentRuns) {
@@ -654,6 +677,17 @@ export class Dispatcher {
           createdAt: now,
         };
       }
+      // Recheck with the allocated identity before recording any fresh dispatch/session.
+      assertPolicyLaunchHost(
+        this.ctx,
+        session.hostId,
+        currentPolicyLaunchRequirement(this.ctx, {
+          sessionId: session.id,
+          profileId: session.profileSnapshot.id,
+          continuation: run.limits,
+        }),
+        plan.viaPrompt ? session.id : undefined,
+      );
       run.sessionId = session.id;
       store.putSession(session);
       saveRun(this.ctx, run);
@@ -692,8 +726,24 @@ export class Dispatcher {
   /** The exact command for a run (rebuilt identically on resend). */
   buildCommand(run: Run): HostCommand {
     const { store } = this.ctx;
+    const frozen = store.getSetting<HostCommand | null>(
+      LAUNCH_COMMAND_PREFIX + run.dispatchKey,
+      null,
+    );
+    if (frozen) return frozen;
     const task = store.tasks.require(run.taskId);
     const session = store.sessions.require(run.sessionId!);
+    const requirement = currentPolicyLaunchRequirement(this.ctx, {
+      sessionId: session.id,
+      profileId: session.profileSnapshot.id,
+      continuation: run.limits,
+    });
+    assertPolicyLaunchHost(
+      this.ctx,
+      session.hostId,
+      requirement,
+      this.viaPrompt(run.id) ? session.id : undefined,
+    );
     const prompt = buildRunPrompt(task, run.attempt, task.review.feedback, {
       watch: this.isWatch(task),
     });
@@ -742,6 +792,9 @@ export class Dispatcher {
       // The launch's own revision: a resend after a takeover must never carry the newer one.
       controlRevision: this.launchRevision(run),
       controlMode: run.controlMode,
+      ...(this.ctx.hostHub.negotiatedFeatures(session.hostId).has("policies.v1")
+        ? { policyRequired: requirement.required }
+        : {}),
     };
   }
 
@@ -785,8 +838,21 @@ export class Dispatcher {
           return;
         }
       }
+      // A control receipt may have awaited I/O. Recheck current rules at the first effect;
+      // thereafter resend the frozen command, never strengthen/weaken an uncertain launch.
+      const frozen = store.getSetting<HostCommand | null>(
+        LAUNCH_COMMAND_PREFIX + run.dispatchKey,
+        null,
+      );
+      if (!frozen) {
+        cmd = this.buildCommand(store.runs.require(runId));
+        store.setSetting(LAUNCH_COMMAND_PREFIX + run.dispatchKey, cmd);
+      } else {
+        cmd = frozen;
+      }
       const receipt = await hostHub.send(run.hostId, cmd, {
         commandId: `cmd_${run.dispatchKey}`,
+        preserveLaunchCommand: true,
         timeoutMs: cmd.type === "dispatch.start" ? this.opts.startTimeoutMs : undefined,
       });
       if (this.stopped) return;

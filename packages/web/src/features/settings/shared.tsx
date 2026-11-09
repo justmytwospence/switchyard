@@ -13,6 +13,7 @@ import {
   MonitorSmartphone,
   Puzzle,
   Server,
+  ShieldCheck,
   SlidersHorizontal,
   Stethoscope,
   TriangleAlert,
@@ -52,6 +53,13 @@ export const SECTIONS: SectionDef[] = [
     label: "Pi profiles",
     description: "Provider, model and thinking presets",
     icon: SlidersHorizontal,
+    group: "Workspace",
+  },
+  {
+    path: "policies",
+    label: "Policies",
+    description: "Rules and continuation budgets",
+    icon: ShieldCheck,
     group: "Workspace",
   },
   {

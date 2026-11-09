@@ -347,7 +347,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
       if (started) return;
       started = true;
       await staticReady;
-      builtins.start();
+      await builtins.start();
       for (const plugin of opts.plugins ?? []) await plugin(coordinator);
       hostHub.start();
       clientHub.start();
@@ -384,7 +384,8 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
       if (stopped) return;
       stopped = true;
       if (retentionTimer) clearInterval(retentionTimer);
-      // Stop scheduling first, then fail pending host requests before draining delivery work.
+      // Stop scheduling/delivery and cancel waits before closing the evaluator. Closing host
+      // requests here lets in-flight delivery drain without waiting for receipt timeouts.
       const builtinsStopped = builtins.stop();
       hostHub.stop();
       await builtinsStopped;

@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import type {
   AttentionItem,
+  CompletedUsageWatermark,
   EventEnvelope,
   Run,
   RuntimeState,
@@ -13,6 +14,8 @@ import type {
 export interface SessionSettled {
   session: Session;
   previousRuntime: RuntimeState;
+  /** Present only when the idle projection carries usage refreshed for this settlement. */
+  watermark?: CompletedUsageWatermark;
   aborted: boolean;
   lastAssistantText: string | null;
 }

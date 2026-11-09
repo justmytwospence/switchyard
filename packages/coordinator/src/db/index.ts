@@ -9,6 +9,8 @@ import { sql as views } from "./migrations/007_views.js";
 import { sql as itemRev } from "./migrations/008_item_rev.js";
 import { sql as agentTools } from "./migrations/009_agent_tools.js";
 import { sql as taskNotifications } from "./migrations/010_task_notifications.js";
+import { sql as policies } from "./migrations/011_policies.js";
+import { sql as policyWaitLeases } from "./migrations/012_policy_wait_leases.js";
 
 export interface Migration {
   version: number;
@@ -28,6 +30,8 @@ export const MIGRATIONS: Migration[] = [
   { version: 8, name: "008_item_rev", sql: itemRev },
   { version: 9, name: "009_agent_tools", sql: agentTools },
   { version: 10, name: "010_task_notifications", sql: taskNotifications },
+  { version: 11, name: "011_policies", sql: policies },
+  { version: 12, name: "012_policy_wait_leases", sql: policyWaitLeases },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

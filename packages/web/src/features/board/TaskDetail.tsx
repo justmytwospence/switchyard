@@ -37,6 +37,7 @@ import { useResource } from "../../lib/useResource";
 import { errorMessage, isApiError } from "../../sync/api";
 import { countPendingInteractions } from "../../sync/selectors";
 import { runsForTask, useSyncStore } from "../../sync/store";
+import { CONTINUATION_BUDGET_HELP } from "../settings/policyLogic";
 import { deleteTask, fetchEligibility, fetchRuns, requestChanges, updateTask } from "./api";
 import {
   eligibilityText,
@@ -552,7 +553,7 @@ function TaskDetailContent({ task, onDeleted }: { task: Task; onDeleted?: () => 
             {task.policy.continuation.enabled
               ? `Up to ${task.policy.continuation.maxContinuations} continuations within ${task.policy.continuation.maxElapsedMinutes} min${
                   task.policy.continuation.maxTokens
-                    ? `, ${task.policy.continuation.maxTokens} tokens`
+                    ? `, continuation budget ${task.policy.continuation.maxTokens} tokens`
                     : ""
                 }${task.policy.continuation.maxCostUsd ? `, $${task.policy.continuation.maxCostUsd}` : ""}`
               : "Off"}
@@ -568,6 +569,9 @@ function TaskDetailContent({ task, onDeleted }: { task: Task; onDeleted?: () => 
             {task.policy.completion.requireHumanReview ? "Required" : "Not required"}
           </DetailRow>
         </dl>
+        {task.policy.continuation.enabled && (
+          <p className="text-xs text-muted">{CONTINUATION_BUDGET_HELP}</p>
+        )}
         {run && run.checks.length > 0 && (
           <ul className="flex flex-col gap-1 text-sm">
             {run.checks.map((c) => (

@@ -11,6 +11,7 @@ import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { errorMessage } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
+import { CONTINUATION_BUDGET_HELP } from "../settings/policyLogic";
 import { createTask, fetchEligibility } from "./api";
 import { eligibilityText, isRunActive, parentCandidates, previewEligibility } from "./logic";
 import { DependencyPicker, EligibilityNote, ParentPicker } from "./TaskDetail";
@@ -416,7 +417,11 @@ export function NewTaskForm({
                     />
                   )}
                 </Field>
-                <Field id={`${id}-ctok`} label="Max tokens (optional)" error={errors.maxTokens}>
+                <Field
+                  id={`${id}-ctok`}
+                  label="Continuation budget: tokens (optional)"
+                  error={errors.maxTokens}
+                >
                   {(p) => (
                     <TextInput
                       {...p}
@@ -426,7 +431,11 @@ export function NewTaskForm({
                     />
                   )}
                 </Field>
-                <Field id={`${id}-ccost`} label="Max cost USD (optional)" error={errors.maxCost}>
+                <Field
+                  id={`${id}-ccost`}
+                  label="Continuation budget: cost USD (optional)"
+                  error={errors.maxCost}
+                >
                   {(p) => (
                     <TextInput
                       {...p}
@@ -436,9 +445,7 @@ export function NewTaskForm({
                     />
                   )}
                 </Field>
-                <p className="text-xs text-muted sm:col-span-2">
-                  Token and cost limits apply only when the Pi provider reports usage.
-                </p>
+                <p className="text-xs text-muted sm:col-span-2">{CONTINUATION_BUDGET_HELP}</p>
               </div>
             )}
           </fieldset>

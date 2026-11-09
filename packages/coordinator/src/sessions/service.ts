@@ -12,6 +12,7 @@ import {
   type Workspace,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
+import { assertPolicyLaunchHost, currentPolicyLaunchRequirement } from "../policies/launch.js";
 import { predictedWorktreePath, recordCreatedWorkspace, worktreeDirOf } from "../workspaces.js";
 
 export const LIVE_RUNTIMES: Session["runtime"][] = ["starting", "idle", "running", "waiting_input"];
@@ -132,6 +133,15 @@ export async function startOnHost(
   session: Session,
   opts: StartOptions,
 ): Promise<Session> {
+  // Resume/clone/new process all use stored identity/profile and the associated run's limits.
+  session = ctx.store.sessions.require(session.id);
+  const run = ctx.store.runForSession(session);
+  const requirement = currentPolicyLaunchRequirement(ctx, {
+    sessionId: session.id,
+    profileId: session.profileSnapshot.id,
+    continuation: run?.limits ?? { enabled: false },
+  });
+  assertPolicyLaunchHost(ctx, session.hostId, requirement);
   const cmd: HostCommandOf<"session.start"> = {
     type: "session.start",
     sessionId: session.id,
@@ -146,6 +156,9 @@ export async function startOnHost(
     controlMode: opts.controlMode ?? "human",
     origin: opts.origin ?? "human",
     readOnly: session.readOnly,
+    ...(ctx.hostHub.negotiatedFeatures(session.hostId).has("policies.v1")
+      ? { policyRequired: requirement.required }
+      : {}),
   };
   const result = await ctx.hostHub.request<{ nativeHandle?: NativeHandle | null } | undefined>(
     session.hostId,
@@ -226,11 +239,20 @@ export function createSession(
     }
     hostId = checkout.hostId;
   }
-  requireUsableHost(ctx, hostId);
+  const sessionId = newId("ses");
+  assertPolicyLaunchHost(
+    ctx,
+    hostId,
+    currentPolicyLaunchRequirement(ctx, {
+      sessionId,
+      profileId: profile.id,
+      continuation: { enabled: false },
+    }),
+  );
   const now = ctx.store.nowIso();
   const host = ctx.store.hosts.require(hostId);
   const session: Session = {
-    id: newId("ses"),
+    id: sessionId,
     title: input.title?.trim() || titleFrom(input.prompt),
     subtitle: null,
     hostId,

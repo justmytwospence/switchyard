@@ -1,8 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
 import type { ManagedSession } from "@switchyard/pi-runtime";
-import { type AgentRequestFrame, SwitchyardError } from "@switchyard/protocol";
+import {
+  type AgentRequestFrame,
+  canonicalPolicyJson,
+  type HostPolicyBoundary,
+  type HostToolPolicyContext,
+  type PolicyEvaluateRequest,
+  SwitchyardError,
+} from "@switchyard/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type WebSocket, WebSocketServer } from "ws";
 import {
@@ -25,6 +32,35 @@ import { CoordinatorLink } from "../src/link.js";
 import { silentLogger } from "../src/logger.js";
 
 const FEATURES = ["agentRequests.v1", "policies.v1"];
+const BOUNDARY: HostPolicyBoundary = {
+  cwd: "/workspace/project",
+  workspaceRoot: "/workspace",
+  cwdReal: "/real/workspace/project",
+  workspaceRootReal: "/real/workspace",
+};
+function evaluation(): PolicyEvaluateRequest {
+  return {
+    evaluationId: "evaluation1",
+    toolCallId: "tool1",
+    tool: { name: "read", args: { path: "README.md" } },
+  };
+}
+function policyContext(request: PolicyEvaluateRequest): HostToolPolicyContext {
+  return {
+    version: 1,
+    toolCallId: request.toolCallId,
+    toolHash: createHash("sha256").update(canonicalPolicyJson(request.tool)).digest("hex"),
+    boundary: { ...BOUNDARY },
+    defaultBranch: null,
+    safety: {
+      destructiveDelete: false,
+      forcePush: false,
+      defaultBranchPush: false,
+      uncertain: false,
+      reasons: [],
+    },
+  };
+}
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn();
@@ -133,6 +169,12 @@ function fixture(
     sessionId: "ses_one",
     mode: "rpc" as const,
     policyRequired: options.required ?? false,
+    getPolicyBoundary: vi.fn<AgentBrokerSession["getPolicyBoundary"]>(async () => ({
+      ...BOUNDARY,
+    })),
+    getToolPolicyContext: vi.fn<AgentBrokerSession["getToolPolicyContext"]>(async (request) =>
+      policyContext(request),
+    ),
     configureAgent: vi.fn<AgentBrokerSession["configureAgent"]>(async (config) =>
       configured(config, report),
     ),
@@ -189,8 +231,12 @@ function fixture(
 
 // Compile-time adapter contract: these are actual ManagedSession methods, not a fake variant.
 // The supervisor adds mode/launch policyRequired and owns event/state persistence wiring.
-function managedAdapter(session: ManagedSession): AgentBrokerSession {
+function managedAdapter(
+  session: ManagedSession,
+  policy: Pick<AgentBrokerSession, "getPolicyBoundary" | "getToolPolicyContext">,
+): AgentBrokerSession {
   return {
+    ...policy,
     sessionId: session.sessionId,
     mode: "rpc",
     policyRequired: true,
@@ -214,6 +260,8 @@ describe("AgentBroker binding and configuration", () => {
       return value;
     });
     await flush();
+    const epoch = f.handle.snapshot().bridge?.controllerEpoch;
+    expect(epoch).toMatch(/^[0-9a-f-]{36}$/);
     expect(f.link.requestAgent).toHaveBeenCalledExactlyOnceWith(
       "ses_one",
       "native1",
@@ -225,6 +273,8 @@ describe("AgentBroker binding and configuration", () => {
         mode: "rpc",
         capabilities: hello().capabilities,
         policyRequired: true,
+        controllerEpoch: epoch,
+        policyBoundary: BOUNDARY,
       },
       expect.objectContaining({
         context: hello().context,
@@ -253,6 +303,16 @@ describe("AgentBroker binding and configuration", () => {
     expect(ready).toBe(true);
   });
 
+  it("accepts a strengthened launch requirement from bind and never permits it to weaken", async () => {
+    const f = fixture();
+    f.link.requestAgent.mockResolvedValueOnce(bindResult("ses_one", "native1", "runtime1", true));
+    await f.announce();
+    expect(f.session.configureAgent.mock.calls[0][0].policyRequired).toBe(true);
+    expect(f.handle.snapshot().configuration?.policyRequired).toBe(true);
+    f.link.requestAgent.mockResolvedValueOnce(bindResult("ses_one", "native1", "runtime1", false));
+    await expect(f.announce()).rejects.toMatchObject({ code: "stale_control" });
+  });
+
   it.each([
     { bound: true },
     { ...bindResult("other", "native1", "runtime1") },
@@ -262,7 +322,6 @@ describe("AgentBroker binding and configuration", () => {
       ...bindResult("ses_one", "native1", "runtime1"),
       bindingId: "coordinator-must-not-choose-this",
     },
-    { ...bindResult("ses_one", "native1", "runtime1"), policyRequired: true },
     { ...bindResult("ses_one", "native1", "runtime1"), features: [...FEATURES, "invented.v1"] },
     { ...bindResult("ses_one", "native1", "runtime1"), features: ["policies.v1"] },
     { ...bindResult("ses_one", "native1", "runtime1"), features: [...FEATURES, "policies.v1"] },
@@ -509,7 +568,7 @@ describe("AgentBroker direct request lane", () => {
         interactionId: "i1",
         interactionUrl: "https://switchyard.example/code/ses_one",
       });
-      await f.handle.request(f.frame({ method: "policy.evaluate" }));
+      await f.handle.request(f.frame({ method: "policy.evaluate", args: evaluation() }));
     };
     await ask();
     expect(f.session.setPolicyWaiting).toHaveBeenLastCalledWith("d1", true);
@@ -540,7 +599,7 @@ describe("AgentBroker direct request lane", () => {
       interactionId: "i1",
       interactionUrl: "https://switchyard.example/code/ses_one",
     });
-    await f.handle.request(f.frame({ method: "policy.evaluate" }));
+    await f.handle.request(f.frame({ method: "policy.evaluate", args: evaluation() }));
     for (let i = 0; i < 3; i++) {
       const poll = deferred<unknown>();
       f.link.requestAgent.mockReturnValueOnce(poll.promise);
@@ -596,7 +655,7 @@ describe("AgentBroker direct request lane", () => {
     const f = fixture();
     await f.announce();
     f.link.requestAgent.mockResolvedValueOnce({ verdict: "ASK", decisionId: "d1" });
-    await f.handle.request(f.frame({ method: "policy.evaluate" }));
+    await f.handle.request(f.frame({ method: "policy.evaluate", args: evaluation() }));
     f.handle.lost();
     expect(f.session.setPolicyWaiting).toHaveBeenLastCalledWith("d1", false);
     expect(f.handle.snapshot().bridge?.policyState).toBe("lost");
@@ -676,11 +735,18 @@ describe("AgentBroker reconnect, native switch and human input", () => {
     f.link.requestAgent.mockReturnValueOnce(late.promise);
     const request = f.handle.request(f.frame());
     f.disconnect();
+    await request;
+    expect(f.session.replyAgent).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: "host_unreachable" }),
+      }),
+    );
     f.welcome();
     await flush();
     late.resolve({ done: "late" });
-    await request;
-    expect(f.session.replyAgent).not.toHaveBeenCalled();
+    await flush();
+    expect(f.session.replyAgent).toHaveBeenCalledOnce();
   });
 
   it("rotates and disables on reconnect to an old coordinator, preserving the required latch", async () => {
@@ -898,6 +964,8 @@ describe("AgentBroker real CoordinatorLink and A.1 local envelope contract", () 
       sessionId: "ses/one",
       mode: "rpc",
       policyRequired: true,
+      getPolicyBoundary: async () => ({ ...BOUNDARY }),
+      getToolPolicyContext: async (request) => policyContext(request),
       configureAgent: (config, options) => local.request("configure", config, send, options),
       bridgeRequest: (method, args, options) => local.request(method, args, send, options),
       replyAgent: (frame) => {

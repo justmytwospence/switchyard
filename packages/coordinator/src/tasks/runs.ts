@@ -1,15 +1,35 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   type CheckResult,
   ChecksResult,
   MARKERS,
+  type PolicyEvaluation,
   type Run,
   type Session,
+  SwitchyardError,
   type Task,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
 import type { SessionSettled } from "../event-hub.js";
+import { assertPolicyLaunchHost, currentPolicyLaunchRequirement } from "../policies/launch.js";
+import type { PolicyService } from "../policies/service.js";
 import { getService } from "../services.js";
+import { pauseRunForPolicy } from "../sessions/control.js";
 import { effectiveChecks, putTaskState, raiseFailed, saveRun, shortError } from "./common.js";
+import {
+  CANCELED_AUTHORIZATION_PREFIX,
+  CANCELED_CONTINUATION_PREFIX,
+  CONTINUATION_PAUSED_NOTICE,
+  CONTINUATION_PREFIX,
+  CONTINUATION_UNCERTAIN_NOTICE,
+  type ContinuationSettlement,
+  continuationContext,
+  continuationSource,
+  isUnspentContinuationAuthorization,
+  matchesContinuation,
+  type PendingContinuation,
+  SETTLEMENT_PREFIX,
+} from "./continuations.js";
 import { isTerminalTask } from "./state.js";
 
 export type Marker = { kind: "done" } | { kind: "blocked"; reason: string } | { kind: "no_change" };
@@ -56,7 +76,7 @@ export function usageFrom(session: Session, run: Run): Run["usage"] {
   };
 }
 
-/** Which continuation limit is exhausted, or null. Token/cost caps apply only with accounting. */
+/** Unconditional continuation limits. Token/USD budgets are authorized by PolicyService. */
 export function exceededLimit(run: Run, now: Date): string | null {
   const l = run.limits;
   if (!l.enabled) return "continuation is disabled";
@@ -66,14 +86,6 @@ export function exceededLimit(run: Run, now: Date): string | null {
   const started = Date.parse(run.startedAt ?? run.createdAt);
   if (now.getTime() - started >= l.maxElapsedMinutes * 60_000) {
     return `the elapsed-time limit of ${l.maxElapsedMinutes} minute${l.maxElapsedMinutes === 1 ? "" : "s"}`;
-  }
-  if (run.usage.accounting === "available") {
-    if (l.maxTokens !== null && run.usage.tokens !== null && run.usage.tokens >= l.maxTokens) {
-      return `the token limit of ${l.maxTokens}`;
-    }
-    if (l.maxCostUsd !== null && run.usage.costUsd !== null && run.usage.costUsd >= l.maxCostUsd) {
-      return `the cost limit of $${l.maxCostUsd}`;
-    }
   }
   return null;
 }
@@ -88,13 +100,6 @@ export interface RunsOptions {
 
 /** Setting: the settle count (`Store.runSettleCount`) last evaluated under automation. */
 const EVALUATED_PREFIX = "runEvaluated:";
-/** Setting: a continuation persisted but not yet acknowledged by the host. */
-const CONTINUATION_PREFIX = "runContinuation:";
-
-interface PendingContinuation {
-  n: number;
-  text: string;
-}
 
 /**
  * Deterministic command ids: a resend after a coordinator restart dedupes on the host. Checks
@@ -122,12 +127,17 @@ export function isRunAutomationCommand(runId: string, commandId: string): boolea
  */
 export class RunsService {
   private busy = new Set<string>();
+  /** Approval updates can arrive while an earlier authorize call is still unwinding. */
+  private recoveryRequested = new Set<string>();
   /** Runs whose session Stop is aborting right now. */
   private stopping = new Map<string, number>();
   /** A settle that arrived while its run was being evaluated: re-evaluated afterwards. */
   private deferred = new Map<
     string,
-    Pick<SessionSettled, "session" | "aborted" | "lastAssistantText">
+    Pick<SessionSettled, "session" | "aborted" | "lastAssistantText" | "watermark"> & {
+      /** An explicit return may reevaluate the same settle under its new control identity. */
+      controlRevision?: number;
+    }
   >();
   /** Runs with a `checks.run` or continuation awaiting its receipt in this process. */
   private checking = new Set<string>();
@@ -147,7 +157,15 @@ export class RunsService {
       );
     };
     const event = (e: { type: string; data: unknown }) => {
-      if (e.type === "session.updated") this.mirror(e.data as Session);
+      if (e.type === "session.updated") {
+        const session = e.data as Session;
+        this.mirror(session);
+        // A welcome can precede the active bridge projection. Also recover reservations
+        // whose earlier in-memory HostHub request expired while enforcement was away.
+        if (session.bridge?.policyState === "active") this.recover(session.hostId);
+      }
+      // A decision owns the whole authorization, potentially several sequential ASK rules.
+      if (e.type === "interaction.updated") this.recover();
     };
     // Ready-for-review attention resolves when the task leaves Review (any path).
     const taskChanged = ({ id, task }: { id: string; task: Task | null }) => {
@@ -172,45 +190,56 @@ export class RunsService {
 
   /**
    * Recovery sweep (startup and every host connect): work a coordinator restart left in the
-   * middle. Checks and unacknowledged continuations are re-sent with their deterministic command
-   * ids (the host returns the stored receipt if it already ran them); an idle session whose
-   * settle was never evaluated under automation is evaluated now.
+   * middle. Checks retain deterministic command ids. Unacknowledged continuations may be
+   * re-sent with their original id only while the reserved authorization still holds; stale
+   * reservations pause without querying a receipt by replay. Unevaluated idle settles run now.
    */
   recover(hostId?: string): void {
+    if (this.stopped) return;
     const { store, hostHub } = this.ctx;
     const runs = store.runs.list("state IN ('running', 'waiting_input', 'checking')");
     for (const run of runs) {
       if (!run.hostId || (hostId && run.hostId !== hostId)) continue;
-      if (!hostHub.isConnected(run.hostId)) continue;
       if (run.controlMode !== "automation") continue;
       const task = store.tasks.get(run.taskId);
       if (!task || task.currentRunId !== run.id) continue;
       if (run.state === "checking") {
-        if (!this.checking.has(run.id)) {
+        if (hostHub.isConnected(run.hostId) && !this.checking.has(run.id)) {
           void this.awaitChecks(run.id).catch((err) =>
             this.ctx.log.error({ err, runId: run.id }, "checks recovery failed"),
           );
         }
         continue;
       }
-      if (this.continuing.has(run.id) || this.busy.has(run.id)) continue;
+      if (this.continuing.has(run.id) || this.busy.has(run.id)) {
+        this.recoveryRequested.add(run.id);
+        continue;
+      }
       const pending = store.getSetting<PendingContinuation | null>(
         CONTINUATION_PREFIX + run.id,
         null,
       );
       if (pending) {
-        void this.sendContinuation(run.id, pending).catch((err) =>
-          this.ctx.log.error({ err, runId: run.id }, "continuation recovery failed"),
-        );
+        this.busy.add(run.id);
+        void this.resumeContinuation(run.id, pending)
+          .catch((err) =>
+            this.ctx.log.error({ err, runId: run.id }, "continuation recovery failed"),
+          )
+          .finally(() => {
+            this.evaluationFinished(run.id);
+          });
         continue;
       }
+      if (!hostHub.isConnected(run.hostId)) continue;
       const session = run.sessionId ? store.sessions.get(run.sessionId) : undefined;
-      if (session?.runtime !== "idle") continue;
+      if (session?.runtime !== "idle" || session.compacting || !this.currentNonterminalRun(run))
+        continue;
       if (store.runSettleCount(run.id) === 0 || this.latestSettleEvaluated(run.id)) continue;
       void this.onSessionSettled({
         session,
         aborted: session.runtimeDetail === "aborted",
         lastAssistantText: session.lastAssistantText,
+        watermark: session.stats?.watermark,
       }).catch((err) => this.ctx.log.error({ err, runId: run.id }, "settle recovery failed"));
     }
   }
@@ -281,6 +310,7 @@ export class RunsService {
         }
       } else if (
         cur.state === "interrupted" &&
+        !(cur.controlMode === "human" && cur.outcome?.kind === "blocked") &&
         rt === "running" &&
         !(task && isTerminalTask(task.state))
       ) {
@@ -304,11 +334,20 @@ export class RunsService {
    * A session went idle. Evaluate the run: markers, continuation within limits, checks, Review.
    * Human control only records usage; an aborted turn is evaluated like any other.
    */
-  async onSessionSettled(s: Pick<SessionSettled, "session" | "aborted" | "lastAssistantText">) {
+  async onSessionSettled(
+    s: Pick<SessionSettled, "session" | "aborted" | "lastAssistantText" | "watermark">,
+  ) {
     const { store } = this.ctx;
     const session = store.sessions.get(s.session.id) ?? s.session;
     const run = this.runOf(session);
-    if (!run || !EVALUATED.has(run.state)) return;
+    if (
+      !run ||
+      !EVALUATED.has(run.state) ||
+      session.runtime !== "idle" ||
+      session.compacting ||
+      !this.currentNonterminalRun(run)
+    )
+      return;
     if (this.busy.has(run.id)) {
       // Never drop a settle signal: evaluate it once the current evaluation finishes.
       this.deferred.set(run.id, s);
@@ -316,6 +355,18 @@ export class RunsService {
     }
     this.busy.add(run.id);
     try {
+      // Do not erase an ASK (or a counted reservation) when a newer settle arrives.
+      // Cleanup requests normal recovery only after this evaluation releases its guard.
+      const pending = store.getSetting<PendingContinuation | null>(
+        CONTINUATION_PREFIX + run.id,
+        null,
+      );
+      if (pending && run.controlMode === "automation") {
+        if (run.controlRevision !== pending.input?.expectedControlRevision)
+          this.deferred.set(run.id, { ...s, controlRevision: run.controlRevision });
+        await this.resumeContinuation(run.id, pending);
+        return;
+      }
       const usage = usageFrom(session, run);
       const recorded = store.tx(() =>
         saveRun(this.ctx, store.runs.require(run.id), {
@@ -324,12 +375,26 @@ export class RunsService {
         }),
       );
       if (recorded.controlMode === "human") return;
-      // The latest settle is evaluated under automation (recovery and deferred signals skip it).
-      store.setSetting(EVALUATED_PREFIX + run.id, store.runSettleCount(run.id));
+      // Capture this settlement before any worker/check await. Mark it evaluated only when
+      // its next action is durable, so a crash before preparing that action can recover it.
+      const count = store.runSettleCount(run.id);
+      const previous = store.getSetting<ContinuationSettlement | null>(
+        SETTLEMENT_PREFIX + run.id,
+        null,
+      );
+      store.setSetting(SETTLEMENT_PREFIX + run.id, {
+        count,
+        // Returning control can reevaluate the same durable settle without a new host event.
+        // A different settlement count must never inherit that previous accounting evidence.
+        watermark: s.watermark ?? (previous?.count === count ? previous.watermark : null),
+      } satisfies ContinuationSettlement);
       // An aborted turn is evaluated like any settle (continuations count, checks run): pressing Esc
       // in Pi does not pause automation. To stop automation, use Stop (ends the run) or Take over
       // (pauses it). Only Stop's own abort is skipped here; stopSession then interrupts the run.
-      if (s.aborted && this.stopping.has(run.id)) return;
+      if (s.aborted && this.stopping.has(run.id)) {
+        store.setSetting(EVALUATED_PREFIX + run.id, count);
+        return;
+      }
       const task = store.tasks.get(run.taskId);
       if (!task || task.currentRunId !== run.id) return;
       const marker = parseMarker(s.lastAssistantText ?? session.lastAssistantText);
@@ -355,9 +420,21 @@ export class RunsService {
       }
       await this.continueRun(run.id);
     } finally {
-      this.busy.delete(run.id);
-      this.runDeferred(run.id);
+      this.evaluationFinished(run.id);
     }
+  }
+
+  private evaluationFinished(runId: string): void {
+    this.busy.delete(runId);
+    this.runDeferred(runId);
+    const requested = this.recoveryRequested.delete(runId);
+    const run = this.ctx.store.runs.get(runId);
+    // A restart may encounter an old pending authorization before evaluating a newer settle.
+    // Discarding that stale proof must not strand the newer, still-unevaluated settlement.
+    const unevaluated =
+      (run?.state === "running" || run?.state === "waiting_input") &&
+      !this.latestSettleEvaluated(runId);
+    if (!this.stopped && run?.hostId && (requested || unevaluated)) this.recover(run.hostId);
   }
 
   /** Re-evaluate a settle that arrived during an evaluation, if it is still unevaluated. */
@@ -370,10 +447,37 @@ export class RunsService {
     const run = this.runOf(session);
     // Only a settle not yet evaluated under automation (a human-control evaluation or a newer
     // settle); otherwise it would double the step the current evaluation just took.
-    if (!run || (run.controlMode === "automation" && this.latestSettleEvaluated(run.id))) return;
-    void this.onSessionSettled({ ...next, session }).catch((err) =>
+    if (
+      !run ||
+      (run.controlMode === "automation" &&
+        this.latestSettleEvaluated(run.id) &&
+        next.controlRevision !== run.controlRevision)
+    )
+      return;
+    void this.onSessionSettled({
+      session,
+      aborted: next.aborted || session.runtimeDetail === "aborted",
+      lastAssistantText: session.lastAssistantText,
+      watermark: session.stats?.watermark,
+    }).catch((err) =>
       this.ctx.log.error({ err, sessionId: session.id }, "deferred run evaluation failed"),
     );
+  }
+
+  /** A stale wait must never revive a stopped run, replaced attempt or terminal ancestor. */
+  private currentNonterminalRun(run: Run): boolean {
+    const { store } = this.ctx;
+    let task = store.tasks.get(run.taskId);
+    if (!task || task.currentRunId !== run.id) return false;
+    const seen = new Set<string>();
+    while (task) {
+      if (seen.has(task.id) || isTerminalTask(task.state)) return false;
+      seen.add(task.id);
+      if (!task.parentTaskId) return true;
+      task = store.tasks.get(task.parentTaskId);
+      if (!task) return false;
+    }
+    return false;
   }
 
   private isWatch(task: Task): boolean {
@@ -381,38 +485,266 @@ export class RunsService {
     return this.ctx.store.automations.get(task.origin.automationId)?.mode === "watch";
   }
 
-  /**
-   * Send the next continuation prompt; a `stale_control` receipt ends it silently. The
-   * continuation is persisted (count and text) before it is sent with a deterministic command id,
-   * so a coordinator restart re-sends the same command and the host dedupes it.
-   */
+  private policies(): PolicyService | undefined {
+    return getService(this.ctx, "policies");
+  }
+
+  /** Recheck current static protection and actual live binding without changing settle fences. */
+  private continuationHostReady(runId: string): boolean {
+    const run = this.ctx.store.runs.get(runId);
+    if (!run?.sessionId || !run.hostId) return false;
+    const session = this.ctx.store.sessions.require(run.sessionId);
+    try {
+      assertPolicyLaunchHost(
+        this.ctx,
+        run.hostId,
+        currentPolicyLaunchRequirement(this.ctx, {
+          sessionId: session.id,
+          profileId: session.profileSnapshot.id,
+          continuation: run.limits,
+        }),
+        session.id,
+      );
+      return true;
+    } catch (err) {
+      const error = shortError(err);
+      // A disconnected host is not a policy downgrade. Preserve durable authorization/
+      // delivery and let the existing reconnect sweep recheck before sending anything.
+      if (error.code === "host_unreachable") return false;
+      this.ctx.store.deleteSetting(CONTINUATION_PREFIX + runId);
+      this.finishBlocked(runId, error.message);
+      return false;
+    }
+  }
+
+  /** Persist the settlement's authorization before evaluating it; ASK never spends a step. */
   private async continueRun(runId: string, extra = ""): Promise<void> {
     const { store } = this.ctx;
+    const policies = this.policies();
+    if (!policies) {
+      this.finishBlocked(runId, "Policy authorization is unavailable; continuation was blocked.");
+      return;
+    }
+    if (!this.continuationHostReady(runId)) return;
     const pending = store.tx(() => {
       const run = store.runs.get(runId);
-      if (run?.controlMode !== "automation" || !EVALUATED.has(run.state)) return null;
+      if (
+        run?.controlMode !== "automation" ||
+        (!EVALUATED.has(run.state) && run.state !== "checking")
+      )
+        return null;
       if (!run.limits.enabled || !run.sessionId || !run.hostId) return null;
+      const settlement = store.getSetting<ContinuationSettlement | null>(
+        SETTLEMENT_PREFIX + runId,
+        null,
+      );
+      if (!settlement) return null;
+      const source = continuationSource(store.sessions.get(run.sessionId));
+      if (!source) {
+        this.finishBlocked(runId, "Policy enforcement requires a current controller identity.");
+        return null;
+      }
       const n = run.continuationsUsed + 1;
-      saveRun(this.ctx, run, {
-        continuationsUsed: n,
-        state: "running",
-        startedAt: run.startedAt ?? store.nowIso(),
-      });
-      const text = continuationPrompt(run.limits.objective, n, run.limits.maxContinuations, extra);
-      const p: PendingContinuation = { n, text };
+      const current = saveRun(this.ctx, run, { state: "running" });
+      const p: PendingContinuation = {
+        version: 3,
+        source,
+        phase: "authorization",
+        deliveryAttempt: "not_sent",
+        input: {
+          kind: "continuation",
+          runId,
+          expectedControlRevision: run.controlRevision,
+          nextContinuationNumber: n,
+          expectedSettleCount: settlement.count,
+          expectedWatermark: settlement.watermark,
+        },
+        context: continuationContext(store, policies, current),
+        n,
+        text: continuationPrompt(run.limits.objective, n, run.limits.maxContinuations, extra),
+        decisionId: null,
+      };
       store.setSetting(CONTINUATION_PREFIX + runId, p);
+      store.setSetting(EVALUATED_PREFIX + runId, settlement.count);
       return p;
     });
-    if (!pending) return;
-    await this.sendContinuation(runId, pending);
+    if (pending) await this.resumeContinuation(runId, pending);
+  }
+
+  private async resumeContinuation(runId: string, pending: PendingContinuation): Promise<void> {
+    const { store } = this.ctx;
+    const policies = this.policies();
+    if (this.stopped) return;
+    // Legacy persisted prompts have no authorization proof; do not grandfather them in.
+    if (pending.version !== 3 || !policies) {
+      if (
+        !this.discardContinuationAuthorization(
+          runId,
+          pending,
+          "Legacy or unavailable continuation authorization",
+        )
+      )
+        await this.cancelContinuation(runId, "Legacy or unavailable continuation authorization");
+      return;
+    }
+    if (pending.phase === "delivery") {
+      await this.sendContinuation(runId, pending);
+      return;
+    }
+    const run = store.runs.get(runId);
+    if (!run || !matchesContinuation(store, policies, run, pending)) {
+      if (
+        !this.discardContinuationAuthorization(runId, pending, "Continuation authorization changed")
+      )
+        await this.cancelContinuation(runId, "Continuation authorization changed");
+      return;
+    }
+    // Offline unspent authorizations remain unspent. Reserved deliveries above use the
+    // full durable policy proof first, even offline, so revocation cannot hide in a defer.
+    if (!run.hostId || !this.ctx.hostHub.isConnected(run.hostId)) return;
+    let result: PolicyEvaluation;
+    try {
+      result = await policies.authorize(pending.input);
+    } catch (err) {
+      if (this.stopped) return;
+      const e = shortError(err);
+      const current = store.runs.get(runId);
+      const obsolete = !current || !matchesContinuation(store, policies, current, pending);
+      const discarded = this.discardContinuationAuthorization(runId, pending, e.message);
+      if (!discarded) await this.cancelContinuation(runId, e.message);
+      else if (
+        discarded === "discarded" &&
+        !obsolete &&
+        e.code !== "stale_control" &&
+        e.code !== "conflict"
+      )
+        this.finishBlocked(runId, `Could not authorize continuation: ${e.message}`);
+      return;
+    }
+    if (this.stopped) return;
+    const current = store.runs.get(runId);
+    const durable = store.getSetting<PendingContinuation | null>(CONTINUATION_PREFIX + runId, null);
+    if (
+      !current ||
+      !isDeepStrictEqual(durable, pending) ||
+      !matchesContinuation(store, policies, current, pending)
+    ) {
+      if (
+        !this.discardContinuationAuthorization(runId, pending, "Continuation authorization changed")
+      )
+        await this.cancelContinuation(runId, "Continuation authorization changed");
+      return;
+    }
+    // Recheck after the worker/approval mutex, never while PolicyService is answering ASK.
+    const limit = exceededLimit(current, store.now());
+    if (limit) {
+      store.deleteSetting(CONTINUATION_PREFIX + runId);
+      this.finishBlocked(
+        runId,
+        `Continuation limit reached (${limit}) without the agent reporting done`,
+      );
+      return;
+    }
+    if (result.verdict === "ASK") {
+      store.setSetting(CONTINUATION_PREFIX + runId, { ...pending, decisionId: result.decisionId });
+      return;
+    }
+    if (result.verdict === "DENY") {
+      store.deleteSetting(CONTINUATION_PREFIX + runId);
+      this.finishBlocked(runId, result.reason);
+      return;
+    }
+    if (!this.continuationHostReady(runId)) return;
+    // No await between the final fences, unconditional limits and durable reservation.
+    const delivery: PendingContinuation = {
+      ...pending,
+      phase: "delivery",
+      deliveryAttempt: "not_sent",
+    };
+    try {
+      store.tx(() => {
+        // The asynchronous evaluator's ALLOW is not execution authority by itself. Rebuild
+        // its proof under this transaction before spending a step or reserving delivery.
+        policies.assertAuthorized(pending.input);
+        saveRun(this.ctx, current, {
+          continuationsUsed: pending.n,
+          startedAt: current.startedAt ?? store.nowIso(),
+        });
+        store.setSetting(CONTINUATION_PREFIX + runId, delivery);
+      });
+    } catch (err) {
+      const e = shortError(err);
+      const discarded = this.discardContinuationAuthorization(runId, pending, e.message);
+      if (!discarded) await this.cancelContinuation(runId, e.message);
+      else if (discarded === "discarded" && e.code !== "stale_control" && e.code !== "conflict")
+        this.finishBlocked(runId, `Could not authorize continuation: ${e.message}`);
+      return;
+    }
+    await this.sendContinuation(runId, delivery);
   }
 
   private async sendContinuation(runId: string, pending: PendingContinuation): Promise<void> {
     const { store, hostHub } = this.ctx;
     const run = store.runs.get(runId);
-    if (!run?.hostId || !run.sessionId) return;
+    if (this.stopped) return;
+    if (!run?.hostId || !run.sessionId) {
+      await this.cancelContinuation(runId, "Continuation source is no longer available");
+      return;
+    }
+    const check = (markAttempt: boolean): undefined | { defer: true; reason: string } => {
+      // This is also HostHub's reconnect boundary. Re-read the actual reservation,
+      // not this closure's proof, and commit ambiguity only at the external write.
+      try {
+        return store.tx(() => {
+          const durable = store.getSetting<PendingContinuation | null>(
+            CONTINUATION_PREFIX + runId,
+            null,
+          );
+          const current = store.runs.get(runId);
+          const policies = this.policies();
+          if (
+            this.stopped ||
+            !durable ||
+            durable.version !== 3 ||
+            durable.phase !== "delivery" ||
+            durable.n !== pending.n ||
+            durable.text !== pending.text ||
+            durable.context !== pending.context ||
+            JSON.stringify(durable.input) !== JSON.stringify(pending.input) ||
+            JSON.stringify(durable.source) !== JSON.stringify(pending.source) ||
+            !current ||
+            !policies ||
+            !matchesContinuation(store, policies, current, durable)
+          )
+            throw new SwitchyardError("stale_control", "Continuation reservation changed");
+          const limit = exceededLimit(
+            { ...current, continuationsUsed: durable.n - 1 },
+            store.now(),
+          );
+          if (limit) throw new SwitchyardError("stale_control", `Continuation limit: ${limit}`);
+          const readiness = policies.checkReservedContinuation(durable.input, durable.context);
+          if (readiness.state === "defer") return { defer: true, reason: readiness.reason };
+          if (markAttempt)
+            store.setSetting(CONTINUATION_PREFIX + runId, {
+              ...durable,
+              deliveryAttempt: "may_have_sent",
+            } satisfies PendingContinuation);
+        });
+      } catch (err) {
+        // A known downgrade is permanent too, but retain its upgrade diagnostic. All
+        // other proof failures must pause, never become an ordinary execution failure.
+        const error = shortError(err);
+        throw new SwitchyardError(
+          error.code === "unsupported_capability" ? error.code : "stale_control",
+          error.message,
+        );
+      }
+    };
     this.continuing.add(runId);
     try {
+      // HostHub may reject an offline request without invoking its write guard. Validate
+      // durable authority first so root/ALLOW/controller changes still pause while offline.
+      if (check(false)?.defer) return;
       await hostHub.request(
         run.hostId,
         {
@@ -422,9 +754,12 @@ export class RunsService {
           images: [],
           mode: "prompt",
           origin: "automation",
-          controlRevision: run.controlRevision,
+          controlRevision: pending.input.expectedControlRevision,
         },
-        { commandId: continuationCommandId(runId, pending.n) },
+        {
+          commandId: continuationCommandId(runId, pending.n),
+          beforeSend: () => check(true),
+        },
       );
       store.deleteSetting(CONTINUATION_PREFIX + runId);
     } catch (err) {
@@ -439,17 +774,78 @@ export class RunsService {
         // Unacknowledged: the recovery sweep re-sends it when the host is back.
         return;
       }
-      store.deleteSetting(CONTINUATION_PREFIX + runId);
-      if (e.code === "stale_control") {
-        this.ctx.log.info({ runId }, "continuation superseded by takeover");
+      if (e.code === "stale_control" || e.code === "unsupported_capability") {
+        await this.cancelContinuation(runId, e.message);
         return;
       }
+      store.deleteSetting(CONTINUATION_PREFIX + runId);
       const cur = store.runs.get(runId);
       if (cur?.controlMode !== "automation") return;
       this.finishBlocked(runId, `Could not continue: ${e.message}`, "failed");
     } finally {
       this.continuing.delete(runId);
     }
+  }
+
+  /**
+   * Compare-and-delete only a provably unspent wait. Cancellation and its worker fence join
+   * the same transaction; none of this is a takeover or evidence of an uncertain delivery.
+   * A replacement must be recovered in its actual phase, not altered by the obsolete caller.
+   */
+  private discardContinuationAuthorization(
+    runId: string,
+    expectedPending: PendingContinuation,
+    reason: string,
+  ): "discarded" | "replaced" | false {
+    const { store } = this.ctx;
+    return store.tx(() => {
+      const pending = store.getSetting<PendingContinuation | null>(
+        CONTINUATION_PREFIX + runId,
+        null,
+      );
+      if (!isDeepStrictEqual(pending, expectedPending)) {
+        this.recoveryRequested.add(runId);
+        return "replaced";
+      }
+      if (!pending || !isUnspentContinuationAuthorization(store.runs.get(runId), runId, pending))
+        return false;
+      store.setSetting(
+        `${CANCELED_AUTHORIZATION_PREFIX}${runId}:${pending.n}:${pending.input.expectedControlRevision}:${pending.input.expectedSettleCount}`,
+        { reason, at: store.nowIso() },
+      );
+      this.policies()?.cancelContinuationAuthorization(pending.input, reason);
+      store.deleteSetting(CONTINUATION_PREFIX + runId);
+      this.recoveryRequested.add(runId);
+      return "discarded";
+    });
+  }
+
+  /** Never refund/reuse a reserved count or reinterpret old authority as a new action. */
+  private async cancelContinuation(runId: string, reason: string): Promise<void> {
+    const { store } = this.ctx;
+    const paused = store.tx(() => {
+      const pending = store.getSetting<PendingContinuation | null>(
+        CONTINUATION_PREFIX + runId,
+        null,
+      );
+      if (!pending) return null;
+      // Only an explicit not_sent fence proves no write was attempted. A v2 record can
+      // retain that fence even though its original controller authority is unprovable.
+      const mayHaveSent = pending.deliveryAttempt !== "not_sent";
+      const notice = mayHaveSent
+        ? `${CONTINUATION_PAUSED_NOTICE} ${CONTINUATION_UNCERTAIN_NOTICE}`
+        : CONTINUATION_PAUSED_NOTICE;
+      store.setSetting(`${CANCELED_CONTINUATION_PREFIX}${runId}:${pending.n}`, {
+        commandId: continuationCommandId(runId, pending.n),
+        reason,
+        mayHaveSent,
+        at: store.nowIso(),
+      });
+      store.deleteSetting(CONTINUATION_PREFIX + runId);
+      // The helper joins this transaction and propagates control/withdrawal only after commit.
+      return { completion: pauseRunForPolicy(this.ctx, runId, notice) };
+    });
+    await paused?.completion;
   }
 
   /** Run acceptance checks (task, else project); none means straight to Review. */
@@ -461,7 +857,9 @@ export class RunsService {
       const task = store.tasks.require(run.taskId);
       const commands = effectiveChecks(this.ctx, task);
       if (commands.length === 0) return { run, commands };
-      return { run: saveRun(this.ctx, run, { state: "checking" }), commands };
+      const checking = saveRun(this.ctx, run, { state: "checking" });
+      store.setSetting(EVALUATED_PREFIX + runId, store.runSettleCount(runId));
+      return { run: checking, commands };
     });
     if (!prepared) return;
     const { commands } = prepared;
@@ -521,7 +919,7 @@ export class RunsService {
       if (failing.length === 0) return "succeeded" as const;
       const withChecks = saveRun(this.ctx, cur, { checks: results });
       if (withChecks.limits.enabled && !exceededLimit(withChecks, store.now())) {
-        saveRun(this.ctx, withChecks, { state: "running" });
+        // Keep checking durable until continueRun atomically prepares its authorization.
         return "continue" as const;
       }
       return "failed" as const;

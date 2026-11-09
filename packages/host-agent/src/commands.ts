@@ -57,6 +57,7 @@ export const RESTARTED_WHILE_RUNNING = "Host restarted while running";
 /** Read-only commands, including message status: never queue behind prompts (bounded reads). */
 export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostCommandType>([
   "session.messageStatus",
+  "session.classifyPolicySample",
   "session.importable",
   "session.readNative",
   "checkout.inspect",
@@ -81,6 +82,7 @@ export const READ_CONCURRENCY = 8;
 const RERUNNABLE = new Set<HostCommand["type"]>([
   "session.deliverMessage",
   "session.messageStatus",
+  "session.classifyPolicySample",
   "dispatch.start",
   "dispatch.reconcile",
   "checks.run",
@@ -405,6 +407,10 @@ export class CommandRouter {
             "Message delivery worker is unavailable",
           );
         return this.opts.delivery.getStatus(c.sessionId, c.messageIds);
+      }
+      case "session.classifyPolicySample": {
+        const { type: _type, ...request } = c;
+        return sup.classifyPolicySample(request);
       }
       case "session.abort":
         return sup.abort(c.sessionId, c.clearQueue);

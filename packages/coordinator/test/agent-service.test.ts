@@ -14,6 +14,7 @@ import { migrate, openDb } from "../src/db/index.js";
 import { EventHub } from "../src/event-hub.js";
 import { Store } from "../src/store.js";
 import { createTask } from "../src/tasks/service.js";
+import { fullCapabilities } from "./task-helpers.js";
 
 let store: Store;
 let service: AgentService;
@@ -66,6 +67,7 @@ function frame(over: Partial<AgentRequestFrame> = {}): AgentRequestFrame {
     runtimeId: "runtime-1",
     context: { humanInputId: null, causalMessageId: null },
     toolCallId: "call-1",
+    deadlineAt: new Date(Date.parse(store.nowIso()) + 30_000).toISOString(),
     method: "task.create",
     args: { objective: "Implement the feature\nDetails" },
     ...over,
@@ -136,7 +138,7 @@ beforeEach(async () => {
       agentVersion: "test",
       piVersion: "1.5.0",
       piCompatible: true,
-      capabilities: null,
+      capabilities: fullCapabilities(),
       connectivity: "connected",
       lastSeenAt: now,
       revokedAt: null,
@@ -177,6 +179,38 @@ beforeEach(async () => {
 afterEach(() => store.db.close());
 
 describe("authenticated agent binding", () => {
+  it("accepts legacy unprotected bindings without an epoch but rejects epoch removal or stale authority", async () => {
+    expect(store.sessions.require("ses_caller").bridge?.controllerEpoch).toBeUndefined();
+    expect(await service.handle("hst_test", frame())).toMatchObject({ ok: true });
+
+    const args = {
+      version: 1,
+      sessionFile: null,
+      mode: "rpc",
+      capabilities: {
+        agentTools: true,
+        messageDelivery: true,
+        editorDraftGuard: true,
+        toolPolicy: false,
+      },
+      policyRequired: false,
+    };
+    const epoch = "d56b0e03-6291-4bd1-b334-d924e559687f";
+    expect(await bind({ args: { ...args, controllerEpoch: epoch } })).toMatchObject({ ok: true });
+    expect(await bind({ args })).toMatchObject({ ok: false, error: { code: "invalid_request" } });
+
+    const current = store.sessions.require("ses_caller");
+    if (!current.bridge) throw new Error("expected bound bridge");
+    store.putSession({
+      ...current,
+      bridge: { ...current.bridge, controllerEpoch: "ec31f87f-e429-4835-8aa2-3ac0f875b24a" },
+    });
+    expect(await service.handle("hst_test", frame())).toMatchObject({
+      ok: false,
+      error: { code: "stale_control" },
+    });
+  });
+
   it("rejects foreign hosts, missing bindings and substituted native/runtime identities", async () => {
     store.hosts.upsert(
       { ...store.hosts.require("hst_test"), id: "hst_other" },
@@ -245,6 +279,7 @@ describe("authenticated agent binding", () => {
   });
 
   it("persists native identity without a session file and permits subsequent bound calls", async () => {
+    options.bindPolicyBoundary = vi.fn();
     store.putSession({ ...session(), runtime: "starting", nativeHandle: null, bridge: undefined });
     expect(
       await bind({
@@ -259,13 +294,20 @@ describe("authenticated agent binding", () => {
             toolPolicy: true,
           },
           policyRequired: true,
+          controllerEpoch: "d56b0e03-6291-4bd1-b334-d924e559687f",
+          policyBoundary: {
+            cwd: "/repos/app",
+            workspaceRoot: "/repos/app",
+            cwdReal: "/repos/app",
+            workspaceRootReal: "/repos/app",
+          },
         },
       }),
     ).toMatchObject({
       ok: true,
       result: {
         nativeSessionId: "native-caller",
-        features: ["agentRequests.v1"],
+        features: ["agentRequests.v1", "policies.v1"],
         policyRequired: true,
         sessionUrl: null,
       },
@@ -288,6 +330,7 @@ describe("authenticated agent binding", () => {
           toolPolicy: false,
         },
         policyRequired: false,
+        controllerEpoch: "d56b0e03-6291-4bd1-b334-d924e559687f",
       },
     });
     expect(store.sessions.require("ses_caller")).toMatchObject({
@@ -301,6 +344,7 @@ describe("authenticated agent binding", () => {
   });
 
   it("intersects actual capabilities and refuses tools from disabled bridges", async () => {
+    options.bindPolicyBoundary = vi.fn();
     expect(
       await bind({
         args: {
@@ -314,9 +358,19 @@ describe("authenticated agent binding", () => {
             toolPolicy: true,
           },
           policyRequired: true,
+          controllerEpoch: "d56b0e03-6291-4bd1-b334-d924e559687f",
+          policyBoundary: {
+            cwd: "/repos/app",
+            workspaceRoot: "/repos/app",
+            cwdReal: "/repos/app",
+            workspaceRootReal: "/repos/app",
+          },
         },
       }),
-    ).toMatchObject({ ok: true, result: { features: [], policyRequired: true } });
+    ).toMatchObject({
+      ok: true,
+      result: { features: ["agentRequests.v1", "policies.v1"], policyRequired: true },
+    });
     expect(await service.handle("hst_test", frame())).toMatchObject({
       ok: false,
       error: { code: "unsupported_capability" },
@@ -554,9 +608,7 @@ describe("Ready child tasks and durable receipts", () => {
 
 describe("policy integration boundary", () => {
   it("persists terminal policy denials without mutating and replays them before authorization", async () => {
-    options.authorize = vi.fn(async () => {
-      throw new SwitchyardError("forbidden", "Denied by policy");
-    });
+    options.authorize = vi.fn(async () => ({ verdict: "DENY", reason: "Denied by policy" }));
     const first = await service.handle("hst_test", frame());
     expect(first).toMatchObject({
       ok: false,
@@ -566,6 +618,62 @@ describe("policy integration boundary", () => {
     expect(options.authorize).toHaveBeenCalledTimes(1);
     expect(store.tasks.count()).toBe(0);
     expect(options.scheduleDispatch).not.toHaveBeenCalled();
+  });
+
+  it("returns a nonfinal policy wait and requires an explicit same-call retry after approval", async () => {
+    options.authorize = vi
+      .fn<NonNullable<AgentServiceOptions["authorize"]>>()
+      .mockResolvedValueOnce({
+        verdict: "ASK",
+        decisionId: "decision",
+        interactionId: "interaction",
+        interactionUrl: "https://switchyard.example/code/ses_caller",
+      })
+      .mockResolvedValue({ verdict: "ALLOW" });
+    options.policyRequest = vi.fn(async () => ({ state: "allowed" }));
+    const request = frame({ deadlineAt: new Date(Date.parse(now) + 10_000).toISOString() });
+    expect(await service.handle("hst_test", request)).toEqual({
+      type: "agent.result",
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+      ok: true,
+      result: {
+        type: "policy.required",
+        decisionId: "decision",
+        interactionId: "interaction",
+        interactionUrl: "https://switchyard.example/code/ses_caller",
+      },
+    });
+    const expectNoAction = () => {
+      expect(store.tasks.count()).toBe(0);
+      expect(store.db.prepare("SELECT * FROM task_subscriptions").all()).toEqual([]);
+      expect(store.db.prepare("SELECT * FROM agent_call_receipts").all()).toEqual([]);
+      expect(options.scheduleDispatch).not.toHaveBeenCalled();
+    };
+    expectNoAction();
+    expect(
+      await service.handle(
+        "hst_test",
+        frame({ method: "policy.status", args: { decisionId: "decision" }, toolCallId: undefined }),
+      ),
+    ).toMatchObject({ ok: true, result: { state: "allowed" } });
+    expectNoAction(); // Approval/status never resumes a captured server-side mutation.
+    expect(options.authorize).toHaveBeenCalledTimes(1);
+
+    const resumed = frame({ requestId: "req-resume" });
+    expect(Date.parse(resumed.deadlineAt!)).toBeGreaterThan(Date.parse(request.deadlineAt!));
+    expect(resumed.toolCallId).toBe(request.toolCallId);
+    expect(resumed.args).toEqual(request.args);
+    const result = await service.handle("hst_test", resumed);
+    expect(result).toMatchObject({ ok: true, result: { task: { state: "ready" } } });
+    expect(await service.handle("hst_test", { ...resumed, requestId: "req-replay" })).toEqual({
+      ...result,
+      requestId: "req-replay",
+    });
+    expect(options.authorize).toHaveBeenCalledTimes(2);
+    expect(store.tasks.count()).toBe(1);
+    expect(store.db.prepare("SELECT * FROM agent_call_receipts").all()).toHaveLength(1);
+    expect(options.scheduleDispatch).toHaveBeenCalledTimes(1);
   });
 
   it("loads human control authoritatively and revalidates an awaited authorization", async () => {
@@ -580,6 +688,7 @@ describe("policy integration boundary", () => {
       await new Promise<void>((resolve) => {
         release = resolve;
       });
+      return { verdict: "ALLOW" };
     });
     const pending = service.handle("hst_test", frame());
     store.putRun({ ...run, controlRevision: 2 });
@@ -590,7 +699,7 @@ describe("policy integration boundary", () => {
   });
 
   it("rechecks the receipt in the commit transaction when duplicate calls await policy concurrently", async () => {
-    options.authorize = vi.fn(async () => undefined);
+    options.authorize = vi.fn(async () => ({ verdict: "ALLOW" }));
     const [a, b] = await Promise.all([
       service.handle("hst_test", frame()),
       service.handle("hst_test", frame()),
@@ -680,6 +789,7 @@ describe("message and inbox integration", () => {
         targetControlMode: "automation",
         targetControlRevision: 4,
       });
+      return { verdict: "ALLOW" };
     });
     expect(
       await service.handle(

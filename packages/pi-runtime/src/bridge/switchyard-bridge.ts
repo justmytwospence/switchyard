@@ -13,6 +13,7 @@ import { registerAgentTools } from "./agent-tools.js";
 import { LineSplitter } from "./lines.js";
 import { createMessageDelivery } from "./message-delivery.js";
 import { modelInfo } from "./pi-model.js";
+import { installPolicyHooks } from "./policy.js";
 
 export interface BridgeMessage {
   type: "hello" | "ui_prompt_start" | "ui_prompt_end" | "model_state";
@@ -34,6 +35,7 @@ export default function switchyardBridge(pi: any): void {
   let seq = 0;
   let ctx: any = null;
   let dialogs = 0;
+  let toolPolicy = false;
   const channel = createAgentChannel({
     send: (record) => {
       try {
@@ -51,10 +53,11 @@ export default function switchyardBridge(pi: any): void {
       agentTools: true,
       messageDelivery: true,
       editorDraftGuard: true,
-      toolPolicy: false,
+      toolPolicy,
     }),
     policyRequired: process.env.SWITCHYARD_POLICY_REQUIRED === "1",
   });
+  toolPolicy = installPolicyHooks(pi, channel);
   registerAgentTools(pi, channel);
   const delivery = createMessageDelivery(pi, {
     channel,

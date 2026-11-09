@@ -14,6 +14,7 @@ import { cn } from "../../lib/cn";
 import { formatRelative, formatTime } from "../../lib/time";
 import { errorMessage } from "../../sync/api";
 import { usePanels, useRunsForTask, useSyncStore, useTranscript } from "../../sync/store";
+import { protectionLabel } from "../settings/policyLogic";
 import { codeApi } from "./api";
 import { ControlChip } from "./ConversationHeader";
 import { useCodeContext } from "./context";
@@ -439,6 +440,8 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
       </dd>
       <dt className="text-muted">Control</dt>
       <dd>{ctx.control === "none" ? "Manual session" : <ControlChip ctx={ctx} />}</dd>
+      <dt className="text-muted">Policies</dt>
+      <dd>{protectionLabel(session)}</dd>
       <dt className="text-muted">Branch</dt>
       <dd className="min-w-0 font-mono text-xs break-all">
         {workspaceLabel(workspace, session.cwd)}

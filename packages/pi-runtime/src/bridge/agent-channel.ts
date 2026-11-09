@@ -25,9 +25,24 @@ export type BridgeCommandHeader = {
   nativeSessionId: string;
   bindingId: string;
 };
-export type RequestOptions = { toolCallId?: string; signal?: AbortSignal; timeoutMs?: number };
+export type AgentBindingIdentity = {
+  sessionId: string;
+  runtimeId: string;
+  nativeSessionId: string;
+  bindingId: string;
+};
+export type RequestOptions = {
+  toolCallId?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  /** Local-only invocation fence; never encoded as a caller-controlled wire field. */
+  binding?: AgentBindingIdentity;
+  /** Legacy binding-id-only fence. New callers must pin the complete identity. */
+  bindingId?: string;
+};
 export type ReadyOptions = {
   require: "agentRequests" | "policies";
+  binding?: AgentBindingIdentity;
   signal?: AbortSignal;
   timeoutMs?: number;
 };
@@ -92,6 +107,15 @@ export function createAgentChannel(options: {
   let connected = false;
   let closed = false;
   let native: string | null = null;
+  let lastBinding: AgentBindingIdentity | null = null;
+  // A controller/native replacement is irreversible for already captured pins, even if
+  // a delayed configure later tries to restore an old identity (A -> B -> A).
+  const retiredBindings = new Set<string>();
+  const bindingKey = (b: AgentBindingIdentity) =>
+    JSON.stringify([b.sessionId, b.runtimeId, b.nativeSessionId, b.bindingId]);
+  const retireBinding = () => {
+    if (lastBinding) retiredBindings.add(bindingKey(lastBinding));
+  };
   const handlers = new Map<string, DeliveryHandler>();
   const changes = new Set<() => void>();
   const pending = new Map<string, { bindingId: string; resolve: (record: any) => void }>();
@@ -110,10 +134,24 @@ export function createAgentChannel(options: {
   const syncNative = () => {
     const value = currentNative();
     if (native !== value) {
+      retireBinding();
       native = value;
       invalidate();
     }
     return value;
+  };
+  const assertBinding = (binding?: AgentBindingIdentity) => {
+    if (!binding) return;
+    const current = syncNative();
+    if (binding.nativeSessionId !== current)
+      throw channelError("stale_control", "Native session changed");
+    if (
+      binding.runtimeId !== runtimeId ||
+      retiredBindings.has(bindingKey(binding)) ||
+      (lastBinding && bindingKey(lastBinding) !== bindingKey(binding)) ||
+      (configuration && bindingKey(configuration) !== bindingKey(binding))
+    )
+      throw channelError("stale_control", "Bridge binding changed during tool authorization");
   };
   const contextIds = (): AgentContextIds => {
     const result: AgentContextIds = { humanInputId: null, causalMessageId: null };
@@ -187,21 +225,45 @@ export function createAgentChannel(options: {
     deadline: number,
     signal?: AbortSignal,
     expectedNative?: string | null,
+    binding?: AgentBindingIdentity,
+    pinFirst = false,
   ) => {
-    while (true) {
-      if (closed) throw channelError("host_unreachable", "Channel closed");
-      if (signal?.aborted) throw channelError("conflict", "Request canceled");
-      if (now() >= deadline) throw channelError("timeout", "Coordinator communication timed out");
-      const current = syncNative();
-      if (expectedNative && current !== expectedNative)
-        throw channelError("conflict", "Native session changed");
-      if (configuration && !usable(configuration, feature))
-        throw channelError(
-          "unsupported_capability",
-          "Coordinator or bridge does not support this feature",
-        );
-      if (configuration && connected && configuration.coordinatorConnected) return configuration;
-      await delay(deadline, signal);
+    // Capture startup readiness synchronously on the state change, not in a later
+    // promise continuation that could already see a replacement controller.
+    const capture = () => {
+      if (
+        pinFirst &&
+        !binding &&
+        configuration &&
+        connected &&
+        configuration.coordinatorConnected &&
+        usable(configuration, feature)
+      ) {
+        const { sessionId, runtimeId, nativeSessionId, bindingId } = configuration;
+        binding = { sessionId, runtimeId, nativeSessionId, bindingId };
+      }
+    };
+    if (pinFirst) changes.add(capture);
+    capture();
+    try {
+      while (true) {
+        if (closed) throw channelError("host_unreachable", "Channel closed");
+        if (signal?.aborted) throw channelError("conflict", "Request canceled");
+        if (now() >= deadline) throw channelError("timeout", "Coordinator communication timed out");
+        const current = syncNative();
+        assertBinding(binding);
+        if (expectedNative && current !== expectedNative)
+          throw channelError("conflict", "Native session changed");
+        if (configuration && !usable(configuration, feature))
+          throw channelError(
+            "unsupported_capability",
+            "Coordinator or bridge does not support this feature",
+          );
+        if (configuration && connected && configuration.coordinatorConnected) return configuration;
+        await delay(deadline, signal);
+      }
+    } finally {
+      changes.delete(capture);
     }
   };
   const announce = () => {
@@ -268,6 +330,7 @@ export function createAgentChannel(options: {
       invalidate();
     },
     onControlAttached() {
+      retireBinding();
       invalidate();
       announce();
     },
@@ -315,8 +378,17 @@ export function createAgentChannel(options: {
               !(c.sessionUrl === null || typeof c.sessionUrl === "string")
             )
               throw channelError("invalid_request", "Invalid bridge configuration");
+            if (retiredBindings.has(bindingKey(c)))
+              throw channelError("stale_control", "Bridge controller binding has been replaced");
+            if (lastBinding && bindingKey(lastBinding) !== bindingKey(c)) retireBinding();
             invalidate();
             configuration = { ...c, features: [...c.features] };
+            lastBinding = {
+              sessionId: c.sessionId,
+              runtimeId: c.runtimeId,
+              nativeSessionId: c.nativeSessionId,
+              bindingId: c.bindingId,
+            };
             required ||= c.policyRequired;
             wake();
             const caps = options.getCapabilities();
@@ -367,7 +439,8 @@ export function createAgentChannel(options: {
       return true;
     },
     waitReady(o) {
-      return ready(o.require, deadlineFor(o.timeoutMs), o.signal);
+      const binding = o.binding ? { ...o.binding } : undefined;
+      return ready(o.require, deadlineFor(o.timeoutMs), o.signal, syncNative(), binding, true);
     },
     async request(method, args, opts = {}) {
       if (activeRequests >= 64)
@@ -375,10 +448,24 @@ export function createAgentChannel(options: {
       activeRequests++;
       try {
         const deadline = deadlineFor(opts.timeoutMs);
+        const deadlineAt = new Date(deadline).toISOString();
         const feature = method.startsWith("policy.") ? "policies" : "agentRequests";
-        const initialNative = syncNative();
+        const binding = opts.binding ? { ...opts.binding } : undefined;
+        let initialNative = syncNative();
         while (true) {
-          const c = await ready(feature, deadline, opts.signal, initialNative);
+          assertBinding(binding);
+          const c = await ready(feature, deadline, opts.signal, initialNative, binding);
+          assertBinding(binding);
+          // An awaited readiness promise may have been invalidated before this continuation.
+          if (opts.signal?.aborted) throw channelError("conflict", "Request canceled");
+          if (now() >= deadline)
+            throw channelError("timeout", "Coordinator communication timed out");
+          initialNative ??= c.nativeSessionId;
+          if (syncNative() !== initialNative)
+            throw channelError("conflict", "Native session changed");
+          if (configuration !== c || !connected || !c.coordinatorConnected) continue;
+          if (opts.bindingId !== undefined && c.bindingId !== opts.bindingId)
+            throw channelError("conflict", "Bridge binding changed during tool authorization");
           const requestId = randomUUID();
           const result = new Promise<any>((resolve) =>
             pending.set(requestId, { bindingId: c.bindingId, resolve }),
@@ -392,6 +479,7 @@ export function createAgentChannel(options: {
             bindingId: c.bindingId,
             context: contextIds(),
             ...(opts.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+            deadlineAt,
             method,
             args,
           });
@@ -412,7 +500,10 @@ export function createAgentChannel(options: {
             cancelWait.abort();
             pending.delete(requestId);
           }
+          assertBinding(binding);
           if (!response) continue;
+          if (binding && (!configuration || !connected || !configuration.coordinatorConnected))
+            continue;
           if (response.ok) return response.result;
           if (response.error?.code === "host_unreachable" || response.error?.code === "timeout") {
             const retryAt = Math.min(deadline, now() + 100);
@@ -421,6 +512,7 @@ export function createAgentChannel(options: {
             } catch (error: any) {
               if (error.code !== "timeout" || now() >= deadline) throw error;
             }
+            assertBinding(binding);
             continue;
           }
           throw channelError(

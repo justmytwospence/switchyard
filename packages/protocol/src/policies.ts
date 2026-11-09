@@ -36,23 +36,61 @@ function validJson(value: unknown, depth = 0, seen = new Set<object>()): boolean
   if (typeof value === "number")
     return Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));
   if (typeof value !== "object" || seen.has(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
   if (
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) !== Object.prototype &&
-    Object.getPrototypeOf(value) !== null
+    Array.isArray(value)
+      ? prototype !== Array.prototype
+      : prototype !== Object.prototype && prototype !== null
   )
     return false;
   seen.add(value);
-  const ok = Object.entries(value).every(
-    ([k, v]) => !forbidden.has(k) && validJson(v, depth + 1, seen),
-  );
-  seen.delete(value);
-  return ok;
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (Array.isArray(value) && keys.length !== value.length + 1) return false;
+    return keys.every((key) => {
+      if (typeof key !== "string" || forbidden.has(key)) return false;
+      if (Array.isArray(value)) {
+        if (key === "length") return true;
+        if (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length) return false;
+      }
+      const descriptor = descriptors[key];
+      return (
+        descriptor.enumerable === true &&
+        "value" in descriptor &&
+        validJson(descriptor.value, depth + 1, seen)
+      );
+    });
+  } finally {
+    seen.delete(value);
+  }
 }
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-const JsonObject = z.custom<Record<string, Json>>(
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/** Shared hash input: no coercion, toJSON hooks, array reordering or tool-argument truncation. */
+export function canonicalPolicyJson(value: JsonValue): string {
+  if (!validJson(value)) throw new TypeError("Expected safe JSON policy data.");
+  function encode(item: JsonValue): string {
+    if (item === null || typeof item !== "object") return JSON.stringify(item);
+    if (Array.isArray(item)) return `[${item.map(encode).join(",")}]`;
+    return `{${Object.keys(item)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${encode(item[key])}`)
+      .join(",")}}`;
+  }
+  return encode(value);
+}
+const JsonObject = z.custom<Record<string, JsonValue>>(
   (v) => !!v && typeof v === "object" && !Array.isArray(v) && validJson(v),
 );
+
+export const CompletedUsageWatermark = z.object({ runtimeId: Id, settleSeq: Revision }).strict();
 const scopeShape = { scope: z.enum(["session", "profile", "server"]), scopeId: Id.nullable() };
 const scopeValid = (v: { scope: string; scopeId: string | null }) =>
   (v.scope === "server") === (v.scopeId === null);
@@ -107,6 +145,51 @@ export const PolicyToolSafety = z
     defaultBranchPush: z.boolean(),
     uncertain: z.boolean(),
     reasons: z.array(z.string().min(1).max(1000)).max(16),
+  })
+  .strict();
+// Lexical POSIX normalization is deliberately not filesystem/symlink resolution.
+function normalizePosixPath(value: string): string {
+  const parts: string[] = [];
+  for (const part of value.split("/")) {
+    if (part === "..") parts.pop();
+    else if (part && part !== ".") parts.push(part);
+  }
+  return `/${parts.join("/")}`;
+}
+const hostPath = z
+  .string()
+  .min(1)
+  .max(8192)
+  .refine((value) => value.startsWith("/") && !value.includes("\0"), "Expected absolute POSIX path")
+  .transform(normalizePosixPath);
+
+function relativePosixPath(from: string, to: string): string {
+  const fromParts = from.split("/").filter(Boolean);
+  const toParts = to.split("/").filter(Boolean);
+  let shared = 0;
+  while (shared < fromParts.length && fromParts[shared] === toParts[shared]) shared++;
+  return [...fromParts.slice(shared).map(() => ".."), ...toParts.slice(shared)].join("/");
+}
+export const HostPolicyBoundary = z
+  .object({
+    cwd: hostPath,
+    workspaceRoot: hostPath,
+    cwdReal: hostPath,
+    workspaceRootReal: hostPath,
+  })
+  .strict()
+  .refine((boundary) => {
+    const relative = relativePosixPath(boundary.workspaceRootReal, boundary.cwdReal);
+    return relative !== ".." && !relative.startsWith("../");
+  }, "Real cwd must be within the real workspace boundary.");
+export const HostToolPolicyContext = z
+  .object({
+    version: z.literal(1),
+    toolCallId: Id,
+    toolHash: Fingerprint,
+    boundary: HostPolicyBoundary,
+    defaultBranch: z.string().min(1).max(255).nullable(),
+    safety: PolicyToolSafety,
   })
   .strict();
 export const PolicyToolContext = z
@@ -178,7 +261,7 @@ export const PolicyCostContext = z
     maxCostUsd: z.number().finite().positive().nullable(),
     accounting: z.enum(["available", "unavailable"]),
     fresh: z.boolean(),
-    watermark: z.object({ runtimeId: Id, settleSeq: Revision }).strict().nullable(),
+    watermark: CompletedUsageWatermark.nullable(),
     provider: Id.nullable(),
     modelId: z.string().min(1).max(512).nullable(),
     classification: z.enum(["cheap", "expensive", "unclassified"]),
@@ -284,6 +367,17 @@ export const PolicySettings = z
   .object({ revision: Revision, modelClassifications: classifications, updatedAt: Instant })
   .strict();
 const toolInput = z.object({ name: Id, args: JsonObject }).strict();
+const sampleIdentity = { sessionId: Id, nativeSessionId: Id, runtimeId: Id, sampleId: Id };
+export const HostPolicySampleRequest = z.object({ ...sampleIdentity, tool: toolInput }).strict();
+export const HostPolicySampleResult = z
+  .object({
+    ...sampleIdentity,
+    toolHash: Fingerprint,
+    boundary: HostPolicyBoundary,
+    defaultBranch: z.string().min(1).max(255).nullable(),
+    safety: PolicyToolSafety,
+  })
+  .strict();
 export const PolicyEvaluateRequest = z
   .object({ evaluationId: Id, toolCallId: Id, tool: toolInput })
   .strict();
@@ -359,6 +453,11 @@ export const PolicyTestRequest = z
       : v.tool === null && v.request !== null,
   );
 
+export type CompletedUsageWatermark = z.infer<typeof CompletedUsageWatermark>;
+export type HostPolicyBoundary = z.infer<typeof HostPolicyBoundary>;
+export type HostToolPolicyContext = z.infer<typeof HostToolPolicyContext>;
+export type HostPolicySampleRequest = z.infer<typeof HostPolicySampleRequest>;
+export type HostPolicySampleResult = z.infer<typeof HostPolicySampleResult>;
 export type PolicyPhase = z.infer<typeof PolicyPhase>;
 export type PolicyVerdict = z.infer<typeof PolicyVerdict>;
 export type PolicyRequestAction = z.infer<typeof PolicyRequestAction>;

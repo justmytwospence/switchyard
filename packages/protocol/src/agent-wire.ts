@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { ErrorBody } from "./errors.js";
+import { PolicyEvaluation } from "./policies.js";
 
 const Id = z.string().min(1).max(200);
+const Instant = z.string().refine((value) => {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) && date.toISOString() === value;
+}, "Expected canonical UTC timestamp");
 export const AGENT_FRAME_MAX_BYTES = 128 * 1024;
 export const AgentMethod = z.enum([
   "session.bind",
@@ -77,17 +82,29 @@ export const AgentInbox = z.object({
   hasMore: z.boolean(),
 });
 export type AgentInbox = z.infer<typeof AgentInbox>;
-export const AgentRequestFrame = z.object({
-  type: z.literal("agent.request"),
-  requestId: Id,
-  sessionId: Id,
-  nativeSessionId: Id,
-  runtimeId: Id,
-  context: z.object({ humanInputId: Id.nullable(), causalMessageId: Id.nullable() }),
-  toolCallId: Id.optional(),
-  method: AgentMethod,
-  args: z.unknown(),
-});
+
+/** Nonfinal request-policy ASK: the caller must wait, then explicitly retry the same tool call. */
+export const AgentToolPolicyWait = PolicyEvaluation.options[2]
+  .omit({ verdict: true })
+  .extend({ type: z.literal("policy.required") })
+  .strict();
+export type AgentToolPolicyWait = z.infer<typeof AgentToolPolicyWait>;
+
+export const AgentRequestFrame = z
+  .object({
+    type: z.literal("agent.request"),
+    requestId: Id,
+    sessionId: Id,
+    nativeSessionId: Id,
+    runtimeId: Id,
+    context: z.object({ humanInputId: Id.nullable(), causalMessageId: Id.nullable() }).strict(),
+    toolCallId: Id.optional(),
+    // Tool-method ingress requires this separately; legacy/non-tool frames remain compatible.
+    deadlineAt: Instant.optional(),
+    method: AgentMethod,
+    args: z.unknown(),
+  })
+  .strict();
 export type AgentRequestFrame = z.infer<typeof AgentRequestFrame>;
 export const AgentResultFrame = z.discriminatedUnion("ok", [
   z.object({

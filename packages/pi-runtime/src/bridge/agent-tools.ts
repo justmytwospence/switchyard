@@ -1,4 +1,147 @@
-import type { AgentChannel } from "./agent-channel.js";
+import { type AgentBindingIdentity, type AgentChannel, channelError } from "./agent-channel.js";
+
+type ToolMethod = "task.create" | "message.send" | "inbox.read";
+type ToolContext = { ui?: { notify(message: string, type?: string): void } };
+// Plain local mirror of AgentToolPolicyWait: bridge scripts have no workspace dependencies.
+type AgentToolPolicyWait = {
+  type: "policy.required";
+  decisionId: string;
+  interactionId: string;
+  interactionUrl: string;
+};
+
+function policyWait(result: unknown): AgentToolPolicyWait | null {
+  if (!result || typeof result !== "object" || (result as any).type !== "policy.required")
+    return null;
+  const value = result as Record<string, unknown>;
+  if (
+    Object.keys(value).length !== 4 ||
+    ![value.decisionId, value.interactionId].every(
+      (id) => typeof id === "string" && id.length > 0 && id.length <= 200,
+    ) ||
+    typeof value.interactionUrl !== "string"
+  )
+    throw channelError("invalid_request", "Invalid policy approval reply");
+  let url: URL;
+  try {
+    url = new URL(value.interactionUrl);
+  } catch {
+    throw channelError("invalid_request", "Invalid policy approval URL");
+  }
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password)
+    throw channelError("invalid_request", "Invalid policy approval URL");
+  return value as AgentToolPolicyWait;
+}
+
+async function requestAuthorizedTool(
+  channel: AgentChannel,
+  method: ToolMethod,
+  args: unknown,
+  toolCallId: string,
+  signal?: AbortSignal,
+  ctx?: ToolContext,
+): Promise<unknown> {
+  const configuration = channel.snapshot().configuration;
+  let initialBinding: AgentBindingIdentity | undefined;
+  if (configuration) {
+    const { sessionId, runtimeId, nativeSessionId, bindingId } = configuration;
+    initialBinding = { sessionId, runtimeId, nativeSessionId, bindingId };
+  }
+  // Detach the logical action from Pi's mutable arguments before the first await. Every
+  // transport retry and explicit resumption uses this same normalized JSON snapshot.
+  const normalizedArgs: unknown = JSON.parse(JSON.stringify(args));
+  const initialDeadline = Date.now() + 30000;
+  const ready = await channel.waitReady({
+    require: "agentRequests",
+    binding: initialBinding,
+    signal,
+    timeoutMs: 30000,
+  });
+  const { sessionId, runtimeId, nativeSessionId, bindingId } = ready;
+  const binding = initialBinding ?? { sessionId, runtimeId, nativeSessionId, bindingId };
+  const noticed = new Set<string>();
+  const canceled = new Set<string>();
+  let decisionId: string | null = null;
+  const cancel = () => {
+    if (!decisionId || canceled.has(decisionId)) return;
+    canceled.add(decisionId);
+    // Never reuse the canceled tool signal or await an unavailable coordinator.
+    void channel
+      .request("policy.cancel", { decisionId }, { timeoutMs: 1000, binding })
+      .catch(() => {});
+  };
+  const checkBinding = () => {
+    if (signal?.aborted) throw channelError("conflict", "Policy approval canceled");
+    const current = channel.snapshot().configuration;
+    if (
+      !current ||
+      current.sessionId !== binding.sessionId ||
+      current.nativeSessionId !== binding.nativeSessionId ||
+      current.runtimeId !== binding.runtimeId ||
+      current.bindingId !== binding.bindingId
+    )
+      throw channelError("stale_control", "Bridge binding changed during tool authorization");
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    let timeoutMs = initialDeadline - Date.now();
+    while (true) {
+      checkBinding();
+      if (timeoutMs <= 0) throw channelError("timeout", "Coordinator communication timed out");
+      const result = await channel.request(method, normalizedArgs, {
+        toolCallId,
+        signal,
+        timeoutMs,
+        binding,
+      });
+      // Retain even a late ASK's ID so cancellation can close its wait lease.
+      if (
+        result &&
+        typeof result === "object" &&
+        (result as any).type === "policy.required" &&
+        typeof (result as any).decisionId === "string" &&
+        (result as any).decisionId.length > 0 &&
+        (result as any).decisionId.length <= 200
+      )
+        decisionId = (result as any).decisionId;
+      checkBinding();
+      const wait = policyWait(result);
+      if (!wait) return result;
+      decisionId = wait.decisionId;
+      if (!noticed.has(decisionId)) {
+        noticed.add(decisionId);
+        ctx?.ui?.notify(`Approval required in Switchyard: ${wait.interactionUrl}`, "warning");
+      }
+      while (true) {
+        checkBinding();
+        const status = await channel.request<any>(
+          "policy.status",
+          { decisionId, waitMs: 25000 },
+          { signal, timeoutMs: 30000, binding },
+        );
+        checkBinding();
+        if (status?.state === "allowed") break;
+        if (status?.state === "denied" || status?.state === "canceled")
+          throw channelError(
+            status.state === "denied" ? "forbidden" : "conflict",
+            typeof status.reason === "string" && status.reason
+              ? status.reason
+              : "Policy approval denied or canceled",
+          );
+        if (status?.state !== "pending")
+          throw channelError("invalid_request", "Invalid policy status reply");
+      }
+      // Status/approval never performs the action. Only this explicit, live-client
+      // resubmission can execute it, under a fresh deadline and the same logical identity.
+      timeoutMs = 30000;
+    }
+  } catch (error) {
+    cancel();
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+  }
+}
 
 /** Register synchronously; readiness is checked on each invocation. */
 export function registerAgentTools(pi: any, channel: AgentChannel): void {
@@ -72,9 +215,9 @@ export function registerAgentTools(pi: any, channel: AgentChannel): void {
         args: unknown,
         signal?: AbortSignal,
         _update?: unknown,
-        _ctx?: unknown,
+        ctx?: ToolContext,
       ) {
-        const result = await channel.request(method, args, { toolCallId, signal });
+        const result = await requestAuthorizedTool(channel, method, args, toolCallId, signal, ctx);
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
       },
     });

@@ -19,6 +19,46 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("012 adds a nullable wait lease without changing legacy evaluations or indexes", () => {
+    const db = dbAt(11);
+    db.exec(`INSERT INTO policy_evaluations
+      (evaluation_key, request_hash, scope_kind, scope_id, session_id, revisions_json,
+       input_json, provisional_updates_json, verdict, decision_id, interaction_id, result_json,
+       canceled, cancellation_reason, created_at, updated_at)
+      VALUES ('key', 'hash', 'session', 'session', 'session', '{}', '{}', '{}', 'ASK',
+       'decision', 'interaction', '{}', 0, NULL, 'created', 'updated')`);
+    const row = db.prepare("SELECT * FROM policy_evaluations").get();
+    const indexes = db
+      .prepare(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'policy_evaluations' ORDER BY name",
+      )
+      .all();
+    const migrations = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+    expect(migrate(db)).toBe(MIGRATIONS.at(-1)!.version);
+    expect(db.prepare("SELECT * FROM policy_evaluations").get()).toEqual({
+      ...row,
+      wait_lease_until: null,
+    });
+    expect(
+      db
+        .prepare(
+          "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'policy_evaluations' ORDER BY name",
+        )
+        .all(),
+    ).toEqual(indexes);
+    expect(
+      db.prepare("SELECT * FROM schema_migrations WHERE version <= 11 ORDER BY version").all(),
+    ).toEqual(migrations);
+    db.prepare(
+      "UPDATE policy_evaluations SET wait_lease_until = ? WHERE evaluation_key = 'key'",
+    ).run("2026-01-01T00:01:00.000Z");
+    expect(db.prepare("SELECT wait_lease_until FROM policy_evaluations").get()).toEqual({
+      wait_lease_until: "2026-01-01T00:01:00.000Z",
+    });
+    expect(migrate(db)).toBe(MIGRATIONS.at(-1)!.version);
+    db.close();
+  });
+
   it("010 rebuilds nullable completion senders without losing rows, receipts, indexes or sequence high-water", () => {
     const db = dbAt(9);
     const insert = db.prepare(`

@@ -17,6 +17,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { TextLink } from "../../components/ui/TextLink";
 import { cn } from "../../lib/cn";
 import { usePendingInteractions } from "../../sync/store";
+import { protectionLabel } from "../settings/policyLogic";
 import { type SessionContext, useNow } from "./hooks";
 import { type SessionStatus, type SessionStatusAction, sessionStatus } from "./model";
 import type { SessionActions } from "./SessionActions";
@@ -95,6 +96,15 @@ export function SessionStatusBar({
   const ActIcon = act ? ACTION_ICON[act.kind] : null;
   return (
     <div className="shrink-0 px-3 pb-2 md:px-6">
+      {!["stopped", "failed", "interrupted"].includes(ctx.session.runtime) &&
+        protectionLabel(ctx.session).startsWith("Not enforced") && (
+          <p
+            role="status"
+            className="mx-auto mb-2 w-full max-w-[80ch] rounded-md border-l-2 border-warning bg-warning-soft px-3 py-1.5 text-sm"
+          >
+            Policies: {protectionLabel(ctx.session)}
+          </p>
+        )}
       <div
         data-testid="session-status"
         data-kind={status.kind}

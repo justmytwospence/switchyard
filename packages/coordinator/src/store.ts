@@ -154,6 +154,10 @@ export interface NotificationRow {
   tag: string | null;
 }
 
+function isTerminalTask(task: Task): boolean {
+  return task.state === "done" || task.state === "canceled";
+}
+
 const ACTIVE_RUN_STATES = [
   "queued",
   "dispatching",
@@ -596,6 +600,10 @@ export class Store {
   putTask(t: Task): Task {
     return this.tx(() => {
       const previous = this.tasks.get(t.id);
+      const wasTerminalRoot =
+        previous != null && !previous.parentTaskId && isTerminalTask(previous);
+      const isTerminalRoot = !t.parentTaskId && isTerminalTask(t);
+      if (wasTerminalRoot !== isTerminalRoot) this.bumpPolicyRootEpoch(t.id);
       this.tasks.upsert(t);
       captureTaskCompletion(this, previous, t);
       this.appendEvent("task.updated", { taskId: t.id, projectId: t.projectId }, t);
@@ -605,6 +613,8 @@ export class Store {
 
   deleteTask(t: Task): void {
     this.tx(() => {
+      const previous = this.tasks.get(t.id);
+      if (previous && !previous.parentTaskId) this.bumpPolicyRootEpoch(previous.id);
       for (const task of this.tasks.list()) {
         const isChild = task.parentTaskId === t.id;
         if (isChild || task.dependencies.includes(t.id)) {
@@ -1035,6 +1045,15 @@ export class Store {
   }
 
   // ---- settings --------------------------------------------------------------------------
+
+  private bumpPolicyRootEpoch(rootTaskId: string): void {
+    const key = `policyRootEpoch:${rootTaskId}`;
+    const epoch = this.getSetting(key, 0);
+    if (!Number.isSafeInteger(epoch) || epoch < 0 || epoch >= Number.MAX_SAFE_INTEGER) {
+      throw new Error(`Invalid or exhausted policy root epoch for ${rootTaskId}`);
+    }
+    this.setSetting(key, epoch + 1);
+  }
 
   getSetting<T>(key: string, fallback: T): T {
     const r = this.st.get("SELECT value FROM settings WHERE key = ?").get(key) as

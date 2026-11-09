@@ -5,8 +5,12 @@ import {
   type AgentMessage,
   AgentRequestFrame,
   type AgentResultFrame,
+  type AgentToolPolicyWait,
   CreateAgentTask,
   type ErrorBody,
+  HostPolicyBoundary,
+  HostToolPolicyContext,
+  PolicyEvaluation,
   ReadAgentInbox,
   SendAgentMessage,
   type Session,
@@ -15,6 +19,7 @@ import {
 } from "@switchyard/protocol";
 import { z } from "zod";
 import { parse } from "../http.js";
+import type { PolicyOwner } from "../policies/contracts.js";
 import { LIVE_RUNTIMES } from "../sessions/service.js";
 import type { Store } from "../store.js";
 import { createTask } from "../tasks/service.js";
@@ -48,6 +53,9 @@ const BindingArgs = z
       })
       .strict(),
     policyRequired: z.boolean(),
+    // Legacy unprotected hosts remain readable; protected bindings must supply this proof.
+    controllerEpoch: z.string().min(1).max(200).optional(),
+    policyBoundary: HostPolicyBoundary.optional(),
   })
   .strict();
 
@@ -68,16 +76,23 @@ export interface AgentServiceOptions {
   scheduleDispatch(): void;
   /** Current authenticated host/welcome intersection; absent means legacy/unsupported. */
   negotiatedFeatures?: (hostId: string) => ReadonlySet<string>;
+  /** Current launch scope/limits may strengthen, never weaken, the host's required latch. */
+  launchRequirement?: (caller: Session) => { required: boolean };
+  publicUrl?: () => string;
+  /** Synchronous trusted-host attestation; joins the broker bind transaction. */
+  bindPolicyBoundary?: (owner: PolicyOwner, boundary: HostPolicyBoundary) => void;
   /** Cancel decisions for an obsolete binding, including on a native branch switch. */
   onUnbind?: (sessionId: string, runtimeId: string) => void;
-  /**
-   * Resolves only on ALLOW. Keep ASK pending until terminal resolution (no receipt while waiting).
-   * Reject unavailable/lost communication with timeout/host_unreachable; DENY with forbidden.
-   * Absent only until the policy service is installed; never substitute an ALLOW on policy failure.
-   */
-  authorize?: (context: AgentCallContext, frame: AgentRequestFrame) => Promise<void>;
+  /** Immediate verdict only: ASK never suspends a mutation or completes a tool receipt. */
+  authorize?: (context: AgentCallContext, frame: AgentRequestFrame) => Promise<PolicyEvaluation>;
+  /** Read-only final ALLOW/freshness fence; runs synchronously in the action savepoint. */
+  assertAuthorization?: (context: AgentCallContext, frame: AgentRequestFrame) => void;
   /** Must enforce decision ownership by caller/native/runtime for status and cancel. */
-  policyRequest?: (context: AgentCallContext, frame: AgentRequestFrame) => Promise<unknown>;
+  policyRequest?: (
+    context: AgentCallContext,
+    frame: AgentRequestFrame,
+    hostPolicyContext?: HostToolPolicyContext,
+  ) => Promise<unknown>;
 }
 
 const TOOL_METHODS = new Set<string>(["task.create", "message.send", "inbox.read"]);
@@ -103,9 +118,11 @@ function canonical(value: unknown): string {
 }
 
 function errorOf(error: unknown): SwitchyardError {
-  return error instanceof SwitchyardError
-    ? error
-    : new SwitchyardError("internal", "Agent request failed");
+  if (error instanceof SwitchyardError) return error;
+  if (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name)) {
+    return new SwitchyardError("timeout", "Agent request was canceled or timed out");
+  }
+  return new SwitchyardError("internal", "Agent request failed");
 }
 
 /** Authenticated host-only entry point. This is deliberately not a device/API endpoint. */
@@ -115,6 +132,7 @@ export class AgentService {
     {
       nativeSessionId: string;
       runtimeId: string;
+      controllerEpoch?: string;
       agentTools: boolean;
     }
   >();
@@ -124,7 +142,12 @@ export class AgentService {
     this.store = options.store;
   }
 
-  async handle(authenticatedHostId: string, input: AgentRequestFrame): Promise<AgentResultFrame> {
+  async handle(
+    authenticatedHostId: string,
+    input: AgentRequestFrame,
+    hostPolicyContext?: HostToolPolicyContext,
+  ): Promise<AgentResultFrame> {
+    const receivedAt = this.store.now().getTime();
     const envelope = {
       type: "agent.result" as const,
       requestId: input.requestId,
@@ -137,17 +160,42 @@ export class AgentService {
         throw new SwitchyardError("invalid_request", "Agent request exceeds 128 KiB");
       }
       const frame = parse(AgentRequestFrame, JSON.parse(json));
+      if ((frame.method === "policy.evaluate") !== (hostPolicyContext !== undefined)) {
+        throw new SwitchyardError(
+          "forbidden",
+          "Host policy context is required only for policy.evaluate",
+        );
+      }
+      const trustedContext =
+        hostPolicyContext === undefined
+          ? undefined
+          : parse(HostToolPolicyContext, hostPolicyContext);
+      // Count the enriched wire envelope too; only parsed values enter this object.
+      if (
+        trustedContext !== undefined &&
+        Buffer.byteLength(JSON.stringify({ ...frame, policyContext: trustedContext })) >
+          AGENT_FRAME_MAX_BYTES
+      ) {
+        throw new SwitchyardError("invalid_request", "Agent request exceeds 128 KiB");
+      }
       const caller = this.ownedCaller(authenticatedHostId, frame.sessionId);
       if (frame.method === "session.bind") {
         return { ...envelope, ok: true, result: this.store.tx(() => this.bind(caller, frame)) };
       }
       this.boundCaller(caller, frame);
       if (!TOOL_METHODS.has(frame.method)) {
+        if (!this.options.negotiatedFeatures?.(authenticatedHostId).has("policies.v1")) {
+          throw new SwitchyardError("unsupported_capability", "Agent policies were not negotiated");
+        }
         const context = this.callContext(caller, null);
         if (!this.options.policyRequest) {
           throw new SwitchyardError("unsupported_capability", "Agent policies are not installed");
         }
-        return { ...envelope, ok: true, result: await this.options.policyRequest(context, frame) };
+        return {
+          ...envelope,
+          ok: true,
+          result: await this.options.policyRequest(context, frame, trustedContext),
+        };
       }
       if (!this.bindings.get(caller.id)?.agentTools) {
         throw new SwitchyardError("unsupported_capability", "Bridge agent tools are unavailable");
@@ -155,6 +203,11 @@ export class AgentService {
       if (!frame.toolCallId) {
         throw new SwitchyardError("invalid_request", "Agent tools require toolCallId");
       }
+      if (frame.deadlineAt === undefined) {
+        throw new SwitchyardError("invalid_request", "Agent tools require deadlineAt");
+      }
+      // This request's budget is fixed at ingress, including across an authorization await.
+      const deadline = Math.min(Date.parse(frame.deadlineAt), receivedAt + 30_000);
       const method = frame.method as ToolMethod;
       let args: unknown = frame.args;
       let argumentError: SwitchyardError | undefined;
@@ -166,10 +219,11 @@ export class AgentService {
       const hash = createHash("sha256").update(canonical(args)).digest("hex");
       const replay = this.receipt(frame, hash);
       if (replay) return { ...envelope, ...replay };
+      this.assertDeadline(deadline);
       if (argumentError) {
         return {
           ...envelope,
-          ...this.finish(frame, hash, () => {
+          ...this.finish(frame, hash, deadline, () => {
             throw argumentError;
           }),
         };
@@ -179,19 +233,37 @@ export class AgentService {
       try {
         const context = this.callContext(caller, this.target(method, caller, args));
         authorizedKey = this.contextKey(context);
-        if (this.options.authorize) await this.options.authorize(context, normalizedFrame);
+        if (this.options.authorize) {
+          const evaluation = parse(
+            PolicyEvaluation,
+            await this.options.authorize(context, normalizedFrame),
+          );
+          this.assertDeadline(deadline);
+          if (evaluation.verdict === "DENY") {
+            throw new SwitchyardError("forbidden", evaluation.reason);
+          }
+          if (evaluation.verdict === "ASK") {
+            const wait: AgentToolPolicyWait = {
+              type: "policy.required",
+              decisionId: evaluation.decisionId,
+              interactionId: evaluation.interactionId,
+              interactionUrl: evaluation.interactionUrl,
+            };
+            return { ...envelope, ok: true, result: wait };
+          }
+        }
       } catch (error) {
         return {
           ...envelope,
-          ...this.finish(frame, hash, () => {
+          ...this.finish(frame, hash, deadline, () => {
             throw error;
           }),
         };
       }
       return {
         ...envelope,
-        ...this.finish(frame, hash, () => {
-          // Never hold SQLite open while waiting on a policy or a human. Revalidate after await.
+        ...this.finish(frame, hash, deadline, () => {
+          // Never hold SQLite open during authorization. Revalidate after await.
           const current = this.ownedCaller(authenticatedHostId, frame.sessionId);
           this.boundCaller(current, frame);
           const next = this.callContext(current, this.target(method, current, args));
@@ -201,6 +273,7 @@ export class AgentService {
               "Agent request context changed; retry authorization",
             );
           }
+          this.options.assertAuthorization?.(next, normalizedFrame);
           this.options.messages?.recordContext(current.id, frame.context);
           return this.execute(method, current, frame.toolCallId!, args);
         }),
@@ -238,15 +311,52 @@ export class AgentService {
       throw new SwitchyardError("unsupported_capability", "Agent requests were not negotiated");
     }
     const capabilities = args.capabilities;
-    // Policies are deliberately unavailable until their coordinator service is installed.
+    const host = this.store.hosts.require(caller.hostId);
+    const currentRequirement = this.options.launchRequirement?.(caller);
+    const policyRequired = args.policyRequired || (currentRequirement?.required ?? false);
+    const policyEnabled =
+      negotiated.has("policies.v1") &&
+      host.capabilities?.agentRequests === true &&
+      host.capabilities.policies === true &&
+      capabilities.toolPolicy &&
+      args.policyBoundary !== undefined &&
+      this.options.bindPolicyBoundary !== undefined;
+    if (policyRequired && !policyEnabled)
+      throw new SwitchyardError(
+        "unsupported_capability",
+        "Required policy enforcement is unavailable.",
+      );
+    if (
+      (policyEnabled || policyRequired || caller.bridge?.controllerEpoch) &&
+      !args.controllerEpoch
+    )
+      throw new SwitchyardError(
+        "invalid_request",
+        "Protected session binding requires a host controller epoch.",
+      );
+    if (policyEnabled) {
+      this.options.bindPolicyBoundary!(
+        {
+          authenticatedHostId: caller.hostId,
+          sessionId: caller.id,
+          nativeSessionId: frame.nativeSessionId,
+          runtimeId: frame.runtimeId,
+        },
+        args.policyBoundary!,
+      );
+    }
     const features =
-      capabilities.agentTools || (capabilities.messageDelivery && capabilities.editorDraftGuard)
+      policyEnabled ||
+      capabilities.agentTools ||
+      (capabilities.messageDelivery && capabilities.editorDraftGuard)
         ? ["agentRequests.v1"]
         : [];
+    if (policyEnabled) features.push("policies.v1");
     const bridge: BoundBridge = {
       version: 1,
       runtimeId: frame.runtimeId,
       nativeSessionId: frame.nativeSessionId,
+      ...(args.controllerEpoch === undefined ? {} : { controllerEpoch: args.controllerEpoch }),
       agentTools: false,
       messageDelivery: false,
       policyState: "initializing",
@@ -267,11 +377,14 @@ export class AgentService {
         ? {
             runtimeId: caller.bridge.runtimeId,
             nativeSessionId: (caller.bridge as BoundBridge).nativeSessionId,
+            controllerEpoch: caller.bridge.controllerEpoch,
           }
         : undefined);
     if (
       obsolete &&
-      (obsolete.runtimeId !== frame.runtimeId || obsolete.nativeSessionId !== frame.nativeSessionId)
+      (obsolete.runtimeId !== frame.runtimeId ||
+        obsolete.nativeSessionId !== frame.nativeSessionId ||
+        obsolete.controllerEpoch !== args.controllerEpoch)
     ) {
       this.store.afterCommit(() => this.options.onUnbind?.(caller.id, obsolete.runtimeId));
     }
@@ -284,6 +397,7 @@ export class AgentService {
     this.bindings.set(caller.id, {
       nativeSessionId: frame.nativeSessionId,
       runtimeId: frame.runtimeId,
+      controllerEpoch: args.controllerEpoch,
       agentTools: capabilities.agentTools,
     });
     return {
@@ -292,8 +406,11 @@ export class AgentService {
       runtimeId: frame.runtimeId,
       nativeSessionId: frame.nativeSessionId,
       features,
-      policyRequired: args.policyRequired,
-      sessionUrl: null,
+      policyRequired,
+      sessionUrl:
+        policyEnabled && this.options.publicUrl
+          ? `${this.options.publicUrl().replace(/\/+$/, "")}/code/${encodeURIComponent(caller.id)}`
+          : null,
     };
   }
 
@@ -303,6 +420,7 @@ export class AgentService {
       !binding ||
       binding.nativeSessionId !== frame.nativeSessionId ||
       binding.runtimeId !== frame.runtimeId ||
+      binding.controllerEpoch !== caller.bridge?.controllerEpoch ||
       (caller.bridge as BoundBridge | undefined)?.nativeSessionId !== frame.nativeSessionId ||
       (caller.nativeHandle !== null && caller.nativeHandle.sessionId !== frame.nativeSessionId) ||
       caller.bridge?.runtimeId !== frame.runtimeId
@@ -377,8 +495,10 @@ export class AgentService {
         session.runId,
         this.store.runForSession(session)?.id ?? null,
         session.cwd,
-        session.nativeHandle,
-        session.bridge?.runtimeId,
+        // The bridge owns actor identity; file discovery/path changes are only metadata.
+        session.bridge?.nativeSessionId ?? null,
+        session.bridge?.runtimeId ?? null,
+        session.bridge?.controllerEpoch ?? null,
         session.profileSnapshot,
         session.taskId ? (this.store.tasks.get(session.taskId)?.parentTaskId ?? null) : null,
       ];
@@ -408,11 +528,25 @@ export class AgentService {
     return JSON.parse(row.result_json) as StoredResult;
   }
 
-  private finish(frame: AgentRequestFrame, hash: string, action: () => unknown): StoredResult {
+  private assertDeadline(deadline: number): void {
+    if (!Number.isFinite(deadline) || this.store.now().getTime() >= deadline) {
+      throw new SwitchyardError("timeout", "Agent request deadline expired");
+    }
+  }
+
+  private finish(
+    frame: AgentRequestFrame,
+    hash: string,
+    deadline: number,
+    action: () => unknown,
+  ): StoredResult {
     return this.store.tx(() => {
       const replay = this.receipt(frame, hash);
       if (replay) return replay;
-      const attempt = this.store.savepoint(action);
+      const attempt = this.store.savepoint(() => {
+        this.assertDeadline(deadline);
+        return action();
+      });
       let result: StoredResult;
       if (attempt.ok) result = { ok: true, result: attempt.value };
       else {

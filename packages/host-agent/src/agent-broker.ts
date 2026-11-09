@@ -3,6 +3,10 @@ import {
   AGENT_FRAME_MAX_BYTES,
   AgentRequestFrame,
   type AgentResultFrame,
+  AgentToolPolicyWait,
+  HostPolicyBoundary,
+  type HostToolPolicyContext,
+  PolicyEvaluateRequest,
   type Session,
   SwitchyardError,
 } from "@switchyard/protocol";
@@ -49,7 +53,10 @@ const Configured = z
     policyPhases: z.array(z.enum(["tool_call", "request"])),
   })
   .strict();
-const LocalRequest = AgentRequestFrame.extend({ bindingId: Id });
+const LocalRequest = AgentRequestFrame.extend({
+  bindingId: Id,
+  context: Context.strict(),
+}).strict();
 const ReplyIdentity = z.object({
   type: z.literal("agent.request"),
   requestId: Id,
@@ -64,7 +71,10 @@ export type AgentBrokerConfiguration = z.infer<typeof BindResult> & {
 };
 export type AgentBrokerRequest = AgentRequestFrame & { bindingId: string };
 export type AgentBrokerResult = AgentResultFrame & { bindingId: string };
-export type AgentBrokerState = NonNullable<Session["bridge"]> & { nativeSessionId: string };
+export type AgentBrokerState = NonNullable<Session["bridge"]> & {
+  nativeSessionId: string;
+  controllerEpoch: string;
+};
 export interface AgentBrokerRequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -85,6 +95,13 @@ export interface AgentBrokerSession {
   readonly mode: "rpc" | "terminal";
   /** Authoritative launch record, never a tool argument. A true value is latched until close. */
   readonly policyRequired: boolean;
+  /** Resolve/verify the original host launch cwd and workspace root, never hello/tool fields. */
+  getPolicyBoundary(): Promise<HostPolicyBoundary>;
+  /** Reverify the pinned boundary and classify this exact tool outside the session chain. */
+  getToolPolicyContext(
+    request: PolicyEvaluateRequest,
+    signal?: AbortSignal,
+  ): Promise<HostToolPolicyContext>;
   configureAgent(
     configuration: AgentBrokerConfiguration,
     options?: AgentBrokerRequestOptions,
@@ -179,6 +196,9 @@ export class AgentBrokerHandle {
   readonly sessionId: string;
   private helloRecord: AgentBrokerHello | null = null;
   private configuration: AgentBrokerConfiguration | null = null;
+  // Public durable identity of the local controller, never sent to or supplied by Pi.
+  private controllerEpoch: string | null = null;
+  private configurationAttempted = false;
   private state: AgentBrokerState | null = null;
   private required: boolean;
   private closed = false;
@@ -186,8 +206,8 @@ export class AgentBrokerHandle {
   private syncing: Promise<void> | null = null;
   private failure: unknown = null;
   private syncController: AbortController | null = null;
-  private readonly pending = new Set<AbortController>();
-  private readonly decisions = new Set<string>();
+  private readonly pending = new Map<AbortController, string | null>();
+  private readonly decisions = new Map<string, NodeJS.Timeout>();
   private readonly changes = new Set<() => void>();
 
   constructor(
@@ -212,6 +232,8 @@ export class AgentBrokerHandle {
     this.helloRecord = parsed.data;
     this.required ||= this.session.policyRequired;
     this.configuration = null;
+    this.controllerEpoch = randomUUID();
+    this.configurationAttempted = false;
     this.failure = null;
     this.publish("initializing");
     await this.synchronize();
@@ -267,6 +289,11 @@ export class AgentBrokerHandle {
     const controller = new AbortController();
     let decisionId: string | null = null;
     let keepWaiting = false;
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = Math.min(
+      Date.now() + MAX_WAIT_MS,
+      frame.deadlineAt === undefined ? Infinity : Date.parse(frame.deadlineAt),
+    );
     try {
       if (Buffer.byteLength(JSON.stringify(record)) > AGENT_FRAME_MAX_BYTES)
         throw new SwitchyardError("invalid_request", "Agent request exceeds 128 KiB");
@@ -298,21 +325,49 @@ export class AgentBrokerHandle {
           "unsupported_capability",
           "The extension has no agent tools installed",
         );
+      let evaluation: PolicyEvaluateRequest | undefined;
+      if (frame.method === "policy.evaluate") {
+        const parsed = PolicyEvaluateRequest.safeParse(frame.args);
+        if (!parsed.success || parsed.data.toolCallId !== frame.toolCallId)
+          throw new SwitchyardError("invalid_request", "Invalid policy evaluation or toolCallId");
+        evaluation = parsed.data;
+      }
       // This context was produced by the trusted local channel's native-branch scan.
       if (this.helloRecord) this.helloRecord.context = { ...frame.context };
-      this.pending.add(controller);
-      const result = await this.broker.link.requestAgent(
-        this.sessionId,
-        frame.nativeSessionId,
-        frame.runtimeId,
-        frame.method,
-        frame.args,
-        {
-          toolCallId: frame.toolCallId,
-          context: { ...frame.context },
-          signal: controller.signal,
-          timeoutMs: MAX_WAIT_MS,
-        },
+      if (frame.method === "policy.cancel" && decisionId) this.cancelDecision(decisionId, false);
+      this.pending.set(controller, decisionId);
+      timer = setTimeout(
+        () => controller.abort(new SwitchyardError("timeout", "Agent request timed out")),
+        this.remaining(deadline),
+      );
+      timer.unref();
+      let policyContext: HostToolPolicyContext | undefined;
+      if (evaluation) {
+        this.check(generation, controller.signal);
+        policyContext = await this.withSignal(
+          this.session.getToolPolicyContext(evaluation, controller.signal),
+          controller.signal,
+        );
+        this.check(generation, controller.signal);
+        this.assertBinding(frame);
+      }
+      const result = await this.withSignal(
+        this.broker.link.requestAgent(
+          this.sessionId,
+          frame.nativeSessionId,
+          frame.runtimeId,
+          frame.method,
+          evaluation ?? frame.args,
+          {
+            toolCallId: frame.toolCallId,
+            context: { ...frame.context },
+            ...(policyContext === undefined ? {} : { policyContext }),
+            signal: controller.signal,
+            timeoutMs: this.remaining(deadline),
+            deadlineAt: new Date(deadline).toISOString(),
+          },
+        ),
+        controller.signal,
       );
       if (generation !== this.generation || this.closed || controller.signal.aborted) return;
       this.assertBinding(frame);
@@ -325,7 +380,18 @@ export class AgentBrokerHandle {
           );
         this.beginDecision(reply.decisionId as string);
       }
+      if (
+        frame.method === "task.create" ||
+        frame.method === "message.send" ||
+        frame.method === "inbox.read"
+      ) {
+        const wait = AgentToolPolicyWait.safeParse(result);
+        if (wait.success) this.beginDecision(wait.data.decisionId);
+        else if ((result as { type?: unknown } | null)?.type === "policy.required")
+          throw new SwitchyardError("invalid_request", "Invalid tool policy wait result");
+      }
       keepWaiting = frame.method === "policy.status" && reply?.state === "pending";
+      if (keepWaiting && decisionId) this.beginDecision(decisionId);
       this.session.replyAgent({
         type: "agent.result",
         requestId: frame.requestId,
@@ -335,7 +401,8 @@ export class AgentBrokerHandle {
         result,
       });
     } catch (error) {
-      if (generation === this.generation && !this.closed)
+      if (generation === this.generation && !this.closed) {
+        if (decisionId && frame.method !== "policy.cancel") this.cancelDecision(decisionId);
         this.session.replyAgent({
           type: "agent.result",
           requestId: frame.requestId,
@@ -344,9 +411,12 @@ export class AgentBrokerHandle {
           ok: false,
           error: body(error),
         });
+      }
     } finally {
+      clearTimeout(timer);
       this.pending.delete(controller);
-      if (decisionId && !keepWaiting) this.endDecision(decisionId);
+      if (generation === this.generation && decisionId && !keepWaiting)
+        this.endDecision(decisionId);
     }
   }
 
@@ -394,7 +464,8 @@ export class AgentBrokerHandle {
   /** Coordinator loss keeps the local fence for evidence queries, but never authorizes work. */
   disconnect(): void {
     if (this.closed) return;
-    for (const controller of this.pending) controller.abort();
+    for (const controller of this.pending.keys())
+      controller.abort(new SwitchyardError("host_unreachable", "Coordinator disconnected"));
     this.clearDecisions();
     if (this.configuration) {
       this.configuration.coordinatorConnected = false;
@@ -466,6 +537,13 @@ export class AgentBrokerHandle {
   ): Promise<void> {
     const hello = this.helloRecord;
     if (!hello) throw stale();
+    // An unconfirmed configure may already have replaced Pi's controller. A new attempt
+    // therefore needs a new observable identity too, even with unchanged native/runtime IDs.
+    if (!this.configuration && this.configurationAttempted) {
+      this.controllerEpoch = randomUUID();
+      this.configurationAttempted = false;
+      this.publish("initializing");
+    }
     while (!this.broker.link.connected) await this.changed(deadline, signal);
     this.check(generation, signal);
     const link = this.broker.link;
@@ -482,6 +560,24 @@ export class AgentBrokerHandle {
         sessionUrl: null,
       };
     } else {
+      let policyBoundary: HostPolicyBoundary | undefined;
+      if (link.negotiatedFeatures.has("policies.v1") && hello.capabilities.toolPolicy) {
+        this.check(generation, signal);
+        try {
+          const boundary = await this.withSignal(this.session.getPolicyBoundary(), signal);
+          this.check(generation, signal);
+          const parsed = HostPolicyBoundary.safeParse(boundary);
+          if (!parsed.success) throw new Error("Invalid policy boundary");
+          policyBoundary = parsed.data;
+        } catch {
+          this.check(generation, signal);
+          throw new SwitchyardError(
+            "forbidden",
+            "Cannot verify workspace boundary for policy enforcement.",
+          );
+        }
+      }
+      this.check(generation, signal);
       const result = await link.requestAgent(
         this.sessionId,
         hello.nativeSessionId,
@@ -489,10 +585,12 @@ export class AgentBrokerHandle {
         "session.bind",
         {
           version: 1,
+          controllerEpoch: this.controllerEpoch,
           sessionFile: hello.sessionFile,
           mode: this.session.mode,
           capabilities: { ...hello.capabilities },
           policyRequired: this.required,
+          ...(policyBoundary === undefined ? {} : { policyBoundary }),
         },
         { context: { ...hello.context }, signal, timeoutMs: this.remaining(deadline) },
       );
@@ -505,12 +603,15 @@ export class AgentBrokerHandle {
         bind.sessionId !== this.sessionId ||
         bind.runtimeId !== hello.runtimeId ||
         bind.nativeSessionId !== hello.nativeSessionId ||
-        bind.policyRequired !== this.required
+        (this.required && !bind.policyRequired)
       )
         throw new SwitchyardError(
           "stale_control",
           "session.bind result substituted identity or protection",
         );
+      // Current coordinator rules can strengthen the original launch requirement before
+      // configure; an already-required runtime can never be downgraded.
+      this.required ||= bind.policyRequired;
       const features = new Set(bind.features);
       if (
         features.size !== bind.features.length ||
@@ -556,6 +657,17 @@ export class AgentBrokerHandle {
       previous.coordinatorConnected = true;
       this.publish(this.policyActive(hello, bind.features) ? "active" : "unsupported");
     } else {
+      if (previous) {
+        // Negotiation/configuration changed during reconnect: this is NOT a mere
+        // connection.update. Publish and centrally bind a fresh epoch before configure.
+        for (const controller of this.pending.keys()) controller.abort(stale());
+        this.clearDecisions();
+        this.configuration = null;
+        this.controllerEpoch = randomUUID();
+        this.configurationAttempted = false;
+        this.publish("initializing");
+        return this.bindAndConfigure(generation, signal, deadline);
+      }
       const configuration = {
         ...bind,
         features: [...bind.features],
@@ -563,6 +675,7 @@ export class AgentBrokerHandle {
         coordinatorConnected: true,
       };
       // No configuration or active state escapes until the *actual* local receipt is checked.
+      this.configurationAttempted = true;
       const receipt = await this.session.configureAgent(configuration, {
         signal,
         timeoutMs: this.remaining(deadline),
@@ -628,13 +741,22 @@ export class AgentBrokerHandle {
   private publish(policyState: AgentBrokerState["policyState"]): void {
     const hello = this.helloRecord;
     if (!hello) {
-      if (this.state) this.state = { ...this.state, policyState };
+      if (this.state)
+        this.state = {
+          ...this.state,
+          policyState,
+          agentTools: false,
+          messageDelivery: false,
+          policyPhases: [],
+        };
     } else {
+      if (!this.controllerEpoch) throw stale();
       const features = this.configuration?.features ?? [];
       this.state = {
         version: 1,
         runtimeId: hello.runtimeId,
         nativeSessionId: hello.nativeSessionId,
+        controllerEpoch: this.controllerEpoch,
         agentTools: features.includes("agentRequests.v1") && hello.capabilities.agentTools,
         messageDelivery:
           features.includes("agentRequests.v1") &&
@@ -647,16 +769,58 @@ export class AgentBrokerHandle {
     if (this.state) this.session.onState?.(structuredClone(this.state));
   }
   private beginDecision(id: string): void {
-    if (this.decisions.has(id)) return;
-    this.decisions.add(id);
-    this.session.setPolicyWaiting(id, true);
+    const previous = this.decisions.get(id);
+    clearTimeout(previous);
+    // A healthy ASK/status response renews communication, not the human approval deadline.
+    // No subsequent poll/response for 30 seconds means the client is no longer waiting.
+    const timer = setTimeout(() => this.cancelDecision(id), MAX_WAIT_MS);
+    timer.unref();
+    this.decisions.set(id, timer);
+    if (!previous) this.session.setPolicyWaiting(id, true);
   }
   private endDecision(id: string): void {
-    if (!this.decisions.delete(id)) return;
+    const timer = this.decisions.get(id);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.decisions.delete(id);
     this.session.setPolicyWaiting(id, false);
   }
+  private cancelDecision(id: string, notifyCoordinator = true): void {
+    const waiting = this.decisions.has(id);
+    this.endDecision(id);
+    for (const [controller, decisionId] of this.pending) {
+      if (decisionId === id)
+        controller.abort(new SwitchyardError("conflict", "Policy wait canceled"));
+    }
+    const configuration = this.configuration;
+    if (!waiting || !notifyCoordinator || !configuration) return;
+    // Never reuse a canceled poll's signal/deadline, nor queue cancellation behind a turn.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1000);
+    timer.unref();
+    void this.withSignal(
+      this.broker.link.requestAgent(
+        this.sessionId,
+        configuration.nativeSessionId,
+        configuration.runtimeId,
+        "policy.cancel",
+        { decisionId: id },
+        {
+          context: {
+            ...(this.helloRecord?.context ?? { humanInputId: null, causalMessageId: null }),
+          },
+          signal: controller.signal,
+          timeoutMs: 1000,
+          deadlineAt: new Date(Date.now() + 1000).toISOString(),
+        },
+      ),
+      controller.signal,
+    )
+      .catch(() => undefined)
+      .finally(() => clearTimeout(timer));
+  }
   private clearDecisions(): void {
-    for (const id of this.decisions) this.endDecision(id);
+    for (const id of this.decisions.keys()) this.cancelDecision(id);
   }
   private invalidate(): void {
     this.generation++;
@@ -664,7 +828,7 @@ export class AgentBrokerHandle {
     this.syncController?.abort();
     this.syncController = null;
     this.syncing = null;
-    for (const controller of this.pending) controller.abort();
+    for (const controller of this.pending.keys()) controller.abort();
     this.clearDecisions();
     this.notify();
   }

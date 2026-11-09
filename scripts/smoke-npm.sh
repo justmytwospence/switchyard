@@ -36,4 +36,58 @@ curl -fsS "http://localhost:$port/" | grep -q 'id="root"' || { echo "FAIL web ap
 echo "ok web app"
 curl -fsS "http://localhost:$port/api/setup" | grep -q '"passkey"' || { cat "$tmp/up.log"; echo "FAIL setup"; exit 1; }
 echo "ok sign-in"
+
+# Exercise the installed, separately bundled worker, not a source-tree fallback.
+node --input-type=module - "$bin" <<'JS'
+import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { Worker } from "node:worker_threads";
+const worker = new Worker(join(dirname(realpathSync(process.argv[2])), "policies", "worker.js"), {
+  execArgv: [],
+  resourceLimits: { maxOldGenerationSizeMb: 64, stackSizeMb: 4 },
+});
+const rule = {
+  id: "smoke", scope: "server", scopeId: null, priority: 0, revision: 1,
+  enabled: true, phases: ["request"], name: "Packaged worker smoke",
+  expression: '{"verdict":"ALLOW","reason":"packaged worker"}', builtIn: false,
+  createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+};
+const context = {
+  phase: "request", action: "inbox.read", tool: null,
+  request: { method: "inbox.read", args: {} }, task: null, target: null,
+  session: {
+    id: "session", hostId: "host", nativeSessionId: null, runtimeId: null,
+    profileId: "profile", projectId: null, taskId: null, runId: null,
+    controlMode: "human", controlRevision: 1, cwd: "/tmp", workspaceRoot: "/tmp",
+    repository: null, defaultBranch: null, readOnly: false,
+  },
+  cost: {
+    tokens: null, costUsd: null, maxTokens: null, maxCostUsd: null,
+    accounting: "unavailable", fresh: false, watermark: null, provider: null,
+    modelId: null, classification: "unclassified", expensive: true,
+  },
+};
+const timer = setTimeout(() => { console.error("FAIL packaged policy worker timeout"); process.exit(1); }, 7000);
+try {
+  await new Promise((resolve, reject) => {
+    worker.on("error", reject);
+    worker.on("exit", (code) => reject(new Error(`Policy worker exited: ${code}`)));
+    worker.on("message", (reply) => {
+      try {
+        if (reply.type === "ready") worker.postMessage({ id: 1, job: { type: "validate", rule } });
+        else if (reply.id === 1) {
+          assert.deepEqual(reply, { type: "result", id: 1, value: { valid: true, returnType: "map<string, string>" } });
+          worker.postMessage({ id: 2, job: { type: "evaluate", rules: [rule], context, countersByRule: {} } });
+        } else {
+          assert.equal(reply.type, "result");
+          assert.deepEqual(reply.value, [{ ruleId: "smoke", ruleRevision: 1, result: { verdict: "ALLOW", reason: "packaged worker" }, error: null }]);
+          resolve();
+        }
+      } catch (error) { reject(error); }
+    });
+  });
+} finally { clearTimeout(timer); await worker.terminate(); }
+console.log("ok packaged policy worker");
+JS
 echo "smoke test passed"

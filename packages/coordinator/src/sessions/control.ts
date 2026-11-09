@@ -1,8 +1,9 @@
 import { type Run, type Session, SwitchyardError } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
 import { getService } from "../services.js";
+import { putTaskState, raiseFailed, saveRun } from "../tasks/common.js";
 import { isRunAutomationCommand } from "../tasks/runs.js";
-import { TERMINAL_RUN_STATES } from "../tasks/state.js";
+import { isTerminalTask, TERMINAL_RUN_STATES } from "../tasks/state.js";
 
 /** Session control: take over, return to automation and stop. */
 
@@ -26,22 +27,47 @@ async function setControl(
     const session = ctx.store.sessions.require(sessionId);
     const run = requireRun(ctx, session);
     const now = ctx.store.nowIso();
+    const task = ctx.store.tasks.get(run.taskId);
+    const resumingPolicyPause =
+      mode === "automation" &&
+      run.state === "interrupted" &&
+      run.controlMode === "human" &&
+      !run.endedAt &&
+      task?.currentRunId === run.id &&
+      !isTerminalTask(task.state) &&
+      run.outcome?.kind === "blocked";
+    if (resumingPolicyPause) putTaskState(ctx, task, task.state, { blocked: null });
     const updated = ctx.store.putRun(
-      { ...run, controlMode: mode, controlRevision: run.controlRevision + 1, updatedAt: now },
+      {
+        ...run,
+        controlMode: mode,
+        controlRevision: run.controlRevision + 1,
+        updatedAt: now,
+        ...(resumingPolicyPause ? { state: "running" as const, outcome: null } : {}),
+      },
       session.projectId ?? undefined,
     );
     return { session, run: updated };
   });
+  await propagateControl(ctx, session, run, mode, "Withdrawn: a person took over");
+  return { session, run };
+}
+
+/** Propagate only after committing the control revision; never abort the live turn. */
+async function propagateControl(
+  ctx: CoordinatorContext,
+  session: Session | undefined,
+  run: Run,
+  mode: "automation" | "human",
+  reason: string,
+): Promise<void> {
   if (mode === "human") {
     getService(ctx, "dispatcher")?.onTakeover(run.id);
     // A host that is away must not run this run's automated follow-ups when it is back.
-    ctx.hostHub.withdrawMatching(
-      session.hostId,
-      (id) => isRunAutomationCommand(run.id, id),
-      "Withdrawn: a person took over",
-    );
+    if (run.hostId)
+      ctx.hostHub.withdrawMatching(run.hostId, (id) => isRunAutomationCommand(run.id, id), reason);
   }
-  if (ctx.hostHub.isConnected(session.hostId)) {
+  if (session && ctx.hostHub.isConnected(session.hostId)) {
     try {
       await ctx.hostHub.request(session.hostId, {
         type: "session.setControl",
@@ -52,10 +78,58 @@ async function setControl(
     } catch (err) {
       // The revision is already recorded; the host learns it on the next automated command
       // (which it rejects as stale_control). Report but do not undo the takeover.
-      ctx.log.warn({ err, sessionId }, "session.setControl failed");
+      ctx.log.warn({ err, sessionId: session.id }, "session.setControl failed");
     }
   }
-  return { session, run };
+}
+
+/**
+ * Pause invalidated automation for policy review, joining the caller's synchronous transaction.
+ * Propagation is registered after commit so tombstones/control changes become durable together.
+ * A newer takeover, completed task or replaced run must never be regressed by a late failure.
+ */
+export function pauseRunForPolicy(
+  ctx: CoordinatorContext,
+  runId: string,
+  reason: string,
+): Promise<Run> {
+  let propagation = Promise.resolve();
+  const run = ctx.store.tx(() => {
+    const run = ctx.store.runs.require(runId);
+    const task = ctx.store.tasks.get(run.taskId);
+    if (
+      run.controlMode !== "automation" ||
+      TERMINAL_RUN_STATES.includes(run.state) ||
+      task?.currentRunId !== run.id ||
+      isTerminalTask(task.state)
+    )
+      return run;
+    const paused = saveRun(ctx, run, {
+      controlMode: "human",
+      controlRevision: run.controlRevision + 1,
+      state: "interrupted",
+      outcome: { kind: "blocked", summary: reason },
+    });
+    const blocked = putTaskState(ctx, task, task.state, { blocked: { reason } });
+    raiseFailed(ctx, blocked, reason);
+    const session = run.sessionId ? ctx.store.sessions.get(run.sessionId) : undefined;
+    propagation = new Promise<void>((resolve) => {
+      ctx.store.afterCommit(() => {
+        void propagateControl(
+          ctx,
+          session?.runId === run.id ? session : undefined,
+          paused,
+          "human",
+          reason,
+        ).then(resolve, (err) => {
+          ctx.log.warn({ err, runId }, "policy pause propagation failed");
+          resolve();
+        });
+      });
+    });
+    return paused;
+  });
+  return propagation.then(() => run);
 }
 
 /**

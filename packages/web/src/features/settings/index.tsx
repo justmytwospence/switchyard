@@ -13,6 +13,7 @@ import { DevicesSection } from "./DevicesSection";
 import { DiagnosticsSection } from "./DiagnosticsSection";
 import { HostDetail, HostsSection } from "./HostsSection";
 import { NotificationsSection } from "./NotificationsSection";
+import { PoliciesSection } from "./PoliciesSection";
 import { ProfilesSection } from "./ProfilesSection";
 import { ProjectDetail } from "./ProjectDetail";
 import { ProjectCreate, ProjectsSection } from "./ProjectsSection";
@@ -42,6 +43,7 @@ export default function SettingsView() {
       <Route path="projects/new" element={<ProjectCreate />} />
       <Route path="projects/:projectId" element={<ProjectDetail />} />
       <Route path="profiles" element={<ProfilesSection />} />
+      <Route path="policies" element={<PoliciesSection />} />
       <Route path="adapters" element={<AdaptersSection />} />
       <Route path="notifications" element={<NotificationsSection />} />
       <Route path="backups" element={<BackupsSection />} />

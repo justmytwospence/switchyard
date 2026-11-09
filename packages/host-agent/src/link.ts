@@ -3,13 +3,15 @@ import { EventEmitter } from "node:events";
 import {
   AGENT_FRAME_MAX_BYTES,
   type AgentMethod,
-  AgentRequestFrame,
+  type AgentRequestFrame,
   type AgentResultFrame,
   CoordinatorToHost,
+  HostAgentRequestFrame,
   type HostCommand,
   type HostEvent,
   type HostEventType,
   type HostToCoordinator,
+  type HostToolPolicyContext,
   newId,
   type ProviderUsage,
   type Receipt,
@@ -32,8 +34,12 @@ export interface AgentRequestOptions {
   toolCallId?: string;
   /** Trusted bridge context, supplied by the broker rather than tool arguments. */
   context?: AgentRequestFrame["context"];
+  /** Host-only tool attestation, never sourced from local frame/args fields. */
+  policyContext?: HostToolPolicyContext;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Fixed request deadline from the local channel; retries must retain it. */
+  deadlineAt?: string;
 }
 
 interface PendingAgentRequest {
@@ -284,7 +290,16 @@ export class CoordinatorLink {
     if (this.pendingAgent.size >= 256) {
       throw new SwitchyardError("rate_limited", "Too many pending agent requests");
     }
-    const parsed = AgentRequestFrame.safeParse({
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+      throw new SwitchyardError("invalid_request", "A finite positive request timeout is required");
+    const suppliedDeadline = opts.deadlineAt === undefined ? Infinity : Date.parse(opts.deadlineAt);
+    if (!HostAgentRequestFrame.shape.deadlineAt.safeParse(opts.deadlineAt).success)
+      throw new SwitchyardError("invalid_request", "Invalid agent request deadline");
+    const deadline = Math.min(Date.now() + Math.min(timeoutMs, 30_000), suppliedDeadline);
+    if (deadline <= Date.now())
+      throw new SwitchyardError("timeout", "Agent request deadline expired");
+    const parsed = HostAgentRequestFrame.safeParse({
       type: "agent.request",
       requestId: randomUUID(),
       sessionId,
@@ -294,6 +309,8 @@ export class CoordinatorLink {
       toolCallId: opts.toolCallId,
       method,
       args,
+      deadlineAt: new Date(deadline).toISOString(),
+      ...(opts.policyContext === undefined ? {} : { policyContext: opts.policyContext }),
     });
     if (
       !parsed.success ||
@@ -302,7 +319,7 @@ export class CoordinatorLink {
       throw new SwitchyardError("invalid_request", "Invalid agent request or missing toolCallId");
     }
     const frame = parsed.data;
-    // Check the actual UTF-8 wire size, not the number of JS characters.
+    // Check the ENRICHED host frame's actual UTF-8 size, including trusted policy context.
     let encoded: string;
     try {
       encoded = JSON.stringify(frame);
@@ -323,7 +340,7 @@ export class CoordinatorLink {
       const abort = () => finish(opts.signal?.reason ?? new Error("Agent request aborted"));
       const timer = setTimeout(
         () => finish(new SwitchyardError("timeout", "Agent request timed out")),
-        opts.timeoutMs ?? 30_000,
+        Math.max(0, deadline - Date.now()),
       );
       timer.unref();
       this.pendingAgent.set(frame.requestId, {

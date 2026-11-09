@@ -8,6 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { CoordinatorContext } from "../context.js";
 import { deviceOf, parse } from "../http.js";
+import { requireService } from "../services.js";
 import { requireConnected } from "../sessions/service.js";
 
 const ListQuery = z.object({
@@ -36,7 +37,8 @@ export function registerInteractionRoutes(app: FastifyInstance, ctx: Coordinator
   );
 
   /**
-   * Answer through the host (authoritative). 200 `{status: "answered", interaction}` or 409
+   * Answer through the owner (coordinator for policies, host otherwise). 200
+   * `{status: "answered", interaction}` or 409
    * `already_answered` with `details.interaction`. Never resolves optimistically. An unsupported
    * interaction accepts one of its alternatives (`action` `abort` or `message`) once.
    */
@@ -53,6 +55,25 @@ export function registerInteractionRoutes(app: FastifyInstance, ctx: Coordinator
       throw new SwitchyardError("already_answered", "This question was already answered", {
         interaction,
       });
+    }
+    if (interaction.permission?.kind === "policy") {
+      if (body.response.kind !== "confirm") {
+        throw new SwitchyardError("invalid_request", "Policy approvals require a confirm response");
+      }
+      const result = AnswerResult.parse(
+        await requireService(ctx, "policies").answer(
+          interaction.permission.decisionId,
+          body.revision,
+          body.response.confirmed,
+          device.id,
+        ),
+      );
+      if (result.status === "already_answered") {
+        throw new SwitchyardError("already_answered", "This question was already answered", {
+          interaction: result.interaction,
+        });
+      }
+      return result;
     }
     const session = ctx.store.sessions.require(interaction.sessionId);
     requireConnected(ctx, session.hostId);

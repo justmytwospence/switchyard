@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -35,6 +36,11 @@ import {
 } from "@switchyard/pi-runtime";
 import {
   type AnswerResult,
+  canonicalPolicyJson,
+  type HostPolicyBoundary,
+  HostPolicySampleRequest,
+  HostPolicySampleResult,
+  HostToolPolicyContext,
   type ImportableSession,
   type Interaction,
   type InteractionResponse,
@@ -42,6 +48,7 @@ import {
   type NativeHandle,
   newId,
   type Panel,
+  PolicyEvaluateRequest,
   type Profile,
   type PromptCacheInfo,
   type RuntimeState,
@@ -62,6 +69,12 @@ import type { HostDb } from "./db/index.js";
 import type { CoordinatorLink } from "./link.js";
 import type { Logger } from "./logger.js";
 import type { MessageDeliveryBridge } from "./message-delivery.js";
+import {
+  classifyToolSafety,
+  collectToolPolicyContext,
+  resolvePolicyBoundary,
+  unverifiedBoundary,
+} from "./policy-context.js";
 
 export const RESTART_NOTICE = "Host agent restarted while Pi was working; resume to continue";
 export const RESTART_DETAIL = "Host agent restarted";
@@ -119,6 +132,8 @@ export interface HostSessionRecord {
   title: string;
   subtitle: string | null;
   cwd: string;
+  /** Original raw launch boundary, independent of realpath and retained across resumes/restarts. */
+  workspaceRoot?: string;
   projectId: string | null;
   workspaceId: string | null;
   runId: string | null;
@@ -210,6 +225,10 @@ interface Live {
   ms: ManagedSession | null;
   broker: AgentBrokerHandle | null;
   binding: Promise<void> | null;
+  classifyPolicySample?: (
+    request: HostPolicySampleRequest,
+    signal?: AbortSignal,
+  ) => Promise<HostPolicySampleResult>;
   registry: AdapterRegistry | null;
   adapters: AdapterSession | null;
   claims: Map<string, ClaimedInteraction>;
@@ -219,6 +238,14 @@ interface Live {
   statuses: Map<string, string>;
   subagents: Map<string, { id: string; order: number }>;
   awaitingSettled: boolean;
+  deferredIdle: { detail: string | null } | null;
+  /** A host-generated accounting epoch, unrelated to the bridge extension's runtime UUID. */
+  accountingRuntimeId: string;
+  bridgeRuntimeId: string | null;
+  accountingNativeSessionId: string | null;
+  settleSeq: number;
+  usageEpoch: number;
+  statsRequest: number;
   /** Terminal sessions: the open "waiting in the terminal" interaction. */
   terminalPrompt: string | null;
 }
@@ -350,8 +377,16 @@ export class SessionSupervisor {
       "SELECT json FROM sessions WHERE json_extract(json, '$.runtime') IN (?, ?, ?, ?)",
       LIVE_RUNTIMES,
     )) {
+      this.initializeWorkspaceRoot(rec);
       this.records.set(rec.id, rec);
     }
+  }
+
+  /** Legacy records started in their original cwd; never infer a broader repository root. */
+  private initializeWorkspaceRoot(rec: HostSessionRecord): void {
+    if (rec.workspaceRoot !== undefined) return;
+    rec.workspaceRoot = rec.cwd;
+    this.db.tx(() => this.saveRecord(rec));
   }
 
   /** A session's record; startup loads only live ones, the rest load on first use. */
@@ -359,7 +394,10 @@ export class SessionSupervisor {
     let rec = this.records.get(id);
     if (!rec) {
       rec = this.db.getJson<HostSessionRecord>("SELECT json FROM sessions WHERE id = ?", [id]);
-      if (rec) this.records.set(id, rec);
+      if (rec) {
+        this.initializeWorkspaceRoot(rec);
+        this.records.set(id, rec);
+      }
     }
     return rec;
   }
@@ -564,6 +602,12 @@ export class SessionSupervisor {
   }
 
   private newLive(rec: HostSessionRecord): Live {
+    // A new attachment has its own accounting epoch, even when Pi's bridge survived reattach.
+    // Drop prior evidence before the starting/reattached record can be published.
+    if (rec.stats?.watermark) {
+      const { watermark: _, ...stats } = rec.stats;
+      rec.stats = stats;
+    }
     return {
       rec,
       ms: null,
@@ -577,6 +621,13 @@ export class SessionSupervisor {
       statuses: new Map(),
       subagents: new Map(),
       awaitingSettled: false,
+      deferredIdle: null,
+      accountingRuntimeId: randomUUID(),
+      bridgeRuntimeId: null,
+      accountingNativeSessionId: rec.nativeHandle?.sessionId ?? null,
+      settleSeq: 0,
+      usageEpoch: 0,
+      statsRequest: 0,
       terminalPrompt: null,
     };
   }
@@ -603,6 +654,22 @@ export class SessionSupervisor {
 
   record(sessionId: string): HostSessionRecord | undefined {
     return this.getRecord(sessionId);
+  }
+
+  /** Tester samples use the independent read lane; never start/revive or prompt Pi. */
+  async classifyPolicySample(
+    input: HostPolicySampleRequest,
+    signal?: AbortSignal,
+  ): Promise<HostPolicySampleResult> {
+    signal?.throwIfAborted();
+    const request = HostPolicySampleRequest.parse(input);
+    const l = this.live.get(request.sessionId);
+    if (!l?.ms?.isAlive || !l.broker || !l.classifyPolicySample)
+      throw new SwitchyardError(
+        "unsupported_capability",
+        "Select a session with policy support to test this rule.",
+      );
+    return l.classifyPolicySample(request, signal);
   }
 
   isLive(sessionId: string): boolean {
@@ -894,6 +961,7 @@ export class SessionSupervisor {
       title: p.title,
       subtitle: prev?.subtitle ?? null,
       cwd: p.workspacePath,
+      workspaceRoot: prev ? prev.workspaceRoot : p.workspacePath,
       projectId: p.projectId ?? prev?.projectId ?? null,
       workspaceId: prev?.workspaceId ?? null,
       runId: p.runId ?? prev?.runId ?? null,
@@ -975,7 +1043,7 @@ export class SessionSupervisor {
     } catch (err) {
       if (ms.process) this.spawned++;
       // A protected startup must not leave an unprotected live Pi behind.
-      if (policyRequired && !this.closing) await ms.stop();
+      if (policyRequired && !this.closing && ms.isAlive) await ms.stop();
       this.teardown(l);
       if (signal.aborted) return this.canceledStart(l);
       if (this.closing && rec.terminal) {
@@ -1509,7 +1577,9 @@ export class SessionSupervisor {
 
   private wire(l: Live, ms: ManagedSession): void {
     const rec = l.rec;
-    // Persisted protection is not evidence of this controller's current binding.
+    this.invalidateUsage(l);
+    // Persisted protection is not evidence of this controller's current binding. Preserve
+    // its stable source (including controllerEpoch) until the broker publishes a real replacement.
     if (rec.bridge)
       rec.bridge = {
         ...rec.bridge,
@@ -1518,24 +1588,161 @@ export class SessionSupervisor {
         messageDelivery: false,
         policyPhases: [],
       };
+    let policyGeneration = 0;
+    let policyIdentity: { runtimeId: string; nativeSessionId: string } | null = null;
+    // Repeated hellos/reconnects may not repin the same native/runtime identity.
+    const policyBoundaries = new Map<string, HostPolicyBoundary>();
+    const policyFence = (signal?: AbortSignal) => {
+      const generation = policyGeneration;
+      const identity = policyIdentity;
+      const cwd = rec.cwd;
+      const workspaceRoot = rec.workspaceRoot;
+      const check = () => {
+        signal?.throwIfAborted();
+        if (
+          this.closing ||
+          this.live.get(rec.id) !== l ||
+          l.ms !== ms ||
+          !ms.isAlive ||
+          !identity ||
+          policyIdentity !== identity ||
+          policyGeneration !== generation ||
+          rec.cwd !== cwd ||
+          rec.workspaceRoot !== workspaceRoot
+        )
+          throw new SwitchyardError(
+            "stale_control",
+            "Bridge identity or local binding is obsolete",
+          );
+      };
+      check();
+      if (workspaceRoot === undefined) throw unverifiedBoundary();
+      return {
+        check,
+        cwd,
+        workspaceRoot,
+        key: JSON.stringify([identity!.runtimeId, identity!.nativeSessionId]),
+      };
+    };
+    const verifiedBoundary = async (fence: ReturnType<typeof policyFence>) => {
+      fence.check();
+      const boundary = await resolvePolicyBoundary(fence.cwd, fence.workspaceRoot);
+      fence.check();
+      const pinned = policyBoundaries.get(fence.key);
+      if (pinned && canonicalPolicyJson(pinned) !== canonicalPolicyJson(boundary))
+        throw unverifiedBoundary();
+      return boundary;
+    };
     const handle = this.opts.broker?.attach({
       sessionId: rec.id,
       mode: ms.transport,
       policyRequired: rec.policyRequired === true,
+      getPolicyBoundary: async () => {
+        const fence = policyFence();
+        const boundary = await verifiedBoundary(fence);
+        fence.check();
+        policyBoundaries.set(fence.key, boundary);
+        return { ...boundary };
+      },
+      getToolPolicyContext: async (input, signal) => {
+        const fence = policyFence(signal);
+        const request = PolicyEvaluateRequest.parse(input);
+        // A tool action can only verify a previously bound boundary, never establish one.
+        if (!policyBoundaries.has(fence.key)) throw unverifiedBoundary();
+        const context = await collectToolPolicyContext(request.tool, {
+          verifyBoundary: () => verifiedBoundary(fence),
+          check: fence.check,
+          signal,
+          classify: classifyToolSafety,
+        });
+        fence.check();
+        return HostToolPolicyContext.parse({
+          version: 1,
+          toolCallId: request.toolCallId,
+          ...context,
+        });
+      },
       configureAgent: (configuration, options) => ms.configureAgent(configuration, options),
       bridgeRequest: (method, args, options) => ms.bridgeRequest(method, args, options),
       replyAgent: (frame) => ms.replyAgent(frame),
       setPolicyWaiting: (decisionId, waiting) => ms.setPolicyWaiting(decisionId, waiting),
       onState: (state) => {
         if (l.ms !== ms || this.live.get(rec.id) !== l) return;
+        // Broker publishes the new controllerEpoch while initializing, before configure/active.
+        // Persist that exact host proof; ManagedSession/Pi must never synthesize or overwrite it.
         rec.bridge = state;
         this.db.tx(() => this.saveAndEmit(rec));
         if (state.messageDelivery) this.opts.onDeliveryWake?.(rec.id);
       },
     });
     l.broker = handle ?? null;
+    l.classifyPolicySample = async (request, signal) => {
+      const snapshot = handle?.snapshot();
+      const configuration = snapshot?.configuration;
+      if (
+        !configuration ||
+        snapshot?.bridge?.policyState !== "active" ||
+        !snapshot.bridge.policyPhases.includes("tool_call") ||
+        !configuration.features.includes("policies.v1") ||
+        !configuration.coordinatorConnected
+      )
+        throw new SwitchyardError(
+          "unsupported_capability",
+          "Select a session with policy support to test this rule.",
+        );
+      const fence = policyFence(signal);
+      const check = () => {
+        fence.check();
+        const current = handle?.snapshot();
+        const c = current?.configuration;
+        if (
+          request.sessionId !== rec.id ||
+          request.nativeSessionId !== configuration.nativeSessionId ||
+          request.runtimeId !== configuration.runtimeId ||
+          policyIdentity?.nativeSessionId !== request.nativeSessionId ||
+          policyIdentity?.runtimeId !== request.runtimeId ||
+          l.broker !== handle ||
+          c?.bindingId !== configuration.bindingId ||
+          c?.nativeSessionId !== configuration.nativeSessionId ||
+          c?.runtimeId !== configuration.runtimeId ||
+          !c?.coordinatorConnected ||
+          current?.bridge?.policyState !== "active" ||
+          !current.bridge.policyPhases.includes("tool_call")
+        )
+          throw new SwitchyardError(
+            "stale_control",
+            "Bridge identity or local binding is obsolete",
+          );
+      };
+      check();
+      if (!policyBoundaries.has(fence.key)) throw unverifiedBoundary();
+      const context = await collectToolPolicyContext(request.tool, {
+        verifyBoundary: () => verifiedBoundary(fence),
+        check,
+        signal,
+        classify: classifyToolSafety,
+      });
+      check();
+      return HostPolicySampleResult.parse({
+        sessionId: request.sessionId,
+        nativeSessionId: request.nativeSessionId,
+        runtimeId: request.runtimeId,
+        sampleId: request.sampleId,
+        ...context,
+      });
+    };
     // These lanes must never wait behind a prompt, slash command or adapter callback.
     ms.on("bridge_features", (hello) => {
+      policyGeneration++;
+      policyIdentity = { runtimeId: hello.runtimeId, nativeSessionId: hello.nativeSessionId };
+      if (
+        l.bridgeRuntimeId !== hello.runtimeId ||
+        l.accountingNativeSessionId !== hello.nativeSessionId
+      ) {
+        this.invalidateUsage(l);
+        l.bridgeRuntimeId = hello.runtimeId;
+        l.accountingNativeSessionId = hello.nativeSessionId;
+      }
       l.binding = handle?.hello(hello) ?? null;
       void l.binding?.catch((err: unknown) =>
         this.opts.log.warn(
@@ -1547,7 +1754,12 @@ export class SessionSupervisor {
     ms.on("agent_request", (frame) => {
       void handle?.request(frame);
     });
-    ms.on("bridge_lost", () => handle?.lost());
+    ms.on("bridge_lost", () => {
+      policyGeneration++;
+      policyIdentity = null;
+      this.invalidateUsage(l);
+      handle?.lost();
+    });
     ms.on("item", (item) => {
       rec.nextOrder = Math.max(rec.nextOrder, ms.nextOrder, item.order + 1);
       rec.lastActivityAt = nowIso();
@@ -1564,36 +1776,35 @@ export class SessionSupervisor {
     });
     ms.on("stream", (delta) => this.link.sendStream(delta));
     ms.on("runtime", ({ runtime, detail }) => {
+      if (l.ms !== ms || this.live.get(rec.id) !== l) return;
       const prevRuntime = rec.runtime;
+      if (runtime === "idle" && (prevRuntime === "running" || prevRuntime === "waiting_input")) {
+        // Keep the record busy too: queue/model/native events must not leak an early idle.
+        l.deferredIdle = { detail };
+        l.awaitingSettled = true;
+        queueMicrotask(() => {
+          if (!l.awaitingSettled || l.ms !== ms || this.live.get(rec.id) !== l) return;
+          // Some idle transitions (e.g. closing a dialog) have no settled event.
+          this.invalidateUsage(l);
+          this.db.tx(() => this.saveAndEmit(rec));
+        });
+        return;
+      }
+      l.deferredIdle = null;
+      this.invalidateUsage(l);
       rec.runtime = runtime;
       rec.runtimeDetail = detail;
       if (runtime !== "running" && runtime !== "waiting_input") {
         rec.queue = runtime === "idle" ? rec.queue : { steering: [], followUp: [] };
       }
-      if (runtime === "idle" && (prevRuntime === "running" || prevRuntime === "waiting_input")) {
-        // `settled` follows synchronously; emit once, with the settle info.
-        l.awaitingSettled = true;
-        queueMicrotask(() => {
-          if (!l.awaitingSettled) return;
-          l.awaitingSettled = false;
-          this.db.tx(() => this.saveAndEmit(rec));
-        });
-        return;
-      }
       this.db.tx(() => this.saveAndEmit(rec));
       if (runtime === "idle") this.opts.onDeliveryWake?.(rec.id);
     });
     ms.on("settled", (info: SettledInfo) => {
+      if (l.ms !== ms || this.live.get(rec.id) !== l) return;
       l.awaitingSettled = false;
-      if (info.lastAssistantText !== null) rec.lastAssistantText = info.lastAssistantText;
-      rec.lastActivityAt = nowIso();
-      this.opts.onDeliveryWake?.(rec.id);
-      this.db.tx(() =>
-        this.saveAndEmit(rec, {
-          settled: { aborted: info.aborted, lastAssistantText: info.lastAssistantText },
-        }),
-      );
-      void this.refreshStats(l);
+      l.settleSeq++;
+      void this.settleUsage(l, ms, info);
     });
     ms.on("queue", (q) => {
       rec.queue = q;
@@ -1601,6 +1812,12 @@ export class SessionSupervisor {
       this.opts.onDeliveryWake?.(rec.id);
     });
     ms.on("native", (handle) => {
+      if (policyIdentity && policyIdentity.nativeSessionId !== handle.sessionId) {
+        policyGeneration++;
+        policyIdentity = null;
+      }
+      if (l.accountingNativeSessionId !== handle.sessionId) this.invalidateUsage(l);
+      l.accountingNativeSessionId = handle.sessionId;
       rec.nativeHandle = handle;
       this.db.tx(() => this.saveAndEmit(rec));
     });
@@ -1637,6 +1854,8 @@ export class SessionSupervisor {
     ms.on("bridge", (b) => this.enqueue(l, () => this.onBridge(l, b)));
     ms.on("pi_event", (ev) => this.enqueue(l, () => this.onPiEvent(l, ev)));
     ms.on("exit", () => {
+      policyGeneration++;
+      policyIdentity = null;
       handle?.close();
       // Runtime (stopped/interrupted) was already recorded by the runtime handler.
       if (rec.terminal) {
@@ -1673,12 +1892,101 @@ export class SessionSupervisor {
     });
   }
 
+  /** Invalidate in-flight reads and never carry completed-usage evidence across work/bindings. */
+  private invalidateUsage(l: Live): void {
+    l.usageEpoch++;
+    l.awaitingSettled = false;
+    if (l.rec.stats?.watermark) {
+      const { watermark: _, ...stats } = l.rec.stats;
+      l.rec.stats = stats;
+    }
+    if (l.deferredIdle) {
+      l.rec.runtime = "idle";
+      l.rec.runtimeDetail = l.deferredIdle.detail;
+      l.deferredIdle = null;
+    }
+  }
+
+  private async settleUsage(l: Live, ms: ManagedSession, info: SettledInfo): Promise<void> {
+    const idle = l.deferredIdle;
+    if (!idle || l.ms !== ms || this.live.get(l.rec.id) !== l) return;
+    const epoch = ++l.usageEpoch;
+    const watermark = { runtimeId: l.accountingRuntimeId, settleSeq: l.settleSeq };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stats: SessionStats | null = null;
+    try {
+      const s = await Promise.race([
+        ms.stats(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Completed usage refresh timed out")), 2000);
+        }),
+      ]);
+      stats = { tokens: s.tokens, costUsd: s.costUsd, context: s.context, watermark };
+    } catch {
+      // Retain display totals if available, but never label them fresh.
+    } finally {
+      clearTimeout(timer);
+    }
+    if (
+      l.ms !== ms ||
+      this.live.get(l.rec.id) !== l ||
+      l.usageEpoch !== epoch ||
+      l.accountingRuntimeId !== watermark.runtimeId ||
+      l.settleSeq !== watermark.settleSeq ||
+      l.deferredIdle !== idle
+    )
+      return;
+    const rec = l.rec;
+    l.deferredIdle = null;
+    rec.runtime = "idle";
+    rec.runtimeDetail = idle.detail;
+    if (stats) rec.stats = stats;
+    else if (rec.stats) {
+      const { watermark: _, ...previous } = rec.stats;
+      rec.stats = previous;
+    }
+    if (info.lastAssistantText !== null) rec.lastAssistantText = info.lastAssistantText;
+    rec.lastActivityAt = nowIso();
+    this.db.tx(() =>
+      this.saveAndEmit(rec, {
+        settled: {
+          aborted: info.aborted,
+          lastAssistantText: info.lastAssistantText,
+          ...(stats ? { watermark } : {}),
+        },
+      }),
+    );
+    this.opts.onDeliveryWake?.(rec.id);
+  }
+
   private async refreshStats(l: Live): Promise<void> {
     const ms = l.ms;
-    if (!ms?.isAlive) return;
+    // Settlement exclusively owns its completed snapshot while its refresh is pending.
+    if (!ms?.isAlive || l.deferredIdle) return;
+    const epoch = l.usageEpoch;
+    const request = ++l.statsRequest;
     try {
       const s = await ms.stats();
-      const stats = { tokens: s.tokens, costUsd: s.costUsd, context: s.context };
+      if (
+        l.ms !== ms ||
+        this.live.get(l.rec.id) !== l ||
+        l.usageEpoch !== epoch ||
+        l.statsRequest !== request ||
+        l.deferredIdle
+      )
+        return;
+      // Context can change while idle (e.g. selecting a model). Keep completed-usage evidence
+      // only if the completed totals themselves are unchanged.
+      const watermark =
+        l.rec.stats?.tokens === s.tokens && l.rec.stats?.costUsd === s.costUsd
+          ? l.rec.stats.watermark
+          : undefined;
+      const stats = {
+        tokens: s.tokens,
+        costUsd: s.costUsd,
+        context: s.context,
+        ...(watermark ? { watermark } : {}),
+      };
       if (JSON.stringify(stats) === JSON.stringify(l.rec.stats)) return;
       l.rec.stats = stats;
       this.db.tx(() => this.saveAndEmit(l.rec));

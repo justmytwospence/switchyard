@@ -291,6 +291,9 @@ importers:
       '@fastify/websocket':
         specifier: ^11.3.4
         version: 11.3.4
+      '@marcbachmann/cel-js':
+        specifier: 8.0.0
+        version: 8.0.0
       '@simplewebauthn/server':
         specifier: ^14.0.3
         version: 14.0.3
@@ -352,6 +355,9 @@ importers:
       pino:
         specifier: ^10.4.0
         version: 10.4.0
+      shell-quote:
+        specifier: 1.12.0
+        version: 1.12.0
       ws:
         specifier: ^8.22.0
         version: 8.22.0
@@ -1321,6 +1327,11 @@ packages:
   '@lukeed/ms@2.0.2':
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
     engines: {node: '>=8'}
+
+  '@marcbachmann/cel-js@8.0.0':
+    resolution: {integrity: sha512-oaTrAziGr3zDLFiMt/yLU3nZuRMawyWQB5X1a0I7s9eGy3JYzX9l8ZXXHyMd64nzbeVFZTewuUShwsZQdK6UCA==}
+    engines: {node: '>=20.19.0'}
+    hasBin: true
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     resolution: {integrity: sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==}
@@ -3502,6 +3513,10 @@ packages:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
 
+  shell-quote@1.12.0:
+    resolution: {integrity: sha512-PcByqNyT/38F2kDNi006HAMRJaULuBzq/FOsw3qdZvX/GA9W/jamDaRskgHjubHiftXK5sIFxLNkvrXUwcof6Q==}
+    engines: {node: '>= 0.4'}
+
   shiki@4.5.0:
     resolution: {integrity: sha512-OcRW72ngQvc+MSVWBRIovC/BTW589iUE/Vxav7VeM4RcY9MUjqB+IR6ILG1k9nuW6LiG/nct9uma4/MBtnZbmQ==}
     engines: {node: '>=20'}
@@ -4910,6 +4925,8 @@ snapshots:
   '@levischuck/tiny-cbor@0.2.11': {}
 
   '@lukeed/ms@2.0.2': {}
+
+  '@marcbachmann/cel-js@8.0.0': {}
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
@@ -7271,6 +7288,8 @@ snapshots:
       shebang-regex: 3.0.0
 
   shebang-regex@3.0.0: {}
+
+  shell-quote@1.12.0: {}
 
   shiki@4.5.0:
     dependencies:

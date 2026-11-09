@@ -22,6 +22,7 @@ import { registerAgentTools } from "./agent-tools.js";
 import { LineSplitter } from "./lines.js";
 import { createMessageDelivery } from "./message-delivery.js";
 import { modelInfo } from "./pi-model.js";
+import { installPolicyHooks } from "./policy.js";
 
 const PATCHED = Symbol.for("switchyard.terminal");
 const WRAPPED = Symbol.for("switchyard.terminal.wrapped");
@@ -118,6 +119,7 @@ export default function switchyardTerminal(pi: any): void {
   let socket: Socket | null = null;
   let remoteBacked = 0;
   let nativeDialogs = 0;
+  let toolPolicy = false;
   const channel = createAgentChannel({
     send: (record) => {
       try {
@@ -141,10 +143,11 @@ export default function switchyardTerminal(pi: any): void {
           return false;
         }
       })(),
-      toolPolicy: false,
+      toolPolicy,
     }),
     policyRequired: process.env.SWITCHYARD_POLICY_REQUIRED === "1",
   });
+  toolPolicy = installPolicyHooks(pi, channel);
   registerAgentTools(pi, channel);
   const delivery = createMessageDelivery(pi, {
     channel,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { GitHubIssue, HostGitHub, WorkspaceGitHub } from "./github.js";
-import { PolicyPermission, PolicyPhase } from "./policies.js";
+import { CompletedUsageWatermark, PolicyPermission, PolicyPhase } from "./policies.js";
 import { UINodeSchema } from "./ui.js";
 
 const Iso = z.string();
@@ -276,6 +276,8 @@ export type NativeHandle = z.infer<typeof NativeHandle>;
 export const SessionStats = z.object({
   tokens: z.number().nullable(),
   costUsd: z.number().nullable(),
+  /** Completed usage, refreshed for this exact settlement; absent on older hosts or failure. */
+  watermark: CompletedUsageWatermark.optional(),
   context: ContextUsage.nullable().optional(),
 });
 export type SessionStats = z.infer<typeof SessionStats>;
@@ -331,6 +333,8 @@ export const Session = z.object({
       version: z.literal(1),
       runtimeId: Id,
       nativeSessionId: Id,
+      /** Host-generated local-controller identity, not Pi's private binding credential. */
+      controllerEpoch: Id.optional(),
       agentTools: z.boolean(),
       messageDelivery: z.boolean(),
       policyState: z.enum(["initializing", "active", "unsupported", "lost"]),

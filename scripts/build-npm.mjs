@@ -95,6 +95,18 @@ await build({
   logLevel: "warning",
 });
 
+// CEL compilation and execution must stay off the CLI/coordinator thread.
+await build({
+  entryPoints: [join(root, "packages", "coordinator", "dist", "policies", "worker.js")],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node24",
+  outfile: join(out, "dist", "policies", "worker.js"),
+  external: [...externals, ...externals.map((d) => `${d}/*`)],
+  logLevel: "warning",
+});
+
 // The extensions load their sibling modules (pi-model.js, lines.js) as-is: copy every one.
 const bridgeDist = join(root, "packages", "pi-runtime", "dist", "bridge");
 for (const f of readdirSync(bridgeDist).filter((n) => n.endsWith(".js"))) {

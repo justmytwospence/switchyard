@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { requireService } from "../src/index.js";
 import { hostSession, NO_REPLY, sleep, until } from "./helpers.js";
 import {
   cleanupHarness,
@@ -7,12 +8,73 @@ import {
   dispatcherOf,
   type Harness,
   runOf,
-  settle,
   setupHarness,
-  startRun,
+  startRun as startBaseRun,
   task,
   untilRun,
 } from "./task-helpers.js";
+
+/** Simulate the policy handshake for the negotiated fake host connection. */
+async function startRun(...args: Parameters<typeof startBaseRun>) {
+  const started = await startBaseRun(...args);
+  const { store, ctx } = args[0].t.c;
+  const session = store.sessions.require(started.run.sessionId!);
+  const nativeSessionId = `native-${session.id}`;
+  const runtimeId = `bridge-${session.id}`;
+  const controllerEpoch = `controller-${session.id}`;
+  store.putSession({
+    ...session,
+    nativeHandle: { sessionId: nativeSessionId, sessionFile: `/tmp/${nativeSessionId}.jsonl` },
+    bridge: {
+      version: 1,
+      runtimeId,
+      nativeSessionId,
+      controllerEpoch,
+      agentTools: true,
+      messageDelivery: true,
+      policyState: "active",
+      policyPhases: ["request", "tool_call"],
+    },
+  });
+  const root = session.workspaceId
+    ? store.workspaces.require(session.workspaceId).path
+    : session.cwd;
+  requireService(ctx, "policies").bindBoundary(
+    {
+      authenticatedHostId: session.hostId,
+      sessionId: session.id,
+      nativeSessionId,
+      runtimeId,
+      controllerEpoch,
+    },
+    { cwd: session.cwd, cwdReal: session.cwd, workspaceRoot: root, workspaceRootReal: root },
+  );
+  return started;
+}
+
+/** Publish fresh completed accounting and the settlement together, as a current host does. */
+async function settle(h: Harness, sessionId: string, text: string | null) {
+  const { store } = h.t.c;
+  const session = store.sessions.require(sessionId);
+  const watermark = {
+    runtimeId: `accounting-${sessionId}`,
+    settleSeq: store.runSettleCount(session.runId!) + 1,
+  };
+  await h.host.event(
+    "session.updated",
+    hostSession(sessionId, { cwd: session.cwd, runtime: "running" }),
+  );
+  await h.host.event(
+    "session.updated",
+    hostSession(sessionId, {
+      cwd: session.cwd,
+      runtime: "idle",
+      lastAssistantText: text,
+      stats: { tokens: 0, costUsd: 0, watermark },
+      settled: { aborted: false, lastAssistantText: text, watermark },
+    }),
+  );
+}
 
 let h: Harness | undefined;
 afterEach(async () => {

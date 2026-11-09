@@ -188,6 +188,8 @@ export function fullCapabilities(over: Record<string, unknown> = {}) {
     widgetsComponent: false,
     tokenAccounting: true,
     costAccounting: true,
+    agentRequests: true,
+    policies: true,
     unsupported: [],
     ...over,
   };

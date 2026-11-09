@@ -59,6 +59,14 @@ describe("read-only and checkout lanes", () => {
   it("runs read-only commands without a queue and serializes mutations per checkout", () => {
     const reads: HostCommand[] = [
       { type: "session.messageStatus", sessionId: "ses_1", messageIds: ["message1"] },
+      {
+        type: "session.classifyPolicySample",
+        sessionId: "ses_1",
+        nativeSessionId: "native_1",
+        runtimeId: "runtime_1",
+        sampleId: "sample_1",
+        tool: { name: "bash", args: { command: "pwd" } },
+      },
       { type: "session.importable" },
       { type: "session.readNative", sessionFile: "/x.jsonl" },
       { type: "checkout.inspect", path: "/r" },

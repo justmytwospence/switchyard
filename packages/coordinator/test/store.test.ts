@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { EventEnvelope } from "@switchyard/protocol";
+import { DEFAULT_TASK_POLICY, type EventEnvelope, type Task } from "@switchyard/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { EventHub, migrate, openDb, Store } from "../src/index.js";
 import { tempDir } from "./helpers.js";
@@ -15,6 +15,105 @@ function makeStore(): Store {
   migrate(db);
   return new Store(db, new EventHub());
 }
+
+describe("policy root epochs", () => {
+  const task = (id: string, parentTaskId: string | null = null): Task => ({
+    id,
+    projectId: "project",
+    title: id,
+    objective: "",
+    acceptanceCriteria: [],
+    dependencies: [],
+    priority: 0,
+    position: 0,
+    state: "backlog",
+    blocked: null,
+    notBefore: null,
+    policy: DEFAULT_TASK_POLICY,
+    origin: { kind: "manual" },
+    groupingKey: null,
+    parentTaskId,
+    currentRunId: null,
+    sessionId: null,
+    review: { feedback: [], changesRequested: false },
+    hiddenFromBoard: false,
+    lastActivityAt: "2026-01-01T00:00:00.000Z",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const epoch = (store: Store, id: string) => store.getSetting(`policyRootEpoch:${id}`, 0);
+
+  it("fences terminal transitions and root deletion, not edits or child transitions", () => {
+    const store = makeStore();
+    const root = task("root");
+    const child = task("child", root.id);
+    store.putTask(root);
+    store.putTask(child);
+    store.putTask({ ...child, state: "done" });
+    expect(epoch(store, child.id)).toBe(0);
+    store.putTask({ ...root, state: "done" });
+    expect(epoch(store, root.id)).toBe(1);
+    store.putTask({ ...root, state: "done", title: "edited" });
+    store.putTask({ ...root, state: "canceled" });
+    expect(epoch(store, root.id)).toBe(1);
+    store.putTask(root);
+    expect(epoch(store, root.id)).toBe(2);
+    store.putTask({ ...root, state: "canceled" });
+    expect(epoch(store, root.id)).toBe(3);
+    store.deleteTask(root);
+    expect(epoch(store, root.id)).toBe(4);
+    expect(store.tasks.require(child.id).parentTaskId).toBeNull();
+    store.deleteTask(root);
+    expect(epoch(store, root.id)).toBe(4);
+  });
+
+  it("fences terminal root creation and terminal reparenting before publishing", () => {
+    const store = makeStore();
+    const root = { ...task("root"), state: "done" as const };
+    const seen: number[] = [];
+    store.hub.on("event", (event: EventEnvelope) => {
+      if (event.taskId === root.id) seen.push(epoch(store, root.id));
+    });
+    store.putTask(root);
+    store.putTask({ ...root, parentTaskId: "parent" });
+    store.putTask(root);
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("rolls back epochs with task transitions and deletions", () => {
+    const store = makeStore();
+    const root = task("root");
+    store.putTask(root);
+    expect(() =>
+      store.tx(() => {
+        store.putTask({ ...root, state: "done" });
+        expect(epoch(store, root.id)).toBe(1);
+        throw new Error("rollback");
+      }),
+    ).toThrow("rollback");
+    expect(epoch(store, root.id)).toBe(0);
+    expect(store.tasks.require(root.id).state).toBe("backlog");
+    expect(() =>
+      store.tx(() => {
+        store.deleteTask(root);
+        expect(epoch(store, root.id)).toBe(1);
+        throw new Error("rollback");
+      }),
+    ).toThrow("rollback");
+    expect(epoch(store, root.id)).toBe(0);
+    expect(store.tasks.get(root.id)).toBeDefined();
+  });
+
+  it("fails closed when the epoch cannot be incremented safely", () => {
+    const store = makeStore();
+    const root = task("root");
+    store.putTask(root);
+    store.setSetting(`policyRootEpoch:${root.id}`, Number.MAX_SAFE_INTEGER);
+    expect(() => store.putTask({ ...root, state: "done" })).toThrow(/epoch/);
+    expect(() => store.deleteTask(root)).toThrow(/epoch/);
+    expect(store.tasks.require(root.id).state).toBe("backlog");
+  });
+});
 
 describe("item revisions", () => {
   const item = (id: string, order: number, text = "x") =>

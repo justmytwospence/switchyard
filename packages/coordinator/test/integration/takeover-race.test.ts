@@ -70,7 +70,12 @@ describe("takeover racing a continuation", { timeout: 180_000 }, () => {
       },
     });
     taskId = task.id;
-    const run = await env.waitRun(task.id, (r) => r.continuationsUsed >= 1, "first continuation");
+    const run = await env.waitRun(
+      task.id,
+      (r) => r.continuationsUsed >= 1 || r.state === "failed",
+      "first continuation",
+    );
+    expect(run.state, run.outcome?.summary).toBe("running");
     sessionId = run.sessionId!;
     expect(env.session(sessionId).lastAssistantText).toBe(NO_MARKER_TEXT);
     await waitFor(() => automatedPrompts().length >= 1, "continuation reached the host");
