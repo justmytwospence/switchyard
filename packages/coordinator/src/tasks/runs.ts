@@ -11,7 +11,7 @@ import {
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
 import type { SessionSettled } from "../event-hub.js";
-import { assertPolicyLaunchHost, currentPolicyLaunchRequirement } from "../policies/launch.js";
+import { POLICY_LAUNCH_UNAVAILABLE } from "../policies/launch.js";
 import type { PolicyService } from "../policies/service.js";
 import { getService } from "../services.js";
 import { pauseRunForPolicy } from "../sessions/control.js";
@@ -129,6 +129,8 @@ export class RunsService {
   private busy = new Set<string>();
   /** Approval updates can arrive while an earlier authorize call is still unwinding. */
   private recoveryRequested = new Set<string>();
+  /** A readiness defer leaves the settle unevaluated; wait for a readiness event, not a loop. */
+  private availabilityDeferred = new Set<string>();
   /** Runs whose session Stop is aborting right now. */
   private stopping = new Map<string, number>();
   /** A settle that arrived while its run was being evaluated: re-evaluated afterwards. */
@@ -428,13 +430,15 @@ export class RunsService {
     this.busy.delete(runId);
     this.runDeferred(runId);
     const requested = this.recoveryRequested.delete(runId);
+    const availabilityDeferred = this.availabilityDeferred.delete(runId);
     const run = this.ctx.store.runs.get(runId);
     // A restart may encounter an old pending authorization before evaluating a newer settle.
     // Discarding that stale proof must not strand the newer, still-unevaluated settlement.
     const unevaluated =
       (run?.state === "running" || run?.state === "waiting_input") &&
       !this.latestSettleEvaluated(runId);
-    if (!this.stopped && run?.hostId && (requested || unevaluated)) this.recover(run.hostId);
+    if (!this.stopped && run?.hostId && (requested || (unevaluated && !availabilityDeferred)))
+      this.recover(run.hostId);
   }
 
   /** Re-evaluate a settle that arrived during an evaluation, if it is still unevaluated. */
@@ -489,28 +493,31 @@ export class RunsService {
     return getService(this.ctx, "policies");
   }
 
-  /** Recheck current static protection and actual live binding without changing settle fences. */
-  private continuationHostReady(runId: string): boolean {
+  /** Availability is not authority: a same-controller outage preserves unspent ASK/ALLOW. */
+  private continuationHostReady(runId: string, pending?: PendingContinuation): boolean {
     const run = this.ctx.store.runs.get(runId);
-    if (!run?.sessionId || !run.hostId) return false;
-    const session = this.ctx.store.sessions.require(run.sessionId);
+    const policies = this.policies();
+    if (!run?.sessionId || !run.hostId || !policies) return false;
+    const source =
+      pending?.source ?? continuationSource(this.ctx.store.sessions.get(run.sessionId));
     try {
-      assertPolicyLaunchHost(
-        this.ctx,
-        run.hostId,
-        currentPolicyLaunchRequirement(this.ctx, {
-          sessionId: session.id,
-          profileId: session.profileSnapshot.id,
-          continuation: run.limits,
-        }),
-        session.id,
-      );
+      if (!source)
+        throw new SwitchyardError(
+          pending ? "stale_control" : "unsupported_capability",
+          POLICY_LAUNCH_UNAVAILABLE,
+        );
+      if (policies.checkContinuationAvailability(runId, source).state === "defer") {
+        this.availabilityDeferred.add(runId);
+        return false;
+      }
       return true;
     } catch (err) {
       const error = shortError(err);
-      // A disconnected host is not a policy downgrade. Preserve durable authorization/
-      // delivery and let the existing reconnect sweep recheck before sending anything.
-      if (error.code === "host_unreachable") return false;
+      if (error.code === "stale_control" && pending) {
+        if (!this.discardContinuationAuthorization(runId, pending, error.message))
+          void this.cancelContinuation(runId, error.message);
+        return false;
+      }
       this.ctx.store.deleteSetting(CONTINUATION_PREFIX + runId);
       this.finishBlocked(runId, error.message);
       return false;
@@ -599,9 +606,9 @@ export class RunsService {
         await this.cancelContinuation(runId, "Continuation authorization changed");
       return;
     }
-    // Offline unspent authorizations remain unspent. Reserved deliveries above use the
-    // full durable policy proof first, even offline, so revocation cannot hide in a defer.
-    if (!run.hostId || !this.ctx.hostHub.isConnected(run.hostId)) return;
+    // Stable fences above take precedence over transport/bridge availability. A supported
+    // welcome can arrive before the same controller's active projection.
+    if (!this.continuationHostReady(runId, pending)) return;
     let result: PolicyEvaluation;
     try {
       result = await policies.authorize(pending.input);
@@ -654,7 +661,7 @@ export class RunsService {
       this.finishBlocked(runId, result.reason);
       return;
     }
-    if (!this.continuationHostReady(runId)) return;
+    if (!this.continuationHostReady(runId, pending)) return;
     // No await between the final fences, unconditional limits and durable reservation.
     const delivery: PendingContinuation = {
       ...pending,

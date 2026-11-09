@@ -276,6 +276,105 @@ afterEach(async () => {
   store.db.close();
 });
 
+describe("D.11 shared unspent continuation availability", () => {
+  it.each([
+    ["offline before welcome", false, [], "lost", [], "defer"],
+    [
+      "initializing after welcome",
+      true,
+      ["agentRequests.v1", "policies.v1"],
+      "initializing",
+      [],
+      "defer",
+    ],
+    ["lost after welcome", true, ["agentRequests.v1", "policies.v1"], "lost", [], "defer"],
+    ["no agent requests", true, ["policies.v1"], "lost", [], "unsupported_capability"],
+    ["no policies", true, ["agentRequests.v1"], "initializing", [], "unsupported_capability"],
+    [
+      "unsupported bridge",
+      true,
+      ["agentRequests.v1", "policies.v1"],
+      "unsupported",
+      [],
+      "unsupported_capability",
+    ],
+    [
+      "active missing request",
+      true,
+      ["agentRequests.v1", "policies.v1"],
+      "active",
+      ["tool_call"],
+      "unsupported_capability",
+    ],
+    [
+      "active missing tool",
+      true,
+      ["agentRequests.v1", "policies.v1"],
+      "active",
+      ["request"],
+      "unsupported_capability",
+    ],
+    [
+      "active",
+      true,
+      ["agentRequests.v1", "policies.v1"],
+      "active",
+      ["tool_call", "request"],
+      "ready",
+    ],
+  ] as const)(
+    "uses the D.7 matrix before reservation: %s",
+    (_name, connected, features, policyState, policyPhases, result) => {
+      connection = { connected, features: new Set(features) };
+      updateBridge({ policyState, policyPhases: [...policyPhases] });
+      const before = store.db.prepare("SELECT total_changes() AS n").get();
+      const available = () => service.checkContinuationAvailability(runId, source);
+      if (result === "unsupported_capability")
+        expect(available).toThrow(expect.objectContaining({ code: result }));
+      else expect(available()).toMatchObject({ state: result });
+      expect(store.db.prepare("SELECT total_changes() AS n").get()).toEqual(before);
+      expect(run().continuationsUsed).toBe(0);
+      expect(store.getSetting(key, null)).toBeNull();
+      expect(evaluator.evaluateRules).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["revoked host", () => updateHost({ revokedAt: now })],
+    ["changed epoch", () => updateBridge({ controllerEpoch: "replacement" })],
+    ["missing epoch", () => updateBridge({ controllerEpoch: undefined })],
+    ["changed runtime", () => updateBridge({ runtimeId: "replacement" })],
+    ["changed native", () => updateBridge({ nativeSessionId: "replacement" })],
+    ["missing bridge", () => updateSession({ bridge: undefined })],
+    [
+      "conflicting handle",
+      () => updateSession({ nativeHandle: { sessionId: "other", sessionFile: "/other" } }),
+    ],
+  ] as const)("rejects stable %s before considering offline deferral", (_name, change) => {
+    connection = { connected: false, features: new Set() };
+    updateBridge({ policyState: "lost", policyPhases: [] });
+    change();
+    expect(() => service.checkContinuationAvailability(runId, source)).toThrow(
+      expect.objectContaining({ code: "stale_control" }),
+    );
+    expect(hostPolicyConnection).not.toHaveBeenCalled();
+    expect(run().continuationsUsed).toBe(0);
+  });
+
+  it("ignores stale cached potential while disconnected but rejects confirmed missing potential", () => {
+    updateHost({ capabilities: null });
+    connection = { connected: false, features: new Set() };
+    expect(service.checkContinuationAvailability(runId, source)).toEqual({
+      state: "defer",
+      reason: "Waiting for the host to reconnect.",
+    });
+    connection = { connected: true, features: new Set(["agentRequests.v1", "policies.v1"]) };
+    expect(() => service.checkContinuationAvailability(runId, source)).toThrow(
+      expect.objectContaining({ code: "unsupported_capability" }),
+    );
+  });
+});
+
 describe("D.7 durable authority and transient readiness", () => {
   it("preserves ALLOW, original delivery and count through offline/lost/restart/active", async () => {
     const record = await reserve();

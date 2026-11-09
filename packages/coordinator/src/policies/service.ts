@@ -42,7 +42,9 @@ import type { Store } from "../store.js";
 import {
   CONTINUATION_PREFIX,
   type ContinuationAuthorization,
+  type ContinuationSource,
   continuationContext,
+  continuationSource,
   type PendingContinuation,
 } from "../tasks/continuations.js";
 import {
@@ -952,9 +954,32 @@ export class PolicyService {
       if (error instanceof SwitchyardError && error.code === "stale_control") throw error;
       throw new SwitchyardError("stale_control", stale);
     }
-    const run = this.store.runs.require(input.runId);
+    const pending = this.store.getSetting<PendingContinuation | null>(
+      CONTINUATION_PREFIX + input.runId,
+      null,
+    );
+    return this.checkContinuationAvailability(input.runId, pending!.source);
+  }
+
+  /** Read-only D.7 readiness gate shared by unspent authorization and reserved delivery. */
+  checkContinuationAvailability(
+    runId: string,
+    expectedSource: ContinuationSource,
+  ): ReservedContinuationReadiness {
+    const run = this.store.runs.require(runId);
     const session = this.store.sessions.require(run.sessionId ?? "");
     const host = this.store.hosts.require(session.hostId);
+    if (
+      host.revokedAt ||
+      run.hostId !== session.hostId ||
+      !expectedSource?.runtimeId ||
+      !expectedSource.nativeSessionId ||
+      !expectedSource.controllerEpoch ||
+      !equal(continuationSource(session), expectedSource) ||
+      (session.nativeHandle !== null &&
+        session.nativeHandle.sessionId !== expectedSource.nativeSessionId)
+    )
+      throw new SwitchyardError("stale_control", stale);
     let connection:
       | ReturnType<NonNullable<PolicyServiceOptions["hostPolicyConnection"]>>
       | undefined;
@@ -973,7 +998,7 @@ export class PolicyService {
       host.capabilities.policies !== true
     )
       throw new SwitchyardError("unsupported_capability", POLICY_LAUNCH_UNAVAILABLE);
-    const bridge = session.bridge!; // Durable proof already checked the complete source.
+    const bridge = session.bridge!; // Captured source was checked before availability.
     if (bridge.policyState === "unsupported")
       throw new SwitchyardError("unsupported_capability", POLICY_LAUNCH_UNAVAILABLE);
     if (bridge.policyState !== "active")

@@ -1,7 +1,8 @@
-import { type Session, SwitchyardError } from "@switchyard/protocol";
+import { type Run, type Session, SwitchyardError } from "@switchyard/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requireService } from "../src/services.js";
 import {
+  CANCELED_AUTHORIZATION_PREFIX,
   CANCELED_CONTINUATION_PREFIX,
   CONTINUATION_PAUSED_NOTICE,
   CONTINUATION_PREFIX,
@@ -332,6 +333,232 @@ describe("D.7 deferred continuation delivery and recovery", () => {
     await work;
     expect(prompts()).toEqual([original, original]);
     expect(pending(run.id)).toBeNull();
+  });
+});
+
+const counters = () =>
+  h!.t.c.store.db.prepare("SELECT * FROM policy_counters ORDER BY rule_id").all();
+
+async function continuationRule(verdict: "ASK" | "ALLOW") {
+  return policies().createRule({
+    scope: "server",
+    scopeId: null,
+    priority: -1,
+    enabled: true,
+    phases: ["request"],
+    name: "Count continuation authorization",
+    expression: `{"verdict":"${verdict}","reason":"Approve continuation","state_updates":{"calls":has(counters.calls) ? counters.calls + 1 : 1}}`,
+  });
+}
+
+function expectUnspentDeferred(run: Run, authorization: PendingContinuation) {
+  const store = h!.t.c.store;
+  expect(pending(run.id)).toEqual(authorization);
+  expect(store.runs.require(run.id)).toMatchObject({
+    state: "running",
+    controlMode: "automation",
+    controlRevision: run.controlRevision,
+    continuationsUsed: 0,
+    endedAt: null,
+    outcome: null,
+  });
+  expect(store.tasks.require(run.taskId).blocked).toBeNull();
+  expect(store.runSettleCount(run.id)).toBe(authorization.input.expectedSettleCount);
+  expect(prompts()).toHaveLength(0);
+  // Host welcome normally republishes the unchanged control state; no policy pause is sent.
+  for (const command of commandsOf(h!.host, "session.setControl"))
+    expect(command).toMatchObject({ mode: "automation", controlRevision: run.controlRevision });
+  expect(canceled(run.id)).toBeNull();
+  expect(
+    store.getSetting(`${CANCELED_AUTHORIZATION_PREFIX}${run.id}:1:${run.controlRevision}:1`, null),
+  ).toBeNull();
+  expect(store.db.prepare("SELECT * FROM task_completions WHERE outcome='failed'").all()).toEqual(
+    [],
+  );
+  expect(store.db.prepare("SELECT * FROM agent_messages WHERE kind='completion'").all()).toEqual(
+    [],
+  );
+  expect(h!.t.c.attention.open({ taskId: run.taskId, reason: "failed" })).toHaveLength(0);
+}
+
+describe("D.11 unspent continuation readiness", () => {
+  it.each(["lost", "initializing"] as const)(
+    "preserves an ASK approved offline through welcome before %s becomes active",
+    async (policyState) => {
+      const { store, run, sessionId } = await setup();
+      h!.host.commands.length = 0;
+      const rule = await continuationRule("ASK");
+      await settle(sessionId);
+      const authorization = pending(run.id)!;
+      expect(authorization.decisionId).toEqual(expect.any(String));
+      expect(counters()).toHaveLength(0); // ASK updates are still provisional.
+      await h!.host.close();
+      bridge(sessionId, { policyState, policyPhases: [] });
+      const authorize = vi.spyOn(policies(), "authorize");
+      runs().recover();
+      expectUnspentDeferred(run, authorization);
+      expect(allowRows()).toEqual([
+        expect.objectContaining({
+          decision_id: authorization.decisionId,
+          verdict: "ASK",
+          canceled: 0,
+        }),
+      ]);
+      const interaction = store.interactions.list("state='pending'")[0]!;
+      const answer = await h!.t.admin("POST", `/api/interactions/${interaction.id}/answer`, {
+        revision: interaction.revision,
+        response: { kind: "confirm", confirmed: true },
+      });
+      expect(answer.status).toBe(200);
+      const allowed = allowRows();
+      expect(allowed).toEqual([
+        expect.objectContaining({
+          decision_id: authorization.decisionId,
+          verdict: "ALLOW",
+          canceled: 0,
+        }),
+      ]);
+      const committed = counters();
+      expect(committed).toEqual([
+        expect.objectContaining({ rule_id: rule.id, counters_json: '{"calls":1}', version: 1 }),
+      ]);
+      expectUnspentDeferred(run, authorization);
+      // Startup and reconnect recovery use the same gate as an interaction wake-up.
+      runs().stop();
+      recovered = new RunsService(h!.t.c.ctx);
+      recovered.start();
+      await h!.host.open();
+      recovered.recover();
+      expect(authorize).not.toHaveBeenCalled();
+      expectUnspentDeferred(run, authorization);
+      expect(allowRows()).toEqual(allowed);
+      expect(counters()).toEqual(committed);
+
+      const reserve = vi.spyOn(policies(), "assertAuthorized");
+      await publishActive(sessionId);
+      await until(() => pending(run.id) === null);
+      expect(reserve).toHaveBeenCalledExactlyOnceWith(authorization.input);
+      expect(prompts()).toMatchObject([
+        { commandId: continuationCommandId(run.id, 1), command: { text: authorization.text } },
+      ]);
+      expect(store.runs.require(run.id)).toMatchObject({
+        controlMode: "automation",
+        controlRevision: run.controlRevision,
+        continuationsUsed: 1,
+      });
+      expect(allowRows()).toEqual(allowed);
+      expect(counters()).toEqual(committed);
+      recovered.recover();
+      await publishActive(sessionId);
+      expect(prompts()).toHaveLength(1);
+      expect(reserve).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["disconnected", "lost", "initializing"] as const)(
+    "retains the final ALLOW and original authorization when readiness becomes %s during authorize",
+    async (state) => {
+      const { store, run, sessionId } = await setup();
+      h!.host.commands.length = 0;
+      const rule = await continuationRule("ALLOW");
+      const authorize = policies().authorize.bind(policies());
+      vi.spyOn(policies(), "authorize").mockImplementationOnce(async (input) => {
+        const result = await authorize(input);
+        expect(result.verdict).toBe("ALLOW");
+        if (state === "disconnected") await h!.host.close();
+        bridge(sessionId, {
+          policyState: state === "initializing" ? state : "lost",
+          policyPhases: [],
+        });
+        return result;
+      });
+      const reserve = vi.spyOn(policies(), "assertAuthorized");
+      await settle(sessionId);
+      const authorization = pending(run.id)!;
+      expect(authorization).toMatchObject({ phase: "authorization", n: 1, decisionId: null });
+      const allowed = allowRows();
+      const committed = counters();
+      expect(committed).toEqual([
+        expect.objectContaining({ rule_id: rule.id, counters_json: '{"calls":1}', version: 1 }),
+      ]);
+      expectUnspentDeferred(run, authorization);
+      expect(reserve).not.toHaveBeenCalled();
+      if (state === "disconnected") await h!.host.open();
+      runs().recover();
+      expectUnspentDeferred(run, authorization);
+      expect(allowRows()).toEqual(allowed);
+      await publishActive(sessionId);
+      await until(() => pending(run.id) === null);
+      expect(reserve).toHaveBeenCalledExactlyOnceWith(authorization.input);
+      expect(prompts()).toMatchObject([{ commandId: continuationCommandId(run.id, 1) }]);
+      expect(store.runs.require(run.id).continuationsUsed).toBe(1);
+      expect(allowRows()).toEqual(allowed);
+      expect(counters()).toEqual(committed);
+    },
+  );
+
+  it.each(["lost", "initializing"] as const)(
+    "defers a new preparation while %s without marking the settle evaluated or looping",
+    async (policyState) => {
+      const { store, run, sessionId } = await setup();
+      bridge(sessionId, { policyState, policyPhases: [] });
+      const authorize = vi.spyOn(policies(), "authorize");
+      await settle(sessionId);
+      expect(pending(run.id)).toBeNull();
+      expect(store.getSetting(`runEvaluated:${run.id}`, 0)).toBe(0);
+      expect(authorize).not.toHaveBeenCalled();
+      expect(store.runs.require(run.id)).toMatchObject({ state: "running", continuationsUsed: 0 });
+      await publishActive(sessionId);
+      await until(() => prompts().length === 1);
+      expect(store.getSetting(`runEvaluated:${run.id}`, 0)).toBe(1);
+      expect(authorize).toHaveBeenCalledTimes(1);
+      expect(store.runs.require(run.id).continuationsUsed).toBe(1);
+    },
+  );
+
+  it.each(["agentRequests.v1", "policies.v1"])(
+    "still blocks unspent authorization on confirmed missing negotiation %s",
+    async (missing) => {
+      const { store, run, sessionId } = await setup();
+      await continuationRule("ASK");
+      await settle(sessionId);
+      await h!.host.close();
+      bridge(sessionId, { policyState: "lost", policyPhases: [] });
+      await h!.host.open({
+        features: ["agentRequests.v1", "policies.v1"].filter((feature) => feature !== missing),
+      });
+      await until(() => store.runs.require(run.id).state === "failed");
+      expect(store.runs.require(run.id)).toMatchObject({
+        continuationsUsed: 0,
+        controlRevision: 1,
+      });
+      expect(pending(run.id)).toBeNull();
+      expect(prompts()).toHaveLength(0);
+    },
+  );
+
+  it("discards changed unspent controller authority before offline availability without pausing", async () => {
+    const { store, run, sessionId } = await setup();
+    h!.host.commands.length = 0;
+    await continuationRule("ASK");
+    await settle(sessionId);
+    const authorization = pending(run.id)!;
+    await h!.host.close();
+    bridge(sessionId, { controllerEpoch: "new-controller", policyState: "lost", policyPhases: [] });
+    runs().recover();
+    await until(() => pending(run.id) === null);
+    expect(store.runs.require(run.id)).toMatchObject({
+      state: "running",
+      controlMode: "automation",
+      controlRevision: 1,
+      continuationsUsed: 0,
+    });
+    expect(canceled(run.id)).toBeNull();
+    expect(commandsOf(h!.host, "session.setControl")).toHaveLength(0);
+    expect(prompts()).toHaveLength(0);
+    expect(allowRows()).toEqual([
+      expect.objectContaining({ decision_id: authorization.decisionId, canceled: 1 }),
+    ]);
   });
 });
 
