@@ -8,7 +8,7 @@ Each phase ships as one pull request from `dev` to `main`, with one conventional
 
 ## Phase 3: orchestration, policies and GitHub
 
-PR title: `feat: orchestration, policies and GitHub`. Target release: 0.12.0.
+PR title: `feat: orchestration, policies and GitHub`. Target release: 0.12.0. Implementation is in progress; it is not reviewed or shipped until verification and human approval on switchyard-dev. The approved plan defers pre-provider `model_request` enforcement. See [policies.md](policies.md) and [github.md](github.md).
 
 ### 3.1 Agent tools
 
@@ -46,13 +46,13 @@ How the tools behave:
 - **Phases:**
   - `tool_call` (before Pi runs a tool)
   - `request` (a Switchyard API action by an agent)
-  - `model_request` (before a provider call, for cost)
+  - `model_request` (before a provider call): deferred, not enforced
 - **Levels:** rules are evaluated per session, then per profile, then server-wide. The first non-ALLOW verdict wins, except that a session-level ALLOW can override a profile-level ASK.
 - **Rules:** written in CEL, over `tool.name`, `tool.args`, `session`, `task`, `cost` and `counters`. Built-in rules:
   - **Continuation token and cost caps:** these replace today's caps. Crossing a soft threshold gives ASK. The hard cap gives DENY, but only while the session is on an expensive model.
   - **Destructive commands:** `rm -rf` outside the workspace, `git push --force`, and pushes to the default branch give ASK.
-- **Approvals:** an ASK appears as an interaction card, using the existing interaction flow. An approval is stored on the root task, so it covers every subtask.
-- **Enforcement:** in the bridge's `tool_call` hook. If the coordinator cannot be reached for 30 s, the hook blocks the tool (fails closed) and tells the user why.
+- **Approvals:** an ASK appears as an interaction card. A root-task grant is shared only for the same rule revision and normalized action fingerprint, not as blanket approval for the task tree.
+- **Enforcement:** the bridge's `tool_call` hook and agent request boundaries fail closed. If the coordinator cannot be reached for 30 s, the hook blocks the tool. Budgets are checked before automated continuations, not during a running turn.
 - **Settings:** "Policies" in Settings lists the built-in and custom rules. A rule tester runs a sample tool call through the rules and shows the verdict.
 
 ### 3.4 GitHub through `gh`
@@ -73,7 +73,7 @@ All GitHub access runs through the `gh` CLI on the host, with the user's own log
 
 ### Phase 3 risks
 - Changes to the host wire must stay compatible with hosts one release behind. New host commands should check for a capability.
-- The CEL library choice (bundle size and safety) needs a decision in the detailed plan.
+- CEL evaluation must stay bounded and fail closed on errors.
 - `gh` may be missing or signed out on a host. Report that as a capability with a reason, not as an error.
 
 ## Phase 4: plugin slots, SDK and relay

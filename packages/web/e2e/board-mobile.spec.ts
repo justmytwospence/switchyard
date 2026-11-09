@@ -59,13 +59,27 @@ test.describe("mobile board", () => {
     );
   });
 
-  test("card opens a full-screen detail; Back preserves the board position", async ({ page }) => {
+  test("card opens a full-screen detail; Back preserves the board position", async ({
+    page,
+    api,
+    state,
+  }, info) => {
+    const suffix = uid(info);
+    await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        createTask(api, state, { title: `Scroll card ${i} ${suffix}` }),
+      ),
+    );
     await page.goto("/board");
+    // Other specs mutate the shared board. Only this test's cards may affect its scroll geometry.
+    await page.getByRole("button", { name: "Show search" }).tap();
+    await page.getByPlaceholder("Search tasks").fill(suffix);
     await page
       .getByTestId("status-tabs")
       .getByRole("tab", { name: /^Backlog/ })
       .tap();
     const cards = page.getByTestId("task-card");
+    await expect(cards).toHaveCount(10);
     await expect(cards.first()).toBeVisible();
     const main = page.locator("#main");
     expect(await main.evaluate((el) => el.scrollHeight > el.clientHeight + 200)).toBe(true);

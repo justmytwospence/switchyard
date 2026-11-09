@@ -118,6 +118,10 @@ A missing Pi or git is a FAIL only on a machine with a host config; elsewhere (a
 
 Upgrade the coordinator before its hosts: a coordinator works with hosts one release older, not newer. Hosts are upgraded separately: `npm update -g @spencerboucher/switchyard`, then restart the installed service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux). Hosts and the coordinator reconnect on their own; running Pi sessions on a host stop when its agent restarts: sessions that were working show as interrupted until resumed; idle ones show as stopped and resume when you send to them.
 
+For policy-protected launches, upgrade hosts and Pi to the supported policy-capable range (`>=1.5.0 <1.6.0`) and verify the session's actual bridge protection state. Optional negotiation keeps older hosts browsable but does not protect their live Pi processes. Explicitly reload or restart old live sessions when appropriate; they are not silently replaced. Protected launches refuse unsupported hosts, and coordinator communication or policy evaluation failures block protected actions rather than allowing them. See [policies.md](policies.md).
+
+For GitHub, install and authenticate `gh` as the host user on each relevant host; missing or expired authentication is reported as an unavailable reason. See [github.md](github.md).
+
 ## Revoking devices and hosts
 
 Revoke a lost browser, phone or terminal in Settings > Devices, and a retired host in Settings > Hosts; remove a passkey in Settings > Sign-in (see [auth.md](auth.md#revocation)). A revoked device's credential stops working, its push subscriptions are deleted and its open sockets receive `force_logout`. The local admin token cannot be revoked from the app; rotate it by stopping the coordinator and deleting `admin.token` (a new one is created at the next start).

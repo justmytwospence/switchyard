@@ -600,8 +600,20 @@ test.describe("desktop coding view", () => {
     const nav = page.getByTestId("navigator");
     await nav.getByRole("button", { name: /^Demo project/ }).hover();
     await nav.getByRole("button", { name: "New session in Demo project" }).click();
-    await expect(
-      page.getByRole("dialog", { name: "New session" }).getByLabel("Project"),
-    ).toHaveValue(state.projectId);
+    const dialog = page.getByRole("dialog", { name: "New session" });
+    const project = dialog.getByLabel("Project");
+    await expect(project).toBeVisible();
+    // Other specs can add enough projects to switch to the searchable picker.
+    if (await project.evaluate((el) => el.tagName === "SELECT")) {
+      await expect(project).toHaveValue(state.projectId);
+    } else {
+      await expect(project).toHaveAccessibleName(`Project: ${state.projectName}`);
+      await project.click();
+      const selected = page
+        .getByRole("listbox", { name: "Projects", exact: true })
+        .getByRole("option", { selected: true });
+      await expect(selected).toBeVisible();
+      await expect(selected).toHaveAttribute("id", new RegExp(`-opt-${state.projectId}$`));
+    }
   });
 });

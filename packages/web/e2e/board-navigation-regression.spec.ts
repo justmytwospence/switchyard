@@ -49,6 +49,11 @@ test("mobile parent link restores board scroll and source focus", async ({
 }, info) => {
   test.skip(!isMobile, "Mobile board navigation");
   const suffix = uid(info);
+  await Promise.all(
+    Array.from({ length: 8 }, (_, i) =>
+      createTask(api, state, { title: `Link filler ${i} ${suffix}`, priority: 3 }),
+    ),
+  );
   const parent = await createTask(api, state, { title: `Link parent ${suffix}`, priority: 3 });
   const child = await createTask(api, state, {
     title: `Link child ${suffix}`,
@@ -56,10 +61,14 @@ test("mobile parent link restores board scroll and source focus", async ({
     priority: 3,
   });
   await page.goto("/board");
+  // Wait for a private, fixed-size board so parallel task creation cannot move the source link.
+  await page.getByRole("button", { name: "Show search" }).click();
+  await page.getByPlaceholder("Search tasks").fill(suffix);
   await page
     .getByTestId("status-tabs")
     .getByRole("tab", { name: /^Backlog/ })
     .click();
+  await expect(page.getByTestId("task-card")).toHaveCount(10);
   const card = page.locator(`[data-task-id="${child.id}"]`);
   const link = card.getByRole("link", { name: `Parent: ${parent.title}` });
   await link.scrollIntoViewIfNeeded();

@@ -159,8 +159,10 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.6.0`
 | [CLI](docs/cli.md) | Every `switchyard` command and credentials |
 | [Terminal sessions](docs/terminal-sessions.md) | Pi's own TUI for every session, from any terminal, and the herdr integration |
 | [Operations](docs/operations.md) | Backup, restore, migrations, retention, logs, health, diagnostics |
+| [Policies](docs/policies.md) | Agent tools, guardrails, approvals and budgets |
+| [GitHub](docs/github.md) | Host authentication, PR review and merge, issue tasks |
 | [Adapters](docs/adapters.md) | Rendering a Pi plugin's UI in every client; shipping an adapter with your Pi package |
 | [Architecture](docs/architecture.md) | Components, data ownership, the host and client protocols, packages |
 | [Development](docs/development.md) | Building, testing (including against real Pi), contributing |
 | [Specification](docs/spec.md) | The product specification Switchyard is built to |
-| [Roadmap](docs/roadmap.md) | Planned phases: orchestration, policies and GitHub; plugin slots, SDK and relay |
+| [Roadmap](docs/roadmap.md) | Phase status and planned plugin slots, SDK and relay |

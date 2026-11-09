@@ -56,6 +56,12 @@ flowchart TB
 - **Interactions are answered once.** An answer must match the interaction's ID and revision; a second answer gets the first one's result.
 - **Nothing is replayed after a crash.** An interrupted session keeps its Pi conversation and waits for you to resume it.
 
+## Orchestration and external services
+
+The coordinator persists task hierarchy, agent inbox messages, policy rules and approvals. The host binds bridge requests to the actual session and forwards them over the authenticated host link; Pi does not receive a device token. Task and message creation use tool-call identity for deduplication, but a lost Pi enqueue receipt can leave delivery uncertain: execution is not exactly once. See [policies.md](policies.md).
+
+GitHub operations run on the workspace host using its `gh` login; the coordinator stores snapshots, not GitHub tokens. See [github.md](github.md).
+
 ## Pi integration
 
 Each live session is one Pi process: by default interactive Pi in a terminal holder, controlled through an extension ([terminal-sessions.md](terminal-sessions.md)); as a fallback, `pi --mode rpc`, spoken to over JSON lines on stdin and stdout. Switchyard also loads a small bridge extension into every Pi it starts; it reports when an extension opens a dialog, including terminal-only dialogs that RPC mode cannot show, so Switchyard can say so instead of hiding it. Supported capabilities and known limits are listed in [compatibility.md](compatibility.md).

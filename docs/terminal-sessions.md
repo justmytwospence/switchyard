@@ -28,6 +28,8 @@ switchyard tui <session id>       # Ctrl+] detaches; the session keeps running
 
 The herdr integration in [`integrations/herdr/`](../integrations/herdr/README.md) pairs a whole herdr session with a coordinator: a space per workspace and a tab per session, showing Pi's own TUI in each. Sessions without a Pi terminal are left out of it.
 
+Policy approval requests show a Switchyard URL in Pi; answer through the existing web interaction flow, not a native terminal policy picker. A healthy approval wait can outlast 30 seconds, but loss of coordinator communication fails closed. Older live holders may lack the current bridge and remain unprotected until explicitly reloaded or restarted; see [policies.md](policies.md).
+
 ## Views and TUI clients
 
 A view is a named filter over sessions (projects, hosts, pinned sessions), managed with `switchyard views`. A herdr or tmux session bound to a view (`SWITCHYARD_VIEW`, set by `switchyard herdr pair --view` or `switchyard tmux pair --view`) mirrors only that view, and any number of clients can share one: closing a tab or window archives the session, so every client and the web app stay in sync. The web navigator has a view switcher and shows which clients have a view open. See the [herdr](../integrations/herdr/README.md) and [tmux](../integrations/tmux/README.md) integrations.

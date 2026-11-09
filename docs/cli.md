@@ -23,6 +23,8 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 
 List commands accept `--json`.
 
+The three `switchyard_*` agent tools are Pi tools, not shell commands. Policy approvals use the existing interaction-answer API; a terminal session shows the Switchyard approval URL. See [policies.md](policies.md). GitHub uses `gh` on the workspace host, not a Switchyard CLI credential; see [github.md](github.md).
+
 ## Credentials
 
 `pair` acts as the server's local administrator: it reads `admin.token` from the data directory (or `SWITCHYARD_ADMIN_TOKEN`) and talks to the coordinator running on this machine.

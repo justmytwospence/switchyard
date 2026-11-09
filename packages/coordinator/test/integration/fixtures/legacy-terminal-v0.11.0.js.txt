@@ -1,0 +1,862 @@
+/**
+ * Test-only archived v0.11.0 terminal bridge from commit 9086cc6.
+ * Bundled with its lines/pi-model siblings, without behavior changes.
+ * Deliberately has extension_hello but NO agent.hello, agent tools or policy hooks.
+ * Copied to a temporary .mjs file by the surviving legacy-holder regression.
+ */
+// ../../../../../../private/var/folders/sl/ms_t711j1kxbx009k4rsvvcw0000gn/T/sy-archive-0FKsed/switchyard-terminal.ts
+import { randomUUID } from "node:crypto";
+import { createConnection } from "node:net";
+
+// ../../../../../../private/var/folders/sl/ms_t711j1kxbx009k4rsvvcw0000gn/T/sy-archive-0FKsed/lines.ts
+var LineSplitter = class {
+  constructor(onLine) {
+    this.onLine = onLine;
+  }
+  onLine;
+  buffer = "";
+  push(text) {
+    const buf = this.buffer + text;
+    let start = 0;
+    for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n", start)) {
+      this.emit(buf.slice(start, nl));
+      start = nl + 1;
+    }
+    this.buffer = buf.slice(start);
+  }
+  /** Return and clear the unterminated rest (CR stripped). */
+  end() {
+    const rest = this.buffer;
+    this.buffer = "";
+    return rest.endsWith("\r") ? rest.slice(0, -1) : rest;
+  }
+  emit(raw) {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    if (line) this.onLine(line);
+  }
+};
+
+// ../../../../../../private/var/folders/sl/ms_t711j1kxbx009k4rsvvcw0000gn/T/sy-archive-0FKsed/pi-model.ts
+var PI_THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max"
+];
+function supportedThinkingLevels(model) {
+  const known = PI_THINKING_LEVELS;
+  if (Array.isArray(model?.thinkingLevels)) {
+    return model.thinkingLevels.filter((l) => typeof l === "string" && known.includes(l));
+  }
+  if (!model?.reasoning) return ["off"];
+  return PI_THINKING_LEVELS.filter((level) => {
+    const mapped = model.thinkingLevelMap?.[level];
+    if (mapped === null) return false;
+    if (level === "xhigh" || level === "max") return mapped !== void 0;
+    return true;
+  });
+}
+function promptCacheOf(model) {
+  const pc = model?.promptCache;
+  if (!pc || typeof pc !== "object") return null;
+  const out = {};
+  if (typeof pc.short === "number") out.short = pc.short;
+  if (typeof pc.long === "number") out.long = pc.long;
+  return out.short !== void 0 || out.long !== void 0 ? out : null;
+}
+function modelInfo(model) {
+  if (!model || typeof model.provider !== "string" || typeof model.id !== "string") return null;
+  return {
+    provider: model.provider,
+    id: model.id,
+    name: typeof model.name === "string" && model.name ? model.name : null,
+    contextWindow: typeof model.contextWindow === "number" ? model.contextWindow : null,
+    reasoning: model.reasoning === true,
+    thinkingLevels: supportedThinkingLevels(model),
+    promptCache: promptCacheOf(model)
+  };
+}
+
+// ../../../../../../private/var/folders/sl/ms_t711j1kxbx009k4rsvvcw0000gn/T/sy-archive-0FKsed/switchyard-terminal.ts
+var PATCHED = /* @__PURE__ */ Symbol.for("switchyard.terminal");
+var WRAPPED = /* @__PURE__ */ Symbol.for("switchyard.terminal.wrapped");
+var REMOTE_UI_CHANNEL = "switchyard.remote-ui.v1";
+function messageText(message) {
+  const content = message?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.filter((c) => c?.type === "text" && typeof c.text === "string").map((c) => c.text).join("\n");
+}
+function jsonMessageUpdate(event) {
+  const aev = event?.assistantMessageEvent ?? {};
+  let out;
+  if (aev.type === "toolcall_start") {
+    const { partial, ...rest } = aev;
+    const call = partial?.content?.[aev.contentIndex];
+    out = { ...rest, id: call?.id, toolName: call?.name };
+  } else if (aev && typeof aev === "object" && "partial" in aev) {
+    const { partial: _p, ...rest } = aev;
+    out = rest;
+  } else {
+    out = aev;
+  }
+  return { type: "message_update", usage: event?.message?.usage, assistantMessageEvent: out };
+}
+function addUsage(totals, usage) {
+  if (!usage || typeof usage !== "object") return;
+  if (typeof usage.totalTokens === "number") totals.tokens += usage.totalTokens;
+  if (typeof usage.cost?.total === "number") totals.cost += usage.cost.total;
+}
+function sessionTotals(entries) {
+  const totals = { tokens: 0, cost: 0 };
+  for (const e of entries) {
+    if (e?.type === "usage") addUsage(totals, e.usage);
+    else if ((e?.type === "branch_summary" || e?.type === "compaction") && e.usage) {
+      addUsage(totals, e.usage);
+    } else if (e?.type === "message") {
+      const m = e.message;
+      if (m?.role === "assistant" || m?.role === "toolResult") addUsage(totals, m.usage);
+    }
+  }
+  return totals;
+}
+function switchyardTerminal(pi) {
+  const socketPath = process.env.SWITCHYARD_CONTROL_SOCKET;
+  if (!socketPath) return;
+  let ctx = null;
+  let completer = null;
+  const internal = /* @__PURE__ */ new Map();
+  const runInternal = (fn) => {
+    const token = randomUUID();
+    internal.set(token, fn);
+    pi.sendUserMessage(`/switchyard-internal ${token}`, { expandPromptTemplates: true });
+  };
+  try {
+    pi.registerCommand?.("switchyard-internal", {
+      description: "Used by Switchyard's web app",
+      handler: async (args, c) => {
+        const key = String(args ?? "").trim();
+        const run = internal.get(key);
+        internal.delete(key);
+        await run?.(c);
+      }
+    });
+  } catch {
+  }
+  let remoteDialogs = false;
+  let entryCount = 0;
+  const pending = /* @__PURE__ */ new Map();
+  const early = [];
+  const queue = { steering: [], followUp: [] };
+  let socket = null;
+  let remoteBacked = 0;
+  const send = (obj) => {
+    try {
+      if (!socket || socket.destroyed) return;
+      socket.write(`${JSON.stringify(obj)}
+`);
+    } catch {
+    }
+  };
+  const sendModelState = () => send({
+    type: "model_state",
+    model: modelInfo(ctx?.model),
+    thinkingLevel: ctx?.thinkingLevel ?? pi.getThinkingLevel?.() ?? null,
+    scoped: (ctx?.scopedModels ?? []).map(
+      (s) => s?.model?.provider && s?.model?.id ? `${s.model.provider}/${s.model.id}` : null
+    ).filter(Boolean)
+  });
+  const sendQueue = () => send({ type: "queue_update", ...queue });
+  const sendLeaf = () => {
+    try {
+      send({ type: "leaf", leafId: ctx?.sessionManager?.getLeafId?.() ?? null });
+    } catch {
+    }
+  };
+  const hello = () => {
+    if (!ctx) return;
+    try {
+      send({
+        type: "extension_hello",
+        pid: process.pid,
+        remoteDialogs,
+        sessionId: ctx.sessionManager.getSessionId(),
+        sessionFile: ctx.sessionManager.getSessionFile() ?? null
+      });
+    } catch {
+    }
+  };
+  const flushEntries = () => {
+    try {
+      const entries = ctx?.sessionManager?.getEntries?.() ?? [];
+      for (const entry of entries.slice(entryCount)) send({ type: "entry_appended", entry });
+      entryCount = entries.length;
+    } catch {
+    }
+  };
+  const parseBody = (method, body) => {
+    if (method === "confirm") return body.cancelled ? false : body.confirmed === true;
+    return body.cancelled ? void 0 : body.value;
+  };
+  const race = (ui, method, orig, title, second, opts) => {
+    if (opts?.signal?.aborted) return orig.call(ui, title, second, opts);
+    const id = randomUUID();
+    const ac = new AbortController();
+    const signals = [ac.signal, opts?.signal].filter(Boolean);
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : ac.signal;
+    const extra = method === "select" ? { options: second } : method === "confirm" ? { message: second } : { placeholder: second };
+    const request = {
+      type: "extension_ui_request",
+      id,
+      method,
+      title,
+      ...extra,
+      ...opts?.timeout ? { timeout: opts.timeout } : {}
+    };
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        pending.delete(id);
+        resolve(value);
+      };
+      pending.set(id, {
+        request,
+        onRemote: (body) => {
+          const value = parseBody(method, body);
+          ac.abort();
+          finish(value);
+        }
+      });
+      send(request);
+      Promise.resolve().then(() => orig.call(ui, title, second, { ...opts ?? {}, signal })).then(
+        (value) => {
+          if (ac.signal.aborted) return;
+          send({
+            type: "extension_ui_closed",
+            id,
+            by: opts?.signal?.aborted ? "pi" : "terminal"
+          });
+          finish(value);
+        },
+        () => {
+          if (ac.signal.aborted) return;
+          send({ type: "extension_ui_closed", id, by: "terminal" });
+          finish(method === "confirm" ? false : void 0);
+        }
+      );
+    });
+  };
+  const raceEditor = (ui, orig, title, prefill) => {
+    const id = randomUUID();
+    const request = {
+      type: "extension_ui_request",
+      id,
+      method: "editor",
+      title,
+      ...prefill !== void 0 ? { prefill } : {}
+    };
+    return new Promise((resolve) => {
+      let done = false;
+      let remote = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        pending.delete(id);
+        resolve(value);
+      };
+      pending.set(id, {
+        request,
+        onRemote: (body) => {
+          remote = true;
+          send({ type: "holder_keys", data: "\x1B" });
+          finish(parseBody("editor", body));
+        }
+      });
+      send(request);
+      Promise.resolve().then(() => orig.call(ui, title, prefill)).then(
+        (value) => {
+          if (remote) return;
+          send({ type: "extension_ui_closed", id, by: "terminal" });
+          finish(value);
+        },
+        () => {
+          if (remote) return;
+          send({ type: "extension_ui_closed", id, by: "terminal" });
+          finish(void 0);
+        }
+      );
+    });
+  };
+  const remoteOnly = (method, title, fields, signal) => {
+    const dflt = method === "confirm" ? false : void 0;
+    if (signal?.aborted) return Promise.resolve(dflt);
+    const id = randomUUID();
+    const request = { type: "extension_ui_request", id, method, title, ...fields };
+    return new Promise((resolve) => {
+      let done = false;
+      const onAbort = () => {
+        send({
+          type: "extension_ui_closed",
+          id,
+          by: signal?.reason === "pi" ? "pi" : "terminal"
+        });
+        finish(dflt);
+      };
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        remoteBacked--;
+        pending.delete(id);
+        signal?.removeEventListener("abort", onAbort);
+        resolve(value);
+      };
+      remoteBacked++;
+      pending.set(id, { request, onRemote: (body) => finish(parseBody(method, body)) });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      send(request);
+    });
+  };
+  const remoteUi = {
+    select: (title, options, opts) => remoteOnly("select", title, { options }, opts?.signal),
+    confirm: (title, message, opts) => remoteOnly("confirm", title, { message }, opts?.signal),
+    input: (title, placeholder, opts) => remoteOnly("input", title, placeholder !== void 0 ? { placeholder } : {}, opts?.signal),
+    editor: (title, prefill, opts) => remoteOnly("editor", title, prefill !== void 0 ? { prefill } : {}, opts?.signal)
+  };
+  const fire = (method, fields) => send({ type: "extension_ui_request", id: randomUUID(), method, ...fields });
+  const patchUi = (c) => {
+    try {
+      const ui = c.ui;
+      if (!ui || typeof ui !== "object") {
+        remoteDialogs = false;
+        return;
+      }
+      if (ui[PATCHED]) {
+        remoteDialogs = c.ui.select === ui.select && ui.select?.[WRAPPED] === true;
+        return;
+      }
+      const wrap = (fn) => {
+        fn[WRAPPED] = true;
+        return fn;
+      };
+      for (const method of ["select", "confirm", "input"]) {
+        const orig = ui[method];
+        if (typeof orig !== "function") continue;
+        ui[method] = wrap(
+          (title, second, opts) => race(ui, method, orig, title, second, opts)
+        );
+      }
+      const origEditor = ui.editor;
+      if (typeof origEditor === "function") {
+        ui.editor = wrap(
+          (title, prefill) => raceEditor(ui, origEditor, title, prefill)
+        );
+      }
+      const origNotify = ui.notify;
+      if (typeof origNotify === "function") {
+        ui.notify = (message, type) => {
+          const r = origNotify.call(ui, message, type);
+          fire("notify", { message, notifyType: type });
+          return r;
+        };
+      }
+      const origStatus = ui.setStatus;
+      if (typeof origStatus === "function") {
+        ui.setStatus = (key, text) => {
+          const r = origStatus.call(ui, key, text);
+          fire("setStatus", { statusKey: key, statusText: text });
+          return r;
+        };
+      }
+      const origWidget = ui.setWidget;
+      if (typeof origWidget === "function") {
+        ui.setWidget = (key, content2, options) => {
+          const r = origWidget.call(ui, key, content2, options);
+          if (content2 === void 0 || Array.isArray(content2)) {
+            fire("setWidget", {
+              widgetKey: key,
+              widgetLines: content2,
+              widgetPlacement: options?.placement
+            });
+          }
+          return r;
+        };
+      }
+      const origTitle = ui.setTitle;
+      if (typeof origTitle === "function") {
+        ui.setTitle = (title) => {
+          const r = origTitle.call(ui, title);
+          fire("setTitle", { title });
+          return r;
+        };
+      }
+      Object.defineProperty(ui, PATCHED, { value: true });
+      remoteDialogs = c.ui.select === ui.select && ui.select?.[WRAPPED] === true;
+    } catch {
+      remoteDialogs = false;
+    }
+  };
+  const content = (message, images) => {
+    if (!Array.isArray(images) || images.length === 0) return message;
+    return [
+      { type: "text", text: message },
+      ...images.map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType }))
+    ];
+  };
+  const respond = (id, command, data, error) => {
+    if (error !== void 0) send({ type: "response", id, command, success: false, error });
+    else if (data === void 0) send({ type: "response", id, command, success: true });
+    else send({ type: "response", id, command, success: true, data });
+  };
+  const handleCommand = (cmd) => {
+    const id = cmd.id;
+    const type = String(cmd.type);
+    if (!ctx) {
+      early.push(cmd);
+      return;
+    }
+    try {
+      switch (type) {
+        case "get_state":
+          respond(id, type, {
+            sessionId: ctx.sessionManager.getSessionId(),
+            sessionFile: ctx.sessionManager.getSessionFile() ?? null,
+            sessionName: pi.getSessionName?.() ?? null,
+            isStreaming: !ctx.isIdle(),
+            model: modelInfo(ctx.model),
+            thinkingLevel: ctx.thinkingLevel ?? pi.getThinkingLevel?.() ?? null,
+            pendingMessageCount: ctx.hasPendingMessages() ? 1 : 0
+          });
+          return;
+        case "prompt": {
+          const message = String(cmd.message ?? "");
+          if (message.startsWith("/")) {
+            const name = message.slice(1).split(/\s/)[0];
+            const known = (pi.getCommands?.() ?? []).find((c) => c.name === name);
+            if (known?.source === "extension") {
+              const args = message.slice(1 + name.length).trim();
+              const probe = { version: 1, name, args, probe: true };
+              try {
+                pi.events?.emit?.("switchyard.web-command.v1", probe);
+              } catch {
+              }
+              if (probe.accept === true) {
+                runInternal(async (c) => {
+                  const req = { version: 1, name, args, probe: false, ctx: c };
+                  try {
+                    pi.events.emit("switchyard.web-command.v1", req);
+                    const view = await Promise.race([
+                      Promise.resolve(req.view),
+                      new Promise((_, rej) => setTimeout(() => rej(new Error("timed out")), 15e3))
+                    ]);
+                    if (!view) throw new Error(`/${name} returned no view`);
+                    respond(id, type, { disposition: "view", view });
+                  } catch (e) {
+                    respond(id, type, void 0, `/${name} failed: ${e?.message ?? e}`);
+                  }
+                });
+                return;
+              }
+              pi.sendUserMessage(message, { expandPromptTemplates: true });
+              respond(id, type, { disposition: "handled" });
+              return;
+            }
+            if (known) {
+              if (!ctx.isIdle()) {
+                respond(id, type, void 0, "Session is running: choose Steer or Queue follow-up");
+                return;
+              }
+              pi.sendUserMessage(content(message, cmd.images), { expandPromptTemplates: true });
+              respond(id, type, { disposition: "started" });
+              return;
+            }
+          }
+          if (!ctx.isIdle()) {
+            respond(id, type, void 0, "Session is running: choose Steer or Queue follow-up");
+            return;
+          }
+          pi.sendUserMessage(content(message, cmd.images));
+          respond(id, type, { disposition: "started" });
+          return;
+        }
+        case "steer":
+        case "follow_up": {
+          const message = String(cmd.message ?? "");
+          const idle = ctx.isIdle();
+          pi.sendUserMessage(content(message, cmd.images), {
+            deliverAs: type === "steer" ? "steer" : "followUp"
+          });
+          if (!idle) {
+            (type === "steer" ? queue.steering : queue.followUp).push(message);
+            sendQueue();
+          }
+          respond(id, type, { disposition: idle ? "started" : "queued" });
+          return;
+        }
+        case "abort":
+          ctx.abort();
+          respond(id, type);
+          return;
+        case "clear_queue":
+          respond(id, type, { steering: [], followUp: [] });
+          return;
+        case "set_session_name": {
+          const name = String(cmd.name ?? "").trim();
+          if (!name) {
+            respond(id, type, void 0, "Session name cannot be empty");
+            return;
+          }
+          pi.setSessionName(name);
+          respond(id, type);
+          return;
+        }
+        case "get_session_stats": {
+          const totals = sessionTotals(ctx.sessionManager.getEntries());
+          respond(id, type, {
+            tokens: { total: totals.tokens },
+            cost: totals.cost,
+            contextUsage: ctx.getContextUsage?.() ?? void 0
+          });
+          return;
+        }
+        case "get_available_models":
+          respond(id, type, {
+            models: (ctx.modelRegistry?.getAvailable?.() ?? []).map(modelInfo).filter(Boolean)
+          });
+          return;
+        case "get_commands":
+          respond(id, type, {
+            commands: (pi.getCommands?.() ?? []).filter((c) => c.name !== "switchyard-internal").map((c) => ({
+              name: c.name,
+              description: c.description ?? null,
+              source: c.source,
+              sourceInfo: c.sourceInfo ?? null
+            }))
+          });
+          return;
+        case "set_model": {
+          const provider = String(cmd.provider ?? "");
+          const modelId = String(cmd.modelId ?? "");
+          const model = ctx.modelRegistry?.find?.(provider, modelId);
+          if (!model) {
+            respond(id, type, void 0, `Model not found: ${provider}/${modelId}`);
+            return;
+          }
+          Promise.resolve(pi.setModel(model)).then(
+            (ok) => {
+              if (ok === false)
+                respond(id, type, void 0, `No API key for ${provider}/${modelId}`);
+              else respond(id, type, modelInfo(ctx.model));
+            },
+            (err) => respond(id, type, void 0, err instanceof Error ? err.message : String(err))
+          );
+          return;
+        }
+        case "set_thinking_level":
+          pi.setThinkingLevel(String(cmd.level));
+          respond(id, type);
+          return;
+        case "compact":
+          if (!ctx.isIdle()) {
+            respond(
+              id,
+              type,
+              void 0,
+              "Session is running: wait for it to finish before compacting"
+            );
+            return;
+          }
+          ctx.compact({
+            customInstructions: typeof cmd.customInstructions === "string" && cmd.customInstructions ? cmd.customInstructions : void 0,
+            onComplete: () => {
+            },
+            onError: () => {
+            }
+          });
+          respond(id, type, { started: true });
+          return;
+        case "shutdown":
+          respond(id, type);
+          setImmediate(() => {
+            try {
+              ctx.shutdown();
+            } catch {
+            }
+          });
+          return;
+        case "navigate_tree": {
+          const entryId = String(cmd.entryId ?? "");
+          if ((cmd.sessionFile ?? null) !== (ctx.sessionManager.getSessionFile() ?? null)) {
+            respond(id, type, void 0, "The session changed; reload and try again");
+            return;
+          }
+          if (!ctx.isIdle()) {
+            respond(id, type, void 0, "Wait for the current reply to finish");
+            return;
+          }
+          if (pending.size > 0) {
+            respond(id, type, void 0, "Answer the open dialog first");
+            return;
+          }
+          const target = ctx.sessionManager.getEntry?.(entryId);
+          if (!target) {
+            respond(id, type, void 0, "That message is not in this session");
+            return;
+          }
+          const summarize = cmd.summarize === true;
+          runInternal(async (c) => {
+            try {
+              const r = await c.navigateTree(entryId, {
+                summarize,
+                customInstructions: cmd.instructions || void 0
+              });
+              if (r?.cancelled) {
+                respond(id, type, void 0, summarize ? "Summary cancelled" : "Rewind cancelled");
+                return;
+              }
+              const editorText = target.type === "message" && target.message?.role === "user" ? messageText(target.message) : null;
+              respond(id, type, {
+                leafId: ctx.sessionManager.getLeafId() ?? null,
+                editorText,
+                entries: ctx.sessionManager.getBranch()
+              });
+            } catch (e) {
+              respond(id, type, void 0, e?.message ?? String(e));
+            }
+            flushEntries();
+            sendLeaf();
+          });
+          return;
+        }
+        case "reload":
+          if (!ctx) {
+            respond(id, type, void 0, "Session is not ready");
+            return;
+          }
+          respond(id, type);
+          runInternal((c) => c.reload());
+          return;
+        case "complete": {
+          const text = String(cmd.text ?? "");
+          if (!completer?.getSuggestions || !/^\/\S+ /.test(text) || text.includes("\n")) {
+            respond(id, type, { items: [], prefix: "" });
+            return;
+          }
+          const ac = new AbortController();
+          const timer = setTimeout(() => ac.abort(), 2e3);
+          Promise.resolve(completer.getSuggestions([text], 0, text.length, { signal: ac.signal })).then(
+            (s) => respond(id, type, {
+              items: (Array.isArray(s?.items) ? s.items : []).filter((i) => typeof i?.value === "string").slice(0, 50).map((i) => ({
+                value: i.value,
+                label: typeof i.label === "string" ? i.label : i.value,
+                description: typeof i.description === "string" ? i.description : null
+              })),
+              prefix: typeof s?.prefix === "string" ? s.prefix : ""
+            })
+          ).catch(() => respond(id, type, { items: [], prefix: "" })).finally(() => clearTimeout(timer));
+          return;
+        }
+        default:
+          respond(id, type, void 0, `Unknown command: ${type}`);
+      }
+    } catch (err) {
+      respond(id, type, void 0, err instanceof Error ? err.message : String(err));
+    }
+  };
+  const announce = () => {
+    if (ctx) {
+      hello();
+      sendModelState();
+      sendQueue();
+      sendLeaf();
+    }
+    for (const p of pending.values()) send(p.request);
+  };
+  const onLine = (line) => {
+    let msg;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === "extension_ui_response") {
+      pending.get(String(msg.id))?.onRemote(msg);
+      return;
+    }
+    if (msg.type === "control_attached") {
+      announce();
+      return;
+    }
+    if (typeof msg.type === "string" && msg.id !== void 0) handleCommand(msg);
+  };
+  const CONNECT_ATTEMPTS = 5;
+  const CONNECT_RETRY_MS = 200;
+  const connect = (attempt) => {
+    let s;
+    try {
+      s = createConnection(socketPath);
+    } catch {
+      socket = null;
+      return;
+    }
+    socket = s;
+    let connected = false;
+    const lines = new LineSplitter(onLine);
+    s.setEncoding("utf8");
+    s.on("data", (chunk) => lines.push(chunk));
+    s.once("connect", () => {
+      connected = true;
+      if (attempt > 1) announce();
+    });
+    s.on("error", () => {
+      if (socket === s) socket = null;
+    });
+    s.on("close", () => {
+      if (socket === s) socket = null;
+      if (!connected && attempt < CONNECT_ATTEMPTS) {
+        setTimeout(() => connect(attempt + 1), CONNECT_RETRY_MS).unref();
+      }
+    });
+    s.unref();
+    s.write(`${JSON.stringify({ role: "extension" })}
+`);
+  };
+  connect(1);
+  try {
+    pi.events?.on?.(REMOTE_UI_CHANNEL, (data) => {
+      const r = data;
+      if (r?.version !== 1 || r.ui || !socket) return;
+      r.ui = remoteUi;
+      r.provider = "switchyard";
+    });
+  } catch {
+  }
+  const on = (name, fn) => {
+    try {
+      pi.on(name, (event, c) => {
+        try {
+          fn(event, c);
+        } catch {
+        }
+      });
+    } catch {
+    }
+  };
+  on("session_start", (event, c) => {
+    ctx = c;
+    patchUi(c);
+    completer = null;
+    try {
+      c.ui?.addAutocompleteProvider?.((current) => {
+        completer = current;
+        return current;
+      });
+    } catch {
+    }
+    entryCount = c.sessionManager.getEntries().length;
+    const sessionId = c.sessionManager.getSessionId();
+    const sessionFile = c.sessionManager.getSessionFile() ?? null;
+    hello();
+    sendModelState();
+    sendLeaf();
+    if (event?.reason && event.reason !== "startup") {
+      send({ type: "switchyard_native", sessionId, sessionFile });
+    }
+    for (const cmd of early.splice(0)) handleCommand(cmd);
+  });
+  for (const name of [
+    "agent_start",
+    "message_start",
+    "tool_execution_start",
+    "tool_execution_update",
+    "tool_execution_end",
+    "session_info_changed"
+  ]) {
+    on(name, (event) => send(event));
+  }
+  on("message_start", (event) => {
+    if (event?.message?.role !== "user") return;
+    const text = messageText(event.message);
+    for (const list of [queue.steering, queue.followUp]) {
+      const i = list.indexOf(text);
+      if (i >= 0) {
+        list.splice(i, 1);
+        sendQueue();
+        return;
+      }
+    }
+  });
+  on("message_update", (event) => send(jsonMessageUpdate(event)));
+  on("message_end", (event) => {
+    send(event);
+    flushEntries();
+  });
+  on("turn_end", () => {
+    flushEntries();
+    sendLeaf();
+  });
+  on("session_tree", () => {
+    flushEntries();
+    sendLeaf();
+  });
+  on("agent_settled", (event) => {
+    send({ type: "agent_settled", aborted: event?.aborted === true });
+    flushEntries();
+    sendLeaf();
+    if (queue.steering.length > 0 || queue.followUp.length > 0) {
+      queue.steering = [];
+      queue.followUp = [];
+      sendQueue();
+    }
+  });
+  on("session_compact", () => {
+    send({ type: "compaction_end", result: true });
+    flushEntries();
+  });
+  on(
+    "session_compact_failed",
+    (event) => send({
+      type: "compaction_end",
+      result: null,
+      aborted: event?.aborted === true,
+      errorMessage: event?.errorMessage ?? "unknown error"
+    })
+  );
+  on("model_select", () => sendModelState());
+  on("thinking_level_select", () => sendModelState());
+  on(
+    "session_before_compact",
+    (event) => send({ type: "compaction_start", reason: event?.reason ?? "manual" })
+  );
+  on(
+    "ui_prompt_start",
+    (event) => send({
+      type: "ui_prompt",
+      event: event.type,
+      kind: event.kind,
+      title: event.title ?? null,
+      remoteBacked: event.kind === "custom" && remoteBacked > 0
+    })
+  );
+  on(
+    "ui_prompt_end",
+    (event) => send({ type: "ui_prompt", event: event.type, kind: event.kind, title: event.title ?? null })
+  );
+  on("input", (event) => {
+    if (event?.source !== "interactive" || !event.streamingBehavior) return;
+    (event.streamingBehavior === "steer" ? queue.steering : queue.followUp).push(
+      String(event.text ?? "")
+    );
+    sendQueue();
+  });
+}
+export {
+  switchyardTerminal as default,
+  jsonMessageUpdate,
+  sessionTotals
+};

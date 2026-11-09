@@ -5,10 +5,14 @@
  * Nothing is built here: run `pnpm build` first.
  */
 import {
+  appendFileSync,
+  chmodSync,
+  copyFileSync,
   createWriteStream,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -115,13 +119,76 @@ export default async function globalSetup(): Promise<void> {
   if (!existsSync(join(webDist, "index.html"))) {
     throw new Error(`packages/web/dist is missing; run \`pnpm build\` first (${webDist})`);
   }
-  const root = mkdtempSync(join(tmpdir(), "switchyard-e2e-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "switchyard-e2e-")));
   const logFile = join(root, "coordinator.log");
   const hostLog = join(root, "host.log");
   console.log(`[e2e] temp root ${root} (logs: coordinator.log, host.log)`);
 
-  const mock = await startMockModel(MOCK_SCRIPT);
+  // Only this host (and its real Pi children) sees fake gh. Never change the runner's
+  // PATH or fall back to the developer's authenticated GitHub CLI.
+  const fakeGhRoot = join(root, "fake-gh");
+  const fakeBin = join(fakeGhRoot, "bin");
+  mkdirSync(fakeBin, { recursive: true });
+  copyFileSync(join(here, "fixtures", "fake-gh.mjs"), join(fakeBin, "gh"));
+  chmodSync(join(fakeBin, "gh"), 0o755);
+  const mock = await startMockModel([
+    {
+      when: (req) => {
+        appendFileSync(
+          join(root, "mock-requests.jsonl"),
+          `${JSON.stringify({ lastRole: req.lastRole, lastText: req.lastText, lastToolName: req.lastToolName })}\n`,
+        );
+        return false;
+      },
+      reply: {},
+    },
+    {
+      when: when.userSays("PHASE3-WRITE:"),
+      reply: (req) => {
+        const token = /PHASE3-WRITE:([A-Za-z0-9_-]+)/.exec(req.lastText)?.[1];
+        const path = Buffer.from(token ?? "", "base64url").toString();
+        if (!path.startsWith(`${root}/`) || path.includes(".."))
+          throw new Error("Phase three write escaped the isolated e2e root");
+        return {
+          toolCalls: [
+            {
+              name: "bash",
+              arguments: {
+                command: `printf phase-three-approved > '${path.replaceAll("'", "'\\''")}'`,
+              },
+            },
+          ],
+        };
+      },
+    },
+    {
+      when: (req) =>
+        req.lastRole === "user" &&
+        req.lastText.startsWith(
+          "https://github.com/switchyard-e2e/fixture/issues/17\n\nRead it with",
+        ),
+      reply: {
+        toolCalls: [
+          {
+            name: "bash",
+            arguments: {
+              command: "gh issue view https://github.com/switchyard-e2e/fixture/issues/17",
+            },
+          },
+        ],
+      },
+    },
+    { when: when.toolResult("bash"), reply: { text: "Phase three tool finished." } },
+    ...MOCK_SCRIPT,
+  ]);
   const pi = makePiEnv({ mockUrl: mock.url });
+  const hostEnv = {
+    ...pi.env,
+    PATH: `${fakeBin}:${pi.env.PATH ?? process.env.PATH ?? ""}`,
+    SWITCHYARD_E2E_GH_ROOT: fakeGhRoot,
+    GH_TOKEN: undefined,
+    GITHUB_TOKEN: undefined,
+  };
 
   // Repo with uncommitted changes in the main checkout: Changes lists three files.
   const repo = makeRepo();
@@ -179,7 +246,7 @@ export default async function globalSetup(): Promise<void> {
     config: { coordinatorUrl: E2E_URL, hostId, credential, name: "e2e-host" },
     stateDir: join(root, "host-state"),
     piBin: piBin(),
-    env: pi.env,
+    env: hostEnv,
     extraExtensions: [fixtureExtensionPath(), join(here, "fixtures", "ask-extension.js")],
     // Core bundles no adapters: the e2e ask-user-question adapter is an owner adapter.
     ownerAdapterDir: join(here, "fixtures", "adapters"),
