@@ -49,7 +49,8 @@ jobs:
       # Trusted publishing (GitHub OIDC) needs npm >= 11.5.
       - run: npm install -g npm@latest
       # The smoke test starts a standalone coordinator and host; the host needs Pi.
-      - run: npm install -g @earendil-works/pi-coding-agent@1.4.0
+      - run: npm install -g @earendil-works/pi-coding-agent@1.5.0
+      - run: pi --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm build:npm

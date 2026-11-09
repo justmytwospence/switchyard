@@ -8,7 +8,7 @@ Switchyard has three parts, and you can place them on one machine or several:
 
 Pick the pattern that fits where you run it. None of them requires a particular network, proxy or identity provider. Who may sign in is covered in [auth.md](auth.md); backups and upgrades in [operations.md](operations.md).
 
-Requirements: Node >=24 and pnpm 12 (to build from source), git, and Pi >=1.4.0 <1.6.0 on every host that runs sessions (see [compatibility.md](compatibility.md)). The container image needs only Docker for the coordinator.
+Requirements: Node >=24 and pnpm 12 (to build from source), git, and Pi >=1.4.0 <1.6.0 on every host that runs sessions (see [compatibility.md](compatibility.md)). Policy-protected sessions require Pi 1.5.0; older supported Pi versions remain available for basic unprotected operation. The container image needs only Docker for the coordinator.
 
 ## Choosing a pattern
 
@@ -200,9 +200,9 @@ The same image can run a host agent: `switchyard host run`. Use it only when the
 - **Pi on `PATH`.** The image does not include Pi. Build a small image on top of it, or mount a Pi install and set `SWITCHYARD_PI_BIN`:
 
   ```
-  FROM ghcr.io/justmytwospence/switchyard:0.11.0
+  FROM ghcr.io/justmytwospence/switchyard:0.12.0
   USER root
-  RUN npm install -g @earendil-works/pi-coding-agent@1.4.0
+  RUN npm install -g @earendil-works/pi-coding-agent@1.5.0
   USER node
   ```
 

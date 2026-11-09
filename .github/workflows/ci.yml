@@ -9,7 +9,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: pnpm }
       # Real-Pi tests run against the pinned, tested Pi release with a local mock model.
-      - run: npm install -g @earendil-works/pi-coding-agent@1.4.0
+      - run: npm install -g @earendil-works/pi-coding-agent@1.5.0
+      - run: pi --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm lint
