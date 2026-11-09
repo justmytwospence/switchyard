@@ -132,6 +132,8 @@ export class GitHubService {
       );
       if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 0)
         throw new Error("Invalid GitHub merge fence legacy backfill version");
+      // Sole legacy importer: fences, quarantine and completion commit (or roll back) together.
+      // Applied original 013 may already have bootstrap rows, but no completion marker.
       if (version < 1) {
         for (const ws of this.ctx.store.workspaces.list()) this.backfillMarker(ws);
         this.ctx.store.setSetting("githubMergeFenceLegacyBackfillVersion", 1);
@@ -405,7 +407,10 @@ export class GitHubService {
       !Number.isSafeInteger(pr.number) ||
       pr.number <= 0
     ) {
-      this.ctx.store.setSetting(`githubCorruptedMergeMarker:${ws.id}`, ws);
+      // Preserve an original-013 quarantine snapshot even if the display cache changed.
+      this.ctx.store.db
+        .prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)")
+        .run(`githubCorruptedMergeMarker:${ws.id}`, JSON.stringify(ws));
       return;
     }
     if (findMergeFence(this.ctx.store, snapshot)) return;

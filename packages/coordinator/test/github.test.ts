@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type {
   GitHubLogs,
   GitHubMergeResult,
@@ -6,8 +7,11 @@ import type {
   WorkspaceGitHub,
 } from "@switchyard/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type Db, MIGRATIONS, migrate, openDb } from "../src/db/index.js";
+import { EventHub } from "../src/event-hub.js";
 import { findMergeFence, GitHubService, UNKNOWN_MERGE_REASON } from "../src/github.js";
 import { requireService } from "../src/services.js";
+import { Store } from "../src/store.js";
 import { recordCreatedWorkspace, refreshCheckoutWorkspaces } from "../src/workspaces.js";
 import {
   enrollHost,
@@ -24,7 +28,12 @@ const OTHER = "b".repeat(40);
 const AVAILABLE = { available: true, reason: null };
 let t: TestCoordinator;
 const hosts: FakeHost[] = [];
+const upgradeFixtures: { db: Db; service: GitHubService }[] = [];
 afterEach(async () => {
+  for (const { db, service } of upgradeFixtures.splice(0)) {
+    service.stop();
+    db.close();
+  }
   for (const host of hosts.splice(0)) await host.close();
   await t?.cleanup();
 });
@@ -826,7 +835,180 @@ function cacheOtherWorkspace(ws: Workspace, github = unknownSnapshot(), id = "ot
   return t.c.store.putWorkspace({ ...ws, id, path: `/repo/${id}`, github });
 }
 
+/** Seed legacy display data before 013 exists, without undoing any applied migration/import. */
+async function legacyDatabaseAt12(version?: number) {
+  const { ws } = await setup();
+  const db = openDb(":memory:");
+  db.exec(
+    "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)",
+  );
+  for (const migration of MIGRATIONS.filter((m) => m.version <= 12)) {
+    db.exec(migration.sql);
+    db.prepare("INSERT INTO schema_migrations VALUES (?, ?, ?)").run(
+      migration.version,
+      migration.name,
+      "2026-01-01T00:00:00.000Z",
+    );
+  }
+  const hub = new EventHub();
+  const store = new Store(db, hub, () => t.c.store.now());
+  const service = new GitHubService({ ...t.c.ctx, store, hub });
+  upgradeFixtures.push({ db, service });
+  const legacy = unknownSnapshot();
+  delete legacy.pullRequest!.nodeId;
+  store.workspaces.upsert({ ...ws, github: legacy });
+  const corrupt = {
+    ...ws,
+    id: "corrupt",
+    path: "/repo/corrupt",
+    github: { ...unknownSnapshot(), repository: null, pullRequest: null },
+  };
+  store.workspaces.upsert(corrupt);
+  if (version !== undefined) store.setSetting(BACKFILL_VERSION, version);
+  return { db, store, service, ws, corrupt, legacy };
+}
+
+function upgradeFences(db: Db) {
+  return db.prepare("SELECT * FROM github_merge_fences ORDER BY id").all();
+}
+function fenceHighWater(db: Db) {
+  return db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'github_merge_fences'").get();
+}
+
 describe("one-time legacy import and stale overlay cleanup", () => {
+  it("applies schema-only 013 before atomically importing at startup, with a final-write fault and retry", async () => {
+    const { db, store, service, corrupt } = await legacyDatabaseAt12();
+    expect(migrate(db)).toBe(13);
+    const history = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+    const workspaces = db.prepare("SELECT * FROM workspaces ORDER BY id").all();
+    expect(upgradeFences(db)).toEqual([]);
+    expect(store.getSetting(`githubCorruptedMergeMarker:${corrupt.id}`, null)).toBeNull();
+    expect(store.getSetting(BACKFILL_VERSION, null)).toBeNull();
+    db.exec(`CREATE TRIGGER fail_upgrade_completion BEFORE INSERT ON settings
+      WHEN NEW.key = '${BACKFILL_VERSION}' BEGIN SELECT RAISE(ABORT, 'upgrade failed'); END`);
+    expect(() => service.start()).toThrow("upgrade failed");
+    expect(upgradeFences(db)).toEqual([]);
+    expect(store.getSetting(`githubCorruptedMergeMarker:${corrupt.id}`, null)).toBeNull();
+    expect(store.getSetting(BACKFILL_VERSION, null)).toBeNull();
+    expect(db.prepare("SELECT * FROM workspaces ORDER BY id").all()).toEqual(workspaces);
+    expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(history);
+    db.exec("DROP TRIGGER fail_upgrade_completion");
+    service.start();
+    expect(upgradeFences(db)).toEqual([
+      expect.objectContaining({
+        fence_key: "legacy:github.com:upstream/app:23",
+        state: "unknown",
+      }),
+    ]);
+    expect(store.getSetting(`githubCorruptedMergeMarker:${corrupt.id}`, null)).toEqual(corrupt);
+    expect(store.getSetting(BACKFILL_VERSION, null)).toBe(1);
+    const imported = upgradeFences(db);
+    const highWater = fenceHighWater(db);
+    service.stop();
+    expect(migrate(db)).toBe(13);
+    service.start();
+    expect(upgradeFences(db)).toEqual(imported);
+    expect(fenceHighWater(db)).toEqual(highWater);
+    expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(history);
+  });
+
+  it("never imports stale display strings when 012 already records completed backfill", async () => {
+    const { db, store, service, corrupt } = await legacyDatabaseAt12(1);
+    expect(migrate(db)).toBe(13);
+    expect(upgradeFences(db)).toEqual([]);
+    expect(store.getSetting(`githubCorruptedMergeMarker:${corrupt.id}`, null)).toBeNull();
+    service.start();
+    service.stop();
+    service.start();
+    expect(upgradeFences(db)).toEqual([]);
+    expect(store.getSetting(`githubCorruptedMergeMarker:${corrupt.id}`, null)).toBeNull();
+    expect(store.getSetting(BACKFILL_VERSION, null)).toBe(1);
+  });
+
+  it.each([undefined, 1])(
+    "preserves applied original-013 rows, history and high-water with marker %s",
+    async (version) => {
+      const { db, store, service, ws, corrupt, legacy } = await legacyDatabaseAt12(version);
+      store.workspaces.upsert({
+        ...ws,
+        id: "reconciled-target",
+        path: "/repo/reconciled",
+        github: {
+          ...legacy,
+          pullRequest: {
+            ...legacy.pullRequest!,
+            number: 24,
+            url: "https://github.com/upstream/app/pull/24",
+          },
+        },
+      });
+      db.exec(
+        readFileSync(
+          new URL("./fixtures/013_github_merge_fences.original.sql", import.meta.url),
+          "utf8",
+        ),
+      );
+      db.prepare("INSERT INTO schema_migrations VALUES (13, '013_github_merge_fences', ?)").run(
+        "2026-02-03T04:05:06.000Z",
+      );
+      expect(upgradeFences(db)).toHaveLength(2);
+      // Model a previously reconciled target with stale display text still cached.
+      // Its deleted generation leaves the sequence above every surviving fence.
+      db.exec("DELETE FROM github_merge_fences WHERE pr_number = 24");
+      const original = upgradeFences(db);
+      expect(original).toEqual([
+        expect.objectContaining({
+          attempt_id: "legacy:workspace",
+          command_id: "legacy:workspace",
+          id: 1,
+        }),
+      ]);
+      const quarantine = store.getSetting(`githubCorruptedMergeMarker:${corrupt.id}`, null);
+      expect(quarantine).toEqual(corrupt);
+      expect(fenceHighWater(db)).toEqual({ seq: 2 });
+      const history = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+      const schema = db
+        .prepare(
+          "SELECT name, sql FROM sqlite_master WHERE tbl_name = 'github_merge_fences' ORDER BY name",
+        )
+        .all();
+      // Marker 1 must not resurrect the reconciled target or import new corrupt text;
+      // an absent marker imports only missing data, preserving the original audit snapshots.
+      const missingCorrupt = { ...corrupt, id: "missing-corrupt", path: "/repo/missing-corrupt" };
+      store.workspaces.upsert(missingCorrupt);
+      store.workspaces.upsert({ ...corrupt, updatedAt: "2026-03-01T00:00:00.000Z" });
+      expect(migrate(db)).toBe(13);
+      expect(upgradeFences(db)).toEqual(original);
+      expect(fenceHighWater(db)).toEqual({ seq: 2 });
+      service.start();
+      expect(upgradeFences(db)[0]).toEqual(original[0]);
+      expect(upgradeFences(db)).toHaveLength(version === 1 ? 1 : 2);
+      if (version === undefined)
+        expect(upgradeFences(db)[1]).toMatchObject({ id: 3, pr_number: 24, state: "unknown" });
+      expect(fenceHighWater(db)).toEqual({ seq: version === 1 ? 2 : 3 });
+      expect(store.getSetting(`githubCorruptedMergeMarker:${corrupt.id}`, null)).toEqual(
+        quarantine,
+      );
+      expect(store.getSetting(`githubCorruptedMergeMarker:${missingCorrupt.id}`, null)).toEqual(
+        version === 1 ? null : missingCorrupt,
+      );
+      expect(store.getSetting(BACKFILL_VERSION, null)).toBe(1);
+      const imported = upgradeFences(db);
+      const highWater = fenceHighWater(db);
+      service.stop();
+      service.start();
+      expect(upgradeFences(db)).toEqual(imported);
+      expect(fenceHighWater(db)).toEqual(highWater);
+      expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(history);
+      expect(
+        db
+          .prepare(
+            "SELECT name, sql FROM sqlite_master WHERE tbl_name = 'github_merge_fences' ORDER BY name",
+          )
+          .all(),
+      ).toEqual(schema);
+    },
+  );
   it("atomically rolls back imports, quarantine and completion, then deduplicates on retry", async () => {
     const { service, ws, host } = await setup(AVAILABLE, true);
     const store = t.c.store;

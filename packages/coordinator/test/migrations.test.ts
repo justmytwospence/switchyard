@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type Db, MIGRATIONS, migrate, openDb } from "../src/db/index.js";
 
@@ -19,76 +20,87 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
-  it("013 imports legacy uncertainty without rewriting snapshots and preserves audit identity", () => {
-    const db = dbAt(12);
-    const snapshot = {
-      id: "workspace",
-      github: {
-        repository: "Owner/Repo",
-        headRepository: "fork/repo",
-        branch: "topic",
-        pullRequest: { number: 42, headRefOid: "a".repeat(40) },
-        reason: "Merge outcome unknown. Refresh before retrying.",
-        attemptedAt: "2026-01-01T00:00:00.000Z",
-      },
-    };
-    const insert = db.prepare(`INSERT INTO workspaces
+  it.each([undefined, 1])(
+    "013 is schema-only with legacy snapshots and backfill marker %s",
+    (version) => {
+      const db = dbAt(12);
+      const snapshot = {
+        id: "workspace",
+        github: {
+          repository: "Owner/Repo",
+          headRepository: "fork/repo",
+          branch: "topic",
+          pullRequest: { number: 42, headRefOid: "a".repeat(40) },
+          reason: "Merge outcome unknown. Refresh before retrying.",
+          attemptedAt: "2026-01-01T00:00:00.000Z",
+        },
+      };
+      const insert = db.prepare(`INSERT INTO workspaces
       (id, project_id, checkout_id, host_id, path, json) VALUES (?, 'project', 'checkout', 'host', ?, ?)`);
-    insert.run("workspace", "/repo", JSON.stringify(snapshot));
-    insert.run(
-      "alias",
-      "/alias",
-      JSON.stringify({
-        ...snapshot,
-        id: "alias",
-        github: { ...snapshot.github, repository: "owner/repo" },
-      }),
-    );
-    insert.run(
-      "corrupt",
-      "/corrupt",
-      JSON.stringify({
-        id: "corrupt",
-        github: { reason: snapshot.github.reason, repository: null, pullRequest: null },
-      }),
-    );
-    insert.run("ordinary", "/ordinary", JSON.stringify({ id: "ordinary" }));
-    const originals = db.prepare("SELECT * FROM workspaces ORDER BY id").all();
-    expect(migrate(db)).toBe(13);
-    expect(db.prepare("SELECT * FROM workspaces ORDER BY id").all()).toEqual(originals);
-    const rows = db.prepare("SELECT * FROM github_merge_fences").all();
-    expect(rows).toEqual([
-      expect.objectContaining({
-        fence_key: "legacy:github.com:owner/repo:42",
-        hostname: "github.com",
-        pull_request_node_id: null,
-        repository: "Owner/Repo",
-        pr_number: 42,
-        expected_head_oid: "a".repeat(40),
-        workspace_id: "workspace",
-        host_id: "host",
-        head_repository: "fork/repo",
-        head_ref_name: "topic",
-        state: "unknown",
-        started_at: snapshot.github.attemptedAt,
-      }),
-    ]);
-    expect(
-      db.prepare("SELECT key FROM settings WHERE key GLOB 'githubCorruptedMergeMarker:*'").all(),
-    ).toEqual([{ key: "githubCorruptedMergeMarker:corrupt" }]);
-    expect(db.prepare("PRAGMA foreign_key_list(github_merge_fences)").all()).toEqual([]);
-    expect(
-      db
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'github_merge_fences'",
-        )
-        .all(),
-    ).toContainEqual({ name: "github_merge_fences_target" });
-    db.exec("DELETE FROM workspaces; DELETE FROM hosts;");
-    expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual(rows);
-    expect(migrate(db)).toBe(13);
-    db.close();
-  });
+      insert.run("workspace", "/repo", JSON.stringify(snapshot));
+      insert.run(
+        "alias",
+        "/alias",
+        JSON.stringify({
+          ...snapshot,
+          id: "alias",
+          github: { ...snapshot.github, repository: "owner/repo" },
+        }),
+      );
+      insert.run(
+        "corrupt",
+        "/corrupt",
+        JSON.stringify({
+          id: "corrupt",
+          github: { reason: snapshot.github.reason, repository: null, pullRequest: null },
+        }),
+      );
+      insert.run("ordinary", "/ordinary", JSON.stringify({ id: "ordinary" }));
+      if (version !== undefined)
+        db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(
+          "githubMergeFenceLegacyBackfillVersion",
+          JSON.stringify(version),
+        );
+      const originals = db.prepare("SELECT * FROM workspaces ORDER BY id").all();
+      const settings = db.prepare("SELECT * FROM settings ORDER BY key").all();
+      const history = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+      expect(migrate(db)).toBe(13);
+      expect(db.prepare("SELECT * FROM workspaces ORDER BY id").all()).toEqual(originals);
+      expect(db.prepare("SELECT * FROM settings ORDER BY key").all()).toEqual(settings);
+      expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual([]);
+      expect(
+        db.prepare("SELECT * FROM schema_migrations WHERE version <= 12 ORDER BY version").all(),
+      ).toEqual(history);
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 13").get()).toEqual({
+        name: "013_github_merge_fences",
+      });
+      const originalDb = dbAt(12);
+      originalDb.exec(
+        readFileSync(
+          new URL("./fixtures/013_github_merge_fences.original.sql", import.meta.url),
+          "utf8",
+        ),
+      );
+      const schema =
+        "SELECT type, name, sql FROM sqlite_master WHERE tbl_name = 'github_merge_fences' ORDER BY type, name";
+      expect(db.prepare(schema).all()).toEqual(originalDb.prepare(schema).all());
+      originalDb.close();
+      expect(db.prepare("PRAGMA foreign_key_list(github_merge_fences)").all()).toEqual([]);
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'github_merge_fences'",
+          )
+          .all(),
+      ).toContainEqual({ name: "github_merge_fences_target" });
+      const applied = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+      expect(migrate(db)).toBe(13);
+      expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(applied);
+      expect(db.prepare("SELECT * FROM settings ORDER BY key").all()).toEqual(settings);
+      expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual([]);
+      db.close();
+    },
+  );
 
   it("013 keeps generations increasing after all fences are cleared and validates states/uniqueness", () => {
     const db = dbAt(12);

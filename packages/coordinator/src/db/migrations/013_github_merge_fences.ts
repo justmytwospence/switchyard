@@ -1,4 +1,6 @@
-/** Write-ahead external mutation fences have no entity FKs or retention policy. */
+/** Write-ahead external mutation fences have no entity FKs or retention policy.
+ * E.3 startup owns guarded compatibility imports; already-applied 013 data stays untouched.
+ */
 export const sql = `
 CREATE TABLE github_merge_fences (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,35 +21,4 @@ CREATE TABLE github_merge_fences (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX github_merge_fences_target ON github_merge_fences(hostname, repository, pr_number);
-
-INSERT OR IGNORE INTO github_merge_fences
-  (fence_key, hostname, repository, pr_number, attempt_id, command_id,
-   expected_head_oid, workspace_id, host_id, head_repository, head_ref_name,
-   state, started_at, updated_at)
-SELECT 'legacy:github.com:' || lower(json_extract(json, '$.github.repository')) || ':' ||
-    json_extract(json, '$.github.pullRequest.number'),
-  'github.com', json_extract(json, '$.github.repository'),
-  json_extract(json, '$.github.pullRequest.number'),
-  'legacy:' || id, 'legacy:' || id,
-  COALESCE(json_extract(json, '$.github.pullRequest.headRefOid'), ''), id, host_id,
-  json_extract(json, '$.github.headRepository'), json_extract(json, '$.github.branch'),
-  'unknown', COALESCE(json_extract(json, '$.github.attemptedAt'), datetime('now')),
-  COALESCE(json_extract(json, '$.github.attemptedAt'), datetime('now'))
-FROM workspaces
-WHERE json_extract(json, '$.github.reason') = 'Merge outcome unknown. Refresh before retrying.'
-  AND length(trim(json_extract(json, '$.github.repository'))) > 0
-  AND json_type(json, '$.github.pullRequest.number') = 'integer'
-  AND json_extract(json, '$.github.pullRequest.number') > 0;
-
--- With no recoverable target, no PR can be proved unrelated. Retain the corrupt audit
--- marker independently of workspace lifetime; only manual reconciliation can remove it.
-INSERT OR IGNORE INTO settings(key, value)
-SELECT 'githubCorruptedMergeMarker:' || id, json
-FROM workspaces
-WHERE json_extract(json, '$.github.reason') = 'Merge outcome unknown. Refresh before retrying.'
-  AND NOT (
-    COALESCE(length(trim(json_extract(json, '$.github.repository'))), 0) > 0
-    AND COALESCE(json_type(json, '$.github.pullRequest.number'), '') = 'integer'
-    AND COALESCE(json_extract(json, '$.github.pullRequest.number'), 0) > 0
-  );
 `;
