@@ -23,12 +23,13 @@ require_pushed() {
   echo "$SHA"
 }
 
-# wait_for_ci <sha>: wait for the push CI run on <sha>, which also publishes its image.
+# wait_for_ci <sha> <branch>: wait for the push CI run of <branch> at <sha>, which also publishes
+# its image. The branch matters: a new branch cut from dev shares dev's commit and CI run.
 wait_for_ci() {
-  local sha=$1 run=""
-  step "Waiting for CI (image) on ${sha:0:7}"
+  local sha=$1 branch=$2 run=""
+  step "Waiting for CI (image) on $branch at ${sha:0:7}"
   for _ in $(seq 1 30); do
-    run=$(gh run list -R "$REPO" --workflow ci --commit "$sha" --json databaseId,event \
+    run=$(gh run list -R "$REPO" --workflow ci --branch "$branch" --commit "$sha" --json databaseId,event \
       --jq '[.[] | select(.event == "push")][0].databaseId // empty')
     [ -n "$run" ] && break
     sleep 10

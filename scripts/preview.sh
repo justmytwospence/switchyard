@@ -41,7 +41,7 @@ pair_link() { ssh -t "$NUC" "docker exec $NAME switchyard pair"; }
 up() {
   refuse_trunk
   require_pushed "$BRANCH"
-  wait_for_ci "$SHA"
+  wait_for_ci "$SHA" "$BRANCH"
 
   step "Starting $NAME on $NUC"
   ssh "$NUC" "mkdir -p $DIR/data && NAME=$NAME IMAGE=$IMAGE HOST=$HOST DIR=$DIR \

@@ -15,7 +15,7 @@ URL=https://dev.switchyard.$DOMAIN
 LABEL=com.switchyard.host.dev
 
 require_pushed dev
-wait_for_ci "$SHA"
+wait_for_ci "$SHA" dev
 
 step "Deploying :dev on $NUC"
 ssh "$NUC" "cd $HOMELAB && docker compose -f switchyard-dev/docker-compose.yaml pull -q \
