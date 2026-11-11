@@ -6,7 +6,18 @@ permissions:
   contents: read
   packages: write
 jobs:
+  # Production moves only from main (scripts/promote.sh fast-forwards it to a green dev).
+  on-main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: The tag must be on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::v* tags must point at a commit on main (scripts/promote.sh first)"; exit 1; }
   image:
+    needs: on-main
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +45,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
   npm:
+    needs: on-main
     runs-on: ubuntu-latest
     permissions:
       contents: read
