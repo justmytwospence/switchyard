@@ -5,6 +5,7 @@ Switchyard has one owner. Browsers sign in with **single sign-on** (any OpenID C
 ## Single sign-on is required
 
 - Unless `SWITCHYARD_PUBLIC_URL` is `localhost`, `127.x.x.x` or `::1`, the coordinator **refuses to start without single sign-on** ([below](#single-sign-on-oidc)). The owner is whoever matches the configured owner criteria, so a server is owned before it serves anything.
+- **Pairing-only servers.** `SWITCHYARD_PAIRING_ONLY=true` lifts the requirement for a throwaway server, such as a branch preview ([development.md](development.md)). There is no single sign-on: browsers sign in only with `switchyard pair` links, or with passkeys added after one. Ownership is still never first-come: only whoever can read `admin.token` can mint a link. It cannot be combined with `SWITCHYARD_OIDC_*`.
 - A request is authenticated by a **device credential** issued by the coordinator (an HttpOnly cookie in browsers, a bearer token in the CLI and `switchyard tui`). Single sign-on and passkeys do not authenticate requests themselves: they prove who you are once and mint a normal device. An expired provider session therefore never breaks an installed app, push notifications or a WebSocket.
 - At a localhost URL (`switchyard up`, local development) no identity provider is needed: see [Local use and recovery](#local-use-and-recovery).
 

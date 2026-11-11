@@ -86,6 +86,17 @@ describe("enrollment", () => {
     }
   });
 
+  it("starts pairing-only at a public URL off this machine", async () => {
+    t = await startCoordinator({ publicUrl: "https://sy.example.com", pairingOnly: true });
+    expect((await t.api("GET", "/api/setup")).status).toBe(200);
+  });
+
+  it("refuses pairing-only together with single sign-on", async () => {
+    await expect(
+      startCoordinator({ publicUrl: "https://sy.example.com", pairingOnly: true, oidc: TEST_OIDC }),
+    ).rejects.toThrow(/cannot both be set/);
+  });
+
   it("rate limits public auth routes per IP with 429 rate_limited", async () => {
     t = await startCoordinator({ rateLimits: { auth: 3, hosts: 2 } });
     const enroll = () =>

@@ -67,17 +67,27 @@ function envValue(env: Env, key: string): string | undefined {
 
 /**
  * Auth settings from env: the shared host secret, trusted proxies and OIDC (enabled when
- * `SWITCHYARD_OIDC_ISSUER` and `SWITCHYARD_OIDC_CLIENT_ID` are both set). The coordinator
+ * `SWITCHYARD_OIDC_ISSUER` and `SWITCHYARD_OIDC_CLIENT_ID` are both set) or pairing-only sign-in
+ * (`SWITCHYARD_PAIRING_ONLY`). The coordinator
  * validates them (secret length, mandatory owner match) and refuses to start when unsafe.
  */
 export function authOptionsFromEnv(
   env: Env,
-): Pick<CreateCoordinatorOptions, "hostEnrollSecret" | "trustedProxies" | "oidc"> {
-  const out: Pick<CreateCoordinatorOptions, "hostEnrollSecret" | "trustedProxies" | "oidc"> = {};
+): Pick<CreateCoordinatorOptions, "hostEnrollSecret" | "trustedProxies" | "oidc" | "pairingOnly"> {
+  const out: Pick<
+    CreateCoordinatorOptions,
+    "hostEnrollSecret" | "trustedProxies" | "oidc" | "pairingOnly"
+  > = {};
   const secret = envValue(env, "SWITCHYARD_HOST_ENROLL_SECRET");
   if (secret) out.hostEnrollSecret = secret;
   const proxies = parseOrigins(env.SWITCHYARD_TRUSTED_PROXIES);
   if (proxies) out.trustedProxies = proxies;
+  const pairingOnly = envValue(env, "SWITCHYARD_PAIRING_ONLY");
+  if (pairingOnly !== undefined) {
+    if (/^(1|true)$/i.test(pairingOnly)) out.pairingOnly = true;
+    else if (!/^(0|false)$/i.test(pairingOnly))
+      throw new CliError(`SWITCHYARD_PAIRING_ONLY must be true or false, got "${pairingOnly}"`);
+  }
   const issuer = envValue(env, "SWITCHYARD_OIDC_ISSUER");
   const clientId = envValue(env, "SWITCHYARD_OIDC_CLIENT_ID");
   if (issuer && clientId) {

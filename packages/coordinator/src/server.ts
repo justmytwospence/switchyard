@@ -64,6 +64,11 @@ export interface CreateCoordinatorOptions extends BuiltinOptions {
   /** Owner sign-in through an OIDC provider. Needs at least one owner criterion. */
   oidc?: OidcConfig;
   /**
+   * No single sign-on at any public URL: browsers sign in only with `switchyard pair` links (and
+   * passkeys added after one). For throwaway servers such as branch previews. Exclusive with `oidc`.
+   */
+  pairingOnly?: boolean;
+  /**
    * Per-IP limits per minute on public auth routes (default auth 20, hosts 10). `false` disables
    * them (test harnesses that enroll many devices from one address).
    */
@@ -161,10 +166,16 @@ function validateAuthOptions(opts: CreateCoordinatorOptions): void {
       `SWITCHYARD_HOST_ENROLL_SECRET must be at least ${MIN_HOST_ENROLL_SECRET_LENGTH} characters`,
     );
   }
-  if (!opts.oidc && opts.publicUrl && !isLoopbackUrl(opts.publicUrl)) {
+  if (opts.pairingOnly && opts.oidc) {
     throw new SwitchyardError(
       "invalid_request",
-      `Single sign-on is required for ${opts.publicUrl}: set SWITCHYARD_OIDC_ISSUER, SWITCHYARD_OIDC_CLIENT_ID and an owner (SWITCHYARD_OIDC_OWNER_*), see docs/auth.md. Without single sign-on, Switchyard runs only at a localhost public URL.`,
+      "SWITCHYARD_PAIRING_ONLY and single sign-on (SWITCHYARD_OIDC_*) cannot both be set",
+    );
+  }
+  if (!opts.oidc && !opts.pairingOnly && opts.publicUrl && !isLoopbackUrl(opts.publicUrl)) {
+    throw new SwitchyardError(
+      "invalid_request",
+      `Single sign-on is required for ${opts.publicUrl}: set SWITCHYARD_OIDC_ISSUER, SWITCHYARD_OIDC_CLIENT_ID and an owner (SWITCHYARD_OIDC_OWNER_*), see docs/auth.md. Without single sign-on, Switchyard runs only at a localhost public URL. For a throwaway server signed into only with \`switchyard pair\` links, set SWITCHYARD_PAIRING_ONLY=true.`,
     );
   }
   if (opts.oidc && !hasOwnerMatch(opts.oidc.owner)) {

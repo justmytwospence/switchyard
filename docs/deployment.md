@@ -79,6 +79,7 @@ The coordinator container needs neither a home directory nor the Docker socket, 
 | `SWITCHYARD_LOG_LEVEL` | all | `info` | pino level: trace, debug, info, warn, error, fatal, silent. |
 | `SWITCHYARD_HOST_ENROLL_SECRET` | coordinator, `up` and host | unset | Shared secret (at least 32 characters). On the coordinator it enables secret enrollment; on a host it is what the host enrolls with. |
 | `SWITCHYARD_OIDC_ISSUER`, `SWITCHYARD_OIDC_CLIENT_ID` | coordinator, `up` | unset | Together they enable single sign-on. |
+| `SWITCHYARD_PAIRING_ONLY` | coordinator, `up` | unset | `true`: no single sign-on at any public URL; sign in with `switchyard pair` links only (throwaway servers, [auth.md](auth.md)). |
 | `SWITCHYARD_OIDC_CLIENT_SECRET` | coordinator, `up` | unset | Client secret (recommended). |
 | `SWITCHYARD_OIDC_LABEL` | coordinator, `up` | `Sign in with single sign-on` | Sign-in button text. |
 | `SWITCHYARD_OIDC_SCOPES` | coordinator, `up` | `openid profile email groups` | Scopes requested. |

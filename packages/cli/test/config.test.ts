@@ -64,6 +64,16 @@ describe("paths and options", () => {
     expect(() => coordinatorOptions({ publicUrl: "sy.example.com" }, {})).toThrow(/http/);
   });
 
+  it("reads SWITCHYARD_PAIRING_ONLY as a boolean", () => {
+    expect(authOptionsFromEnv({ SWITCHYARD_PAIRING_ONLY: "true" })).toEqual({ pairingOnly: true });
+    expect(authOptionsFromEnv({ SWITCHYARD_PAIRING_ONLY: "1" })).toEqual({ pairingOnly: true });
+    expect(authOptionsFromEnv({ SWITCHYARD_PAIRING_ONLY: "0" })).toEqual({});
+    expect(authOptionsFromEnv({ SWITCHYARD_PAIRING_ONLY: "false" })).toEqual({});
+    expect(() => authOptionsFromEnv({ SWITCHYARD_PAIRING_ONLY: "maybe" })).toThrow(
+      /must be true or false/,
+    );
+  });
+
   it("reads the host secret, trusted proxies and OIDC from env", () => {
     expect(authOptionsFromEnv({})).toEqual({});
     const env = {

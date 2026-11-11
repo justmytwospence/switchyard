@@ -52,6 +52,9 @@ services:
       # - SWITCHYARD_OIDC_OWNER_SUBJECT=
       # - SWITCHYARD_OIDC_OWNER_GROUP=
       #
+      # Throwaway servers only: no single sign-on, sign in with switchyard pair links (docs/auth.md).
+      # - SWITCHYARD_PAIRING_ONLY=true
+      #
       # Shared host enrollment secret (at least 32 characters, for example
       # `openssl rand -base64 48`). Lets hosts started with the same secret enroll themselves.
       # - SWITCHYARD_HOST_ENROLL_SECRET=${SWITCHYARD_HOST_ENROLL_SECRET}
