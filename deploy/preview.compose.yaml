@@ -1,0 +1,28 @@
+# One branch preview (scripts/preview.sh): a throwaway coordinator from the branch's CI image
+# (:br-<slug>), pairing-only sign-in, its own data, at https://<slug>.switchyard-dev.<domain>
+# (WireGuard/LAN only). Piped to `docker compose -p switchyard-preview-<slug> -f -` on the NUC
+# with NAME, IMAGE, HOST and DIR in the environment.
+services:
+  coordinator:
+    container_name: ${NAME}
+    image: ${IMAGE}
+    pull_policy: always
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "1", memory: 512M }
+    environment:
+      SWITCHYARD_PUBLIC_URL: https://${HOST}
+      SWITCHYARD_TRUSTED_PROXIES: 10.0.74.0/24
+      SWITCHYARD_PAIRING_ONLY: "true"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.${NAME}.rule=Host(`${HOST}`)
+      - traefik.http.routers.${NAME}.middlewares=lan-only@file
+      - traefik.http.services.${NAME}.loadbalancer.server.port=7400
+    volumes:
+      - ${DIR}/data:/data
+    networks: [traefik]
+networks:
+  traefik:
+    external: true

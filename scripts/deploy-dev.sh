@@ -1,51 +1,26 @@
 #!/usr/bin/env bash
-# Deploy the current dev branch to switchyard-dev (https://switchyard-dev.spencerboucher.com):
+# Deploy the current dev branch to https://dev.switchyard.spencerboucher.com:
 #   1. require a clean dev that is pushed (HEAD == origin/dev);
-#   2. wait for CI on that commit, which publishes ghcr.io/justmytwospence/switchyard:edge;
-#   3. on the NUC, pull and recreate the switchyard-dev coordinator and its host (homelab's
-#      switchyard-dev compose project) and check the running image is this commit;
-#   4. on this Mac, rebuild this checkout (the dev worktree) and restart the dev host agent
+#   2. wait for CI on that commit, which publishes ghcr.io/justmytwospence/switchyard:dev;
+#   3. on the NUC, pull and recreate the dev coordinator and its host (homelab's switchyard-dev
+#      compose project) and check the running image is this commit;
+#   4. on this Mac, rebuild this checkout and restart the dev host agent
 #      (launchd com.switchyard.host.dev runs packages/cli/dist/main.js from this checkout).
-# Prints the URL and revision for review.
+# Prints the URL and revision for review. Branches use scripts/preview.sh instead.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-REPO=justmytwospence/switchyard
-NUC=${SWITCHYARD_DEV_NUC:-nuc}
-HOMELAB=${SWITCHYARD_DEV_HOMELAB:-'~/Projects/homelab'}
-URL=https://switchyard-dev.spencerboucher.com
+. scripts/lib.sh
+URL=https://dev.switchyard.$DOMAIN
 LABEL=com.switchyard.host.dev
 
-step() { printf '\n==> %s\n' "$*"; }
+require_pushed dev
+wait_for_ci "$SHA"
 
-step "Checking dev is clean and pushed"
-[ "$(git rev-parse --abbrev-ref HEAD)" = dev ] || { echo "Not on dev (run it from the dev worktree, .worktrees/dev)" >&2; exit 1; }
-DIRTY=$(git status --porcelain)
-[ -z "$DIRTY" ] || { echo "Working tree is not clean:" >&2; echo "$DIRTY" >&2; exit 1; }
-git fetch -q origin dev
-SHA=$(git rev-parse HEAD)
-[ "$SHA" = "$(git rev-parse origin/dev)" ] || {
-  echo "HEAD ($SHA) is not origin/dev; push first" >&2
-  exit 1
-}
-echo "$SHA"
-
-step "Waiting for CI (edge image) on ${SHA:0:7}"
-RUN=""
-for _ in $(seq 1 30); do
-  RUN=$(gh run list -R "$REPO" --workflow ci --commit "$SHA" --json databaseId,event \
-    --jq '[.[] | select(.event == "push")][0].databaseId // empty')
-  [ -n "$RUN" ] && break
-  sleep 10
-done
-[ -n "$RUN" ] || { echo "No CI run found for $SHA" >&2; exit 1; }
-gh run watch -R "$REPO" "$RUN" --exit-status --interval 20 >/dev/null
-echo "CI run $RUN passed"
-
-step "Deploying :edge on $NUC"
+step "Deploying :dev on $NUC"
 ssh "$NUC" "cd $HOMELAB && docker compose -f switchyard-dev/docker-compose.yaml pull -q \
   && docker compose -f switchyard-dev/docker-compose.yaml up -d"
-REV=$(ssh "$NUC" "docker inspect switchyard-dev --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}'")
+REV=$(image_revision switchyard-dev)
 [ "$REV" = "$SHA" ] || { echo "switchyard-dev runs $REV, expected $SHA" >&2; exit 1; }
 echo "switchyard-dev runs $REV"
 
