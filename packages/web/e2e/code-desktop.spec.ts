@@ -137,6 +137,37 @@ test.describe("desktop coding view", () => {
     await expect(page).toHaveURL(new RegExp(`/code/${id}`));
   });
 
+  test("Ctrl+j/k/n/p navigate palette results without closing or editing the query", async ({
+    page,
+  }) => {
+    await page.goto("/code");
+    await page.keyboard.press("ControlOrMeta+k");
+    const dialog = page.getByRole("dialog", { name: "Command palette" });
+    const search = dialog.getByRole("textbox", { name: "Search" });
+    await search.fill("Go to");
+    const options = dialog.getByRole("option");
+    await expect(options.nth(2)).toBeVisible();
+    for (const [key, index] of [
+      ["Control+j", 1],
+      ["Control+n", 2],
+      ["Control+k", 1],
+      ["Control+p", 0],
+      ["Control+p", 0],
+    ] as const) {
+      await search.press(key);
+      await expect(options.nth(index)).toHaveAttribute("aria-selected", "true");
+      await expect(search).toHaveValue("Go to");
+      await expect(search).toBeFocused();
+    }
+    await search.fill("no-matching-command-xyz");
+    await search.press("Control+n");
+    await expect(dialog.getByText("No matches.")).toBeVisible();
+    await search.fill("Go to");
+    await expect(options.first()).toHaveAttribute("aria-selected", "true");
+    await search.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  });
+
   test("Jump to latest does not autoscroll while reading", async ({ page, state, api }, info) => {
     const id = await createSession(
       api,

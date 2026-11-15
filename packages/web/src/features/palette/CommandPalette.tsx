@@ -76,11 +76,14 @@ export function CommandPalette() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") {
+    const ctrl = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    if (e.key === "ArrowDown" || (ctrl && (e.key === "j" || e.key === "n"))) {
       e.preventDefault();
-      setActive((a) => Math.min(rows.length - 1, a + 1));
-    } else if (e.key === "ArrowUp") {
+      e.stopPropagation();
+      setActive((a) => Math.max(0, Math.min(rows.length - 1, a + 1)));
+    } else if (e.key === "ArrowUp" || (ctrl && (e.key === "k" || e.key === "p"))) {
       e.preventDefault();
+      e.stopPropagation();
       setActive((a) => Math.max(0, a - 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
