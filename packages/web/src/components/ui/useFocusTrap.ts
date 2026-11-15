@@ -1,11 +1,19 @@
 import { type RefObject, useEffect, useRef } from "react";
+import {
+  registerKeyboardLayer,
+  topKeyboardLayer,
+  topTrappingKeyboardLayer,
+} from "./keyboardLayers";
 
 const FOCUSABLE =
   'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 
 export function focusableWithin(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (el) => !el.hasAttribute("inert") && el.getClientRects().length > 0,
+    (el) =>
+      !el.closest('[hidden], [inert], [aria-hidden="true"], :disabled, [aria-disabled="true"]') &&
+      getComputedStyle(el).visibility !== "hidden" &&
+      el.getClientRects().length > 0,
   );
 }
 
@@ -39,6 +47,12 @@ export function useFocusTrap(
       captured && !root.contains(captured)
         ? captured
         : (document.activeElement as HTMLElement | null);
+    const unregister = registerKeyboardLayer({
+      root: ref,
+      onEscape: () => escRef.current?.(),
+      trapsFocus: true,
+    });
+    const layer = topKeyboardLayer();
     const target = initialFocus?.current ?? focusableWithin(root)[0] ?? root;
     // Defer so the element is laid out (portals, transitions).
     // An `autoFocus` field inside keeps its focus unless an explicit initial focus was given.
@@ -46,13 +60,9 @@ export function useFocusTrap(
       if (!initialFocus?.current && root.contains(document.activeElement)) return;
       target.focus({ preventScroll: true });
     });
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && escRef.current) {
-        e.stopPropagation();
-        escRef.current();
-        return;
-      }
-      if (e.key !== "Tab") return;
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || e.defaultPrevented || e.isComposing) return;
+      if (topTrappingKeyboardLayer() !== layer) return;
       const items = focusableWithin(root);
       if (items.length === 0) {
         e.preventDefault();
@@ -70,23 +80,46 @@ export function useFocusTrap(
         first.focus();
       }
     };
-    root.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onTab);
     return () => {
       cancelAnimationFrame(raf);
-      root.removeEventListener("keydown", onKey);
-      if (previous && document.contains(previous)) previous.focus({ preventScroll: true });
+      document.removeEventListener("keydown", onTab);
+      const wasTop = topKeyboardLayer() === layer;
+      unregister();
+      // Do not steal focus if this was an underlying layer. For a nested close, only
+      // return to an opener that belongs to the still-open top layer.
+      if (!wasTop) return;
+      const remaining = topKeyboardLayer();
+      const remainingRoot = remaining?.root.current;
+      if (remaining) {
+        const next =
+          previous?.isConnected && remainingRoot?.contains(previous)
+            ? previous
+            : remainingRoot && (focusableWithin(remainingRoot)[0] ?? remainingRoot);
+        next?.focus({ preventScroll: true });
+      } else {
+        const next = previous?.isConnected
+          ? previous
+          : (document.querySelector<HTMLElement>("main") ?? document.body);
+        next.focus({ preventScroll: true });
+      }
     };
   }, [active, ref, initialFocus]);
 }
 
-/** Lock body scroll while a modal surface is open. */
+let scrollLocks = 0;
+let previousOverflow = "";
+
+/** Lock body scroll while at least one modal surface is open. */
 export function useScrollLock(active: boolean): void {
   useEffect(() => {
     if (!active) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    if (scrollLocks++ === 0) {
+      previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
     return () => {
-      document.body.style.overflow = prev;
+      if (--scrollLocks === 0) document.body.style.overflow = previousOverflow;
     };
   }, [active]);
 }

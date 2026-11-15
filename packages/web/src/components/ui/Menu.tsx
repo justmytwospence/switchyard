@@ -1,6 +1,9 @@
 import { Check } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { verticalNavigationDelta } from "../../features/palette/shortcuts";
 import { cn } from "../../lib/cn";
+import { usePrefs } from "../../prefs";
+import { registerKeyboardLayer, topKeyboardLayer } from "./keyboardLayers";
 
 export interface MenuItem {
   id: string;
@@ -60,6 +63,15 @@ export function Menu({
 
   useEffect(() => {
     if (!open) return;
+    const layer = {
+      root: menuRef,
+      onEscape: () => {
+        setOpen(false);
+        btnRef.current?.focus();
+      },
+      trapsFocus: false,
+    };
+    const unregister = registerKeyboardLayer(layer);
     requestAnimationFrame(() => focusMenuItem(menuRef.current, "first"));
     const onDoc = (e: PointerEvent) => {
       if (
@@ -70,7 +82,10 @@ export function Menu({
       }
     };
     document.addEventListener("pointerdown", onDoc);
-    return () => document.removeEventListener("pointerdown", onDoc);
+    return () => {
+      unregister();
+      document.removeEventListener("pointerdown", onDoc);
+    };
   }, [open]);
 
   const close = (refocus = true) => {
@@ -106,17 +121,26 @@ export function Menu({
             align === "end" ? "right-0" : "left-0",
           )}
           onKeyDown={(e) => {
-            if (e.key === "ArrowDown") {
+            if (topKeyboardLayer()?.root !== menuRef) return;
+            const vim = usePrefs.getState().vimNavigation;
+            const delta =
+              !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+                ? verticalNavigationDelta(e.key, vim)
+                : 0;
+            if (delta) {
               e.preventDefault();
-              focusItem(1);
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              focusItem(-1);
+              e.stopPropagation();
+              focusItem(delta as 1 | -1);
             } else if (e.key === "Home") {
               e.preventDefault();
+              e.stopPropagation();
               focusItem("first");
-            } else if (e.key === "End") {
+            } else if (
+              e.key === "End" ||
+              (vim && e.key === "G" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey)
+            ) {
               e.preventDefault();
+              e.stopPropagation();
               focusItem("last");
             } else if (e.key === "Escape") {
               e.preventDefault();
