@@ -54,6 +54,8 @@ export interface CreateCoordinatorOptions extends BuiltinOptions {
   unreachableAfterMs?: number;
   foregroundLeaseMs?: number;
   commandTimeoutMs?: number;
+  /** Interactive session-start acknowledgement budget (default 17 min). */
+  sessionStartTimeoutMs?: number;
   /** Shared host enrollment secret (at least 32 characters); enables `POST /api/hosts/enroll {secret}`. */
   hostEnrollSecret?: string;
   /**
@@ -213,6 +215,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
     unreachableAfterMs: opts.unreachableAfterMs ?? 60_000,
     foregroundLeaseMs: opts.foregroundLeaseMs ?? 45_000,
     commandTimeoutMs: opts.commandTimeoutMs ?? 30_000,
+    sessionStartTimeoutMs: opts.sessionStartTimeoutMs ?? 17 * 60_000,
     hostEnrollSecret: opts.hostEnrollSecret ?? null,
     oidc: opts.oidc ?? null,
   };

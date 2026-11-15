@@ -531,6 +531,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
         controlMode: run?.controlMode ?? "human",
       });
     } catch (err) {
+      if (err instanceof SwitchyardError && err.code === "timeout") throw err;
       ctx.store.tx(() => {
         const cur = ctx.store.sessions.require(s.id);
         if (cur.runtime === "starting") {

@@ -4,6 +4,7 @@ import {
   enrollHost,
   FakeHost,
   hostSession,
+  sleep,
   startCoordinator,
   type TestCoordinator,
   until,
@@ -12,7 +13,10 @@ import { fullCapabilities } from "./task-helpers.js";
 
 let t: TestCoordinator | undefined;
 let host: FakeHost | undefined;
+const releaseHandlers: (() => void)[] = [];
 afterEach(async () => {
+  for (const release of releaseHandlers.splice(0)) release();
+  await sleep(0);
   await host?.close();
   host = undefined;
   await t?.cleanup();
@@ -70,8 +74,8 @@ function gitHandler(cmd: HostCommand): unknown {
   }
 }
 
-async function setup() {
-  t = await startCoordinator();
+async function setup(options: Parameters<typeof startCoordinator>[0] = {}) {
+  t = await startCoordinator(options);
   const creds = await enrollHost(t);
   host = await FakeHost.connect(t, creds, gitHandler);
   const p = await t.admin("POST", "/api/projects", {
@@ -136,6 +140,222 @@ describe("projects and workspaces", () => {
 });
 
 describe("sessions", () => {
+  const uncertain =
+    "The host has not confirmed startup yet. Pi may still be starting; check the terminal before retrying.";
+
+  function holdCommand(type: HostCommand["type"], result?: unknown) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    releaseHandlers.push(release);
+    host!.handler = async (cmd) => {
+      if (cmd.type !== type) return gitHandler(cmd);
+      await gate;
+      return result === undefined ? gitHandler(cmd) : result;
+    };
+    return release;
+  }
+
+  async function releaseAndFlush(release: () => void) {
+    release();
+    // Let the deferred handler send its receipt, then use an event ack as a wire-order barrier.
+    await sleep(0);
+    await host!.event("session.updated", hostSession("ses_receipt_barrier"));
+  }
+
+  async function createInMain(project: {
+    id: string;
+    workspaces: { id: string; provenance: string }[];
+  }) {
+    const main = project.workspaces.find((w: { provenance: string }) => w.provenance === "main");
+    const r = await t!.admin("POST", "/api/sessions", {
+      projectId: project.id,
+      workspace: { existingId: main!.id },
+      prompt: "",
+    });
+    expect(r.status).toBe(202);
+    return r.body.id as string;
+  }
+
+  function expectNoErrorNotice(id: string) {
+    expect(
+      t!.c.store
+        .listItems(id)
+        .items.filter((item) => item.kind === "notice" && item.data.level === "error"),
+    ).toHaveLength(0);
+  }
+
+  it("uses separate production command and session start defaults", async () => {
+    await setup();
+    expect(t!.c.config.commandTimeoutMs).toBe(30_000);
+    expect(t!.c.config.sessionStartTimeoutMs).toBe(17 * 60_000);
+  });
+
+  it("waits for a start receipt beyond the generic command deadline", async () => {
+    const { project } = await setup({ commandTimeoutMs: 50, sessionStartTimeoutMs: 1000 });
+    const release = holdCommand("session.start");
+    const id = await createInMain(project);
+    await host!.waitForCommand("session.start");
+    await sleep(120);
+    await host!.event("session.updated", hostSession(id, { runtime: "idle", nativeHandle: null }));
+    release();
+    await until(() => t!.c.store.sessions.require(id).nativeHandle?.sessionId === `n-${id}`);
+    expect(t!.c.store.sessions.require(id).runtime).toBe("idle");
+    expectNoErrorNotice(id);
+  });
+
+  it("keeps a timed-out start uncertain and accepts a later host update", async () => {
+    const { project } = await setup({ sessionStartTimeoutMs: 80 });
+    const release = holdCommand("session.start");
+    const id = await createInMain(project);
+    await host!.waitForCommand("session.start");
+    await until(() => t!.c.store.sessions.require(id).runtimeDetail === uncertain);
+    expect(t!.c.store.sessions.require(id).runtime).toBe("starting");
+    expectNoErrorNotice(id);
+    await host!.event(
+      "session.updated",
+      hostSession(id, { runtime: "idle", runtimeDetail: "Ready" }),
+    );
+    await releaseAndFlush(release);
+    expect(t!.c.store.sessions.require(id)).toMatchObject({
+      runtime: "idle",
+      runtimeDetail: "Ready",
+      nativeHandle: hostSession(id).nativeHandle,
+    });
+    expectNoErrorNotice(id);
+  });
+
+  it("does not overwrite an idle host update when its start receipt times out", async () => {
+    const { project } = await setup({ sessionStartTimeoutMs: 100 });
+    const release = holdCommand("session.start");
+    const id = await createInMain(project);
+    await host!.waitForCommand("session.start");
+    await host!.event(
+      "session.updated",
+      hostSession(id, { runtime: "idle", runtimeDetail: "Ready" }),
+    );
+    await sleep(180);
+    await releaseAndFlush(release);
+    expect(t!.c.store.sessions.require(id)).toMatchObject({
+      runtime: "idle",
+      runtimeDetail: "Ready",
+      nativeHandle: hostSession(id).nativeHandle,
+    });
+    expectNoErrorNotice(id);
+  });
+
+  it.each([false, true])(
+    "preserves resume state on timeout (idle before timeout: %s)",
+    async (earlyIdle) => {
+      await setup({ sessionStartTimeoutMs: 100 });
+      const id = "ses_resume_timeout";
+      await host!.event("session.updated", hostSession(id, { runtime: "stopped" }));
+      const release = holdCommand("session.start");
+      const pending = t!.admin("POST", `/api/sessions/${id}/resume`);
+      await host!.waitForCommand("session.start");
+      if (earlyIdle) {
+        await host!.event(
+          "session.updated",
+          hostSession(id, { runtime: "idle", runtimeDetail: "Ready" }),
+        );
+      }
+      const response = await pending;
+      expect(response.body.error.code).toBe("timeout");
+      expect(response.status).toBe(503);
+      expect(t!.c.store.sessions.require(id)).toMatchObject(
+        earlyIdle
+          ? { runtime: "idle", runtimeDetail: "Ready" }
+          : { runtime: "starting", runtimeDetail: uncertain },
+      );
+      if (!earlyIdle) {
+        await host!.event(
+          "session.updated",
+          hostSession(id, { runtime: "idle", runtimeDetail: "Ready" }),
+        );
+      }
+      await releaseAndFlush(release);
+      expect(t!.c.store.sessions.require(id)).toMatchObject({
+        runtime: "idle",
+        runtimeDetail: "Ready",
+        nativeHandle: hostSession(id).nativeHandle,
+      });
+      expectNoErrorNotice(id);
+    },
+  );
+
+  it("does not send a prompt when its automatic resume times out", async () => {
+    await setup({ sessionStartTimeoutMs: 80 });
+    const id = "ses_prompt_timeout";
+    await host!.event("session.updated", hostSession(id, { runtime: "stopped" }));
+    const release = holdCommand("session.start");
+    const response = await t!.admin("POST", `/api/sessions/${id}/prompt`, { text: "hello" });
+    expect(response.body.error.code).toBe("timeout");
+    expect(t!.c.store.sessions.require(id)).toMatchObject({
+      runtime: "starting",
+      runtimeDetail: uncertain,
+    });
+    expect(host!.commands.some((c) => c.command.type === "session.prompt")).toBe(false);
+    release();
+  });
+
+  it("treats a worktree creation timeout as a definitive failure", async () => {
+    const { project } = await setup({ commandTimeoutMs: 80, sessionStartTimeoutMs: 1000 });
+    const release = holdCommand("workspace.create");
+    const r = await t!.admin("POST", "/api/sessions", {
+      projectId: project.id,
+      workspace: { checkoutId: project.checkouts[0].id, newBranch: "timeout" },
+      prompt: "",
+    });
+    expect(r.status).toBe(202);
+    await until(() => t!.c.store.sessions.require(r.body.id).runtime === "failed");
+    expect(t!.c.store.listItems(r.body.id).items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "notice",
+          data: expect.objectContaining({ level: "error" }),
+        }),
+      ]),
+    );
+    expect(host!.commands.some((c) => c.command.type === "session.start")).toBe(false);
+    release();
+  });
+
+  it("does not replace idle with a delayed host refusal", async () => {
+    const { project } = await setup({ sessionStartTimeoutMs: 1000 });
+    const release = holdCommand("session.start", {
+      __error: { code: "pi_incompatible", message: "Pi too old" },
+    });
+    const id = await createInMain(project);
+    await host!.waitForCommand("session.start");
+    await host!.event(
+      "session.updated",
+      hostSession(id, { runtime: "idle", runtimeDetail: "Ready" }),
+    );
+    await releaseAndFlush(release);
+    expect(t!.c.store.sessions.require(id)).toMatchObject({
+      runtime: "idle",
+      runtimeDetail: "Ready",
+    });
+    expectNoErrorNotice(id);
+  });
+
+  it("rolls a resumed session back after a genuine host refusal", async () => {
+    await setup();
+    const id = "ses_resume_refused";
+    await host!.event("session.updated", hostSession(id, { runtime: "stopped" }));
+    host!.handler = (cmd) =>
+      cmd.type === "session.start"
+        ? { __error: { code: "pi_incompatible", message: "Pi too old" } }
+        : gitHandler(cmd);
+    const response = await t!.admin("POST", `/api/sessions/${id}/resume`);
+    expect(response.body.error.code).toBe("pi_incompatible");
+    expect(t!.c.store.sessions.require(id)).toMatchObject({
+      runtime: "stopped",
+      runtimeDetail: "Pi too old",
+    });
+  });
+
   it("creates a session in a new worktree, returns 202 and starts it on the host", async () => {
     const { project } = await setup();
     const r = await t!.admin("POST", "/api/sessions", {

@@ -160,10 +160,28 @@ export async function startOnHost(
       ? { policyRequired: requirement.required }
       : {}),
   };
-  const result = await ctx.hostHub.request<{ nativeHandle?: NativeHandle | null } | undefined>(
-    session.hostId,
-    cmd,
-  );
+  let result: { nativeHandle?: NativeHandle | null } | undefined;
+  try {
+    result = await ctx.hostHub.request<{ nativeHandle?: NativeHandle | null } | undefined>(
+      session.hostId,
+      cmd,
+      { timeoutMs: ctx.config.sessionStartTimeoutMs },
+    );
+  } catch (err) {
+    if (err instanceof SwitchyardError && err.code === "timeout") {
+      ctx.store.tx(() => {
+        const current = ctx.store.sessions.get(session.id);
+        if (current?.runtime === "starting") {
+          ctx.store.putSession({
+            ...current,
+            runtimeDetail:
+              "The host has not confirmed startup yet. Pi may still be starting; check the terminal before retrying.",
+          });
+        }
+      });
+    }
+    throw err;
+  }
   return ctx.store.tx(() => {
     const s = ctx.store.sessions.require(session.id);
     const handle = result?.nativeHandle ?? null;
@@ -285,6 +303,7 @@ export function createSession(
   const choice = input.workspace;
   const started = (async () => {
     const t0 = Date.now();
+    let startAttempted = false;
     try {
       let s = session;
       if (!("existingId" in choice)) {
@@ -303,6 +322,7 @@ export function createSession(
           });
         });
       }
+      startAttempted = true;
       await startOnHost(ctx, s, {
         initialPrompt: input.prompt.trim() ? input.prompt : null,
         nativeHandle: null,
@@ -313,8 +333,16 @@ export function createSession(
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (startAttempted && err instanceof SwitchyardError && err.code === "timeout") {
+        ctx.log.warn({ err, sessionId: session.id }, "session start acknowledgement timed out");
+        return;
+      }
       ctx.log.warn({ err, sessionId: session.id }, "session start failed");
-      failSession(ctx, session.id, `Could not start the session: ${message}`);
+      ctx.store.tx(() => {
+        if (ctx.store.sessions.get(session.id)?.runtime === "starting") {
+          failSession(ctx, session.id, `Could not start the session: ${message}`);
+        }
+      });
     }
   })();
   return { session, started };

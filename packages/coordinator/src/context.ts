@@ -47,6 +47,8 @@ export interface CoordinatorConfig {
   foregroundLeaseMs: number;
   /** Default timeout for host commands (default 30 s). */
   commandTimeoutMs: number;
+  /** Interactive session-start acknowledgement budget (default 17 min). */
+  sessionStartTimeoutMs: number;
   /** Shared host enrollment secret (enables `POST /api/hosts/enroll {secret}`), or null. */
   hostEnrollSecret: string | null;
   /** Owner sign-in through an OIDC provider, or null. */
