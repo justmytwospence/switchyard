@@ -120,6 +120,7 @@ describe("git repo", () => {
       execFileSync("git", args, { cwd: repo.path, encoding: "utf8" }).trim();
     expect(git("rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
     expect(git("rev-list", "--count", "HEAD")).toBe("1");
+    expect(git("log", "-1", "--format=%s")).toBe("chore: initialize test repository");
     expect(git("remote", "get-url", "origin")).toBe("git@github.com:example/repo.git");
   });
 });

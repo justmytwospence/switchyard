@@ -153,7 +153,7 @@ echo "ok sign-in"
 # The coordinator's local admin credential stays in this process, never in arguments or logs.
 mkdir -p "$tmp/repo"
 git -C "$tmp/repo" init -q
-git -C "$tmp/repo" -c user.name=Smoke -c user.email=smoke@example.invalid commit -q --allow-empty -m initial
+git -C "$tmp/repo" -c user.name=Smoke -c user.email=smoke@example.invalid commit -q --allow-empty -m 'chore: initialize smoke repository'
 node --input-type=module - "$port" "$tmp/data/admin.token" "$tmp/repo" <<'JS'
 import assert from "node:assert/strict";
 import { readFileSync, realpathSync } from "node:fs";

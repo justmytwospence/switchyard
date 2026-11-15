@@ -90,7 +90,7 @@ const test = base.extend<{ isolated: Isolated }>({
     git("config", "commit.gpgsign", "false");
     writeFileSync(join(path, "README.md"), "# isolated phase three fixture\n");
     git("add", "README.md");
-    git("commit", "-qm", "initial fixture");
+    git("commit", "-qm", "test: initialize phase-three fixture");
     const repository = `${REPOSITORY}-${suffix}`;
     git("remote", "add", "origin", `https://github.com/${repository}.git`);
     const fixture: Isolated = {

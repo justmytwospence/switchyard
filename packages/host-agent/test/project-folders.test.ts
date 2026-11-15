@@ -22,7 +22,7 @@ function initRepo(dir: string, remote?: string): void {
   git(dir, ["config", "commit.gpgsign", "false"]);
   writeFileSync(join(dir, "README.md"), "# x\n");
   git(dir, ["add", "README.md"]);
-  git(dir, ["commit", "-q", "-m", "initial"]);
+  git(dir, ["commit", "-q", "-m", "chore: initialize test repository"]);
   if (remote) git(dir, ["remote", "add", "origin", remote]);
 }
 

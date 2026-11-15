@@ -32,7 +32,7 @@ export function makeRepo(opts: { remote?: string } = {}): TempRepo {
   git(path, ["config", "commit.gpgsign", "false"]);
   writeFileSync(join(path, "README.md"), "# test repo\n");
   git(path, ["add", "README.md"]);
-  git(path, ["commit", "-q", "-m", "initial commit"]);
+  git(path, ["commit", "-q", "-m", "chore: initialize test repository"]);
   if (opts.remote) git(path, ["remote", "add", "origin", opts.remote]);
   return {
     path,

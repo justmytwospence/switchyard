@@ -43,7 +43,7 @@ function addProjectAdapter(repo: string): void {
   );
   writeFileSync(join(dir, "server.js"), ADAPTER_SERVER);
   git(repo, ["add", ".switchyard"]);
-  git(repo, ["commit", "-q", "-m", "add gatekeeper adapter"]);
+  git(repo, ["commit", "-q", "-m", "test: add gatekeeper adapter"]);
 }
 
 /** Spec §19: adapter failure without approval bypass. */

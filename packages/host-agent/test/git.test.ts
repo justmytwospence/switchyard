@@ -359,7 +359,7 @@ describe("worktrees", () => {
     expect(dirty).toMatchObject({ dirty: true, changedFiles: 2, unmerged: false });
 
     git(path, ["add", "-A"]);
-    git(path, ["commit", "-q", "-m", "work"]);
+    git(path, ["commit", "-q", "-m", "test: add work"]);
     expect(await worktreeStatus(path, "main")).toMatchObject({
       dirty: false,
       changedFiles: 0,
@@ -374,7 +374,7 @@ describe("worktrees", () => {
     git(path, ["branch", "--set-upstream-to", "main"]);
     writeFileSync(join(path, "a.txt"), "a\n");
     git(path, ["add", "a.txt"]);
-    git(path, ["commit", "-q", "-m", "a"]);
+    git(path, ["commit", "-q", "-m", "test: add change"]);
     expect(await worktreeStatus(path, "main")).toMatchObject({ ahead: 1, behind: 0 });
   });
 
@@ -382,11 +382,11 @@ describe("worktrees", () => {
     const { path } = await createWorktree(r.path, "feat/x", "main");
     writeFileSync(join(path, "committed.txt"), "one\ntwo\n");
     git(path, ["add", "committed.txt"]);
-    git(path, ["commit", "-q", "-m", "committed"]);
+    git(path, ["commit", "-q", "-m", "test: add committed file"]);
     // A later commit on main must not show up in the diff.
     writeFileSync(join(r.path, "main-only.txt"), "main\n");
     git(r.path, ["add", "main-only.txt"]);
-    git(r.path, ["commit", "-q", "-m", "main only"]);
+    git(r.path, ["commit", "-q", "-m", "test: add main-only change"]);
 
     writeFileSync(join(path, "README.md"), "# test repo\nmore\n");
     writeFileSync(join(path, "untracked.txt"), "u1\nu2\nu3\n");
@@ -446,7 +446,7 @@ describe("worktrees", () => {
     git(path, ["mv", "README.md", "RENAMED.md"]);
     writeFileSync(join(path, "img.bin"), Buffer.from([0, 255, 0, 1]));
     git(path, ["add", "img.bin"]);
-    git(path, ["commit", "-q", "-m", "rename"]);
+    git(path, ["commit", "-q", "-m", "test: rename file"]);
     const diff = await diffWorkspace(path, null, null);
     const files = new Map(diff.files.map((f) => [f.path, f]));
     expect(files.get("RENAMED.md")).toMatchObject({ oldPath: "README.md", status: "renamed" });
@@ -458,7 +458,7 @@ describe("worktrees", () => {
     const big = `${"x".repeat(99)}\n`.repeat(25_000); // 2.5 MB
     writeFileSync(join(path, "big.txt"), big);
     git(path, ["add", "big.txt"]);
-    git(path, ["commit", "-q", "-m", "big"]);
+    git(path, ["commit", "-q", "-m", "test: add large file"]);
     const diff = await diffWorkspace(path, null, null);
     expect(diff.patch).toBeNull();
     expect(diff.files[0]).toMatchObject({ path: "big.txt", added: 25_000 });
@@ -483,7 +483,7 @@ describe("worktrees", () => {
     writeFileSync(join(path, "a.txt"), "a\n");
     await expectCode(removeWorktree({ ...base, path, force: noForce }), "workspace_dirty");
     git(path, ["add", "a.txt"]);
-    git(path, ["commit", "-q", "-m", "a"]);
+    git(path, ["commit", "-q", "-m", "test: add unmerged change"]);
     const unmerged = await expectCode(
       removeWorktree({ ...base, path, force: noForce }),
       "workspace_unmerged",
