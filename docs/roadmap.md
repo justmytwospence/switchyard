@@ -1,14 +1,14 @@
 # Roadmap
 
-These are the features still planned from the 2026 competitor review (Paseo, Orca, Omnigent, Ovis, Collie, omp-deck). Phase 1 shipped in v0.10.0: session UX. Phase 2 shipped in v0.11.0: live session control.
+This roadmap tracks the 2026 competitor review (Paseo, Orca, Omnigent, Ovis, Collie, omp-deck). Phase 1 shipped in v0.10.0 (session UX), phase 2 in v0.11.0 (live session control), and phase 3 in v0.12.0 (orchestration, policies and GitHub). Phase 4 is planned for dev review before any production promotion.
 
 Each phase below is a scope, not an implementation plan. Before a phase starts, write a detailed plan against the code as it stands then, and check each assumption here against that code.
 
-Each phase ships as one pull request from `dev` to `main`, with one conventional commit per feature. It is reviewed on switchyard-dev, promoted with `scripts/promote.sh`, and released with a version tag (see [development.md](development.md)).
+Each phase is reviewed on https://dev.switchyard.spencerboucher.com before promotion of `dev` to `main` with `scripts/promote.sh`; production releases use a version tag (see [development.md](development.md)).
 
 ## Phase 3: orchestration, policies and GitHub
 
-PR title: `feat: orchestration, policies and GitHub`. Target release: 0.12.0. Implementation is in progress; it is not reviewed or shipped until verification and human approval on switchyard-dev. The approved plan defers pre-provider `model_request` enforcement. See [policies.md](policies.md) and [github.md](github.md).
+Released in v0.12.0. The approved plan deferred pre-provider `model_request` enforcement. See [policies.md](policies.md) and [github.md](github.md).
 
 ### 3.1 Agent tools
 
@@ -76,13 +76,13 @@ All GitHub access runs through the `gh` CLI on the host, with the user's own log
 - CEL evaluation must stay bounded and fail closed on errors.
 - `gh` may be missing or signed out on a host. Report that as a capability with a reason, not as an error.
 
-## Phase 4: plugin slots, SDK and relay
+## Phase 4: adapter UI slots and client SDK
 
-PR title: `feat: plugin slots, SDK and relay`. Target release: 0.13.0.
+Target release: 0.13.0. The UI slots, capability negotiation and typed Node SDK are implemented in the `dev` working branch for review at https://dev.switchyard.spencerboucher.com; they are not promoted to production or published on npm until approved. The optional relay is deferred.
 
 ### 4.1 Adapter UI slots
 
-Today adapters render only in the Inspector. Phase 4 adds these slots:
+Legacy adapter panels render in Extensions. Phase 4 adds these session-scoped placements:
 
 | Slot | Where it renders |
 |---|---|
@@ -90,8 +90,8 @@ Today adapters render only in the Inspector. Phase 4 adds these slots:
 | `session.panel` | A tab next to Changes and Details |
 | `composer.pill` | A small status pill above the composer |
 | `palette.item` | Command palette entries; they plug into the phase 2 registry |
-| `slash.command` | A web-handled slash command with an argument form |
-| `timeline.renderer` | A custom transcript row for a tool name or custom message type |
+| `slash.command` | A namespaced web-handled slash command with a portable argument form |
+| `timeline.renderer` | Host-side tool cards and custom-message notice cards, with readable text fallbacks |
 
 Each slot's content is a UI node validated against the existing zod `UINodeSchema`. `webRenderer` iframes stay sandboxed, and there is a mobile fallback text as today.
 
@@ -99,16 +99,16 @@ Each slot's content is a UI node validated against the existing zod `UINodeSchem
 
 - **Capabilities in `hello`:** clients announce their capabilities in the WebSocket `hello`. The server sends new message shapes only to clients that announced them, so old PWAs and CLIs keep working.
 - **Temporary shims** are tagged `COMPAT(name): remove after YYYY-MM-DD` and listed in `docs/compatibility.md`.
-- **`@spencerboucher/switchyard-client`:** a published, typed REST and WebSocket client built from `packages/terminal`'s `SwitchyardClient`. Its API:
+- **`@spencerboucher/switchyard-client`:** a typed Node REST and WebSocket client prepared for publication, sharing the connection and store extracted from `packages/terminal`. Its API:
   - `sessions.create`, `sessions.send`, `sessions.waitForFinish`, `sessions.transcript`
   - `tasks.create`, `tasks.list`, `tasks.waitForState`
   - `events.subscribe`, with reconnect and cursor resume
 
   It is documented with examples for scripts and CI.
 
-### 4.3 Optional end-to-end encrypted relay
+### 4.3 Optional end-to-end encrypted relay (deferred)
 
-This is off by default and is the last item; it can be dropped without affecting the rest.
+Spencer chose to defer the relay. This is not part of the Phase 4 implementation or the v0.13.0 dev review; it requires a separate threat model and explicit authorization.
 
 - **Purpose:** reach a coordinator behind NAT through a relay that sees only ciphertext.
 - **Handshake:** `Noise_NK_25519_ChaChaPoly_SHA256`. The coordinator's static public key goes after `#` in the pairing URL, so the relay never learns it. Nonces are counters, and the session rekeys every 2^32 messages.
@@ -116,7 +116,7 @@ This is off by default and is the last item; it can be dropped without affecting
 
 ### Phase 4 risks
 - Slot content from third-party adapters is untrusted: validate it strictly, and never render HTML outside sandboxed iframes.
-- The relay adds a security surface. It needs its own threat model in the detailed plan, or it should be dropped.
+- The deferred relay adds a security surface. It requires a separate threat model and explicit approval before implementation.
 
 ## Deferred and not planned
 

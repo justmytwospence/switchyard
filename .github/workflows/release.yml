@@ -67,11 +67,25 @@ jobs:
       - run: pnpm build
       - run: pnpm build:npm
       - run: bash scripts/smoke-npm.sh
-      - name: Publish (skipped when this version is already on npm)
+      - run: pnpm build:client-npm
+      - run: pnpm test:client-npm
+      - name: Publish both packages (skip only exact published versions)
+        shell: bash
         run: |
-          V=$(node -p "require('./dist-npm/package.json').version")
-          if npm view "@spencerboucher/switchyard@$V" version >/dev/null 2>&1; then
-            echo "@spencerboucher/switchyard@$V is already published"
-          else
-            npm publish ./dist-npm --access public --provenance
-          fi
+          set -euo pipefail
+          for directory in dist-npm dist-client-npm; do
+            name=$(node -p "require('./$directory/package.json').name")
+            version=$(node -p "require('./$directory/package.json').version")
+            error=$(mktemp)
+            if npm view "$name@$version" version > /dev/null 2> "$error"; then
+              echo "$name@$version is already published"
+            elif grep -qE 'E404|ETARGET' "$error"; then
+              npm publish "./$directory" --access public --provenance
+            else
+              echo "Registry lookup failed for $name@$version:" >&2
+              sed -n '1,60p' "$error" >&2
+              rm -f "$error"
+              exit 1
+            fi
+            rm -f "$error"
+          done

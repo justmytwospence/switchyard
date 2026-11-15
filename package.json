@@ -1,6 +1,6 @@
 {
   "name": "switchyard",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -16,6 +16,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "build:npm": "node scripts/build-npm.mjs",
+    "build:client-npm": "node scripts/build-client-npm.mjs",
+    "test:client-npm": "bash scripts/smoke-client-npm.sh",
     "icons": "node scripts/build-icons.mjs"
   },
   "devDependencies": {

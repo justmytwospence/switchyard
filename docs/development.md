@@ -31,6 +31,8 @@ The published package, `@spencerboucher/switchyard`, is one bundled CLI: `script
 ```sh
 pnpm build && pnpm build:npm      # writes dist-npm/
 bash scripts/smoke-npm.sh         # packs it, installs it into a temp prefix, runs `switchyard up`
+pnpm build:client-npm            # writes dist-client-npm/ for the typed Node SDK
+pnpm test:client-npm             # packs and checks SDK imports, declarations, REST and WS
 ```
 
 ## Workflow
@@ -47,9 +49,9 @@ Coordinators and hosts are upgraded independently, so the coordinator must keep 
 
 ## Releases
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`:
+Pushing a `v*` tag runs `.github/workflows/release.yml` (only after promotion and explicit release approval):
 
 - **image:** builds the container for linux/amd64 and linux/arm64 and publishes it to GHCR;
-- **npm:** builds and smoke-tests the npm package, then publishes it with npm trusted publishing (GitHub OIDC, with provenance), skipping a version that is already on npm.
+- **npm:** builds and smoke-tests both the CLI and `@spencerboucher/switchyard-client` SDK, then publishes each with npm trusted publishing (GitHub OIDC, with provenance), skipping an exact version that is already on npm. First publication of the SDK may require configuring its trusted publisher in npm; do not substitute a long-lived npm token. See [client-sdk.md](client-sdk.md).
 
 Every package shares the version in its `package.json`.

@@ -25,6 +25,7 @@ const PACKAGES = [
   "coordinator",
   "host-agent",
   "terminal",
+  "client",
   "pi-runtime",
   "adapter-sdk",
   "protocol",

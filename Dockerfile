@@ -80,6 +80,10 @@ COPY --from=build --chown=node:node /app/packages/coordinator/package.json /app/
 COPY --from=build --chown=node:node /app/packages/coordinator/dist /app/packages/coordinator/dist
 COPY --from=build --chown=node:node /app/packages/coordinator/node_modules /app/packages/coordinator/node_modules
 
+COPY --from=build --chown=node:node /app/packages/client/package.json /app/packages/client/package.json
+COPY --from=build --chown=node:node /app/packages/client/dist /app/packages/client/dist
+COPY --from=build --chown=node:node /app/packages/client/node_modules /app/packages/client/node_modules
+
 COPY --from=build --chown=node:node /app/packages/terminal/package.json /app/packages/terminal/package.json
 COPY --from=build --chown=node:node /app/packages/terminal/dist /app/packages/terminal/dist
 COPY --from=build --chown=node:node /app/packages/terminal/node_modules /app/packages/terminal/node_modules
@@ -98,6 +102,8 @@ RUN ln -s /app/packages/cli/dist/main.js /usr/local/bin/switchyard \
 # Persistent state: coordinator.db, admin.token and coordinator.lock live here.
 RUN mkdir -p /data && chown node:node /data
 USER node
+# Loading the CLI also loads terminal and its client workspace dependency.
+RUN node /app/packages/cli/dist/main.js --version
 EXPOSE 7400
 VOLUME /data
 

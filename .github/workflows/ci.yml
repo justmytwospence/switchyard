@@ -15,6 +15,8 @@ jobs:
       - run: pnpm build
       - run: pnpm lint
       - run: pnpm test
+      - run: pnpm build:client-npm
+      - run: pnpm test:client-npm
 
   # Every green push to a branch other than main publishes the coordinator image: dev as :dev
   # (dev.switchyard, scripts/deploy-dev.sh), any other branch as :br-<slug> (scripts/preview-slug.sh,
