@@ -8,6 +8,7 @@
     { "path": "packages/adapter-examples" },
     { "path": "packages/host-agent" },
     { "path": "packages/coordinator" },
+    { "path": "packages/client" },
     { "path": "packages/terminal" },
     { "path": "packages/cli" }
   ]

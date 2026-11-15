@@ -66,7 +66,12 @@ describe("SwitchyardClient", () => {
     await until(() => client!.store.getState().seq === 6);
     const st = client.store.getState();
     expect(auth).toBe("Bearer cred-1");
-    expect(received[0]).toEqual({ type: "hello", cursor: null });
+    expect(received[0]).toEqual({
+      type: "hello",
+      cursor: null,
+      capabilities: ["adapter.slots.v1", "timeline.cards.v1"],
+      projectionId: null,
+    });
     expect(st.connection.state).toBe("live");
     expect(st.sessions.ses_1?.runtime).toBe("running");
     expect(received.every((m) => (m as { type: string }).type !== "presence")).toBe(true);
