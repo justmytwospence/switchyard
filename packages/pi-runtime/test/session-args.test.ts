@@ -16,6 +16,32 @@ describe("profile resources", () => {
       expect.arrayContaining(["--no-extensions", "--no-skills", "--no-prompt-templates"]),
     );
   });
+  it.each([
+    { resources: "vanilla", extraArgs: [] },
+    { resources: "default", extraArgs: ["--no-extensions"] },
+  ])("reports disabled package extensions from the stored profile ($resources)", (profile) => {
+    const session = new ManagedSession({
+      sessionId: "ses_disabled",
+      cwd: "/tmp",
+      title: "t",
+      profile: { ...mockProfile, ...profile } as any,
+      extensions: ["/host/bridge.ts", "/host/test.ts"],
+    });
+    expect(session.extensionsDisabled).toBe(true);
+  });
+  it("honors explicit extra arguments but does not confuse injected extensions with authorization", () => {
+    const session = (extraArgs: string[]) =>
+      new ManagedSession({
+        sessionId: "ses_disabled",
+        cwd: "/tmp",
+        title: "t",
+        profile: mockProfile,
+        extraArgs,
+        extensions: ["/host/bridge.ts"],
+      });
+    expect(session(["--no-extensions"]).extensionsDisabled).toBe(true);
+    expect(session([]).extensionsDisabled).toBe(false);
+  });
   it("default loads everything", () => {
     const a = args({});
     expect(a).not.toContain("--no-extensions");

@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
+import { AdapterRegistry } from "@switchyard/adapter-sdk";
 import type { ManagedSession } from "@switchyard/pi-runtime";
 import { canonicalPolicyJson, type PolicyEvaluateRequest } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -121,7 +122,17 @@ function setup(options: { cwd?: string; workspaceRoot?: string; legacy?: boolean
       db,
       link: { emit: vi.fn() } as unknown as CoordinatorLink,
       hostId: "host",
-      catalog: {} as AdapterCatalog,
+      catalog: {
+        prepareSession: async () => ({
+          registry: new AdapterRegistry(),
+          commit() {},
+          dispose() {},
+        }),
+        releaseSession() {},
+        info: () => [],
+        renderers: () => ({}),
+        sessionInfo: () => [],
+      } as unknown as AdapterCatalog,
       log: silentLogger(),
       broker: broker as unknown as AgentBroker,
       pi: () => ({ compatible: true, reason: null }),

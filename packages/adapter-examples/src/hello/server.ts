@@ -154,6 +154,33 @@ function slots(ctx: AdapterContext, shown: string | null) {
 }
 
 const adapter: ServerAdapter = {
+  onRestore(ctx) {
+    const shown = ctx.state.get<string>("shown");
+    if (!shown) return;
+    ctx.setPanel("hello", helloPanel(shown), { title: "Hello", mobileFallback: shown });
+    slots(ctx, shown);
+  },
+  claimInteraction(req) {
+    if (req.method !== "input" || req.title !== "Hello name") return;
+    return {
+      title: req.title,
+      presentation: {
+        t: "form",
+        formId: "hello-name",
+        fields: [{ kind: "text", name: "name", label: "Who should we greet?" }],
+        submitLabel: "Greet",
+        cancelLabel: "Cancel",
+      },
+      toPiResponse(response) {
+        if (response.kind === "cancel") return { cancelled: true };
+        if (response.kind !== "form" || typeof response.values.name !== "string") {
+          // Deliberately exercise safe claim failure: the session presents the generic dialog.
+          throw new Error("Hello expected a name form; using the generic question instead");
+        }
+        return { value: response.values.name };
+      },
+    };
+  },
   toolCard(tool) {
     return tool.name === TOOL_NAME ? helloCard(tool) : undefined;
   },

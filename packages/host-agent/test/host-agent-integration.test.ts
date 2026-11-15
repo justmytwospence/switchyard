@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AdapterRegistry } from "@switchyard/adapter-sdk";
 import type { BridgeConfiguration, BridgeFeatures } from "@switchyard/pi-runtime";
 import type { Profile } from "@switchyard/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -191,10 +192,14 @@ function fixture(
   const broker = new AgentBroker({ link, timeoutMs: options.brokerTimeoutMs ?? 1000 });
   const wake = vi.fn();
   const catalog = {
-    forWorkspace: async () => {
+    prepareSession: async () => {
       await runtime.adapterGate;
-      return { manifests: [], openSession: () => null, closeSession() {} };
+      return { registry: new AdapterRegistry(), commit() {}, dispose() {} };
     },
+    releaseSession() {},
+    info: () => [],
+    renderers: () => ({}),
+    sessionInfo: () => [],
     manifests: () => [],
   } as unknown as AdapterCatalog;
   const supervisor = new SessionSupervisor({
@@ -340,6 +345,8 @@ describe("supervisor A.1 integration", () => {
         .start({ ...f.params, policyRequired: true, initialPrompt: "never" })
         .catch((error: unknown) => error);
       await flush();
+      // Resource discovery first waits up to five seconds for a bridge snapshot.
+      await vi.advanceTimersByTimeAsync(5_001);
       await vi.advanceTimersByTimeAsync(30_001);
       expect(await started).toMatchObject({ code: "timeout" });
       expect(runtime.sessions[0].isAlive).toBe(false);
@@ -374,7 +381,7 @@ describe("supervisor A.1 integration", () => {
     runtime.adapterGate = gate.promise;
     runtime.promptGate = gate.promise;
     const f = fixture();
-    await f.supervisor.start(f.params);
+    const started = f.supervisor.start(f.params);
     await waitForBinding(f.supervisor);
     const prompt = f.router.handle("prompt", {
       type: "session.prompt",
@@ -399,6 +406,7 @@ describe("supervisor A.1 integration", () => {
     ]);
     expect(f.requestAgent.mock.calls.at(-1)?.[5]?.context).toEqual(request.context);
     gate.resolve();
+    await started;
     await prompt;
   });
   it("routes policy ASK waiting state directly and clears it on disconnect", async () => {
@@ -464,9 +472,15 @@ describe("supervisor A.1 integration", () => {
       broker: f.broker,
       hostId: "hst_1",
       catalog: {
-        forWorkspace: async () => {
-          throw new Error("no adapters");
-        },
+        prepareSession: async () => ({
+          registry: new AdapterRegistry(),
+          commit() {},
+          dispose() {},
+        }),
+        releaseSession() {},
+        info: () => [],
+        renderers: () => ({}),
+        sessionInfo: () => [],
       } as any,
       log: silentLogger(),
       pi: () => ({ compatible: true, reason: null, version: "1.5.0" }),
@@ -484,7 +498,7 @@ describe("supervisor A.1 integration", () => {
     const f = fixture();
     const gate = deferred();
     runtime.adapterGate = gate.promise;
-    await f.supervisor.start(f.params);
+    const started = f.supervisor.start(f.params).catch((error: unknown) => error);
     await waitForBinding(f.supervisor);
     const ms = runtime.sessions[0];
     const request = frame(ms);
@@ -494,6 +508,7 @@ describe("supervisor A.1 integration", () => {
     expect(ms.replies).toHaveLength(0);
     expect(f.supervisor.deliveryBridge("ses_1")).toBeNull();
     gate.resolve();
+    await started;
     await flush();
   });
 });

@@ -6,6 +6,7 @@ export type BridgeCapabilities = {
   messageDelivery: boolean;
   editorDraftGuard: boolean;
   toolPolicy: boolean;
+  resourceSnapshot?: boolean;
 };
 export type BridgeConfiguration = {
   version: 1;
@@ -79,7 +80,7 @@ export interface AgentChannel {
     options?: RequestOptions,
   ): Promise<T>;
   registerCommand(
-    method: "delivery.accept" | "delivery.status",
+    method: "delivery.accept" | "delivery.status" | "resources.snapshot",
     handler: DeliveryHandler,
   ): () => void;
   noteHumanInput(humanInputId?: string): string;
@@ -422,6 +423,33 @@ export function createAgentChannel(options: {
               throw channelError("invalid_request", "Invalid human input id");
             noteHumanInput(r.args.humanInputId);
             receipt(r, { humanInputId: r.args.humanInputId });
+          } else if (r.method === "resources.snapshot") {
+            const handler = handlers.get(r.method);
+            if (!handler || !options.getCapabilities().resourceSnapshot)
+              throw channelError("unsupported_capability", "Resource inspection is unavailable");
+            if (
+              !r.args ||
+              typeof r.args !== "object" ||
+              Array.isArray(r.args) ||
+              Object.keys(r.args).length !== 0
+            )
+              throw channelError("invalid_request", "Resource inspection expects empty arguments");
+            const binding = configuration;
+            const result = await handler(r.args, r);
+            if (configuration !== binding || r.nativeSessionId !== syncNative())
+              throw channelError("conflict", "Bridge binding changed during resource inspection");
+            const frame = {
+              type: "bridge.receipt",
+              requestId: r.requestId,
+              runtimeId: r.runtimeId,
+              nativeSessionId: r.nativeSessionId,
+              bindingId: r.bindingId,
+              ok: true,
+              result,
+            };
+            if (Buffer.byteLength(JSON.stringify(frame), "utf8") > 128 * 1024)
+              throw channelError("invalid_request", "Resource snapshot exceeds bridge frame limit");
+            receipt(r, result);
           } else {
             const handler = handlers.get(r.method);
             if (!handler)

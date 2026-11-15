@@ -199,6 +199,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
             agentRequests: agentSupport,
             messageDelivery: agentSupport,
             policies: agentSupport,
+            adapterDevelopment: true,
           }
         : null,
       features: agentSupport ? ["agentRequests.v1", "policies.v1"] : [],
@@ -379,6 +380,10 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
       "adapter discovery failed; Pi package adapters are not loaded",
     );
   }
+  // Reattached bridges need their authenticated coordinator binding before resource inspection.
+  // The router, recovery and owner catalog are ready; starting the outbound link here avoids
+  // waiting for that binding before the link that establishes it has even started.
+  link.start();
   // After discovery: a reattached session opens its adapters, and a dialog Pi asks again must be
   // claimed by them (a plan, a question form), not shown as the generic fallback.
   const reattach = await supervisor.reattachTerminals();
@@ -421,7 +426,6 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
   }
 
   supervisor.emitAdapters();
-  link.start();
 
   let stopping: Promise<void> | null = null;
   const onSignal = (signal: NodeJS.Signals) => {

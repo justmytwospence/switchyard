@@ -4,11 +4,15 @@ import { type AdapterEffect, AdapterRegistry, loadAdapterFromDir } from "@switch
 import { describe, expect, it } from "vitest";
 import { EXAMPLE_ADAPTER_NAMES, exampleAdapterDir, exampleAdapters } from "../src/index.js";
 
-function harness() {
+function harness(initialState?: Record<string, Record<string, unknown>>) {
   const effects: AdapterEffect[] = [];
   const registry = new AdapterRegistry();
   registry.setAdapters(exampleAdapters());
-  const session = registry.openSession({ sessionId: "ses_hello", emit: (e) => effects.push(e) });
+  const session = registry.openSession({
+    sessionId: "ses_hello",
+    initialState,
+    emit: (e) => effects.push(e),
+  });
   const panels = () =>
     effects.filter((e): e is Extract<AdapterEffect, { type: "panel" }> => e.type === "panel");
   return { session, panels };
@@ -36,6 +40,47 @@ describe("example adapters", () => {
 });
 
 describe("hello", () => {
+  it("restores persistent presentation without replay and records safe actions only in state", async () => {
+    const { session, panels } = harness({
+      hello: { shown: "Saved greeting 1/2", last: "Saved action" },
+    });
+    await session.restore();
+    expect(panels().find((panel) => panel.slot === "hello")?.node).toMatchObject({
+      t: "progress",
+      value: 0.5,
+    });
+    expect(panels().find((panel) => panel.contribution?.id === "footer")?.node).toEqual({
+      t: "text",
+      text: "Saved action",
+    });
+    const count = panels().length;
+    await session.restore();
+    expect(panels()).toHaveLength(count);
+    expect(await session.onAction("hello", "save", { note: "Local note" })).toEqual({ ok: true });
+    expect(
+      panels()
+        .filter((panel) => panel.contribution?.id === "footer")
+        .at(-1)?.node,
+    ).toEqual({
+      t: "text",
+      text: 'save: {"note":"Local note"}',
+    });
+  });
+
+  it("claims the hello question, accepts a portable form, and falls back safely on an invalid mapping", async () => {
+    const { session } = harness();
+    const claimed = await session.onUiRequest({ id: "q", method: "input", title: "Hello name" });
+    expect(claimed.kind).toBe("claim");
+    if (claimed.kind !== "claim") throw new Error("Expected a claim");
+    expect(claimed.adapterId).toBe("hello");
+    expect(await session.respond(claimed, { kind: "form", values: { name: "Pi" } })).toMatchObject({
+      kind: "respond",
+      response: { value: "Pi" },
+    });
+    const fallback = await session.respond(claimed, { kind: "confirm", confirmed: true });
+    expect(fallback.kind).toBe("reclaim");
+    expect(session.statuses()[0]?.status).toBe("disabled");
+  });
   it("renders the hello tool as a section with a table of its arguments", async () => {
     const { session } = harness();
     const running = await session.toolCard({

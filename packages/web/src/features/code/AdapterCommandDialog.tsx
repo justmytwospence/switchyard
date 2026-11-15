@@ -1,10 +1,11 @@
 import type { Panel } from "@switchyard/protocol";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Overlay";
 import { errorMessage } from "../../sync/api";
 import { useContributions, useSyncStore } from "../../sync/store";
+import { isAdapterViewStale } from "./AdapterPanel";
 import { adapterCommandFingerprint } from "./adapterIdentity";
 import { codeApi } from "./api";
 
@@ -35,11 +36,40 @@ export function AdapterCommandDialog({
   const panel = request?.panel;
   const current =
     panel && panels.find((p) => p.adapterId === panel.adapterId && p.slot === panel.slot);
+  const stale = isAdapterViewStale(panel?.adapterGeneration, session?.adapterGeneration);
   const changed =
     !!panel &&
     ((activeSessionId !== undefined && activeSessionId !== panel.sessionId) ||
+      stale ||
       !current ||
+      current.adapterGeneration !== panel.adapterGeneration ||
       adapterCommandFingerprint(current) !== adapterCommandFingerprint(panel));
+  // A preview owns its rendered generation. Never rebind or resubmit it after a swap.
+  const previous = useRef({ panel, generation: session?.adapterGeneration });
+  const latest = useRef({ panel, generation: session?.adapterGeneration });
+  latest.current = { panel, generation: session?.adapterGeneration };
+  const valid = useRef(false);
+  valid.current = !!request && !changed && !unavailable;
+  useEffect(() => {
+    const replaced =
+      previous.current.panel === panel &&
+      previous.current.generation !== session?.adapterGeneration;
+    previous.current = { panel, generation: session?.adapterGeneration };
+    if (panel && (stale || replaced)) {
+      valid.current = false;
+      onClose();
+    }
+  }, [panel, session?.adapterGeneration, stale, onClose]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when opening a different preview
+  useEffect(() => {
+    setError(null);
+  }, [panel]);
+  useEffect(
+    () => () => {
+      valid.current = false;
+    },
+    [],
+  );
   const close = () => {
     if (!busy) {
       setError(null);
@@ -48,6 +78,7 @@ export function AdapterCommandDialog({
   };
   const run = async (payload: unknown) => {
     if (!request || !panel?.contribution?.actionId || busy || changed || unavailable) return;
+    const submittedGeneration = session?.adapterGeneration;
     setBusy(true);
     setError(null);
     try {
@@ -56,11 +87,18 @@ export function AdapterCommandDialog({
         panel.adapterId,
         panel.contribution.actionId,
         payload,
+        panel.adapterGeneration,
       );
+      if (
+        !valid.current ||
+        latest.current.panel !== panel ||
+        latest.current.generation !== submittedGeneration
+      )
+        return;
       onSuccess?.(request);
       onClose();
     } catch (e) {
-      setError(errorMessage(e));
+      if (latest.current.panel === panel) setError(errorMessage(e));
     } finally {
       setBusy(false);
     }

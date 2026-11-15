@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type CompatHarness,
   compatSkipReason,
+  legacyBoundAdapter,
   pluginInfo,
   recordResult,
   startCompatHarness,
@@ -15,7 +16,11 @@ const skip = compatSkipReason();
 
 const script: MockScript = [
   {
-    when: when.userSays("say hello"),
+    // The gate can append its settings reminder after the human message.
+    when: (r) =>
+      r.lastRole === "user" &&
+      !r.messages.some((m) => m.role === "tool") &&
+      r.messages.some((m) => m.role === "user" && JSON.stringify(m.content).includes("say hello")),
     reply: { toolCalls: [{ name: "bash", arguments: { command: "echo hello" } }] },
   },
   { when: when.toolResult("bash"), reply: (r) => ({ text: `bash said: ${r.lastText}` }) },
@@ -54,11 +59,16 @@ describe.skipIf(skip !== null)(`tool-gate compat${skip ? ` (${skip})` : ""}`, ()
     results.approvalsRequest = s.uiRequests.find((r) => r.method === "select") as any;
     expect(modeSelect).toMatchObject({
       adapterId: null,
-      title: "Approvals",
+      title: expect.stringMatching(/^Approvals(?: · Permission prompts: on)?$/),
       source: { kind: "extension_ui", method: "select" },
-      presentation: { t: "form", formId: "generic" },
     });
-    const modes = (modeSelect.presentation as any).fields[0].options.map((o: any) => o.value);
+    const presentation = modeSelect.presentation as any;
+    const form =
+      presentation.t === "form"
+        ? presentation
+        : presentation.children.find((n: any) => n.t === "form");
+    expect(form).toMatchObject({ t: "form", formId: "generic" });
+    const modes = form.fields[0].options.map((o: any) => o.value);
     results.approvalModes = modes;
     expect(modes).toContain("Auto");
     // Answered through the routed `session.answer` command while the `/approvals` prompt is still
@@ -87,16 +97,35 @@ describe.skipIf(skip !== null)(`tool-gate compat${skip ? ` (${skip})` : ""}`, ()
     const before = s.settledCount();
     await s.prompt("please say hello");
     let card: Interaction | undefined;
-    await waitFor(
-      () => {
-        card = s.latestInteractions().find((i) => i.state === "pending");
-        return card !== undefined;
-      },
-      30000,
-      "approval card",
-    );
+    try {
+      await waitFor(
+        () => {
+          card = s.latestInteractions().find((i) => i.state === "pending");
+          return card !== undefined;
+        },
+        30000,
+        "approval card",
+      );
+    } finally {
+      results.rawUiRequests = structuredClone(s.uiRequests);
+      results.toolEnds = s.toolEnds("bash");
+      results.modelRequests = h.mock.requests;
+      results.adapters = h.agent.supervisor.sessionAdapters(s.id);
+    }
     const raw = s.uiRequests.find((r) => r.method === "select" && r.title.startsWith("Allow"));
     results.approvalRequest = raw;
+    if (await legacyBoundAdapter(h, s, "pi-tool-gate", "tool-gate")) {
+      expect(card).toMatchObject({ adapterId: null });
+      expect(raw.options).toContain("Block");
+      expect(await s.answer(card!, { kind: "form", values: { value: "Block" } })).toMatchObject({
+        status: "answered",
+      });
+      await s.waitSettled(before);
+      expect(s.uiResponses.find((r) => r.id === raw.id)?.body).toEqual({ value: "Block" });
+      expect(s.toolEnds("bash").at(-1)?.isError).toBe(true);
+      expect(toolItem(s, "bash")?.data.status).toBe("error");
+      return;
+    }
     expect(card).toMatchObject({
       adapterId: "tool-gate",
       title: "Allow this call? bash",

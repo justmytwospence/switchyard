@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import type { TranscriptItem } from "@switchyard/protocol";
 import { when } from "@switchyard/test-fixtures";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PiUiRequest } from "../src/index.js";
 import { ManagedSession } from "../src/session-runtime.js";
 import { PiTerminalProcess, terminalSupport } from "../src/terminal-process.js";
@@ -154,6 +154,55 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("gate: terminal transport",
     await new Promise((r) => setTimeout(r, 1500));
     expect(existsSync(socketPath)).toBe(false);
     await expect(PiTerminalProcess.attach(socketPath, 500)).rejects.toThrow();
+  });
+
+  it("confirms native reload with a replacement bridge UUID and keeps the process/native session", async () => {
+    const requestCount = h.mock.requests.length;
+    const s = h.newSession({ transport: "terminal" });
+    await s.start();
+    try {
+      await vi.waitFor(() => expect(s.bridgeFeatures?.capabilities.resourceSnapshot).toBe(true));
+      const before = s.bridgeFeatures!;
+      const nativeHandle = s.nativeHandle;
+      const configure = async (bindingId: string) => {
+        const hello = s.bridgeFeatures!;
+        await s.configureAgent({
+          version: 1,
+          sessionId: s.sessionId,
+          runtimeId: hello.runtimeId,
+          nativeSessionId: hello.nativeSessionId,
+          bindingId,
+          features: [],
+          coordinatorConnected: false,
+          policyRequired: false,
+          sessionUrl: null,
+        });
+      };
+      await configure("before-reload");
+      expect(await s.resources()).toMatchObject({
+        cwd: h.env.cwd,
+        runtimeId: before.runtimeId,
+        nativeSessionId: before.nativeSessionId,
+        bindingId: "before-reload",
+        hasEditorDraft: false,
+        pendingDialogs: 0,
+      });
+      const listeners = s.listenerCount("bridge_features");
+      await s.reload();
+      expect(s.listenerCount("bridge_features")).toBe(listeners);
+      expect(s.bridgeFeatures?.runtimeId).not.toBe(before.runtimeId);
+      expect(s.bridgeFeatures?.pid).toBe(before.pid);
+      expect(s.bridgeFeatures?.nativeSessionId).toBe(before.nativeSessionId);
+      expect(s.nativeHandle).toEqual(nativeHandle);
+      await configure("after-reload");
+      expect(await s.resources()).toMatchObject({
+        runtimeId: s.bridgeFeatures!.runtimeId,
+        bindingId: "after-reload",
+      });
+      expect(h.mock.requests).toHaveLength(requestCount);
+    } finally {
+      await s.stop({ graceMs: 3000, termMs: 1000 });
+    }
   });
 
   it("a dropped control socket reconnects instead of reporting an exit", async () => {

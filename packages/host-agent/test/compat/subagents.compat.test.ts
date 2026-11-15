@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type CompatHarness,
   compatSkipReason,
+  legacyBoundAdapter,
   pluginInfo,
   recordResult,
   startCompatHarness,
@@ -72,6 +73,11 @@ describe.skipIf(skip !== null)(`subagents compat${skip ? ` (${skip})` : ""}`, ()
     expect(results.entries.some((e: any) => e.customType === "system1:decision")).toBe(false);
     expect(end?.result?.details?.runs?.[0]?.classifier).toBeUndefined();
     expect(results.childRequests.length).toBeGreaterThan(0);
+    if (await legacyBoundAdapter(h, s, "pi-subagents", "subagents")) {
+      expect(s.latestItems().some((i) => i.kind === "subagent")).toBe(false);
+      expect(JSON.stringify(end.result)).toContain("pong");
+      return;
+    }
 
     const subagentItems = () =>
       s

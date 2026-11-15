@@ -33,6 +33,39 @@ describe("manifest", () => {
     expect(() => parseManifest(bad, "x.json")).toThrow(new RegExp(needle));
   });
 
+  it("accepts optional bounded target-component entrypoints without changing legacy manifests", () => {
+    const target = { ...manifest("x").target, entrypoints: ["index.ts", "./src/entry.ts"] };
+    expect(parseManifest(manifest("x", { target })).target.entrypoints).toEqual(target.entrypoints);
+    expect(parseManifest(manifest("x")).target.entrypoints).toBeUndefined();
+  });
+
+  it.each([
+    "/etc/passwd",
+    "../entry.ts",
+    "a/../../entry.ts",
+    "a/..",
+    "C:\\entry.ts",
+    "\\\\server\\entry.ts",
+    "..\\entry.ts",
+    "",
+    "x\0.ts",
+    "x".repeat(4097),
+  ])("rejects unsafe target entrypoint %j", (entrypoint) => {
+    expect(() =>
+      parseManifest(
+        manifest("x", { target: { ...manifest("x").target, entrypoints: [entrypoint] } }),
+      ),
+    ).toThrow(/entrypoints/);
+  });
+
+  it("rejects empty and oversized target entrypoint lists", () => {
+    for (const entrypoints of [[], Array.from({ length: 129 }, () => "index.ts")]) {
+      expect(() =>
+        parseManifest(manifest("x", { target: { ...manifest("x").target, entrypoints } })),
+      ).toThrow(/entrypoints/);
+    }
+  });
+
   it("rejects a missing webRenderer key (it must be explicitly null)", () => {
     const { webRenderer: _w, ...rest } = manifest("x");
     expect(() => parseManifest(rest)).toThrow(/webRenderer/);

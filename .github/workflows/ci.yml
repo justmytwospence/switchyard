@@ -18,13 +18,46 @@ jobs:
       - run: pnpm build:client-npm
       - run: pnpm test:client-npm
 
+  plugin-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pi: ["1.4.0", "1.5.0", "1.5.2"]
+    env:
+      SWITCHYARD_REQUIRE_PI_PLUGINS: "1"
+      SWITCHYARD_PI_PLUGINS_DIR: ${{ github.workspace }}/../pi-plugins
+      TYPESAFE_API_KEY: ""
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GEMINI_API_KEY: ""
+      OPENROUTER_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: npm install -g @earendil-works/pi-coding-agent@${{ matrix.pi }}
+      - run: |
+          commit=$(node -p "require('./.github/compat-pi-plugins.json').commit")
+          git clone --no-checkout https://github.com/justmytwospence/pi-plugins.git "$SWITCHYARD_PI_PLUGINS_DIR"
+          git -C "$SWITCHYARD_PI_PLUGINS_DIR" checkout --detach "$commit"
+          npm ci --prefix "$SWITCHYARD_PI_PLUGINS_DIR"
+          for component in pi-ask-user-question pi-tool-gate pi-plan-mode pi-subagents pi-todo pi-bg; do
+            npm ci --prefix "$SWITCHYARD_PI_PLUGINS_DIR/packages/$component"
+          done
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: node --test scripts/check-plugin-compat.test.mjs
+      - run: pnpm test:plugins
+
   # Every green push to a branch other than main publishes the coordinator image: dev as :dev
   # (dev.switchyard, scripts/deploy-dev.sh), any other branch as :br-<slug> (scripts/preview-slug.sh,
   # for scripts/preview.sh), each also as :sha-<short>. main moves only by fast-forward to a green
   # dev (scripts/promote.sh); production images and the npm package come only from v* tags on
   # main (release.yml).
   image:
-    needs: build
+    needs: [build, plugin-compat]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

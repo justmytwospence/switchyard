@@ -2,7 +2,7 @@
 
 Pi extensions talk to their user through `ctx.ui` dialogs, status entries, widgets, custom messages and tool results. In RPC mode those arrive at the host agent as plain payloads that do not say which extension sent them. An adapter recognizes one extension's payloads and turns them into portable UI: tool cards, forms, panels, subagent links and attention items, rendered the same way on the web, phone and terminal.
 
-Adapters run in the host agent (`@switchyard/adapter-sdk`). They are trusted, installed code and are not sandboxed. Only their optional web renderer runs in an isolated frame.
+Adapters run in the host agent (`@switchyard/adapter-sdk`). They are trusted, installed code and are not sandboxed. Only their optional web renderer runs in an isolated frame. They translate plugin semantics, not arbitrary custom TUIs or plugin workflows; see the [ownership contract](plugin-boundaries.md).
 
 ## Manifest
 
@@ -30,7 +30,8 @@ Every adapter is a directory with a `switchyard-adapter.json`:
 | `version` | The adapter's own version. |
 | `target.extension` | The Pi package the adapter understands. |
 | `target.versionRange` | Semver range of that package. When the installed version is outside it, the adapter stays active, Settings shows a warning, and unmatched dialogs fall back to generic. |
-| `target.testedVersions` | Versions verified by compatibility tests. |
+| `target.testedVersions` | Versions recorded as tested by the adapter author. |
+| `target.entrypoints` | Optional nonempty list of relative extension paths within the target component package root. The host requires an enabled, runtime-reported match; absolute paths and traversal outside the root are rejected. |
 | `protocolVersion` | Must be `1`. |
 | `server` | ESM module, relative to the manifest, whose default export is a `ServerAdapter` or a factory `({manifest, dir}) => ServerAdapter`. A `.ts` file works too: Node (24 or later) strips its types on import, so it may use only erasable syntax (see [Shipping an adapter with your Pi package](#shipping-an-adapter-with-your-pi-package)). |
 | `webRenderer` | Relative path to an HTML file for the custom web renderer, or `null`. |
@@ -44,23 +45,11 @@ Adapters are consulted in this order:
 
 1. **Project:** `<project root>/.switchyard/adapters/<name>/switchyard-adapter.json`.
 2. **Owner:** `~/.config/switchyard/adapters/<name>/switchyard-adapter.json`.
-3. **Plugin:** Pi packages that ship their own adapter. The host reads `packages` from `<PI_CODING_AGENT_DIR or ~/.pi/agent>/settings.json` and resolves each source the way Pi installs it: `npm:` sources under `<agentDir>/npm/node_modules/<name>`, git sources under `<agentDir>/git/<host>/<path>`, local paths relative to the agent dir. A package whose `package.json` has `"switchyard": {"adapter": "<dir>"}` (a path or a list of paths) contributes that adapter. Sources that cannot be resolved produce a diagnostic and are skipped. Project-scope Pi settings (`.pi/settings.json`) are not read.
+3. **Plugin:** enabled Pi packages whose `package.json` declares `"switchyard": {"adapter": "<dir>"}` (a path or list). Discovery is per session: a read-only helper uses the installed Pi resolver for user settings and, only when Pi confirms project trust, project `.pi/settings.json`, including Pi's resource filters and autoload deltas. It does not install or update packages. The running bridge reports extension paths from registered tools and commands; this is not a complete loaded-extension inventory. An adapter declaring `target.entrypoints` requires an enabled path also reported by the runtime; otherwise it is disabled without import. Legacy manifests use coarser enabled provider-package matching. The target component's matching `package.json`, not necessarily the suite provider's, supplies its version.
 4. **Bundled:** adapters the embedding code passes in (`AdapterCatalog`'s `bundled` option). The host agent bundles none: adapters ship with the Pi packages that own them.
 5. **Generic renderer** for anything no adapter handles.
 
-Within a tier, adapter directories load in name order. When two tiers provide the same `id`, only the higher one is active; Settings > Adapters lists the other as disabled ("overridden by ...").
-
-```ts
-import { AdapterRegistry, discoverPiPackages } from "@switchyard/adapter-sdk";
-
-const pi = await discoverPiPackages();
-const registry = new AdapterRegistry({ onDiagnostic: report });
-await registry.load({
-  projectRoot: "/work/repo",
-  pluginPackageDirs: pi.pluginPackageDirs,
-  installedPackages: pi.packages,
-});
-```
+Within a tier, adapter directories load in name order. When two tiers provide the same `id`, only the higher one is active; the other is listed as disabled. Project-tier code requires confirmed trust and an available inventory. Unknown trust or resolver failure falls back conservatively to owner adapters and legacy user-scope discovery, with diagnostics; no speculative project code is imported. Vanilla and `--no-extensions` skip plugin adapters. UI-only extensions may need explicit owner or trusted project adapters because Pi does not expose a complete extension inventory.
 
 ## Shipping an adapter with your Pi package
 
@@ -74,7 +63,7 @@ The usual home for an adapter is the Pi package whose extension it understands, 
 }
 ```
 
-`switchyard.adapter` is a path or a list of paths, relative to the package root, so a suite of several extensions can declare one adapter per package from its root `package.json`. When the owner installs the package with Pi (`pi install npm:...`, `git:...` or a local path), every host that reads that agent dir's `settings.json` loads the adapter in the plugin tier. Nothing is installed into Switchyard.
+`switchyard.adapter` is a path or a list of paths relative to the provider package root, so a suite can declare one adapter per component. An installed package contributes eligible adapters through the plugin tier according to the session's effective Pi resources and trust; installation alone does not enable every component. Nothing is installed into Switchyard.
 
 The server module may be TypeScript (`"server": "adapter.ts"`), loaded with Node's built-in type stripping:
 
@@ -95,6 +84,7 @@ interface ServerAdapter {
   onEntry?(entry, ctx); onCustomMessage?(m, ctx);
   onStatus?(key, text | undefined, ctx); onWidget?(key, lines | undefined, ctx);
   onAction?(actionId, payload, ctx);
+  onRestore?(ctx);
 }
 ```
 
@@ -103,6 +93,8 @@ Every hook is optional and may be async. The host calls them in precedence order
 - `toolCard`, `customMessageCard` and `claimInteraction`: the first valid result in precedence order wins.
 - Observation hooks (`onToolStart`, `onToolUpdate`, `onToolEnd`, `onEntry`, `onCustomMessage`, `onStatus`, `onWidget`): every adapter is called. `onToolUpdate` gets each `tool_execution_update` with the partial result and its `details`. `onStatus` and `onWidget` may return `true` to say they presented the value: the host then leaves that status key out of the generic Status panel, or removes the generic `widget:<key>` panel. Return nothing (or `false`) to keep the generic presentation; if the adapter is later disabled, the key's next update shows in the generic panel again.
 - `onAction`: only the adapter named in the action.
+
+`onRestore` runs on a new adapter context to rebuild presentation from persisted state. It can read and write state and publish panels or contributions; attention, subagent links and queued answers are refused. It does not replay historical tool hooks, approvals, messages or execution. Effects are buffered until the candidate context is committed; failed or retired candidates cannot publish late effects.
 
 **Failure isolation.** Each call runs inside try/catch with a 2 s timeout. A throw, a timeout, or an invalid result (a card or claim that fails `validateUINode`, a response that does not fit the dialog) disables that adapter for the rest of the session and emits an error diagnostic. The caller then falls back to generic. Nothing is ever answered automatically: a failed claim becomes the generic form, and the Pi call stays blocked until a human answers it.
 
@@ -199,6 +191,16 @@ await session.onToolEnd({ toolCallId, name, args, result, isError, details });
 ```
 
 `emit` receives `panel`, `attention`, `subagent`, `state`, `log` and `diagnostic` effects.
+
+## Inspection and reload
+
+Session Details exposes adapter inspection and **Reload adapters** on capable hosts: runtime status, provenance, diagnostics, generation and any blocking reason. Reload is explicit and only succeeds for a live, writable, idle session without compaction, active tools, adapter actions, pending or unsupported dialogs, or queued answers. It prepares and restores a fresh context before swapping; it does not restart Pi. Actions carry the generation that rendered them; stale generations are rejected, and after a swap generation-less actions are rejected as well. Refresh the view and act again rather than retrying a stale action.
+
+Terminal Pi `/reload` and pi-reload-all trigger adapter refresh once safe. Switchyard's full Pi reload requires a terminal session, no editor draft or dialogs, and a bridge capable of confirming replacement of the runtime for the same native session. An acknowledgement alone is not completion; a timeout leaves the result unknown and must not be retried blindly. If Pi reload succeeds but adapter refresh fails, the error says so. Browser refresh is not adapter reload.
+
+The server entry module is imported by content hash, with a fresh adapter instance per session. Editing a separately imported runtime helper is not guaranteed to reload it; keep adapter entry modules self-contained. Renderer conflicts across sessions fall back to portable UI.
+
+For a source-checkout edit loop, edit the trusted adapter's entry and manifest in its owning Pi package, make sure the session uses that package and component, then wait for idle and choose **Reload adapters** in session Details. Inspect its status, target version and provenance there and exercise the resulting UI. For an offline portable fixture instead, run the [preview recipe](development.md#adapter-development-and-cross-repository-checks); it does not reload or control the live session.
 
 ## Generic renderer
 

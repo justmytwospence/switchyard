@@ -33,6 +33,7 @@ import { useSmoothText } from "../../lib/useSmoothText";
 import { errorMessage } from "../../sync/api";
 import type { StreamBuffer } from "../../sync/store";
 import { useSyncStore } from "../../sync/store";
+import { isAdapterViewStale, STALE_ADAPTER_VIEW } from "./AdapterPanel";
 import { codeApi } from "./api";
 import { useCodeContext } from "./context";
 import { useNow } from "./hooks";
@@ -243,12 +244,35 @@ export function ToolCard({
   const output = data.output + (stream?.toolOutput ?? "");
   const preview = outputPreview(output);
 
-  const onAction = (actionId: string) => {
-    if (!data.adapterId) return;
-    codeApi
-      .adapterAction(sessionId, data.adapterId, actionId)
-      .then(() => toast.success("Action sent"))
-      .catch((e) => toast.error(errorMessage(e)));
+  const session = useSyncStore((s) => s.sessions[sessionId]);
+  const host = useSyncStore((s) => (session ? s.hosts[session.hostId] : undefined));
+  const stale = isAdapterViewStale(data.adapterGeneration, session?.adapterGeneration);
+  const disabled =
+    stale ||
+    !session ||
+    session.readOnly ||
+    !!session.archivedAt ||
+    host?.connectivity !== "connected";
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const onAction = async (actionId: string) => {
+    if (!data.adapterId || disabled || actionBusy) return;
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      await codeApi.adapterAction(
+        sessionId,
+        data.adapterId,
+        actionId,
+        undefined,
+        data.adapterGeneration,
+      );
+      toast.success("Action sent");
+    } catch (e) {
+      setActionError(errorMessage(e));
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   return (
@@ -292,7 +316,19 @@ export function ToolCard({
       </header>
       {data.card && (
         <div className="border-t border-border px-3 py-2">
-          <UINodeRenderer node={data.card} onAction={onAction} onOpenFile={openFile} />
+          <UINodeRenderer
+            node={data.card}
+            onAction={(id) => void onAction(id)}
+            onOpenFile={openFile}
+            disabled={disabled}
+            busy={actionBusy}
+          />
+          {stale && <p className="text-sm text-muted">{STALE_ADAPTER_VIEW}</p>}
+          {actionError && (
+            <p role="alert" className="text-sm text-danger">
+              {actionError}
+            </p>
+          )}
         </div>
       )}
       {(args || output) && (
@@ -365,12 +401,22 @@ function NoticeCard({
   const { openFile } = useCodeContext();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const session = useSyncStore((s) => s.sessions[sessionId]);
+  const host = useSyncStore((s) => (session ? s.hosts[session.hostId] : undefined));
+  const stale = isAdapterViewStale(data.adapterGeneration, session?.adapterGeneration);
+  const disabled =
+    !!readOnly ||
+    stale ||
+    !session ||
+    session.readOnly ||
+    !!session.archivedAt ||
+    host?.connectivity !== "connected";
   const action = async (id: string) => {
-    if (!data.adapterId || readOnly || busy) return;
+    if (!data.adapterId || disabled || busy) return;
     setBusy(true);
     setError(null);
     try {
-      await codeApi.adapterAction(sessionId, data.adapterId, id);
+      await codeApi.adapterAction(sessionId, data.adapterId, id, undefined, data.adapterGeneration);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -391,9 +437,10 @@ function NoticeCard({
           onOpenFile={openFile}
           onAction={(id) => void action(id)}
           busy={busy}
-          disabled={!!readOnly}
+          disabled={disabled}
         />
       )}
+      {stale && <p className="text-sm text-muted">{STALE_ADAPTER_VIEW}</p>}
       {error && (
         <p role="alert" className="text-sm text-danger">
           {error}

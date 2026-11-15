@@ -145,7 +145,7 @@ export function Composer({
     error: cmdError,
     loading: cmdLoading,
     refresh,
-  } = useSessionCommands(session.id, controls);
+  } = useSessionCommands(session.id, controls, session.adapterGeneration);
   const contributions = useContributions(session.id);
   const slash = contributions.filter((p) => p.contribution?.placement === "slash.command");
   const [adapterRequest, setAdapterRequest] = useState<AdapterCommandRequest | null>(null);
@@ -326,7 +326,8 @@ export function Composer({
         return;
       case "reload":
         await codeApi.reload(session.id);
-        toast.success("Reloading Pi…");
+        refresh();
+        toast.success("Pi and adapters reloaded.");
         return;
       case "export": {
         const f = await codeApi.exportFile(session.id);

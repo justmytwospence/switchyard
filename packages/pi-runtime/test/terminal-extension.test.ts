@@ -91,6 +91,7 @@ function fakePi() {
 function fakeCtx(ui: any, overrides: Record<string, unknown> = {}) {
   let idle = true;
   return {
+    cwd: "/tmp/project",
     ui,
     setIdle: (v: boolean) => {
       idle = v;
@@ -158,6 +159,93 @@ afterEach(() => {
 });
 
 describe("switchyard terminal extension", () => {
+  it("exposes live read-only resources even without editor guard or delivery negotiation", async () => {
+    const { ui } = fakeUi();
+    const { pi, ctx } = await load(ui, { isProjectTrusted: () => false });
+    pi.commands = [
+      { name: "extension", source: "extension", sourceInfo: { path: "/tmp/plugin.ts" } },
+      { name: "prompt", source: "prompt", sourceInfo: { path: "/tmp/private-prompt.md" } },
+    ];
+    await until(() => holder.lines.some((l) => l.type === "agent.hello"));
+    const hello = holder.lines.find((l) => l.type === "agent.hello");
+    expect(hello.capabilities).toMatchObject({ resourceSnapshot: true, editorDraftGuard: false });
+    const header = {
+      type: "bridge.command",
+      runtimeId: hello.runtimeId,
+      nativeSessionId: "nat-1",
+      bindingId: "binding",
+    };
+    holder.send({
+      ...header,
+      requestId: "configure",
+      method: "configure",
+      args: {
+        version: 1,
+        sessionId: "session",
+        runtimeId: hello.runtimeId,
+        nativeSessionId: "nat-1",
+        bindingId: "binding",
+        features: [],
+        coordinatorConnected: false,
+        policyRequired: false,
+        sessionUrl: null,
+      },
+    });
+    await until(() => holder.lines.some((l) => l.requestId === "configure"));
+    pi.emit("ui_prompt_start", { kind: "custom" }, ctx);
+    holder.send({ ...header, requestId: "read", method: "resources.snapshot", args: {} });
+    await until(() => holder.lines.some((l) => l.requestId === "read"));
+    expect(holder.lines.find((l) => l.requestId === "read")).toMatchObject({
+      ok: true,
+      result: {
+        cwd: "/tmp/project",
+        projectTrusted: false,
+        reportedExtensionPaths: ["/tmp/plugin.ts"],
+        hasEditorDraft: true,
+        pendingDialogs: 1,
+      },
+    });
+    pi.emit("session_shutdown", {}, ctx);
+  });
+
+  it.each(["draft", "unknown draft", "busy", "dialog"])(
+    "rejects native reload with %s without queueing a command",
+    async (reason) => {
+      const { ui } = fakeUi();
+      if (reason !== "unknown draft")
+        ui.getEditorText = () => (reason === "draft" ? "keep this draft" : "");
+      const { pi, ctx } = await load(ui);
+      if (reason === "busy") ctx.setIdle(false);
+      if (reason === "dialog") pi.emit("ui_prompt_start", { kind: "custom" }, ctx);
+      holder.send({ type: "reload", id: "guarded" });
+      await until(() => holder.lines.some((l) => l.id === "guarded"));
+      expect(holder.lines.find((l) => l.id === "guarded").success).toBe(false);
+      expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rechecks the draft at the hidden command boundary", async () => {
+    const { ui } = fakeUi();
+    let draft = "";
+    ui.getEditorText = () => draft;
+    const { pi, ctx } = await load(ui);
+    holder.send({ type: "reload", id: "guarded" });
+    await until(() => pi.sendUserMessage.mock.calls.length === 1);
+    draft = "typed after the request";
+    const command = pi.sendUserMessage.mock.calls[0]![0] as string;
+    const reload = vi.fn();
+    await pi.registered
+      .get("switchyard-internal")
+      .handler(command.split(" ")[1], { ...ctx, reload });
+    await until(() => holder.lines.some((l) => l.id === "guarded"));
+    expect(holder.lines.find((l) => l.id === "guarded")).toMatchObject({
+      success: false,
+      error: expect.stringContaining("draft"),
+    });
+    expect(reload).not.toHaveBeenCalled();
+    expect(draft).toBe("typed after the request");
+  });
+
   it("does nothing without a control socket", () => {
     delete process.env.SWITCHYARD_CONTROL_SOCKET;
     const pi = fakePi();
@@ -300,7 +388,7 @@ describe("switchyard terminal extension", () => {
 
   it("runs web views and reload through the hidden command", async () => {
     const { ui } = fakeUi();
-    const { pi } = await load(ui);
+    const { pi, ctx } = await load(ui);
     pi.commands = [
       { name: "tasks", source: "extension" },
       { name: "plain", source: "extension" },
@@ -337,9 +425,14 @@ describe("switchyard terminal extension", () => {
 
     pi.sendUserMessage.mockClear();
     const reload = vi.fn();
-    expect((await reply({ type: "reload", id: "r1" })).success).toBe(true);
+    ctx.ui.getEditorText = () => "";
+    holder.send({ type: "reload", id: "r1" });
+    await until(() => pi.sendUserMessage.mock.calls.length === 1);
+    expect(holder.lines.some((l) => l.id === "r1")).toBe(false);
     const t2 = pi.sendUserMessage.mock.calls[0]![0] as string;
-    await pi.registered.get("switchyard-internal").handler(t2.split(" ")[1], { reload });
+    await pi.registered.get("switchyard-internal").handler(t2.split(" ")[1], { ...ctx, reload });
+    await until(() => holder.lines.some((l) => l.id === "r1"));
+    expect(holder.lines.find((l) => l.id === "r1").success).toBe(true);
     expect(reload).toHaveBeenCalled();
   });
 

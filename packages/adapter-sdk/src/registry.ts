@@ -1,14 +1,21 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AdapterInfo } from "@switchyard/protocol";
 import { satisfies } from "semver";
-import { adapterEntries, defaultOwnerAdapterDir } from "./discovery.js";
+import {
+  adapterEntries,
+  type DiscoveredAdapterCandidate,
+  defaultOwnerAdapterDir,
+} from "./discovery.js";
 import { type AdapterManifest, loadManifest, MANIFEST_FILE } from "./manifest.js";
 import { AdapterSession, DEFAULT_HOOK_TIMEOUT_MS, withTimeout } from "./session.js";
 import {
+  type AdapterCatalogInfo,
   type AdapterDiagnostic,
+  type AdapterProvenance,
   type AdapterSessionHost,
   type AdapterTier,
   type LoadedAdapter,
@@ -28,6 +35,11 @@ export interface RegistryLoadOptions {
   ownerDir?: string;
   /** Pi package dirs whose package.json declares `switchyard.adapter` (see discoverPiPackages). */
   pluginPackageDirs?: string[];
+  /** Effective inventory candidates, including records that must not be imported. Preferred. */
+  pluginCandidates?: DiscoveredAdapterCandidate[];
+  /** Explicit project adapters require confirmed trust. */
+  projectTrusted?: boolean | null;
+  extensionsDisabled?: boolean;
   bundled?: LoadedAdapter[];
   /** Installed Pi packages, to check each adapter's `target.versionRange`. */
   installedPackages?: { name: string | null; version: string | null }[];
@@ -44,6 +56,7 @@ interface Record_ {
   adapter: LoadedAdapter | null;
   status: AdapterInfo["status"];
   detail: string | null;
+  provenance?: AdapterProvenance;
 }
 
 export class AdapterLoadError extends Error {
@@ -63,6 +76,8 @@ function isServerAdapter(x: unknown): x is ServerAdapter {
 /**
  * Load one adapter from a directory (or manifest path): validate the manifest, then import the
  * `server` module (ESM default export: a ServerAdapter or a factory returning one).
+ * Only entry bytes are content-addressed; relative imports resolve normally and dependencies
+ * retain Node's normal module cache. The edit/reload guarantee requires a self-contained entry.
  */
 export async function loadAdapterFromDir(
   pathOrDir: string,
@@ -75,30 +90,40 @@ export async function loadAdapterFromDir(
   }
   let mod: { default?: unknown };
   try {
-    mod = (await import(pathToFileURL(m.serverPath).href)) as { default?: unknown };
+    const hash = createHash("sha256")
+      .update(await readFile(m.serverPath))
+      .digest("hex");
+    const url = pathToFileURL(m.serverPath);
+    url.searchParams.set("sha256", hash);
+    mod = (await import(url.href)) as { default?: unknown };
   } catch (err) {
     throw new AdapterLoadError(
       `cannot import ${m.serverPath}: ${(err as Error).message}`,
       m.manifest,
     );
   }
-  let server: unknown = mod.default;
-  if (typeof server === "function") {
-    try {
-      server = await withTimeout(
-        () => (server as ServerAdapterFactory)({ manifest: m.manifest, dir: m.dir }),
-        FACTORY_TIMEOUT_MS,
-      );
-    } catch (err) {
-      throw new AdapterLoadError(`adapter factory failed: ${(err as Error).message}`, m.manifest);
+  const exported = mod.default;
+  const createServer = async (): Promise<ServerAdapter> => {
+    let server: unknown = exported;
+    if (typeof exported === "function") {
+      try {
+        server = await withTimeout(
+          () => (exported as ServerAdapterFactory)({ manifest: m.manifest, dir: m.dir }),
+          FACTORY_TIMEOUT_MS,
+        );
+      } catch (err) {
+        throw new AdapterLoadError(`adapter factory failed: ${(err as Error).message}`, m.manifest);
+      }
     }
-  }
-  if (!isServerAdapter(server)) {
-    throw new AdapterLoadError(
-      `${m.serverPath} must default-export a ServerAdapter object or factory`,
-      m.manifest,
-    );
-  }
+    if (!isServerAdapter(server)) {
+      throw new AdapterLoadError(
+        `${m.serverPath} must default-export a ServerAdapter object or factory`,
+        m.manifest,
+      );
+    }
+    return server;
+  };
+  const server = await createServer();
   let webRendererPath = m.webRendererPath;
   if (webRendererPath && !existsSync(webRendererPath)) {
     warnings.push(`web renderer ${webRendererPath} does not exist; portable panels are used`);
@@ -112,6 +137,7 @@ export async function loadAdapterFromDir(
       manifestPath: m.manifestPath,
       webRendererPath,
       server,
+      ...(typeof exported === "function" ? { createServer } : {}),
     },
     warnings,
   };
@@ -147,8 +173,13 @@ export class AdapterRegistry {
   async load(opts: RegistryLoadOptions): Promise<void> {
     this.records = [];
     this.diags = [];
-    const candidates: { tier: AdapterTier; path: string }[] = [];
-    if (opts.projectRoot) {
+    const candidates: {
+      tier: AdapterTier;
+      path: string;
+      discovered?: DiscoveredAdapterCandidate;
+    }[] = [];
+    if (opts.extensionsDisabled) return;
+    if (opts.projectRoot && opts.projectTrusted === true) {
       for (const d of await this.safeList(resolve(opts.projectRoot, PROJECT_ADAPTER_DIR))) {
         candidates.push({ tier: "project", path: d });
       }
@@ -156,7 +187,13 @@ export class AdapterRegistry {
     for (const d of await this.safeList(opts.ownerDir ?? defaultOwnerAdapterDir())) {
       candidates.push({ tier: "owner", path: d });
     }
-    for (const pkgDir of opts.pluginPackageDirs ?? []) {
+    for (const c of opts.pluginCandidates ?? []) {
+      if (c.provenance.scope === "project" && opts.projectTrusted !== true) continue;
+      candidates.push({ tier: "plugin", path: c.path, discovered: c });
+    }
+    for (const pkgDir of opts.pluginCandidates === undefined
+      ? (opts.pluginPackageDirs ?? [])
+      : []) {
       let entries: string[] = [];
       try {
         entries = adapterEntries(JSON.parse(await readFile(join(pkgDir, "package.json"), "utf8")));
@@ -171,13 +208,46 @@ export class AdapterRegistry {
     }
 
     const loaded: LoadedAdapter[] = [];
+    const seen = new Set<string>();
     for (const c of candidates) {
       try {
+        const m = await loadManifest(c.path);
+        const canonical = await realpath(m.manifestPath);
+        if (seen.has(canonical)) continue;
+        seen.add(canonical);
+        const discovered = c.discovered;
+        if (discovered && JSON.stringify(discovered.manifest) !== JSON.stringify(m.manifest)) {
+          throw new AdapterLoadError(
+            "Manifest changed during discovery; rediscover before loading.",
+            m.manifest,
+          );
+        }
+        const legacyPlugin = c.tier === "plugin" && !discovered;
+        const blocked = discovered
+          ? !discovered.enabled
+          : legacyPlugin && !!m.manifest.target.entrypoints;
+        const detail =
+          discovered?.detail ??
+          (legacyPlugin
+            ? "Package-level discovery; adapter does not declare target entrypoints."
+            : null);
+        if (blocked) {
+          this.records.push({
+            manifest: m.manifest,
+            tier: c.tier,
+            adapter: null,
+            status: "disabled",
+            detail: discovered?.detail ?? "Target extension is not enabled in this session.",
+            provenance: discovered?.provenance,
+          });
+          continue;
+        }
         const { adapter, warnings } = await loadAdapterFromDir(c.path, c.tier);
         for (const w of warnings) this.diagnostic("warning", adapter.manifest.id, w);
-        loaded.push(adapter);
+        loaded.push({ ...adapter, provenance: discovered?.provenance, discoveryDetail: detail });
       } catch (err) {
-        const manifest = err instanceof AdapterLoadError ? err.manifest : null;
+        const manifest =
+          err instanceof AdapterLoadError ? err.manifest : (c.discovered?.manifest ?? null);
         this.diagnostic(
           "error",
           manifest?.id ?? null,
@@ -190,12 +260,17 @@ export class AdapterRegistry {
             adapter: null,
             status: "error",
             detail: (err as Error).message,
+            provenance: c.discovered?.provenance,
           });
         }
       }
     }
     for (const b of opts.bundled ?? []) loaded.push({ ...b, tier: "bundled" });
+    const catalogOnly = this.records;
     this.setAdapters(loaded, opts.installedPackages);
+    this.records = [...catalogOnly, ...this.records].sort(
+      (a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier),
+    );
   }
 
   /** Install an explicit adapter list (stable-sorted by tier). Used by load() and tests. */
@@ -207,7 +282,7 @@ export class AdapterRegistry {
       (a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier),
     );
     const winners = new Map<string, LoadedAdapter>();
-    const records = this.records.filter((r) => r.status === "error");
+    const records: Record_[] = [];
     for (const a of sorted) {
       const id = a.manifest.id;
       const winner = winners.get(id);
@@ -218,17 +293,32 @@ export class AdapterRegistry {
           adapter: null,
           status: "disabled",
           detail: `overridden by the ${winner.tier} adapter ${id}${winner.dir ? ` at ${winner.dir}` : ""}`,
+          provenance: a.provenance,
         });
         continue;
       }
       winners.set(id, a);
-      let detail: string | null = null;
-      const installed = installedPackages?.find((p) => p.name === a.manifest.target.extension);
+      let detail: string | null = a.discoveryDetail ?? null;
+      const installed = a.provenance
+        ? { name: a.manifest.target.extension, version: a.provenance.targetVersion }
+        : installedPackages?.find((p) => p.name === a.manifest.target.extension);
       if (installed?.version && !satisfies(installed.version, a.manifest.target.versionRange)) {
-        detail = `installed ${installed.name}@${installed.version} is outside ${a.manifest.target.versionRange} (tested ${a.manifest.target.testedVersions.join(", ") || "none"}); unmatched dialogs fall back to generic`;
+        detail = [
+          detail,
+          `installed ${installed.name}@${installed.version} is outside ${a.manifest.target.versionRange} (tested ${a.manifest.target.testedVersions.join(", ") || "none"}); unmatched dialogs fall back to generic`,
+        ]
+          .filter(Boolean)
+          .join(" ");
         this.diagnostic("warning", id, detail);
       }
-      records.push({ manifest: a.manifest, tier: a.tier, adapter: a, status: "active", detail });
+      records.push({
+        manifest: a.manifest,
+        tier: a.tier,
+        adapter: a,
+        status: "active",
+        detail,
+        provenance: a.provenance,
+      });
     }
     this.records = records.sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier));
   }
@@ -243,7 +333,7 @@ export class AdapterRegistry {
   }
 
   /** Every known adapter (active, overridden or failed) for Settings > Adapters. */
-  info(): AdapterInfo[] {
+  info(): AdapterCatalogInfo[] {
     return this.records.map((r) => ({
       id: r.manifest.id,
       version: r.manifest.version,
@@ -253,6 +343,17 @@ export class AdapterRegistry {
       webRenderer: r.adapter?.webRendererPath != null,
       status: r.status,
       detail: r.detail,
+      runtimeStatus: r.status === "error" ? "unavailable" : r.status,
+      runtimeDetail: r.detail,
+      provenance: r.provenance ?? {
+        scope: "explicit",
+        source: null,
+        packageDir: null,
+        manifestPath: r.adapter?.manifestPath ?? null,
+        targetVersion: null,
+        entrypoints: [],
+        evidence: "explicit",
+      },
     }));
   }
 

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Panel } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
@@ -81,6 +81,7 @@ describe("precedence", () => {
     const registry = new AdapterRegistry();
     await registry.load({
       projectRoot: project,
+      projectTrusted: true,
       ownerDir: owner,
       pluginPackageDirs: [pkg],
       bundled: [bundled],
@@ -650,6 +651,7 @@ describe("plugin discovery", () => {
       join(local, "package.json"),
       JSON.stringify({ name: "pi-local", version: "0.1.0", switchyard: { adapter: "adapter" } }),
     );
+    writeAdapterDir(join(local, "adapter"), "local", "export default {};\n");
     const git = join(agent, "git", "github.com", "acme", "pi-git");
     mkdirSync(git, { recursive: true });
     writeFileSync(join(git, "package.json"), JSON.stringify({ name: "pi-git", version: "0.2.0" }));
@@ -669,8 +671,9 @@ describe("plugin discovery", () => {
       ["pi-local", "0.1.0", ["adapter"]],
       ["pi-git", "0.2.0", []],
     ]);
-    expect(d.pluginPackageDirs).toEqual([join(agent, "..", local.split("/").pop()!)]);
-    expect(d.diagnostics).toHaveLength(1);
-    expect(d.diagnostics[0]!.message).toMatch(/npm:missing-pkg could not be resolved/);
+    expect(d.pluginPackageDirs).toEqual([realpathSync(local)]);
+    expect(d.diagnostics).toHaveLength(2);
+    expect(d.diagnostics[0]!.message).toMatch(/Legacy user-scope/);
+    expect(d.diagnostics[1]!.message).toMatch(/npm:missing-pkg could not be resolved/);
   });
 });

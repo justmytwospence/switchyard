@@ -14,6 +14,7 @@ import { LineSplitter } from "./lines.js";
 import { createMessageDelivery } from "./message-delivery.js";
 import { modelInfo } from "./pi-model.js";
 import { installPolicyHooks } from "./policy.js";
+import { resourceSnapshot } from "./resource-snapshot.js";
 
 export interface BridgeMessage {
   type: "hello" | "ui_prompt_start" | "ui_prompt_end" | "model_state";
@@ -36,6 +37,7 @@ export default function switchyardBridge(pi: any): void {
   let ctx: any = null;
   let dialogs = 0;
   let toolPolicy = false;
+  let snapshotRegistered = false;
   const channel = createAgentChannel({
     send: (record) => {
       try {
@@ -54,9 +56,15 @@ export default function switchyardBridge(pi: any): void {
       messageDelivery: true,
       editorDraftGuard: true,
       toolPolicy,
+      resourceSnapshot: snapshotRegistered,
     }),
     policyRequired: process.env.SWITCHYARD_POLICY_REQUIRED === "1",
   });
+  const removeSnapshot = channel.registerCommand("resources.snapshot", () => {
+    if (!ctx) throw new Error("Session is not ready");
+    return resourceSnapshot(pi, ctx, dialogs);
+  });
+  snapshotRegistered = true;
   toolPolicy = installPolicyHooks(pi, channel);
   registerAgentTools(pi, channel);
   const delivery = createMessageDelivery(pi, {
@@ -189,6 +197,8 @@ export default function switchyardBridge(pi: any): void {
       if (event?.source === "interactive") channel.noteHumanInput();
     });
     pi.on("session_shutdown", () => {
+      snapshotRegistered = false;
+      removeSnapshot();
       delivery.close();
       channel.close();
       try {

@@ -107,6 +107,8 @@ interface Entry {
   id: string;
   ctx: AdapterContext;
   disabled: string | null;
+  initialization?: Promise<void>;
+  values: Map<string, unknown>;
 }
 
 interface QueueItem {
@@ -158,6 +160,10 @@ export class AdapterSession {
     Map<string, Extract<Parameters<AdapterSessionHost["emit"]>[0], { type: "panel" }>>
   >();
   private closed = false;
+  private used = false;
+  private restorePromise?: Promise<void>;
+  private restoringEntry: Entry | null = null;
+  private restoreEffects: Parameters<AdapterSessionHost["emit"]>[0][] = [];
 
   constructor(
     adapters: readonly LoadedAdapter[],
@@ -188,9 +194,17 @@ export class AdapterSession {
     }
     this.entries = adapters.map((adapter) => {
       const entry: Entry = {
-        adapter,
+        adapter: { ...adapter },
         id: adapter.manifest.id,
         disabled: null,
+        values: new Map(
+          Object.entries(
+            JSON.parse(JSON.stringify(host.initialState?.[adapter.manifest.id] ?? {})) as Record<
+              string,
+              unknown
+            >,
+          ),
+        ),
         ctx: undefined as unknown as AdapterContext,
       };
       entry.ctx = this.makeContext(entry);
@@ -201,8 +215,43 @@ export class AdapterSession {
   // -------------------------------------------------------------------------
   // Host-facing API
 
+  /**
+   * Rebuild UI once, only on a newly opened context. Successful effects go to the host's
+   * staging sink; the host commits that sink atomically with its new generation. Failed
+   * adapters' restoration state/panels are discarded. No historical hooks are replayed.
+   */
+  restore(): Promise<void> {
+    if (this.restorePromise) return this.restorePromise;
+    if (this.used || this.closed)
+      return Promise.reject(new Error("Restore requires a new adapter session."));
+    this.used = true;
+    this.restorePromise = this.restoreEntries();
+    return this.restorePromise;
+  }
+
+  private async restoreEntries(): Promise<void> {
+    for (const entry of this.entries) {
+      if (this.closed) return;
+      this.restoringEntry = entry;
+      this.restoreEffects = [];
+      let live = true;
+      const ctx = this.makeContext(entry, () => live);
+      const result = await this.call(entry, "onRestore", [], ctx);
+      live = false; // An unawaited continuation cannot mutate even after a successful hook.
+      const effects = this.restoreEffects;
+      this.restoreEffects = [];
+      this.restoringEntry = null;
+      if (this.closed) return;
+      for (const effect of effects) {
+        if (result.ok || effect.type === "diagnostic") this.emit(effect);
+      }
+    }
+  }
+
   /** `tool_execution_start`: records the running tool call, then runs `onToolStart` hooks. */
   async onToolStart(e: ToolStartEvent): Promise<void> {
+    if (this.closed) return;
+    this.used = true;
     this.activeTools.set(e.toolCallId, e);
     await this.callAll("onToolStart", e);
   }
@@ -258,8 +307,12 @@ export class AdapterSession {
    * otherwise the first adapter claim in precedence order, otherwise the generic claim.
    * Never answers on its own: a claim always waits for a human response.
    */
-  async onUiRequest(req: PiUiRequest): Promise<UiRequestOutcome> {
-    const queued = this.takeQueued(req);
+  async onUiRequest(
+    req: PiUiRequest,
+    opts: { consumeQueuedAnswers?: boolean } = {},
+  ): Promise<UiRequestOutcome> {
+    // Re-presenting an existing question must never consume or replay earlier answers.
+    const queued = opts.consumeQueuedAnswers === false ? undefined : this.takeQueued(req);
     if (queued) return queued;
 
     for (const entry of this.enabled("claimInteraction")) {
@@ -291,6 +344,8 @@ export class AdapterSession {
    * Throws InteractionResponseError when the answer itself is invalid for the claim.
    */
   async respond(claimed: ClaimedInteraction, resp: InteractionResponse): Promise<RespondOutcome> {
+    if (this.closed) throw new Error("Adapter session is closed.");
+    this.used = true;
     const { request: req, adapterId } = claimed;
     const entry = adapterId === null ? null : this.entries.find((e) => e.id === adapterId);
     const fail = (reason: string): RespondOutcome => {
@@ -316,6 +371,7 @@ export class AdapterSession {
       return fail(errorMessage(err));
     }
 
+    if (this.closed) throw new Error("Adapter session is closed.");
     const steps =
       out && typeof out === "object" && "sequence" in out && Array.isArray(out.sequence)
         ? out.sequence
@@ -372,9 +428,12 @@ export class AdapterSession {
     actionId: string,
     payload: unknown,
   ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    this.used = true;
     const entry = this.entries.find((e) => e.id === adapterId);
     if (!entry) return { ok: false, reason: `unknown adapter ${adapterId}` };
     if (entry.disabled) return { ok: false, reason: `adapter ${adapterId} is disabled` };
+    await this.initialize(entry);
+    if (this.closed) return { ok: false, reason: "Adapter session is closed." };
     if (!entry.adapter.server.onAction) {
       return { ok: false, reason: `adapter ${adapterId} has no actions` };
     }
@@ -403,6 +462,7 @@ export class AdapterSession {
 
   close(): void {
     this.closed = true;
+    this.restoreEffects = [];
     this.queues.clear();
     this.activeTools.clear();
   }
@@ -465,8 +525,25 @@ export class AdapterSession {
     return undefined;
   }
 
-  private enabled(hook: HookName): Entry[] {
-    return this.entries.filter((e) => !e.disabled && typeof e.adapter.server[hook] === "function");
+  private enabled(_hook: HookName): Entry[] {
+    if (this.closed) return [];
+    this.used = true;
+    return this.entries.filter((e) => !e.disabled);
+  }
+
+  private async initialize(entry: Entry): Promise<void> {
+    if (!entry.adapter.createServer || entry.initialization || entry.disabled || this.closed) {
+      return entry.initialization;
+    }
+    entry.initialization = (async () => {
+      try {
+        const server = await withTimeout(() => entry.adapter.createServer!(), this.hookTimeoutMs);
+        if (!this.closed && !entry.disabled) entry.adapter.server = server;
+      } catch (err) {
+        this.disable(entry, "factory", errorMessage(err));
+      }
+    })();
+    return entry.initialization;
   }
 
   private async callAll(hook: HookName, ...args: unknown[]): Promise<unknown[]> {
@@ -482,15 +559,15 @@ export class AdapterSession {
     entry: Entry,
     hook: K,
     args: unknown[],
+    ctx: AdapterContext = entry.ctx,
   ): Promise<CallResult<Awaited<ReturnType<NonNullable<ServerAdapter[K]>>>>> {
+    await this.initialize(entry);
     const server = entry.adapter.server;
     const fn = server[hook] as ((...a: unknown[]) => unknown) | undefined;
     if (!fn || entry.disabled || this.closed) return { ok: false };
     try {
-      const value = await withTimeout(
-        () => fn.apply(server, [...args, entry.ctx]),
-        this.hookTimeoutMs,
-      );
+      const value = await withTimeout(() => fn.apply(server, [...args, ctx]), this.hookTimeoutMs);
+      if (this.closed || entry.disabled) return { ok: false };
       return { ok: true, value: value as Awaited<ReturnType<NonNullable<ServerAdapter[K]>>> };
     } catch (err) {
       this.disable(entry, hook, errorMessage(err));
@@ -523,6 +600,11 @@ export class AdapterSession {
   }
 
   private emit(effect: Parameters<AdapterSessionHost["emit"]>[0]) {
+    if (this.closed) return;
+    if (this.restoringEntry) {
+      this.restoreEffects.push(effect);
+      return;
+    }
     try {
       this.host.emit(effect);
     } catch {
@@ -530,14 +612,27 @@ export class AdapterSession {
     }
   }
 
-  private makeContext(entry: Entry): AdapterContext {
-    const initial = this.host.initialState?.[entry.adapter.manifest.id] ?? {};
-    const values = new Map<string, unknown>(Object.entries(initial));
-    const live = () => !entry.disabled && !this.closed;
+  private makeContext(entry: Entry, restoreLive?: () => boolean): AdapterContext {
+    const copy = <T>(value: T): T =>
+      value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T);
+    // Restore and normal hooks share a store; the restore context has a shorter lifetime.
+    const values = entry.values;
+    const live = () => !entry.disabled && !this.closed && (!restoreLive || restoreLive());
+    const refuse = (operation: string) => {
+      if (!restoreLive) return false;
+      if (live())
+        this.diag(
+          "warning",
+          entry.id,
+          `${operation} is not allowed during presentation-only restore.`,
+        );
+      return true;
+    };
     const adapterId = entry.adapter.manifest.id;
     const state: AdapterStateStore = {
-      get: <T>(key: string) => values.get(key) as T | undefined,
+      get: <T>(key: string) => copy(values.get(key)) as T | undefined,
       set: (key, value) => {
+        if (!live()) return;
         if (value === undefined) {
           state.delete(key);
           return;
@@ -547,7 +642,7 @@ export class AdapterSession {
         if (live()) this.emit({ type: "state", adapterId, key, value: json });
       },
       delete: (key) => {
-        if (!values.delete(key)) return;
+        if (!live() || !values.delete(key)) return;
         if (live()) this.emit({ type: "state", adapterId, key, value: undefined });
       },
       keys: () => [...values.keys()],
@@ -557,8 +652,8 @@ export class AdapterSession {
       adapterId,
       state,
       setPanel: (slot, node, opts) => {
-        const checked = node === null ? null : validateUINode(node);
         if (!live()) return;
+        const checked = node === null ? null : validateUINode(node);
         const owned = this.contributions.get(adapterId);
         for (const [id, effect] of owned ?? []) {
           if (effect.slot !== slot) continue;
@@ -631,12 +726,15 @@ export class AdapterSession {
         this.emit(effect);
       },
       attention: (reason, summary) => {
+        if (refuse("attention")) return;
         if (live()) this.emit({ type: "attention", adapterId, reason, summary });
       },
       linkSubagent: (link) => {
+        if (refuse("linkSubagent")) return;
         if (live()) this.emit({ type: "subagent", adapterId, link: { ...link } });
       },
       queueAnswers: (matcher, responses, opts) => {
+        if (refuse("queueAnswers")) return;
         if (!live() || responses.length === 0) return;
         const match = toMatcher(matcher);
         this.enqueue(

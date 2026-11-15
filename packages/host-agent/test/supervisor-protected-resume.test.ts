@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AdapterRegistry } from "@switchyard/adapter-sdk";
 import { expect, it, vi } from "vitest";
 import type { AdapterCatalog } from "../src/adapters.js";
 import { AgentBroker } from "../src/agent-broker.js";
@@ -22,7 +23,11 @@ it("preserves the failed status and native handle when a protected resume file i
   } as unknown as CoordinatorLink;
   const broker = new AgentBroker({ link });
   const catalog = {
-    forWorkspace: async () => ({ manifests: [], openSession: () => null, closeSession() {} }),
+    prepareSession: async () => ({ registry: new AdapterRegistry(), commit() {}, dispose() {} }),
+    releaseSession() {},
+    info: () => [],
+    renderers: () => ({}),
+    sessionInfo: () => [],
     manifests: () => [],
   } as unknown as AdapterCatalog;
   const supervisor = new SessionSupervisor({

@@ -3,11 +3,14 @@ import { CircleCheck, CircleSlash, CircleX, Info, Puzzle, TriangleAlert } from "
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { Card } from "../../components/ui/Card";
+import { ErrorBoundary } from "../../components/ui/ErrorBoundary";
 import { InlineStatus } from "../../components/ui/StatusChip";
 import { EmptyState, ErrorState, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { formatTime } from "../../lib/time";
 import { isObject, useApiResource } from "../../lib/useResource";
 import { useSyncStore } from "../../sync/store";
+import { AdapterPreview } from "./AdapterPreview";
+import { mergeDiagnostics, type ScopedDiagnostic } from "./diagnosticsApi";
 import { KeyValues, SectionPage, settingsPath, useHydrated } from "./shared";
 
 const ADAPTER_STATUS = {
@@ -40,23 +43,14 @@ export function DiagnosticLevel({ level }: { level: Diagnostic["level"] }) {
 }
 
 interface DiagnosticsLike {
-  diagnostics?: (Diagnostic & { seq?: number })[];
+  diagnostics?: ScopedDiagnostic[];
 }
 
 /** Store diagnostics (live) merged with the coordinator's recent history. */
-export function useAllDiagnostics(fetched: Diagnostic[] | undefined): Diagnostic[] {
+export function useAllDiagnostics(fetched: ScopedDiagnostic[] | undefined): ScopedDiagnostic[] {
   const live = useSyncStore((s) => s.diagnostics);
-  return useMemo(() => {
-    const seen = new Set<string>();
-    const out: Diagnostic[] = [];
-    for (const d of [...(fetched ?? []), ...live]) {
-      const key = `${d.at}|${d.adapterId ?? ""}|${d.sessionId ?? ""}|${d.message}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(d);
-    }
-    return out.sort((a, b) => b.at.localeCompare(a.at));
-  }, [fetched, live]);
+  const sessions = useSyncStore((s) => s.sessions);
+  return useMemo(() => mergeDiagnostics(fetched, live, sessions), [fetched, live, sessions]);
 }
 
 /** Settings › Adapters: adapters on each host plus their recent diagnostics. */
@@ -118,14 +112,32 @@ export function AdaptersSection() {
             </h2>
             {g.adapters.map((a) => (
               <AdapterCard
-                key={a.id}
+                key={`${a.tier}:${a.id}`}
                 adapter={a}
-                diagnostics={diagnostics.filter((d) => d.adapterId === a.id)}
+                diagnostics={diagnostics.filter(
+                  (d) => d.adapterId === a.id && d.hostId === g.hostId,
+                )}
               />
             ))}
           </section>
         ))
       )}
+      {diagnostics.some((d) => !d.hostId) && (
+        <section aria-label="Unscoped adapter diagnostics" className="flex min-w-0 flex-col gap-2">
+          <h2 className="text-sm font-semibold">Unscoped diagnostics</h2>
+          <p className="text-sm text-muted">
+            These events do not identify a host or a known session.
+          </p>
+          <DiagnosticsList diagnostics={diagnostics.filter((d) => !d.hostId && d.adapterId)} />
+        </section>
+      )}
+      <ErrorBoundary
+        fallback={(error, reset) => (
+          <ErrorState compact title="Portable UI preview failed" error={error} onRetry={reset} />
+        )}
+      >
+        <AdapterPreview />
+      </ErrorBoundary>
     </SectionPage>
   );
 }
@@ -176,21 +188,36 @@ function AdapterCard({
       {diagnostics.length === 0 ? (
         <p className="text-sm text-muted">No diagnostics for this adapter.</p>
       ) : (
-        <ul className="flex min-w-0 flex-col gap-2">
-          {diagnostics.slice(0, 10).map((d) => (
-            <li
-              key={`${d.at}-${d.message}`}
-              className="flex min-w-0 flex-wrap items-start gap-2 text-sm"
-            >
-              <DiagnosticLevel level={d.level} />
-              <span className="min-w-0 flex-1 break-words">{d.message}</span>
-              <time dateTime={d.at} className="text-xs text-muted">
-                {formatTime(d.at)}
-              </time>
-            </li>
-          ))}
-        </ul>
+        <DiagnosticsList diagnostics={diagnostics} />
       )}
     </Card>
+  );
+}
+
+function DiagnosticsList({ diagnostics }: { diagnostics: ScopedDiagnostic[] }) {
+  return (
+    <ul className="flex min-w-0 flex-col gap-2">
+      {diagnostics.slice(0, 10).map((d, index) => (
+        <li
+          // biome-ignore lint/suspicious/noArrayIndexKey: diagnostics have no ID
+          key={`${d.at}-${index}`}
+          className="flex min-w-0 flex-wrap items-start gap-2 text-sm"
+        >
+          <DiagnosticLevel level={d.level} />
+          <span className="min-w-0 flex-1 break-words">{d.message}</span>
+          {d.sessionId && (
+            <Link
+              className="text-accent hover:underline"
+              to={`/code/${encodeURIComponent(d.sessionId)}?tab=extensions`}
+            >
+              Session extensions
+            </Link>
+          )}
+          <time dateTime={d.at} className="text-xs text-muted">
+            {formatTime(d.at)}
+          </time>
+        </li>
+      ))}
+    </ul>
   );
 }

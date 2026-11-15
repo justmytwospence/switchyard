@@ -1,6 +1,6 @@
 import type { AdapterInfo, Run, Task } from "@switchyard/protocol";
 import { Bot, CircleCheck, Hand, Square, SquareKanban } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Markdown } from "../../components/intent/Markdown";
 import { Button, buttonClasses } from "../../components/ui/Button";
@@ -8,7 +8,7 @@ import { StatusChip } from "../../components/ui/StatusChip";
 import { UnsupportedCapability } from "../../components/ui/states";
 import { TextLink } from "../../components/ui/TextLink";
 import { cn } from "../../lib/cn";
-import { formatRelative, formatTime } from "../../lib/time";
+import { formatTime } from "../../lib/time";
 import {
   useContributions,
   usePanels,
@@ -17,6 +17,7 @@ import {
   useTranscript,
 } from "../../sync/store";
 import { protectionLabel } from "../settings/policyLogic";
+import { AdapterDiagnostics } from "./AdapterDiagnostics";
 import { AdapterPanel } from "./AdapterPanel";
 import { ControlChip } from "./ConversationHeader";
 import { useCodeContext } from "./context";
@@ -291,20 +292,6 @@ function AdapterRow({ a }: { a: AdapterInfo }) {
 /** Extension panels, adapter compatibility and diagnostics. */
 export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
   const panels = usePanels(ctx.session.id).filter((p) => !p.contribution);
-  const diagnostics = useSyncStore((s) => s.diagnostics);
-  const adapterIds = useMemo(() => new Set(ctx.adapters.map((a) => a.id)), [ctx.adapters]);
-  const mine = useMemo(
-    () =>
-      diagnostics
-        .filter(
-          (d) =>
-            d.sessionId === ctx.session.id ||
-            (d.sessionId === null && d.adapterId !== null && adapterIds.has(d.adapterId)),
-        )
-        .slice(-20)
-        .reverse(),
-    [diagnostics, ctx.session.id, adapterIds],
-  );
   const caps = ctx.host?.capabilities;
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -317,17 +304,20 @@ export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
           ))
         )}
       </Section>
-      <Section title={`Adapters on ${ctx.hostName}`}>
-        {ctx.adapters.length === 0 ? (
-          <p className="text-sm text-muted">No adapters reported by this host.</p>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {ctx.adapters.map((a) => (
-              <AdapterRow key={a.id} a={a} />
-            ))}
-          </ul>
-        )}
-      </Section>
+      <AdapterDiagnostics ctx={ctx} />
+      {!caps?.adapterDevelopment && (
+        <Section title={`Host catalog on ${ctx.hostName} (not session runtime)`}>
+          {ctx.adapters.length === 0 ? (
+            <p className="text-sm text-muted">No adapters reported by this host.</p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {ctx.adapters.map((a) => (
+                <AdapterRow key={`${a.tier}:${a.id}`} a={a} />
+              ))}
+            </ul>
+          )}
+        </Section>
+      )}
       {(caps?.unsupported.length || ctx.host?.piCompatible === false) && (
         <Section title="Runtime limitations">
           {ctx.host?.piCompatible === false && (
@@ -341,37 +331,9 @@ export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
           ))}
         </Section>
       )}
-      <Section title="Diagnostics">
-        {mine.length === 0 ? (
-          <p className="text-sm text-muted">No diagnostics.</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {mine.map((d, i) => (
-              <li
-                // biome-ignore lint/suspicious/noArrayIndexKey: diagnostics have no id
-                key={`${d.at}-${i}`}
-                className="min-w-0 rounded-md bg-surface-2 px-2 py-1 text-xs"
-              >
-                <span
-                  className={cn(
-                    "font-medium",
-                    d.level === "error" && "text-danger",
-                    d.level === "warning" && "text-warning",
-                  )}
-                >
-                  {d.level === "error" ? "Error" : d.level === "warning" ? "Warning" : "Info"}
-                </span>{" "}
-                {d.adapterId && <span className="font-mono">{d.adapterId}: </span>}
-                <span className="break-words">{d.message}</span>{" "}
-                <span className="text-subtle">{formatRelative(d.at)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <TextLink to="/settings/diagnostics" size="sm">
-          All diagnostics
-        </TextLink>
-      </Section>
+      <TextLink to="/settings/diagnostics" size="sm">
+        All diagnostics
+      </TextLink>
     </div>
   );
 }

@@ -22,6 +22,22 @@ export type AdapterCapability = (typeof ADAPTER_CAPABILITIES)[number];
 const RETIRED_CAPABILITIES = ["commands"] as const;
 const MANIFEST_CAPABILITIES = [...ADAPTER_CAPABILITIES, ...RETIRED_CAPABILITIES] as const;
 
+/** Portable relative paths: reject traversal on both POSIX and Windows hosts. */
+const targetEntrypoint = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((p) => {
+    if (isAbsolute(p) || /^[A-Za-z]:/.test(p) || p.startsWith("\\")) return false;
+    let depth = 0;
+    for (const part of p.replaceAll("\\", "/").split("/")) {
+      if (part === "..") depth--;
+      else if (part !== "." && part !== "") depth++;
+      if (depth < 0) return false;
+    }
+    return depth > 0 && !p.includes("\0");
+  }, "must stay inside the target component package root");
+
 const relativePath = z
   .string()
   .min(1)
@@ -38,6 +54,8 @@ export const AdapterManifestSchema = z
       extension: z.string().min(1),
       versionRange: z.string().refine((r) => validRange(r) !== null, "invalid semver range"),
       testedVersions: z.array(z.string()),
+      /** Resolved against the target component, not the adapter/provider directory. */
+      entrypoints: z.array(targetEntrypoint).min(1).max(128).optional(),
     }),
     protocolVersion: z.literal(PROTOCOL_VERSION),
     server: relativePath,

@@ -95,6 +95,7 @@ const HOST_SESSION_FIELDS = [
   "compacting",
   "promptCache",
   "lastAssistantText",
+  "adapterGeneration",
   "lastActivityAt",
   "terminal",
   "bridge",
@@ -334,6 +335,16 @@ export class HostHub {
     try {
       if (pending.command.type === "workspace.prMerge" && pending.sent)
         throw new SwitchyardError("conflict", "An uncertain merge must not be retransmitted");
+      if (
+        pending.sent &&
+        (pending.command.type === "session.reload" ||
+          pending.command.type === "session.reloadAdapters")
+      ) {
+        throw new SwitchyardError(
+          "conflict",
+          "Reload may have started; check the session before retrying",
+        );
+      }
       const readiness = pending.beforeSend?.();
       if (readiness?.defer) {
         pending.deferred = true;

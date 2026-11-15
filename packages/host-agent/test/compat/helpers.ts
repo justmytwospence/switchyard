@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -8,6 +16,8 @@ import type {
   HostEvent,
   Interaction,
   Panel,
+  Profile,
+  SessionAdaptersResult,
   TranscriptItem,
 } from "@switchyard/protocol";
 import {
@@ -22,17 +32,19 @@ import {
 } from "@switchyard/test-fixtures";
 // The compatibility tests drive the real host agent (supervisor, adapter catalog, interactions)
 // through the same fake coordinator the other host-agent tests use.
+import { expect } from "vitest";
 import { type HostAgentHandle, runHostAgent, silentLogger } from "../../src/index.js";
-import { FakeCoordinator, startCommand, tempDir, waitFor } from "../helpers.js";
+import { FakeCoordinator, mockProfile, startCommand, tempDir, waitFor } from "../helpers.js";
 
 export { waitFor };
 
-/** Root of a pi-plugins checkout (`SWITCHYARD_PI_PLUGINS_DIR`); the tests skip when it is unset. */
+/** Suite checkout. Required checks fail rather than skip when it is unavailable. */
 export const PLUGINS_DIR = process.env.SWITCHYARD_PI_PLUGINS_DIR ?? "";
 
 export type PluginName =
   | "pi-ask-user-question"
   | "pi-tool-gate"
+  | "pi-plan-mode"
   | "pi-todo"
   | "pi-bg"
   | "pi-subagents";
@@ -48,10 +60,10 @@ export const pluginExtension = (name: PluginName) =>
  * an installed suite is found in production: Pi loads only these extensions (no skills, prompts
  * or themes), and the host's plugin tier reads the adapters from the root `switchyard.adapter`.
  */
-export function pluginPackages(plugins: PluginName[]) {
+export function pluginPackages(plugins: PluginName[], suiteDir = PLUGINS_DIR) {
   return [
     {
-      source: PLUGINS_DIR,
+      source: suiteDir,
       extensions: plugins.map(pluginExtension),
       skills: [],
       prompts: [],
@@ -62,11 +74,94 @@ export function pluginPackages(plugins: PluginName[]) {
 
 /** Why the compat tests skip, or null when they must run. */
 export function compatSkipReason(): string | null {
-  const real = realPiSkipReason();
-  if (real) return real;
-  if (!PLUGINS_DIR) return "SWITCHYARD_PI_PLUGINS_DIR is not set";
-  if (!existsSync(PLUGINS_DIR)) return `pi-plugins not found at ${PLUGINS_DIR}`;
-  return null;
+  const required = process.env.SWITCHYARD_REQUIRE_PI_PLUGINS === "1";
+  const reason =
+    realPiSkipReason() ??
+    (!PLUGINS_DIR
+      ? "SWITCHYARD_PI_PLUGINS_DIR is not set"
+      : !existsSync(join(PLUGINS_DIR, "package.json"))
+        ? `pi-plugins not found at ${PLUGINS_DIR}`
+        : null);
+  if (required) {
+    if (reason) throw new Error(`Required plugin compatibility: ${reason}`);
+    requirePi();
+  }
+  return reason;
+}
+
+/** A successful fenced read proves configuration, not merely an advertised hello. */
+export async function resourceSnapshot(h: CompatHarness, s: CompatSession) {
+  const live = h.agent.supervisor.managedSession(s.id)!;
+  const hello = live.bridgeFeatures;
+  expect(hello?.capabilities.resourceSnapshot).toBe(true);
+  const snapshot = await live.resources();
+  expect(snapshot).toMatchObject({
+    cwd: h.pi.cwd,
+    runtimeId: hello!.runtimeId,
+    nativeSessionId: hello!.nativeSessionId,
+    bindingId: expect.any(String),
+  });
+  expect(snapshot.bindingId).not.toBe("");
+  expect(live.bridgeFeatures).toEqual(hello);
+  return snapshot;
+}
+
+/** Resource inspection and effective trust/source provenance are separate capabilities. */
+export async function effectiveResourcesSupported(h: CompatHarness, s: CompatSession) {
+  const snapshot = await resourceSnapshot(h, s);
+  const result = h.agent.supervisor.sessionAdapters(s.id);
+  expect(result.diagnostics.filter((d) => d.level === "error")).toEqual([]);
+  const legacy = result.diagnostics.some((d) => /legacy user-scope/i.test(d.message));
+  if (legacy) {
+    // Only an actual missing trust API may explain this supported-version fallback.
+    // In particular, a failed configure/resolver must never escape the 1.5 assertions.
+    const evidence = JSON.stringify({ snapshot, diagnostics: result.diagnostics });
+    expect(requirePi(), evidence).toMatch(/^1\.4\./);
+    expect(snapshot.projectTrusted, evidence).toBeNull();
+    expectLegacyDiscovery(result);
+    return false;
+  }
+  expect(snapshot.projectTrusted).not.toBeNull();
+  const reported = new Set(snapshot.reportedExtensionPaths.map((path) => realpathSync(path)));
+  for (const adapter of result.adapters.filter((a) => a.runtimeStatus === "active")) {
+    if (adapter.provenance.scope === "project") expect(snapshot.projectTrusted).toBe(true);
+    if (adapter.provenance.evidence === "runtime-reported") {
+      expect(adapter.provenance.entrypoints.some((path) => reported.has(realpathSync(path)))).toBe(
+        true,
+      );
+    }
+  }
+  return true;
+}
+
+export function expectLegacyDiscovery(result: SessionAdaptersResult): void {
+  expect(result.diagnostics.some((d) => /legacy user-scope/i.test(d.message))).toBe(true);
+  expect(
+    result.adapters.filter((a) => a.provenance.scope === "project" && a.runtimeStatus === "active"),
+  ).toEqual([]);
+}
+
+/** True only for the explicitly unsupported bound-adapter case, never a 1.5 failure escape. */
+export async function legacyBoundAdapter(
+  h: CompatHarness,
+  s: CompatSession,
+  plugin: PluginName,
+  id: string,
+): Promise<boolean> {
+  if (await effectiveResourcesSupported(h, s)) return false;
+  const manifest = JSON.parse(
+    readFileSync(join(pluginDir(plugin), "src/switchyard/switchyard-adapter.json"), "utf8"),
+  );
+  if (!manifest.target?.entrypoints?.length) return false;
+  const result = h.agent.supervisor.sessionAdapters(s.id);
+  expectLegacyDiscovery(result);
+  expect(result.adapters.find((a) => a.id === id)).toMatchObject({
+    status: "disabled",
+    runtimeStatus: "disabled",
+    provenance: { evidence: "runtime-reported" },
+  });
+  expect(s.panels().filter((p) => p.adapterId === id)).toEqual([]);
+  return true;
 }
 
 /**
@@ -126,6 +221,8 @@ export interface CompatHarness {
   agent: HostAgentHandle;
   mock: MockModelServer;
   pi: PiEnv;
+  /** Actual suite used by this harness (a writable temp copy when requested). */
+  suiteDir: string;
   /** The active adapter `id` from the host's latest `adapters.updated` event. */
   adapter(id: string): AdapterInfo | undefined;
   /** Start a session in the isolated Pi cwd, recording every raw Pi UI request. */
@@ -174,6 +271,14 @@ export async function startCompatHarness(opts: {
   plugins: PluginName[];
   script: MockScript;
   settings?: Record<string, unknown>;
+  /** Explicit settings override the default user-scope package entry. */
+  userPackages?: unknown[];
+  projectPackages?: unknown[];
+  projectSettings?: Record<string, unknown>;
+  projectTrust?: Profile["projectTrust"];
+  terminalSessions?: boolean;
+  /** Copy sources into the temp root; dependency symlinks remain read-only test inputs. */
+  writableSuite?: boolean;
   /** Write extra files into the isolated agent dir before Pi starts. */
   agentFiles?: Record<string, string>;
   /**
@@ -187,10 +292,36 @@ export async function startCompatHarness(opts: {
   const coord = await FakeCoordinator.start();
   const state = tempDir("switchyard-compat-");
   const mock = await startMockModel(opts.script);
+  const suiteDir = opts.writableSuite ? join(state.path, "pi-plugins") : PLUGINS_DIR;
+  if (opts.writableSuite) {
+    cpSync(PLUGINS_DIR, suiteDir, {
+      recursive: true,
+      filter: (source) =>
+        !source.split(/[\\/]/).some((part) => [".git", "node_modules"].includes(part)),
+    });
+    for (const dir of ["", ...opts.plugins.map((name) => `packages/${name}`)]) {
+      const modules = join(PLUGINS_DIR, dir, "node_modules");
+      if (existsSync(modules)) symlinkSync(modules, join(suiteDir, dir, "node_modules"), "dir");
+    }
+  }
   const pi = makePiEnv({
     mockUrl: mock.url,
-    settings: { ...opts.settings, packages: pluginPackages(opts.plugins) },
+    settings: {
+      ...opts.settings,
+      packages:
+        opts.userPackages ?? (opts.projectPackages ? [] : pluginPackages(opts.plugins, suiteDir)),
+    },
   });
+  if (opts.projectPackages || opts.projectSettings) {
+    mkdirSync(join(pi.cwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(pi.cwd, ".pi", "settings.json"),
+      JSON.stringify({
+        ...opts.projectSettings,
+        ...(opts.projectPackages ? { packages: opts.projectPackages } : {}),
+      }),
+    );
+  }
   for (const [rel, content] of Object.entries(opts.agentFiles ?? {})) {
     const p = join(pi.agentDir, rel);
     mkdirSync(join(p, ".."), { recursive: true });
@@ -198,10 +329,23 @@ export async function startCompatHarness(opts: {
   }
   // No network judges or classifiers: blank the credentials plugins could find in our environment.
   for (const k of NETWORK_CREDENTIALS) pi.env[k] = "";
+  // A headless worker may inherit its parent's workflow policy. Fixtures are independent
+  // top-level sessions; real plugin-spawned children set their own inheritance afterwards.
+  for (const key of [
+    "PI_SUBAGENT",
+    "PI_SUBAGENT_DEPTH",
+    "PI_TOOL_GATE_APPROVAL",
+    "PI_TOOL_GATE_WORKFLOW",
+    "PI_TOOL_GATE_SCRATCH",
+    "PI_TOOL_GATE_DENY_INSTEAD_OF_PROMPTING",
+  ])
+    pi.env[key] = "";
   if (opts.isolateHome !== false) {
     const home = join(pi.root, "home");
     mkdirSync(home, { recursive: true });
     pi.env.HOME = home;
+    pi.env.XDG_CONFIG_HOME = join(home, ".config");
+    pi.env.XDG_STATE_HOME = join(home, ".local", "state");
   }
   // No `-e` extensions and no bundled adapters: Pi loads the plugins from the settings.json
   // package entry and the host loads their adapters through the plugin tier.
@@ -217,7 +361,7 @@ export async function startCompatHarness(opts: {
     env: pi.env,
     ownerAdapterDir: join(state.path, "owner-adapters"),
     handleSignals: false,
-    terminalSessions: false,
+    terminalSessions: opts.terminalSessions ?? false,
     backoffMs: [50, 100, 200],
     logger: silentLogger(),
   });
@@ -236,6 +380,7 @@ export async function startCompatHarness(opts: {
     agent,
     mock,
     pi,
+    suiteDir,
     adapter(id) {
       const last = coord.eventsOf("adapters.updated").at(-1)?.data as
         | { adapters: AdapterInfo[] }
@@ -244,7 +389,11 @@ export async function startCompatHarness(opts: {
     },
     async startSession() {
       const id = `ses_compat${Date.now()}${++n}`;
-      await coord.ok(startCommand(id, pi.cwd));
+      await coord.ok(
+        startCommand(id, pi.cwd, {
+          profile: { ...mockProfile, projectTrust: opts.projectTrust ?? "approve" },
+        }),
+      );
       const ms = agent.supervisor.managedSession(id);
       if (!ms) throw new Error("no managed session");
       const uiRequests: any[] = [];

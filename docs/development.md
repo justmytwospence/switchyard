@@ -1,6 +1,6 @@
 # Development
 
-Requirements: Node 24 or newer, pnpm 12, git, and Pi `>=1.4.0 <1.6.0` on `PATH`.
+Requirements: Node 24 or newer, pnpm 12, git, and Pi `>=1.4.0 <1.6.0` on `PATH`. For feature placement, failure behavior and compatibility expectations, see the [core/plugin ownership contract](plugin-boundaries.md).
 
 ```sh
 pnpm i
@@ -20,9 +20,21 @@ Most runtime, host and integration tests start the real `pi --mode rpc` with an 
 |---|---|
 | `SWITCHYARD_PI_BIN` | Pi binary to test against (default `pi`) |
 | `SWITCHYARD_SKIP_REAL_PI=1` | Skip tests that need Pi; without it, a missing Pi fails them |
-| `SWITCHYARD_PI_PLUGINS_DIR` | A Pi package suite whose Switchyard adapters the plugin compatibility tests load (skipped when absent) |
+| `SWITCHYARD_PI_PLUGINS_DIR` | Pi suite checkout for plugin compatibility tests; direct Vitest invocation can skip when absent, but the required cross-repository check cannot |
 
 The browser tests start a real coordinator and host with the mock model, and use a mock OpenID Connect provider and a virtual WebAuthn authenticator for the sign-in flows.
+
+## Adapter development and cross-repository checks
+
+After `pnpm build`, run the portable preview with an explicitly selected trusted adapter and a fixture:
+
+```sh
+pnpm adapter:preview -- --adapter packages/adapter-examples/src/hello --fixture packages/adapter-examples/fixtures/hello.json > /tmp/hello-preview.json
+```
+
+Paste or upload the JSON in Settings > Adapters > Portable UI preview. It validates and renders desktop and phone portable UI and logs simulated actions locally, including read-only simulation; it does not run custom HTML or dispatch to Pi. The CLI executes adapter code with ordinary Node privileges in a separate process, **not a sandbox**; the runner creates no live Pi, model or host, but trusted adapter code can. See [the example](../packages/adapter-examples/README.md) and [adapter reload and discovery](adapters.md#inspection-and-reload).
+
+The required Switchyard-side compatibility check is `pnpm test:plugins` after building Switchyard and installing the suite dependencies. It uses `.github/compat-pi-plugins.json`'s immutable commit and version, real Pi, and a clean suite and Switchyard checkout; the suite defaults to `../pi-plugins` or `SWITCHYARD_PI_PLUGINS_DIR`. CI checks out the pin and does not permit dirty overrides or skipping real Pi. For local paired development, explicitly set `SWITCHYARD_PI_PLUGINS_DIR` and use `pnpm test:plugins -- --allow-dirty`; add `--current-suite` to check a clean unpinned suite. These modes are not evidence for the pinned CI pair. In pi-plugins, `node scripts/check-switchyard.mjs` runs the reverse check, selecting the core checkout with `SWITCHYARD_DIR`; CI enforces its own immutable core pin and clean checkouts. Both scripts print the revisions they check.
 
 ## Building the npm package
 

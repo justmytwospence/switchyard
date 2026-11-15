@@ -50,6 +50,8 @@ export const RuntimeCapabilities = CoreCapabilities.extend({
   agentRequests: z.boolean().optional(),
   messageDelivery: z.boolean().optional(),
   policies: z.boolean().optional(),
+  /** Session-scoped adapter inspection and safe reload. */
+  adapterDevelopment: z.boolean().optional(),
   unsupported: z.array(z.object({ capability: z.string(), reason: z.string() })),
 });
 export type RuntimeCapabilities = z.infer<typeof RuntimeCapabilities>;
@@ -327,6 +329,8 @@ export const Session = z.object({
   terminal: z.boolean().optional(),
   /** Set when the session finished or failed with nobody viewing it; cleared when viewed (coordinator-owned). */
   unreadSince: Iso.nullable().optional(),
+  /** Identity of the adapter presentation currently installed on the host. */
+  adapterGeneration: z.string().uuid().optional(),
   /** Bumped when the transcript is rebuilt (rewind); clients drop cached copies (coordinator-owned). */
   transcriptEpoch: z.number().int().min(0).optional(),
   bridge: z
@@ -648,6 +652,7 @@ export const ToolItemData = z.object({
   durationMs: z.number().nullable(),
   card: UINodeSchema.nullable(),
   adapterId: z.string().nullable(),
+  adapterGeneration: z.string().uuid().optional(),
 });
 export type ToolItemData = z.infer<typeof ToolItemData>;
 
@@ -702,6 +707,7 @@ export const TranscriptItem = z.discriminatedUnion("kind", [
         customType: z.string().min(1).max(200).optional(),
         card: UINodeSchema.optional(),
         adapterId: z.string().optional(),
+        adapterGeneration: z.string().uuid().optional(),
       })
       .refine((data) => !data.card || !!data.adapterId, "Card requires adapterId"),
   }),
@@ -748,6 +754,7 @@ export const Panel = z.object({
   mobileFallback: z.string().nullable(),
   contribution: ContributionDescriptor.optional(),
   state: z.unknown().optional(),
+  adapterGeneration: z.string().uuid().optional(),
   updatedAt: Iso,
 });
 export type Panel = z.infer<typeof Panel>;

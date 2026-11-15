@@ -10,6 +10,7 @@ import type {
   NavigateResult,
   Run,
   Session,
+  SessionAdaptersResult,
   SessionCompleteResult,
   SessionModel,
   SlashCommand,
@@ -74,6 +75,10 @@ export const codeApi = {
     body: { entryId: string; summarize: boolean; instructions: string | null },
   ) => apiPost<NavigateResult>(`${s(id)}/navigate`, body),
   reload: (id: string) => apiPost<{ ok: true }>(`${s(id)}/reload`),
+  adapters: (id: string, signal?: AbortSignal) =>
+    apiGet<SessionAdaptersResult>(`${s(id)}/adapters`, undefined, signal),
+  reloadAdapters: (id: string) =>
+    apiPost<{ ok: true; generation: string }>(`${s(id)}/adapters/reload`),
   exportFile: (id: string) => apiGet<{ fileName: string; content: string }>(`${s(id)}/export`),
   importable: (hostId: string) =>
     apiGet<(ImportableSession & { importedSessionId: string | null })[]>(
@@ -99,11 +104,18 @@ export const codeApi = {
   rename: (id: string, title: string) => apiPost<Session>(`${s(id)}/rename`, { title }),
   archive: (id: string) => apiPost<Session>(`${s(id)}/archive`),
   unarchive: (id: string) => apiPost<Session>(`${s(id)}/unarchive`),
-  adapterAction: (id: string, adapterId: string, actionId: string, payload?: unknown) =>
+  adapterAction: (
+    id: string,
+    adapterId: string,
+    actionId: string,
+    payload?: unknown,
+    generation?: string,
+  ) =>
     apiPost<{ ok: boolean; result: unknown }>(`${s(id)}/adapter-action`, {
       adapterId,
       actionId,
       payload,
+      ...(generation !== undefined ? { generation } : {}),
     }),
 
   diff: (workspaceId: string, file?: string, signal?: AbortSignal) =>

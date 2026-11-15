@@ -36,4 +36,16 @@ describe("adapter renderer availability", () => {
       expect(html).toContain("portable content");
     }
   });
+  it("uses portable disabled content rather than an actionable stale custom frame", () => {
+    const html = renderToStaticMarkup(
+      <AdapterPanel
+        ctx={{ ...ctx, session: { ...ctx.session, adapterGeneration: "new" } }}
+        panel={{ ...panel, adapterGeneration: "old" }}
+        allowFrame
+      />,
+    );
+    expect(html).not.toContain("<iframe");
+    expect(html).toContain("portable content");
+    expect(html).toContain("This extension view changed.");
+  });
 });

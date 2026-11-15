@@ -1,19 +1,40 @@
 import type { Panel } from "@switchyard/protocol";
-import { useMemo, useState } from "react";
-import { useContributions } from "../../sync/store";
+import { useEffect, useMemo, useState } from "react";
+import { useContributions, useSyncStore } from "../../sync/store";
 import { useContributePalette } from "../palette/registry";
+import { isAdapterViewStale } from "./AdapterPanel";
 import { adapterCommandName } from "./adapterIdentity";
 
 export function useAdapterCommands(sessionId: string | null) {
   const contributions = useContributions(sessionId);
+  const generation = useSyncStore((s) =>
+    sessionId ? s.sessions[sessionId]?.adapterGeneration : undefined,
+  );
   const [preview, setPreview] = useState<Panel | null>(null);
+  useEffect(() => {
+    setPreview((p) =>
+      p && (p.sessionId !== sessionId || isAdapterViewStale(p.adapterGeneration, generation))
+        ? null
+        : p,
+    );
+  }, [sessionId, generation]);
   const palette = useMemo(
-    () => contributions.filter((p) => p.contribution?.placement === "palette.item"),
-    [contributions],
+    () =>
+      contributions.filter(
+        (p) =>
+          p.contribution?.placement === "palette.item" &&
+          !isAdapterViewStale(p.adapterGeneration, generation),
+      ),
+    [contributions, generation],
   );
   const slash = useMemo(
-    () => contributions.filter((p) => p.contribution?.placement === "slash.command"),
-    [contributions],
+    () =>
+      contributions.filter(
+        (p) =>
+          p.contribution?.placement === "slash.command" &&
+          !isAdapterViewStale(p.adapterGeneration, generation),
+      ),
+    [contributions, generation],
   );
   useContributePalette(
     "code-adapters",

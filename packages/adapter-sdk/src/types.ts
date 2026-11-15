@@ -169,6 +169,8 @@ export type PresentedFlag = boolean | undefined | void;
  * leaves that status key out of the generic Status panel, or removes the generic widget panel.
  */
 export interface ServerAdapter {
+  /** Rebuild presentation from persisted state only; never replay workflow events. */
+  onRestore?(ctx: AdapterContext): MaybePromise<void>;
   toolCard?(tool: ToolInfo, ctx: AdapterContext): MaybePromise<UINode | undefined>;
   customMessageCard?(
     message: CustomMessageInfo,
@@ -208,6 +210,27 @@ export interface LoadedAdapter {
   manifestPath: string | null;
   webRendererPath: string | null;
   server: ServerAdapter;
+  /** Fresh instance for each session. Entry-module imports are content-addressed, not dependencies. */
+  createServer?: () => MaybePromise<ServerAdapter>;
+  provenance?: AdapterProvenance;
+  discoveryDetail?: string | null;
+}
+
+/** Structural counterpart of the protocol's session catalog provenance; no runtime dependency. */
+export interface AdapterProvenance {
+  scope: "user" | "project" | "explicit";
+  source: string | null;
+  packageDir: string | null;
+  manifestPath: string | null;
+  targetVersion: string | null;
+  entrypoints: string[];
+  evidence: "runtime-reported" | "package-level" | "explicit";
+}
+
+export interface AdapterCatalogInfo extends AdapterInfo {
+  provenance: AdapterProvenance;
+  runtimeStatus: "active" | "disabled" | "unavailable";
+  runtimeDetail: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -58,6 +58,7 @@ export const RESTARTED_WHILE_RUNNING = "Host restarted while running";
 
 /** Read-only commands, including message status: never queue behind prompts (bounded reads). */
 export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostCommandType>([
+  "session.adapters",
   "session.messageStatus",
   "session.classifyPolicySample",
   "session.importable",
@@ -84,6 +85,7 @@ export const READ_CONCURRENCY = 8;
  * the host died mid-command, and the command is answered with an error, never rerun.
  */
 const RERUNNABLE = new Set<HostCommand["type"]>([
+  "session.adapters",
   "session.deliverMessage",
   "session.messageStatus",
   "session.classifyPolicySample",
@@ -147,7 +149,8 @@ export function queueKey(command: HostCommand): string | null {
     command.type === "session.complete" ||
     command.type === "session.tree" ||
     command.type === "session.export" ||
-    command.type === "session.reload"
+    command.type === "session.reload" ||
+    command.type === "session.reloadAdapters"
   ) {
     return `control:${command.sessionId}`;
   }
@@ -426,7 +429,7 @@ export class CommandRouter {
       case "session.answer":
         return sup.answer(c.sessionId, c.interactionId, c.revision, c.response, c.deviceId);
       case "session.adapterAction":
-        return sup.adapterAction(c.sessionId, c.adapterId, c.actionId, c.payload);
+        return sup.adapterAction(c.sessionId, c.adapterId, c.actionId, c.payload, c.generation);
       case "session.setControl":
         return sup.setControl(c.sessionId, c.controlRevision, c.mode);
       case "session.rename":
@@ -451,6 +454,10 @@ export class CommandRouter {
         return sup.navigate(c.sessionId, c.entryId, c.summarize, c.instructions);
       case "session.reload":
         return sup.reload(c.sessionId);
+      case "session.adapters":
+        return sup.sessionAdapters(c.sessionId);
+      case "session.reloadAdapters":
+        return sup.reloadAdapters(c.sessionId);
       case "session.export":
         return sup.exportSession(c.sessionId);
       case "session.setModel":

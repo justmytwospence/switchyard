@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
-import type { AdapterDiagnostic } from "./types.js";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { type AdapterManifest, loadManifest } from "./manifest.js";
+import type { AdapterDiagnostic, AdapterProvenance } from "./types.js";
 
 /** Pi's agent directory: `PI_CODING_AGENT_DIR` or `~/.pi/agent`. */
 export function piAgentDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
@@ -105,13 +106,57 @@ export interface PiPackageInfo {
   version: string | null;
   /** `package.json` `switchyard.adapter` entries (paths relative to `dir`), if any. */
   adapters: string[];
+  scope: "user" | "project";
+  /** Canonical provider root, which may differ from the target component root. */
+  providerRoot: string;
+  enabledExtensionPaths: string[];
+  targets: {
+    manifestPath: string;
+    packageRoot: string | null;
+    name: string;
+    version: string | null;
+  }[];
+}
+
+/** Deliberately structural: adapter-sdk must not depend on pi-runtime. */
+export interface PiDiscoveryInventory {
+  status: "available" | "unavailable";
+  extensions: {
+    path: string;
+    enabled: boolean;
+    source: string;
+    scope: "user" | "project";
+    packageRoot: string | null;
+  }[];
+  diagnostics: string[];
+}
+
+export interface DiscoveredAdapterCandidate {
+  path: string;
+  manifest: AdapterManifest;
+  enabled: boolean;
+  detail: string | null;
+  provenance: AdapterProvenance;
+}
+
+export interface PiPackageDiscoveryOptions {
+  agentDir?: string;
+  env?: NodeJS.ProcessEnv;
+  home?: string;
+  globalNpmRoot?: string;
+  inventory?: PiDiscoveryInventory;
+  reportedExtensionPaths?: string[];
+  projectTrusted?: boolean | null;
+  extensionsDisabled?: boolean;
 }
 
 export interface PiPackageDiscovery {
   agentDir: string;
   packages: PiPackageInfo[];
-  /** Package dirs that declare `switchyard.adapter`. Pass to `AdapterRegistry.load`. */
+  /** Compatibility metadata only. Pass `candidates` to the registry to preserve filtering. */
   pluginPackageDirs: string[];
+  /** Preferred registry input: includes disabled records and component-specific versions. */
+  candidates: DiscoveredAdapterCandidate[];
   diagnostics: AdapterDiagnostic[];
 }
 
@@ -128,11 +173,12 @@ export function adapterEntries(pkg: unknown): string[] {
 }
 
 /**
- * List the Pi packages from `<agentDir>/settings.json` `packages` and find those that provide a
- * Switchyard adapter. Project-scope packages (`.pi/settings.json`) are not consulted.
+ * Inspect Pi's already-resolved effective inventory without reimplementing its filters/deltas.
+ * Missing/unavailable inventory uses an explicitly coarse, user-only legacy fallback.
+ * This reads manifests/package metadata, never adapter server modules.
  */
 export async function discoverPiPackages(
-  opts: { agentDir?: string; env?: NodeJS.ProcessEnv; home?: string; globalNpmRoot?: string } = {},
+  opts: PiPackageDiscoveryOptions = {},
 ): Promise<PiPackageDiscovery> {
   const home = opts.home ?? homedir();
   const agentDir = opts.agentDir ?? piAgentDir(opts.env, home);
@@ -140,10 +186,51 @@ export async function discoverPiPackages(
     agentDir,
     packages: [],
     pluginPackageDirs: [],
+    candidates: [],
     diagnostics: [],
   };
   const diag = (level: AdapterDiagnostic["level"], message: string) =>
     out.diagnostics.push({ sessionId: null, adapterId: null, level, message });
+
+  if (opts.extensionsDisabled) return out;
+  for (const message of opts.inventory?.diagnostics ?? []) diag("warning", message);
+  if (
+    opts.inventory?.status === "available" &&
+    opts.projectTrusted !== null &&
+    opts.projectTrusted !== undefined
+  ) {
+    const groups = new Map<
+      string,
+      { source: string; scope: "user" | "project"; enabled: string[] }
+    >();
+    for (const ext of opts.inventory.extensions) {
+      if (!ext.packageRoot || (ext.scope === "project" && opts.projectTrusted !== true)) continue;
+      const root = await canonicalPath(ext.packageRoot);
+      const path = await canonicalPath(ext.path);
+      // Do not follow extension/package symlinks out of the resolver-authorized provider.
+      if (!inside(root, path)) continue;
+      const group = groups.get(root) ?? { source: ext.source, scope: ext.scope, enabled: [] };
+      // Keep Pi's resolved enabled paths verbatim; do not merge filters or guess deltas.
+      // Project provenance wins for a shared provider without dropping user-enabled resources.
+      if (ext.scope === "project") {
+        group.source = ext.source;
+        group.scope = ext.scope;
+      }
+      if (ext.enabled) group.enabled.push(path);
+      groups.set(root, group);
+    }
+    const reported = new Set(
+      await Promise.all((opts.reportedExtensionPaths ?? []).map(canonicalPath)),
+    );
+    for (const [root, group] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+      await inspectPackage(root, group.source, group.scope, group.enabled, reported, false, out);
+    }
+    return out;
+  }
+  diag(
+    "warning",
+    "Legacy user-scope package discovery: effective Pi resources/trust are unavailable; project adapters are not authorized and resource filters cannot be verified.",
+  );
 
   const settingsPath = join(agentDir, "settings.json");
   if (!existsSync(settingsPath)) return out;
@@ -182,30 +269,141 @@ export async function discoverPiPackages(
       );
       continue;
     }
-    let pkg: unknown = null;
-    const pkgPath = join(dir, "package.json");
-    if (existsSync(pkgPath)) {
-      try {
-        pkg = await readJson(pkgPath);
-      } catch (err) {
-        diag("warning", `Cannot read ${pkgPath}: ${(err as Error).message}`);
-      }
-    }
-    const info: PiPackageInfo = {
-      source,
-      dir,
-      name:
-        typeof (pkg as { name?: unknown })?.name === "string"
-          ? (pkg as { name: string }).name
-          : null,
-      version:
-        typeof (pkg as { version?: unknown })?.version === "string"
-          ? (pkg as { version: string }).version
-          : null,
-      adapters: adapterEntries(pkg),
-    };
-    out.packages.push(info);
-    if (info.adapters.length > 0) out.pluginPackageDirs.push(dir);
+    const root = await canonicalPath(dir);
+    if (out.packages.some((p) => p.providerRoot === root)) continue;
+    const enabled =
+      typeof item !== "object" ||
+      item === null ||
+      (item as { autoload?: unknown }).autoload !== false;
+    await inspectPackage(root, source, "user", [], new Set(), true, out, enabled);
   }
   return out;
+}
+
+async function canonicalPath(path: string): Promise<string> {
+  return realpath(path).catch(() => resolve(path));
+}
+
+function inside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return (
+    rel === "" ||
+    (!isAbsolute(rel) &&
+      rel !== ".." &&
+      !rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`))
+  );
+}
+
+const LEGACY_DETAIL = "Package-level discovery; adapter does not declare target entrypoints.";
+const DISABLED_DETAIL = "Target extension is not enabled in this session.";
+
+async function inspectPackage(
+  root: string,
+  source: string,
+  scope: "user" | "project",
+  enabledPaths: string[],
+  reported: Set<string>,
+  legacy: boolean,
+  out: PiPackageDiscovery,
+  legacyEnabled = true,
+): Promise<void> {
+  const diagnostic = (message: string) =>
+    out.diagnostics.push({ sessionId: null, adapterId: null, level: "warning" as const, message });
+  let pkg: { name?: unknown; version?: unknown };
+  try {
+    pkg = (await readJson(join(root, "package.json"))) as typeof pkg;
+    if (!pkg || typeof pkg !== "object") throw new Error("expected package object");
+  } catch (err) {
+    diagnostic(`Cannot read ${root}/package.json: ${(err as Error).message}`);
+    return;
+  }
+  const info: PiPackageInfo = {
+    source,
+    scope,
+    dir: root,
+    providerRoot: root,
+    name: typeof pkg.name === "string" ? pkg.name : null,
+    version: typeof pkg.version === "string" ? pkg.version : null,
+    adapters: adapterEntries(pkg),
+    enabledExtensionPaths: [...new Set(enabledPaths)].sort(),
+    targets: [],
+  };
+  out.packages.push(info);
+  for (const entry of info.adapters) {
+    try {
+      const path = await canonicalPath(resolve(root, entry));
+      if (!inside(root, path)) throw new Error("adapter path escapes provider root");
+      const m = await loadManifest(path);
+      const manifestPath = await canonicalPath(m.manifestPath);
+      if (
+        !inside(root, manifestPath) ||
+        !inside(root, await canonicalPath(m.serverPath)) ||
+        (m.webRendererPath && !inside(root, await canonicalPath(m.webRendererPath)))
+      ) {
+        throw new Error("adapter files escape provider root");
+      }
+      if (out.candidates.some((c) => c.path === manifestPath)) continue;
+      // Walk from the adapter toward the authorized provider, never into its parents.
+      let target: { root: string; version: string | null } | null = null;
+      for (let dir = await canonicalPath(m.dir); inside(root, dir); dir = dirname(dir)) {
+        try {
+          const component = (await readJson(join(dir, "package.json"))) as {
+            name?: unknown;
+            version?: unknown;
+          };
+          if (component?.name === m.manifest.target.extension) {
+            target = {
+              root: dir,
+              version: typeof component.version === "string" ? component.version : null,
+            };
+            break;
+          }
+        } catch {
+          /* Not every ancestor is a package. */
+        }
+        if (dir === root) break;
+      }
+      info.targets.push({
+        manifestPath,
+        packageRoot: target?.root ?? null,
+        name: m.manifest.target.extension,
+        version: target?.version ?? null,
+      });
+      const bound = m.manifest.target.entrypoints !== undefined;
+      const entrypoints =
+        target && bound
+          ? await Promise.all(
+              m.manifest.target.entrypoints!.map((p) =>
+                canonicalPath(resolve(target.root, p.replaceAll("\\", "/"))),
+              ),
+            )
+          : [];
+      if (target && entrypoints.some((p) => !inside(target.root, p)))
+        throw new Error("target entrypoint escapes component root");
+      // A legacy fallback cannot prove entrypoint-bound adapters are loaded.
+      const enabled = bound
+        ? !legacy && entrypoints.some((p) => enabledPaths.includes(p) && reported.has(p))
+        : legacy
+          ? legacyEnabled
+          : enabledPaths.length > 0;
+      out.candidates.push({
+        path: manifestPath,
+        manifest: m.manifest,
+        enabled,
+        detail: !enabled ? DISABLED_DETAIL : bound ? null : LEGACY_DETAIL,
+        provenance: {
+          scope,
+          source,
+          packageDir: root,
+          manifestPath,
+          targetVersion: target?.version ?? null,
+          entrypoints: [...new Set(entrypoints)].sort(),
+          evidence: bound ? "runtime-reported" : "package-level",
+        },
+      });
+    } catch (err) {
+      diagnostic(`Cannot inspect adapter ${entry} in ${root}: ${(err as Error).message}`);
+    }
+  }
+  if (info.adapters.length > 0) out.pluginPackageDirs.push(root);
 }

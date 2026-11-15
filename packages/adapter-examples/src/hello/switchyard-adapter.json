@@ -4,10 +4,11 @@
   "target": {
     "extension": "pi-hello",
     "versionRange": ">=0.1.0 <1.0.0",
-    "testedVersions": ["0.1.0"]
+    "testedVersions": ["0.1.0"],
+    "entrypoints": ["index.ts"]
   },
   "protocolVersion": 1,
   "server": "server.js",
   "webRenderer": null,
-  "capabilities": ["toolCards", "panels", "progress"]
+  "capabilities": ["toolCards", "interactions", "panels", "progress", "state"]
 }

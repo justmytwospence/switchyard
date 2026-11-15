@@ -254,6 +254,7 @@ export const AnswerRequest = z.object({
 });
 
 export const AdapterActionRequest = z.object({
+  generation: z.string().uuid().optional(),
   adapterId: z.string(),
   actionId: z.string(),
   payload: z.unknown().optional(),

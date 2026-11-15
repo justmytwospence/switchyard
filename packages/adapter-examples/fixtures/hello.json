@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "name": "Hello portable interface",
+  "initialState": {
+    "hello": {
+      "shown": "Restored greeting 1/4",
+      "last": "Restored note"
+    }
+  },
+  "steps": [
+    {
+      "kind": "restore"
+    },
+    {
+      "kind": "toolStart",
+      "data": {
+        "toolCallId": "hello-1",
+        "name": "hello",
+        "args": {
+          "name": "Pi"
+        }
+      }
+    },
+    {
+      "kind": "status",
+      "data": {
+        "key": "hello",
+        "text": "Greeting 2/4"
+      }
+    },
+    {
+      "kind": "widget",
+      "data": {
+        "key": "notes",
+        "lines": ["Portable widget fallback"]
+      }
+    },
+    {
+      "kind": "dialog",
+      "data": {
+        "id": "name",
+        "method": "input",
+        "title": "Hello name",
+        "placeholder": "Name"
+      }
+    },
+    {
+      "kind": "answer",
+      "data": {
+        "requestId": "name",
+        "response": {
+          "kind": "form",
+          "values": {
+            "name": "Pi"
+          }
+        }
+      }
+    },
+    {
+      "kind": "toolUpdate",
+      "data": {
+        "toolCallId": "hello-1",
+        "name": "hello",
+        "args": {
+          "name": "Pi"
+        },
+        "partialResult": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Hello in progress"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "action",
+      "data": {
+        "actionId": "save",
+        "payload": {
+          "note": "Only in-memory demo state; no commands execute"
+        }
+      }
+    },
+    {
+      "kind": "customMessage",
+      "data": {
+        "customType": "hello",
+        "content": "Hello from a portable custom message"
+      }
+    },
+    {
+      "kind": "toolEnd",
+      "data": {
+        "toolCallId": "hello-1",
+        "name": "hello",
+        "args": {
+          "name": "Pi"
+        },
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Hello, Pi"
+            }
+          ]
+        },
+        "isError": false
+      }
+    },
+    {
+      "kind": "dialog",
+      "data": {
+        "id": "fallback",
+        "method": "input",
+        "title": "Generic fallback question"
+      }
+    }
+  ]
+}

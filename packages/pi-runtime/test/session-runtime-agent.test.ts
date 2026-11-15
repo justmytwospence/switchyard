@@ -8,6 +8,7 @@ import type {
 } from "../src/bridge-wire.js";
 import { type PiExit, PiRpcProcess } from "../src/rpc-process.js";
 import { ManagedSession } from "../src/session-runtime.js";
+import { PiTerminalProcess } from "../src/terminal-process.js";
 
 const hello: BridgeHello = {
   type: "agent.hello",
@@ -93,7 +94,10 @@ async function startSession(announce = true) {
   return { session, proc };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 describe("ManagedSession agent bridge contract", () => {
   it("emits the actual nested-capability hello without projecting protection into it", async () => {
@@ -265,6 +269,158 @@ describe("ManagedSession agent bridge contract", () => {
     session.on("agent_request", seen);
     proc.emit("agent_request", request);
     expect(seen).not.toHaveBeenCalled();
+  });
+
+  describe("resource reads", () => {
+    const snapshot = {
+      cwd: "/tmp",
+      projectTrusted: null,
+      reportedExtensionPaths: ["/tmp/plugin.ts"],
+      hasEditorDraft: true,
+      pendingDialogs: 1,
+    };
+    async function readable() {
+      const f = await startSession(false);
+      f.proc.emit("bridge_features", {
+        ...hello,
+        capabilities: { ...hello.capabilities, resourceSnapshot: true },
+      });
+      await f.session.configureAgent(configuration);
+      f.proc.bridgeRequest.mockClear();
+      return f;
+    }
+    it("returns a validated snapshot pinned to runtime/native/binding with a five-second timeout", async () => {
+      const { session, proc } = await readable();
+      proc.bridgeRequest.mockResolvedValueOnce(snapshot);
+      await expect(session.resources()).resolves.toEqual({
+        ...snapshot,
+        runtimeId: hello.runtimeId,
+        nativeSessionId: hello.nativeSessionId,
+        bindingId: configuration.bindingId,
+      });
+      expect(proc.bridgeRequest).toHaveBeenCalledExactlyOnceWith(
+        "resources.snapshot",
+        {},
+        { timeoutMs: 5000 },
+      );
+    });
+    it("clearly rejects old bridges and an unconfigured live bridge", async () => {
+      const { session, proc } = await startSession();
+      await expect(session.resources()).rejects.toMatchObject({ code: "unsupported_capability" });
+      proc.emit("bridge_features", {
+        ...hello,
+        capabilities: { ...hello.capabilities, resourceSnapshot: true },
+      });
+      await expect(session.resources()).rejects.toMatchObject({ code: "conflict" });
+      expect(proc.bridgeRequest).not.toHaveBeenCalled();
+    });
+    it.each(["hello", "binding", "lost"])("discards a read invalidated by %s", async (change) => {
+      const { session, proc } = await readable();
+      const result = Promise.withResolvers<unknown>();
+      proc.bridgeRequest.mockReturnValueOnce(result.promise);
+      const reading = session.resources();
+      const rejected = expect(reading).rejects.toMatchObject({ code: "conflict" });
+      if (change === "hello") proc.emit("bridge_features", hello);
+      else if (change === "lost") proc.emit("bridge_lost");
+      else await session.configureAgent({ ...configuration, bindingId: "binding-b" });
+      result.resolve(snapshot);
+      await rejected;
+    });
+    it("rejects invalid and oversized responses", async () => {
+      const { session, proc } = await readable();
+      for (const value of [
+        { ...snapshot, projectTrusted: "yes" },
+        { ...snapshot, privateDraft: "secret" },
+        { ...snapshot, reportedExtensionPaths: Array(2049).fill("/tmp/p.ts") },
+      ]) {
+        proc.bridgeRequest.mockResolvedValueOnce(value);
+        await expect(session.resources()).rejects.toMatchObject({ code: "invalid_request" });
+      }
+    });
+  });
+
+  describe("native reload completion", () => {
+    async function terminal(capable = true) {
+      const f = await startSession(false);
+      // Preserve the process boundary stubs while exercising the terminal-only runtime API.
+      Object.setPrototypeOf(f.proc, PiTerminalProcess.prototype);
+      f.proc.emit("bridge_features", {
+        ...hello,
+        mode: "terminal",
+        capabilities: { ...hello.capabilities, resourceSnapshot: capable },
+      });
+      f.proc.request.mockClear();
+      return f;
+    }
+    it("subscribes before sending and accepts a fast replacement, never just an ACK", async () => {
+      const { session, proc } = await terminal();
+      proc.request.mockImplementationOnce(async () => {
+        expect(session.listenerCount("bridge_features")).toBe(1);
+        proc.emit("bridge_features", { ...hello, runtimeId: "runtime-b" });
+        return {} as any;
+      });
+      await session.reload();
+      expect(proc.request).toHaveBeenCalledExactlyOnceWith({ type: "reload" }, 30000);
+      expect(session.listenerCount("bridge_features")).toBe(0);
+      expect(session.listenerCount("exit")).toBe(0);
+    });
+    it("ignores reconnects of the old runtime and rejects concurrent reloads", async () => {
+      const { session, proc } = await terminal();
+      let done = false;
+      const reload = session.reload().then(() => {
+        done = true;
+      });
+      await expect(session.reload()).rejects.toMatchObject({ code: "conflict" });
+      proc.emit("bridge_features", hello);
+      await Promise.resolve();
+      expect(done).toBe(false);
+      proc.emit("bridge_features", { ...hello, runtimeId: "runtime-b" });
+      await reload;
+      expect(proc.request).toHaveBeenCalledTimes(1);
+    });
+    it("times out as unknown outcome without retrying and cleans up every listener", async () => {
+      const { session, proc } = await terminal();
+      vi.useFakeTimers();
+      const reload = session.reload();
+      const rejected = expect(reload).rejects.toMatchObject({
+        code: "timeout",
+        message:
+          "Pi reload was requested but completion could not be confirmed. Check the terminal before retrying.",
+      });
+      await vi.advanceTimersByTimeAsync(30000);
+      await rejected;
+      expect(proc.request).toHaveBeenCalledTimes(1);
+      expect(session.listenerCount("bridge_features")).toBe(0);
+      expect(session.listenerCount("exit")).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+    it.each(["command failure", "native replacement", "exit"])(
+      "cleans up after %s",
+      async (change) => {
+        const { session, proc } = await terminal();
+        if (change === "command failure")
+          proc.request.mockRejectedValueOnce(new Error("Reload denied"));
+        const reload = session.reload();
+        const rejected = expect(reload).rejects.toThrow();
+        if (change === "native replacement")
+          proc.emit("bridge_features", {
+            ...hello,
+            nativeSessionId: "native-b",
+            runtimeId: "runtime-b",
+          });
+        else if (change === "exit") proc.emit("exit", { code: 1, signal: null, requested: false });
+        await rejected;
+        expect(session.listenerCount("bridge_features")).toBe(0);
+        expect(session.listenerCount("exit")).toBe(0);
+        expect(proc.request).toHaveBeenCalledTimes(1);
+      },
+    );
+    it("refuses an old holder before issuing any reload command", async () => {
+      const { session, proc } = await terminal(false);
+      await expect(session.reload()).rejects.toMatchObject({ code: "unsupported_capability" });
+      expect(proc.request).not.toHaveBeenCalled();
+      expect(session.listenerCount("bridge_features")).toBe(0);
+    });
   });
 
   it("passes bridge command options through and rejects disconnected/exited sessions", async () => {

@@ -109,6 +109,9 @@ describe("bridge extension", () => {
         "session_start",
         {},
         {
+          cwd: "/tmp/project",
+          isProjectTrusted: () => true,
+          ui: { getEditorText: () => "private editor contents" },
           sessionManager: {
             getSessionId: () => "native",
             getSessionFile: () => null,
@@ -156,6 +159,24 @@ describe("bridge extension", () => {
           policyPhases: ["tool_call", "request"],
         },
       });
+      expect(hello.capabilities.resourceSnapshot).toBe(true);
+      peer!.write(
+        `${JSON.stringify({ type: "bridge.command", requestId: "resources", runtimeId: hello.runtimeId, nativeSessionId: "native", bindingId: "binding", method: "resources.snapshot", args: {} })}\n`,
+      );
+      await vi.waitFor(() => expect(lines.some((l) => l.requestId === "resources")).toBe(true));
+      expect(lines.find((l) => l.requestId === "resources")).toMatchObject({
+        ok: true,
+        result: {
+          cwd: "/tmp/project",
+          projectTrusted: true,
+          reportedExtensionPaths: [],
+          hasEditorDraft: true,
+          pendingDialogs: 0,
+        },
+      });
+      expect(JSON.stringify(lines.find((l) => l.requestId === "resources"))).not.toContain(
+        "private editor contents",
+      );
       pi.fire("session_shutdown", {});
     } finally {
       if (previous === undefined) delete process.env.SWITCHYARD_POLICY_REQUIRED;
@@ -288,6 +309,7 @@ describe("host-side bridge wire validation", () => {
       { ...header, method: "configure", args: config },
       { ...header, method: "connection.update", args: { connected: false } },
       { ...header, method: "input.human", args: { humanInputId: "human" } },
+      { ...header, method: "resources.snapshot", args: {} },
       { ...header, method: "delivery.accept", args: accept },
       {
         ...header,
@@ -369,6 +391,56 @@ describe("host-side bridge wire validation", () => {
     await expect(requests.request("configure", config, send)).rejects.toMatchObject({
       code: "conflict",
     });
+    requests.cancel("done");
+  });
+
+  it("validates resource snapshot receipts after identity fencing and preserves the frame cap", async () => {
+    const requests = new BridgeRequests();
+    requests.setHello({
+      ...hello,
+      capabilities: { ...hello.capabilities, resourceSnapshot: true },
+    });
+    let command: any;
+    const send = async (frame: unknown) => {
+      command = frame;
+    };
+    const configuring = requests.request("configure", config, send);
+    requests.receive({ ...command, type: "bridge.receipt", ok: true, result: {} });
+    await configuring;
+    const snapshot = {
+      cwd: "/tmp",
+      projectTrusted: null,
+      reportedExtensionPaths: ["/tmp/plugin.ts"],
+      hasEditorDraft: true,
+      pendingDialogs: 0,
+    };
+    const read = requests.request("resources.snapshot", {}, send);
+    requests.receive({
+      ...command,
+      type: "bridge.receipt",
+      bindingId: "stale",
+      ok: true,
+      result: snapshot,
+    });
+    requests.receive({ ...command, type: "bridge.receipt", ok: true, result: snapshot });
+    await expect(read).resolves.toEqual(snapshot);
+    const invalid = requests.request("resources.snapshot", {}, send);
+    const rejected = expect(invalid).rejects.toMatchObject({ code: "invalid_request" });
+    requests.receive({
+      ...command,
+      type: "bridge.receipt",
+      ok: true,
+      result: { ...snapshot, privateDraft: "not allowed" },
+    });
+    await rejected;
+    expect(() =>
+      parseBridgeRecord({
+        ...command,
+        type: "bridge.receipt",
+        ok: true,
+        result: { ...snapshot, reportedExtensionPaths: Array(2048).fill(`/${"p".repeat(4095)}`) },
+      }),
+    ).toThrow("128 KiB");
     requests.cancel("done");
   });
 

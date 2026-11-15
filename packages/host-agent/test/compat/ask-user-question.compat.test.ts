@@ -6,6 +6,7 @@ import {
   type CompatSession,
   compatSkipReason,
   declaredTool,
+  legacyBoundAdapter,
   pluginInfo,
   recordResult,
   startCompatHarness,
@@ -74,6 +75,32 @@ describe.skipIf(skip !== null)(`ask-user-question compat${skip ? ` (${skip})` : 
     const before = s.settledCount();
     const pending = await askAndClaim(s);
     results.formRequests = structuredClone(s.uiRequests);
+    if (await legacyBoundAdapter(h, s, "pi-ask-user-question", "ask-user-question")) {
+      expect(pending.adapterId).toBeNull();
+      expect(
+        await s.answer(pending, { kind: "form", values: { value: "1. Apple - Red and crisp" } }),
+      ).toMatchObject({
+        status: "answered",
+      });
+      await waitFor(
+        () => s.latestInteractions().some((i) => i.id !== pending.id && i.state === "pending"),
+        30000,
+        "generic toppings input",
+      );
+      const next = s
+        .latestInteractions()
+        .find((i) => i.id !== pending.id && i.state === "pending")!;
+      expect(next.adapterId).toBeNull();
+      expect(await s.answer(next, { kind: "form", values: { value: "1,3" } })).toMatchObject({
+        status: "answered",
+      });
+      await s.waitSettled(before);
+      expect(s.toolEnds("ask_user_question").at(-1)?.result?.details?.answers).toMatchObject([
+        { header: "Fruit", answer: "Apple" },
+        { header: "Toppings", selected: ["A", "C"] },
+      ]);
+      return;
+    }
     expect(pending.adapterId).toBe("ask-user-question");
     // Claimed by the adapter pi-ask-user-question ships, loaded through the plugin tier.
     expect(h.adapter("ask-user-question")).toMatchObject({ tier: "plugin" });
@@ -137,6 +164,45 @@ describe.skipIf(skip !== null)(`ask-user-question compat${skip ? ` (${skip})` : 
     const s = await h.startSession();
     const before = s.settledCount();
     const pending = await askAndClaim(s);
+    if (await legacyBoundAdapter(h, s, "pi-ask-user-question", "ask-user-question")) {
+      expect(pending.adapterId).toBeNull();
+      expect(
+        await s.answer(pending, { kind: "form", values: { value: "3. Type something." } }),
+      ).toMatchObject({ status: "answered" });
+      await waitFor(
+        () => s.latestInteractions().some((i) => i.id !== pending.id && i.state === "pending"),
+        30000,
+        "generic free text input",
+      );
+      const input = s
+        .latestInteractions()
+        .find((i) => i.id !== pending.id && i.state === "pending")!;
+      expect(input.adapterId).toBeNull();
+      expect(await s.answer(input, { kind: "form", values: { value: "Durian" } })).toMatchObject({
+        status: "answered",
+      });
+      await waitFor(
+        () =>
+          s
+            .latestInteractions()
+            .some((i) => i.id !== pending.id && i.id !== input.id && i.state === "pending"),
+        30000,
+        "generic toppings input",
+      );
+      const next = s
+        .latestInteractions()
+        .find((i) => i.id !== pending.id && i.id !== input.id && i.state === "pending")!;
+      expect(next.adapterId).toBeNull();
+      expect(await s.answer(next, { kind: "form", values: { value: "2" } })).toMatchObject({
+        status: "answered",
+      });
+      await s.waitSettled(before);
+      expect(s.toolEnds("ask_user_question").at(-1)?.result?.details?.answers).toMatchObject([
+        { header: "Fruit", answer: "Durian" },
+        { header: "Toppings", selected: ["B"] },
+      ]);
+      return;
+    }
     expect(pending.adapterId).toBe("ask-user-question");
     const r = await s.answer(pending, {
       kind: "form",

@@ -4,6 +4,7 @@ import {
   type CompatHarness,
   compatSkipReason,
   declaredTool,
+  legacyBoundAdapter,
   pluginInfo,
   recordResult,
   startCompatHarness,
@@ -59,10 +60,25 @@ describe.skipIf(skip !== null)(`todo panel compat${skip ? ` (${skip})` : ""}`, (
     results.toolEnds = ends;
     expect(ends).toHaveLength(3);
     for (const e of ends) expect(e.isError).toBe(false);
+    if (await legacyBoundAdapter(h, s, "pi-todo", "todo")) {
+      expect(JSON.stringify(ends)).toContain("Write the compat tests");
+      expect(s.panels().filter((p) => p.adapterId === "todo")).toEqual([]);
+      return;
+    }
 
-    const panel = s.panels().find((p) => p.adapterId === "todo" && p.slot === "todo");
+    const panel = s
+      .panels()
+      .find(
+        (p) =>
+          p.adapterId === "todo" &&
+          p.node &&
+          (p.slot === "todo" || p.contribution?.placement === "session.panel"),
+      );
     results.panel = panel;
-    expect(panel).toBeTruthy();
+    expect(
+      panel,
+      JSON.stringify({ panels: s.panels(), adapters: h.agent.supervisor.sessionAdapters(s.id) }),
+    ).toBeTruthy();
     // Published by the adapter pi-todo ships, loaded through the plugin tier.
     expect(h.adapter("todo")).toMatchObject({ tier: "plugin" });
     expect(panel!.title).toBe("Todo");

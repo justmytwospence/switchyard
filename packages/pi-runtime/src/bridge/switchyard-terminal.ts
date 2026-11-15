@@ -23,6 +23,7 @@ import { LineSplitter } from "./lines.js";
 import { createMessageDelivery } from "./message-delivery.js";
 import { modelInfo } from "./pi-model.js";
 import { installPolicyHooks } from "./policy.js";
+import { resourceSnapshot } from "./resource-snapshot.js";
 
 const PATCHED = Symbol.for("switchyard.terminal");
 const WRAPPED = Symbol.for("switchyard.terminal.wrapped");
@@ -120,6 +121,7 @@ export default function switchyardTerminal(pi: any): void {
   let remoteBacked = 0;
   let nativeDialogs = 0;
   let toolPolicy = false;
+  let snapshotRegistered = false;
   const channel = createAgentChannel({
     send: (record) => {
       try {
@@ -144,9 +146,15 @@ export default function switchyardTerminal(pi: any): void {
         }
       })(),
       toolPolicy,
+      resourceSnapshot: snapshotRegistered,
     }),
     policyRequired: process.env.SWITCHYARD_POLICY_REQUIRED === "1",
   });
+  const removeSnapshot = channel.registerCommand("resources.snapshot", () => {
+    if (!ctx) throw new Error("Session is not ready");
+    return resourceSnapshot(pi, ctx, nativeDialogs + pending.size);
+  });
+  snapshotRegistered = true;
   toolPolicy = installPolicyHooks(pi, channel);
   registerAgentTools(pi, channel);
   const delivery = createMessageDelivery(pi, {
@@ -703,14 +711,33 @@ export default function switchyardTerminal(pi: any): void {
           });
           return;
         }
-        case "reload":
-          if (!ctx) {
-            respond(id, type, undefined, "Session is not ready");
+        case "reload": {
+          const guard = (c: any): string | null => {
+            if (!c) return "Session is not ready";
+            if (!c.isIdle() || c.hasPendingMessages?.()) return "Wait for Pi to become idle";
+            const snapshot = resourceSnapshot(pi, c, nativeDialogs + pending.size);
+            if (snapshot.pendingDialogs > 0) return "Answer the open dialog first";
+            if (snapshot.hasEditorDraft) return "Clear the terminal editor draft before reloading";
+            return null;
+          };
+          const error = guard(ctx);
+          if (error) {
+            respond(id, type, undefined, error);
             return;
           }
-          respond(id, type);
-          runInternal((c) => c.reload());
+          runInternal(async (c) => {
+            // Recheck at the actual command boundary, not just when queued by the host.
+            const error = guard(c);
+            if (error || typeof c.reload !== "function") {
+              respond(id, type, undefined, error ?? "This Pi cannot reload extensions");
+              return;
+            }
+            respond(id, type);
+            await c.reload();
+            return;
+          });
           return;
+        }
         case "complete": {
           const text = String(cmd.text ?? "");
           if (!completer?.getSuggestions || !/^\/\S+ /.test(text) || text.includes("\n")) {
@@ -951,6 +978,8 @@ export default function switchyardTerminal(pi: any): void {
     send({ type: "ui_prompt", event: event.type, kind: event.kind, title: event.title ?? null });
   });
   on("session_shutdown", () => {
+    snapshotRegistered = false;
+    removeSnapshot();
     delivery.close();
     channel.close();
   });

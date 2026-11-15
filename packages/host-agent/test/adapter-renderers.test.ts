@@ -23,6 +23,14 @@ const manifest = (id: string) => ({
   webRenderer: "renderer.html",
   capabilities: ["panels" as const],
 });
+const session = (sessionId: string, cwd: string) => ({
+  sessionId,
+  cwd,
+  resources: { status: "available" as const, extensions: [], diagnostics: [] },
+  reportedExtensionPaths: [],
+  projectTrusted: true,
+  extensionsDisabled: false,
+});
 const projectAdapter = (root: string, id: string, html: string) => {
   const dir = join(root, ".switchyard", "adapters", id);
   mkdirSync(dir, { recursive: true });
@@ -38,14 +46,74 @@ describe("published adapter renderer catalog", () => {
     const adapterDir = projectAdapter(root, "frame", "first");
     const catalog = new AdapterCatalog({ ownerDir: temp(), env: { PI_CODING_AGENT_DIR: temp() } });
     await catalog.init();
-    await catalog.forWorkspace(root);
+    await catalog.forSession(session("project", root));
     expect(catalog.renderers()).toEqual({ frame: "first" });
     writeFileSync(join(adapterDir, "renderer.html"), "second");
-    await catalog.forWorkspace(root);
+    await catalog.forSession(session("project", root));
     expect(catalog.renderers()).toEqual({ frame: "second" });
     rmSync(adapterDir, { recursive: true });
-    await catalog.forWorkspace(root);
+    await catalog.forSession(session("project", root));
     expect(catalog.renderers()).toEqual({});
+  });
+
+  it("keys renderer snapshots by session, stages ambiguity, and removes it on release", async () => {
+    const root = temp();
+    const dir = projectAdapter(root, "frame", "first");
+    const catalog = new AdapterCatalog({ ownerDir: temp(), env: { PI_CODING_AGENT_DIR: temp() } });
+    await catalog.init();
+    await catalog.forSession(session("one", root));
+    writeFileSync(join(dir, "renderer.html"), "second");
+    const candidate = await catalog.prepareSession(session("two", root));
+    expect(catalog.renderers()).toEqual({ frame: "first" });
+    expect(catalog.sessionInfo("two")).toEqual([]);
+    expect(catalog.sessionDiagnostics("one")).toEqual([]);
+    candidate.commit();
+    expect(catalog.renderers()).toEqual({});
+    for (const id of ["one", "two"]) {
+      expect(catalog.sessionInfo(id)[0].webRenderer).toBe(false);
+      expect(catalog.sessionDiagnostics(id)).toEqual([
+        expect.objectContaining({
+          sessionId: id,
+          adapterId: "frame",
+          message: expect.stringContaining("Ambiguous"),
+        }),
+      ]);
+    }
+    await catalog.forSession(session("unrelated", temp()));
+    expect(catalog.sessionDiagnostics("unrelated")).toEqual([]);
+    catalog.releaseSession("two");
+    expect(catalog.renderers()).toEqual({ frame: "first" });
+    expect(catalog.sessionDiagnostics("one")).toEqual([]);
+    expect(catalog.sessionInfo("two")).toEqual([]);
+    catalog.releaseSession("one");
+    expect(catalog.renderers()).toEqual({});
+    expect(catalog.info()).toEqual([]);
+  });
+
+  it("does not pin startup owner renderer bytes across a committed refresh", async () => {
+    const root = temp();
+    const dir = projectAdapter(root, "owner", "first");
+    const catalog = new AdapterCatalog({ ownerDir: dir, env: { PI_CODING_AGENT_DIR: temp() } });
+    await catalog.init();
+    expect(catalog.renderers()).toEqual({ owner: "first" });
+    writeFileSync(join(dir, "renderer.html"), "updated");
+    await catalog.forSession(session("owner-refresh", temp()));
+    expect(catalog.renderers()).toEqual({ owner: "updated" });
+  });
+
+  it("fails portable when UTF-8 decoding expands an otherwise bounded renderer", async () => {
+    const root = temp();
+    const dir = projectAdapter(root, "invalid", "first");
+    writeFileSync(join(dir, "renderer.html"), Buffer.alloc(256 * 1024, 0xff));
+    const catalog = new AdapterCatalog({ ownerDir: temp(), env: { PI_CODING_AGENT_DIR: temp() } });
+    await catalog.forSession(session("invalid", root));
+    expect(catalog.renderers()).toEqual({});
+    expect(catalog.sessionDiagnostics("invalid")).toEqual([
+      expect.objectContaining({
+        sessionId: "invalid",
+        message: expect.stringContaining("decoded HTML exceeds 256 KiB"),
+      }),
+    ]);
   });
 
   it("caps the combined map in stable adapter-ID order", async () => {
@@ -97,8 +165,9 @@ describe("published adapter renderer catalog", () => {
     });
     await catalog.init();
     expect(catalog.renderers()).toEqual({ frame: "base" });
+    await catalog.forSession(session("base", temp()));
     const project = projectAdapter(root, "frame", "different");
-    await catalog.forWorkspace(root);
+    await catalog.forSession(session("project", root));
     expect(catalog.renderers()).toEqual({});
     expect(
       catalog
@@ -108,14 +177,14 @@ describe("published adapter renderer catalog", () => {
     ).toBe(true);
     expect(diagnostics.some((d) => d.includes("Ambiguous"))).toBe(true);
     writeFileSync(join(project, "renderer.html"), "base");
-    await catalog.forWorkspace(root);
+    await catalog.forSession(session("project", root));
     expect(catalog.renderers()).toEqual({ frame: "base" });
     writeFileSync(join(project, "renderer.html"), "x".repeat(256 * 1024 + 1));
-    await catalog.forWorkspace(root);
+    await catalog.forSession(session("project", root));
     expect(catalog.renderers()).toEqual({});
     expect(diagnostics.some((d) => d.includes("256 KiB"))).toBe(true);
     rmSync(join(project, "renderer.html"));
-    await catalog.forWorkspace(root);
+    await catalog.forSession(session("project", root));
     expect(catalog.renderers()).toEqual({});
     expect(diagnostics.some((d) => d.includes("does not exist"))).toBe(true);
   });

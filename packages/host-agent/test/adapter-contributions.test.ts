@@ -2,8 +2,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ManagedSession } from "@switchyard/pi-runtime";
 import type { Panel } from "@switchyard/protocol";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type HostHarness, mockProfile, startHarness, tempDir } from "./helpers.js";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { type HostHarness, mockProfile, seedSession, startHarness, tempDir } from "./helpers.js";
 
 /** Exercise the persistence boundary without launching Pi or modifying the real adapter directory. */
 describe("host adapter contributions", () => {
@@ -25,11 +25,41 @@ describe("host adapter contributions", () => {
   });
   beforeAll(async () => {
     h = await startHarness({ withPi: false });
+    seedSession(h, id, { cwd: workspace.path });
+    // This persistence fixture has no Pi process. Supply explicit live trust/resource evidence
+    // rather than relying on the old cwd-only catalog API to authorize project code.
+    vi.spyOn(h.agent.supervisor as any, "adapterResources").mockResolvedValue({
+      resources: { status: "available", extensions: [], diagnostics: [] },
+      projectTrusted: true,
+      reportedExtensionPaths: [],
+      extensionsDisabled: false,
+    });
+  });
+  afterEach(() => {
+    const supervisor = h.agent.supervisor as any;
+    supervisor.live.get(id)?.adapters?.close();
+    supervisor.live.delete(id);
+    supervisor.opts.catalog.releaseSession(id);
   });
   afterAll(async () => {
+    vi.restoreAllMocks();
     await h?.dispose();
     workspace.cleanup();
   });
+  const liveSession = (cwd: string) => {
+    const supervisor = h.agent.supervisor as any;
+    const live = {
+      rec: { ...supervisor.getRecord(id), cwd },
+      // This persistence-only fixture supplies a ready runtime; no Pi process is launched.
+      ms: { isAlive: true, bridgeFeatures: null },
+      registry: null,
+      adapters: null,
+      adapterActionCount: 0,
+      adapterMaintenance: false,
+    };
+    supervisor.live.set(id, live);
+    return live;
+  };
 
   it("round-trips metadata/state and tombstones only missing adapters on opening", async () => {
     const dir = join(workspace.path, ".switchyard", "adapters", "present");
@@ -64,16 +94,14 @@ describe("host adapter contributions", () => {
         contribution: { id: "keep", placement: "session.panel" },
       }),
     );
-    const live = { rec: { id }, registry: null, adapters: null };
+    const live = liveSession(workspace.path);
     await supervisor.openAdapters(live, workspace.path);
     expect(live.adapters).toBeTruthy();
     expect(supervisor.panels(id).map((p: Panel) => [p.adapterId, p.slot])).toEqual(
-      expect.arrayContaining([
-        ["present", "@slot/keep"],
-        ["missing", "legacy"],
-      ]),
+      expect.arrayContaining([["present", "@slot/keep"]]),
     );
     expect(supervisor.panels(id).some((p: Panel) => p.slot === "@slot/gone")).toBe(false);
+    expect(supervisor.panels(id).some((p: Panel) => p.slot === "legacy")).toBe(false);
     await h.coord.waitUntil(() =>
       h.coord
         .eventsOf("panel.updated", id)
@@ -98,12 +126,11 @@ describe("host adapter contributions", () => {
       "onAction failed: failed",
     );
     expect(supervisor.panels(id).some((p: Panel) => p.slot === "@slot/keep")).toBe(false);
-    expect(supervisor.panels(id).some((p: Panel) => p.slot === "legacy")).toBe(true);
-    supervisor.live.delete(id);
+    expect(supervisor.panels(id).some((p: Panel) => p.slot === "legacy")).toBe(false);
     rmSync(dir, { recursive: true });
     await supervisor.openAdapters(live, workspace.path);
     expect(supervisor.panels(id).some((p: Panel) => p.slot === "@slot/keep")).toBe(false);
-    expect(supervisor.panels(id).some((p: Panel) => p.slot === "legacy")).toBe(true);
+    expect(supervisor.panels(id).some((p: Panel) => p.slot === "legacy")).toBe(false);
   });
 
   it("emits authoritative renderer content changes and removals without metadata changes", async () => {
@@ -127,7 +154,7 @@ describe("host adapter contributions", () => {
       const file = join(dir, "renderer.html");
       writeFileSync(file, "first");
       const supervisor = h.agent.supervisor as any;
-      const live = { rec: { id }, registry: null, adapters: null };
+      const live = liveSession(root.path);
       const updates = () =>
         h.coord
           .eventsOf("adapters.updated")
@@ -189,6 +216,7 @@ describe("host adapter contributions", () => {
     const item = notices[0];
     let resolve!: (value: { adapterId: string; node: { t: "text"; text: string } }) => void;
     const live = {
+      rec: { adapterGeneration: undefined },
       ms,
       adapters: {
         customMessageCard: () =>
@@ -227,7 +255,8 @@ describe("host adapter contributions", () => {
     resolve({ adapterId: "present", node: { t: "text", text: "rewound" } });
     await rewound;
     expect(notices).toHaveLength(before);
-    await expect(supervisor.adapterAction("missing", "present", "run", {})).rejects.toThrow(
+    const generation = supervisor.getRecord(id).adapterGeneration;
+    await expect(supervisor.adapterAction(id, "present", "run", {}, generation)).rejects.toThrow(
       "Session is not running",
     );
   });

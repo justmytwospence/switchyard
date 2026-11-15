@@ -30,6 +30,7 @@ import type {
   BridgeRequestOptions,
   BridgeState,
 } from "./bridge-wire.js";
+import { type ResourceSnapshot, ResourceSnapshotData } from "./bridge-wire.js";
 import { readArgumentHint } from "./command-hints.js";
 import { readSessionNameSync } from "./importable.js";
 import { type PiExit, PiRpcError, PiRpcProcess, screenTail } from "./rpc-process.js";
@@ -272,6 +273,8 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
   private readonly policyWaiting = new Set<string>();
   private _bridgeFeatures: BridgeFeatures | null = null;
   private _bridge: SessionBridgeState | null = null;
+  private resourceBinding: BridgeConfiguration | null = null;
+  private reloading = false;
 
   private current: { blocks: Map<number, Block> } | null = null;
   private readonly tools = new Map<string, ToolItem>();
@@ -376,6 +379,43 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     return this.proc.bridgeRequest<T>(method, args, options);
   }
 
+  /** A live, identity-fenced read. This does not require message delivery or an editor guard. */
+  async resources(): Promise<ResourceSnapshot> {
+    const features = this._bridgeFeatures;
+    if (!features?.capabilities.resourceSnapshot)
+      throw new SwitchyardError(
+        "unsupported_capability",
+        "The live Pi bridge does not support resource inspection",
+      );
+    const binding = this.resourceBinding;
+    if (!binding)
+      throw new SwitchyardError(
+        "conflict",
+        "Configure the live Pi bridge before resource inspection",
+      );
+    const result = await this.bridgeRequest("resources.snapshot", {}, { timeoutMs: 5000 });
+    if (this._bridgeFeatures !== features || this.resourceBinding !== binding)
+      throw new SwitchyardError("conflict", "Bridge identity changed during resource inspection");
+    const parsed = ResourceSnapshotData.safeParse(result);
+    if (!parsed.success)
+      throw new SwitchyardError("invalid_request", "Invalid resource snapshot response");
+    return {
+      ...parsed.data,
+      runtimeId: features.runtimeId,
+      nativeSessionId: features.nativeSessionId,
+      bindingId: binding.bindingId,
+    };
+  }
+
+  /** Injected host bridges/test extensions never authorize package adapters in Vanilla. */
+  get extensionsDisabled(): boolean {
+    return (
+      this.opts.profile.resources === "vanilla" ||
+      this.opts.profile.extraArgs.includes("--no-extensions") ||
+      (this.opts.extraArgs ?? []).includes("--no-extensions")
+    );
+  }
+
   replyAgent(frame: BridgeAgentResult): void {
     if (frame.runtimeId !== this._bridgeFeatures?.runtimeId) return;
     this.proc?.replyAgent(frame);
@@ -399,6 +439,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     ) {
       throw new SwitchyardError("conflict", "Bridge configuration identity changed");
     }
+    this.resourceBinding = null;
     // A hello advertises installed capabilities, not negotiated or active protection.
     // Reconfiguration must also stop advertising the previous receipt's enabled state.
     this._bridge = {
@@ -426,6 +467,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       policyState: receipt.data.policyState,
       policyPhases: [...receipt.data.policyPhases],
     };
+    this.resourceBinding = { ...args, features: [...args.features] };
     return result;
   }
 
@@ -723,7 +765,50 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     if (!(proc instanceof PiTerminalProcess)) {
       throw new SwitchyardError("invalid_request", "Reload needs a terminal session");
     }
-    await this.call(proc, { type: "reload" }, 10000);
+    const before = this._bridgeFeatures;
+    if (!before?.capabilities.resourceSnapshot)
+      throw new SwitchyardError(
+        "unsupported_capability",
+        "The live Pi bridge cannot confirm native reload completion",
+      );
+    if (this.reloading) throw new SwitchyardError("conflict", "Pi reload is already in progress");
+    this.reloading = true;
+    const unknown = () =>
+      new SwitchyardError(
+        "timeout",
+        "Pi reload was requested but completion could not be confirmed. Check the terminal before retrying.",
+      );
+    let cleanup = () => {};
+    try {
+      // Subscribe before sending: a fast reload can replace the bridge before the ACK arrives.
+      const replacement = new Promise<void>((resolve, reject) => {
+        const changed = (next: BridgeFeatures) => {
+          if (next.nativeSessionId !== before.nativeSessionId) {
+            reject(new SwitchyardError("conflict", "Native session changed during Pi reload"));
+          } else if (next.runtimeId !== before.runtimeId) resolve();
+        };
+        const exited = () => reject(unknown());
+        const timer = setTimeout(() => reject(unknown()), 30_000);
+        this.on("bridge_features", changed);
+        this.on("exit", exited);
+        cleanup = () => {
+          clearTimeout(timer);
+          this.off("bridge_features", changed);
+          this.off("exit", exited);
+        };
+      });
+      // Install both rejection handlers immediately; never retry a command with unknown effects.
+      await Promise.all([
+        replacement,
+        this.call(proc, { type: "reload" }, 30_000).catch((error) => {
+          if (error?.code === "timeout" || error?.code === "host_unreachable") throw unknown();
+          throw error;
+        }),
+      ]);
+    } finally {
+      cleanup();
+      this.reloading = false;
+    }
   }
 
   /** Abort the current run; with `clearQueue`, first clear and return queued messages. */
@@ -1034,6 +1119,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
       this._bridgeFeatures !== null ||
       (this._bridge !== null && this._bridge.policyState !== "lost");
     this._bridgeFeatures = null;
+    this.resourceBinding = null;
     if (this._bridge) this._bridge.policyState = "lost";
     this.policyWaiting.clear();
     this.setRuntime();
@@ -1052,6 +1138,7 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     });
     proc.on("bridge_features", (features: BridgeFeatures) => {
       this.policyWaiting.clear();
+      this.resourceBinding = null;
       this._bridgeFeatures = structuredClone(features);
       this._bridge = {
         version: features.version,

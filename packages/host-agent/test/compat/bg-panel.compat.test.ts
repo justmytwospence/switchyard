@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type CompatHarness,
   compatSkipReason,
+  legacyBoundAdapter,
   pluginInfo,
   recordResult,
   startCompatHarness,
@@ -49,13 +50,30 @@ describe.skipIf(skip !== null)(`bg panel compat${skip ? ` (${skip})` : ""}`, () 
     expect(end?.isError).toBe(false);
 
     expect(end?.result?.details?.id).toEqual(expect.any(String));
+    if (await legacyBoundAdapter(h, s, "pi-bg", "bg")) {
+      expect(s.panels().filter((p) => p.adapterId === "bg")).toEqual([]);
+      return;
+    }
 
-    const bgPanel = () => s.panels().find((p) => p.adapterId === "bg" && p.slot === "bg");
+    const bgPanel = () =>
+      s
+        .panels()
+        .find(
+          (p) =>
+            p.adapterId === "bg" &&
+            p.node &&
+            (p.slot === "bg" || p.contribution?.placement === "session.panel"),
+        );
     const updates = () =>
       h.coord
         .eventsOf("panel.updated", s.id)
         .map((e) => e.data as any)
-        .filter((p) => p.adapterId === "bg" && p.slot === "bg");
+        .filter(
+          (p) =>
+            p.adapterId === "bg" &&
+            p.node &&
+            (p.slot === "bg" || p.contribution?.placement === "session.panel"),
+        );
     // While the job runs: "bg: compat 0:01" style elapsed time.
     await waitFor(() => updates().length > 0, 10000, "bg panel");
     const running = updates()[0];

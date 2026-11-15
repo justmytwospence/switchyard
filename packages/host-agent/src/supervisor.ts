@@ -28,6 +28,7 @@ import {
   type PiEvent,
   type PiUiRequest,
   readNativeTranscript,
+  resolveInstalledPiResources,
   type SettledInfo,
   socketDirs,
   sweepHolders,
@@ -37,6 +38,7 @@ import {
 import {
   type AnswerResult,
   canonicalPolicyJson,
+  type Diagnostic,
   type HostPolicyBoundary,
   HostPolicySampleRequest,
   HostPolicySampleResult,
@@ -53,6 +55,7 @@ import {
   type PromptCacheInfo,
   type RuntimeState,
   type Session,
+  type SessionAdaptersResult,
   type SessionModel,
   type SessionStats,
   type SnapshotResult,
@@ -144,6 +147,8 @@ export interface HostSessionRecord {
   /** Protection is a launch requirement, latched across resumes. */
   policyRequired?: boolean;
   bridge?: Session["bridge"];
+  adapterGeneration?: string;
+  requiresAdapterGeneration?: boolean;
   runtime: RuntimeState;
   runtimeDetail: string | null;
   controlRevision: number;
@@ -250,6 +255,14 @@ interface Live {
   statsRequest: number;
   /** Terminal sessions: the open "waiting in the terminal" interaction. */
   terminalPrompt: string | null;
+  adapterMaintenance: boolean;
+  adapterActionCount: number;
+  adapterRefreshPending: string | null;
+  adapterRefreshAttempted: string | null;
+  nativeDialogOpen: boolean;
+  launchPromptPending: boolean;
+  startReady: Promise<void>;
+  markStartReady(): void;
 }
 
 const LIVE_RUNTIMES: RuntimeState[] = ["starting", "idle", "running", "waiting_input"];
@@ -366,6 +379,7 @@ export class SessionSupervisor {
   private readonly live = new Map<string, Live>();
   private readonly cardGenerations = new WeakMap<ManagedSession, number>();
   private readonly records = new Map<string, HostSessionRecord>();
+  private readonly adapterDiagnostics = new Map<string, Diagnostic[]>();
   private spawned = 0;
   private closing = false;
   /** Control changes for sessions this host has not created yet. */
@@ -556,7 +570,6 @@ export class SessionSupervisor {
     if (!socketPath) return "stopped";
     const l = this.newLive(rec);
     this.live.set(rec.id, l);
-    await this.openAdapters(l, rec.cwd);
     const ms = new ManagedSession({
       sessionId: rec.id,
       cwd: rec.cwd,
@@ -573,8 +586,13 @@ export class SessionSupervisor {
     });
     l.ms = ms;
     this.wire(l, ms);
+    this.enqueue(l, async () => {
+      await this.openAdapters(l, rec.cwd);
+    });
     try {
       await ms.start();
+      l.markStartReady();
+      await l.chain;
       // Stopped while it was still starting: nothing to mark lost.
       if (ms.runtime === "stopped") return "stopped";
       return "reattached";
@@ -605,6 +623,10 @@ export class SessionSupervisor {
   }
 
   private newLive(rec: HostSessionRecord): Live {
+    let markStartReady!: () => void;
+    const startReady = new Promise<void>((resolve) => {
+      markStartReady = resolve;
+    });
     // A new attachment has its own accounting epoch, even when Pi's bridge survived reattach.
     // Drop prior evidence before the starting/reattached record can be published.
     if (rec.stats?.watermark) {
@@ -632,34 +654,303 @@ export class SessionSupervisor {
       usageEpoch: 0,
       statsRequest: 0,
       terminalPrompt: null,
+      adapterMaintenance: false,
+      adapterActionCount: 0,
+      adapterRefreshPending: null,
+      adapterRefreshAttempted: null,
+      nativeDialogOpen: false,
+      launchPromptPending: false,
+      startReady,
+      markStartReady,
     };
   }
 
-  private async openAdapters(l: Live, workspacePath: string): Promise<void> {
+  private async adapterResources(l: Live) {
+    // Pi may spend its startup budget compiling extensions or asking for project trust.
+    // The short inspection deadline starts only once get_state has confirmed readiness.
+    await l.startReady;
+    const ms = l.ms;
+    let projectTrusted: boolean | null = null;
+    let reportedExtensionPaths: string[] = [];
+    const unavailable = {
+      status: "unavailable" as const,
+      extensions: [],
+      diagnostics: [] as string[],
+    };
+    const extensionsDisabled =
+      l.rec.profile.resources === "vanilla" || l.rec.profile.extraArgs.includes("--no-extensions");
+    if (extensionsDisabled)
+      return {
+        resources: { ...unavailable, status: "available" as const },
+        projectTrusted,
+        reportedExtensionPaths,
+        extensionsDisabled,
+      };
     try {
-      l.registry = await this.opts.catalog.forWorkspace(workspacePath);
-      this.emitAdapters();
-      const loaded = new Set(l.registry.adapters().map((adapter) => adapter.manifest.id));
-      for (const panel of this.panels(l.rec.id)) {
-        if (panel.contribution && !loaded.has(panel.adapterId)) {
-          this.setPanel(l.rec.id, { ...panel, node: null });
+      if (!ms?.isAlive) throw new Error("Pi stopped before resource inspection");
+      // Resource inspection has its own authenticated read-only binding. It must not
+      // inherit the Pi-version gate for optional orchestration/policy enforcement.
+      if (!ms.bridgeFeatures) {
+        await new Promise<void>((resolve, reject) => {
+          const ready = () => {
+            clearTimeout(timer);
+            ms.off("exit", exited);
+            resolve();
+          };
+          const exited = () => {
+            clearTimeout(timer);
+            ms.off("bridge_features", ready);
+            reject(new Error("Pi stopped before reporting resources"));
+          };
+          const timer = setTimeout(() => {
+            ms.off("bridge_features", ready);
+            ms.off("exit", exited);
+            reject(new Error("Pi resource snapshot is unavailable"));
+          }, 5000);
+          ms.once("bridge_features", ready);
+          ms.once("exit", exited);
+        });
+      }
+      if (!ms.bridgeFeatures?.capabilities.resourceSnapshot)
+        throw new Error("The live Pi bridge does not report resources");
+      // A holder may announce the same runtime twice while attaching, replacing the first
+      // configure. Retry only this read when an observed binding actually changed, never a
+      // mutation or an unexplained timeout. Rapidly changing runtimes remain unavailable.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const binding = l.binding;
+        try {
+          await binding;
+          if (binding !== l.binding) throw new Error("Pi resource binding changed");
+          const runtimeId: string | undefined = ms.bridgeFeatures?.runtimeId;
+          const snapshot = await ms.resources();
+          if (ms.bridgeFeatures?.runtimeId !== runtimeId || l.ms !== ms || binding !== l.binding)
+            throw new Error("Pi changed while reading resources");
+          if (realpathOr(snapshot.cwd) !== realpathOr(l.rec.cwd))
+            throw new Error("Pi resource snapshot belongs to another workspace");
+          projectTrusted = snapshot.projectTrusted;
+          reportedExtensionPaths = snapshot.reportedExtensionPaths;
+          const resources = await resolveInstalledPiResources({
+            piBin: this.opts.piBin ?? "pi",
+            cwd: l.rec.cwd,
+            env: { ...process.env, ...this.opts.env },
+            projectTrusted: projectTrusted === true,
+            extensionsDisabled,
+          });
+          if (ms.bridgeFeatures?.runtimeId !== runtimeId || l.ms !== ms || binding !== l.binding)
+            throw new Error("Pi changed while resolving resources");
+          return { resources, projectTrusted, reportedExtensionPaths, extensionsDisabled };
+        } catch (err) {
+          if (attempt < 2 && l.ms === ms && binding !== l.binding) continue;
+          throw err;
         }
       }
-      l.adapters = l.registry.openSession({
-        initialPanels: this.panels(l.rec.id),
-        sessionId: l.rec.id,
-        emit: (effect) => this.onAdapterEffect(l, effect),
-        initialState: this.loadAdapterState(l.rec.id),
-      });
+      throw new Error("Pi resource binding did not settle");
     } catch (err) {
-      this.opts.log.warn({ err: errorMessage(err) }, "adapter loading failed; using generic only");
+      unavailable.diagnostics.push(errorMessage(err));
+      return { resources: unavailable, projectTrusted, reportedExtensionPaths, extensionsDisabled };
+    }
+  }
+
+  private async openAdapters(
+    l: Live,
+    _workspacePath: string,
+    replacing = false,
+  ): Promise<string | null> {
+    const discovery = await this.adapterResources(l);
+    if (!replacing && !l.ms?.isAlive) return null;
+    const managed = l.ms;
+    const resourceRuntime = managed?.bridgeFeatures?.runtimeId ?? null;
+    if (
+      replacing &&
+      discovery.resources.status === "unavailable" &&
+      l.ms?.bridgeFeatures?.capabilities.resourceSnapshot
+    ) {
+      throw new SwitchyardError(
+        "conflict",
+        "Could not refresh Pi resources; the current adapters are unchanged",
+        discovery.resources.diagnostics,
+      );
+    }
+    const candidate = await this.opts.catalog.prepareSession({
+      sessionId: l.rec.id,
+      cwd: l.rec.cwd,
+      ...discovery,
+    });
+    const effects: AdapterEffect[] = [];
+    let committed = false;
+    const next = candidate.registry.openSession({
+      sessionId: l.rec.id,
+      initialPanels: this.panels(l.rec.id),
+      initialState: this.loadAdapterState(l.rec.id),
+      emit: (effect) => {
+        if (committed) {
+          if (l.adapters === next && this.live.get(l.rec.id) === l) this.onAdapterEffect(l, effect);
+        } else effects.push(effect);
+      },
+    });
+    try {
+      await next.restore();
+      if (replacing && managed?.bridgeFeatures?.capabilities.resourceSnapshot) {
+        const readiness = await managed.resources();
+        if (readiness.pendingDialogs > 0)
+          throw new SwitchyardError(
+            "conflict",
+            "Wait for Pi to finish and answer pending questions before reloading adapters.",
+          );
+      }
+      if (l.ms !== managed || (managed?.bridgeFeatures?.runtimeId ?? null) !== resourceRuntime)
+        throw new SwitchyardError(
+          "conflict",
+          "Pi changed while loading adapters; its current views are unchanged.",
+        );
+      if (this.live.get(l.rec.id) !== l || (replacing && !l.ms?.isAlive))
+        throw new SwitchyardError("conflict", "Pi stopped while loading adapters");
+      if (replacing && this.adapterReloadBlock(l, true))
+        throw new SwitchyardError(
+          "conflict",
+          "Wait for Pi to finish and answer pending questions before reloading adapters.",
+        );
+      const old = l.adapters;
+      const oldRegistry = l.registry;
+      l.adapters = next;
+      l.registry = candidate.registry;
+      const previousGeneration = l.rec.adapterGeneration;
+      l.rec.adapterGeneration = randomUUID();
+      if (previousGeneration) l.rec.requiresAdapterGeneration = true;
+      if (l.ms) this.cardGenerations.set(l.ms, (this.cardGenerations.get(l.ms) ?? 0) + 1);
+      candidate.commit();
+      old?.close();
+      oldRegistry?.closeSession(l.rec.id);
+      const loaded = new Set(
+        next
+          .statuses()
+          .filter((s) => s.status === "active")
+          .map((s) => s.adapterId),
+      );
+      this.db.tx(() => {
+        this.saveAndEmit(l.rec);
+        for (const panel of this.panels(l.rec.id)) {
+          if (panel.adapterId !== GENERIC_ADAPTER_ID && !loaded.has(panel.adapterId))
+            this.setPanel(l.rec.id, { ...panel, node: null });
+          // Retained historical panels keep their old generation. Only effects published by
+          // the replacement adapter may authorize actions against the new implementation.
+        }
+        committed = true;
+        for (const effect of effects) this.onAdapterEffect(l, effect);
+      });
+      this.emitAdapters();
+      return resourceRuntime;
+    } catch (err) {
+      next.close();
+      candidate.dispose();
+      throw err;
+    }
+  }
+
+  private adapterReloadBlock(l: Live | undefined, ignoreMaintenance = false): string | null {
+    if (!l?.ms?.isAlive) return "Resume the session before reloading adapters.";
+    if (l.rec.readOnly) return "This session is read-only.";
+    if (
+      (!ignoreMaintenance && l.adapterMaintenance) ||
+      l.adapterActionCount > 0 ||
+      l.nativeDialogOpen ||
+      l.launchPromptPending ||
+      l.ms.runtime !== "idle" ||
+      l.ms.compacting ||
+      this.pendingInteractions(l.rec.id).length > 0 ||
+      this.db.get(
+        "SELECT id FROM interactions WHERE session_id = ? AND state = 'unsupported' AND json_extract(json, '$.resolution') IS NULL LIMIT 1",
+        [l.rec.id],
+      ) ||
+      (l.adapters?.activeToolCalls().length ?? 0) > 0 ||
+      Object.keys(l.adapters?.queuedAnswers() ?? {}).length > 0
+    ) {
+      return "Wait for Pi to finish and answer pending questions before reloading adapters.";
+    }
+    return null;
+  }
+
+  sessionAdapters(sessionId: string): SessionAdaptersResult {
+    const rec = this.requireRecord(sessionId);
+    const l = this.live.get(sessionId);
+    const statuses = new Map(l?.adapters?.statuses().map((s) => [s.adapterId, s]) ?? []);
+    const blockedReason = this.adapterReloadBlock(l);
+    return {
+      generation: rec.adapterGeneration ?? null,
+      runtimeId: l?.ms?.bridgeFeatures?.runtimeId ?? null,
+      reloadable: blockedReason === null,
+      blockedReason,
+      adapters: this.opts.catalog
+        .sessionInfo(sessionId)
+        .slice(0, 256)
+        .map((info) => ({
+          ...info,
+          runtimeStatus:
+            info.status === "active"
+              ? (statuses.get(info.id)?.status ?? "unavailable")
+              : info.status === "disabled"
+                ? "disabled"
+                : "unavailable",
+          runtimeDetail:
+            (info.status === "active" ? statuses.get(info.id)?.detail : info.detail)?.slice(
+              0,
+              4000,
+            ) ?? null,
+        })),
+      diagnostics: [
+        ...this.opts.catalog
+          .sessionDiagnostics(sessionId)
+          .map((d) => ({ ...d, message: d.message.slice(0, 4000), at: nowIso() })),
+        ...(this.adapterDiagnostics.get(sessionId) ?? []),
+      ].slice(-100),
+    };
+  }
+
+  async reloadAdapters(sessionId: string) {
+    const l = this.live.get(sessionId);
+    const blocked = this.adapterReloadBlock(l);
+    if (blocked || !l) throw new SwitchyardError("conflict", blocked ?? "Session is unavailable");
+    l.adapterMaintenance = true;
+    const nativeAtStart = l.ms?.bridgeFeatures?.runtimeId ?? null;
+    try {
+      const task = l.chain.then(async () => {
+        if (this.adapterReloadBlock(l, true))
+          throw new SwitchyardError(
+            "conflict",
+            "Wait for Pi to finish and answer pending questions before reloading adapters.",
+          );
+        const refreshedRuntime = await this.openAdapters(l, l.rec.cwd, true);
+        if (l.adapterRefreshPending === refreshedRuntime) l.adapterRefreshPending = null;
+        this.diagnostic(sessionId, null, "info", "Adapters reloaded.");
+      });
+      l.chain = task.catch(() => {});
+      await task;
+      return { ok: true, generation: l.rec.adapterGeneration! };
+    } finally {
+      l.adapterMaintenance = false;
+      // Do not retry failures in a loop. Only a newer native runtime warrants another refresh.
+      if (l.adapterRefreshPending && l.adapterRefreshPending !== nativeAtStart)
+        this.scheduleAdapterRefresh(l);
+    }
+  }
+
+  private scheduleAdapterRefresh(l: Live): void {
+    if (
+      !l.adapterRefreshPending ||
+      l.adapterRefreshAttempted === l.adapterRefreshPending ||
+      !l.adapters ||
+      this.adapterReloadBlock(l)
+    )
+      return;
+    l.adapterRefreshAttempted = l.adapterRefreshPending;
+    void this.reloadAdapters(l.rec.id).catch((err) => {
       this.diagnostic(
         l.rec.id,
         null,
-        "error",
-        `Adapters could not be loaded: ${errorMessage(err)}`,
+        "warning",
+        `Adapters could not refresh after Pi reload: ${errorMessage(err)}`,
       );
-    }
+    });
   }
 
   record(sessionId: string): HostSessionRecord | undefined {
@@ -813,6 +1104,7 @@ export class SessionSupervisor {
       createdAt: rec.createdAt,
       terminal: rec.terminal != null,
       ...(rec.bridge ? { bridge: rec.bridge } : {}),
+      ...(rec.adapterGeneration ? { adapterGeneration: rec.adapterGeneration } : {}),
     };
   }
 
@@ -970,6 +1262,8 @@ export class SessionSupervisor {
       id: p.sessionId,
       title: p.title,
       subtitle: prev?.subtitle ?? null,
+      adapterGeneration: prev?.adapterGeneration,
+      requiresAdapterGeneration: prev?.requiresAdapterGeneration,
       cwd: p.workspacePath,
       workspaceRoot: prev ? prev.workspaceRoot : p.workspacePath,
       projectId: p.projectId ?? prev?.projectId ?? null,
@@ -999,6 +1293,7 @@ export class SessionSupervisor {
     };
     this.records.set(rec.id, rec);
     const l = this.newLive(rec);
+    l.launchPromptPending = p.initialPrompt !== null;
     this.live.set(rec.id, l);
     this.db.tx(() => this.saveAndEmit(rec));
     if (signal.aborted) return this.canceledStart(l);
@@ -1028,6 +1323,8 @@ export class SessionSupervisor {
     const piStart = Date.now();
     try {
       await ms.start(signal);
+      l.markStartReady();
+      await l.chain;
       if (policyRequired) {
         if (!l.broker)
           throw new SwitchyardError("unsupported_capability", "Agent broker is unavailable");
@@ -1073,7 +1370,21 @@ export class SessionSupervisor {
         : new SwitchyardError("internal", `Pi failed to start: ${errorMessage(err)}`);
     }
     this.spawned++;
-    const promptError = await this.sendInitialPrompt(l, ms, p);
+    let promptError: string | null;
+    try {
+      promptError = await this.sendInitialPrompt(l, ms, p);
+    } finally {
+      l.launchPromptPending = false;
+      if (
+        !this.closing &&
+        this.live.get(rec.id) === l &&
+        rec.runtime === "starting" &&
+        ms.isAlive
+      ) {
+        rec.runtime = ms.runtime;
+        this.db.tx(() => this.saveAndEmit(rec));
+      }
+    }
     return {
       sessionId: rec.id,
       nativeHandle: rec.nativeHandle,
@@ -1172,6 +1483,11 @@ export class SessionSupervisor {
   ) {
     const ms = this.requireLive(sessionId, "prompt");
     const l = this.live.get(sessionId)!;
+    if (l.adapterMaintenance)
+      throw new SwitchyardError(
+        "conflict",
+        "Adapters are reloading; wait before sending a message.",
+      );
     if (l.rec.policyRequired) await l.broker!.ready({ require: "policies" });
     if (origin === "human") await this.recordHumanInput(l);
     const { disposition, view } = await ms.prompt(text, images, mode);
@@ -1242,7 +1558,32 @@ export class SessionSupervisor {
   }
 
   async reload(sessionId: string) {
-    await this.requireLive(sessionId, "reload").reload();
+    const ms = this.requireLive(sessionId, "reload");
+    const l = this.live.get(sessionId)!;
+    const blocked = this.adapterReloadBlock(l);
+    if (blocked) throw new SwitchyardError("conflict", blocked);
+    const snapshot = await ms.resources();
+    if (snapshot.hasEditorDraft || snapshot.pendingDialogs > 0)
+      throw new SwitchyardError(
+        "conflict",
+        "Clear the terminal draft and answer pending questions before reloading Pi.",
+      );
+    const changed = this.adapterReloadBlock(l);
+    if (changed) throw new SwitchyardError("conflict", changed);
+    l.adapterMaintenance = true;
+    try {
+      await ms.reload();
+    } finally {
+      l.adapterMaintenance = false;
+    }
+    try {
+      await this.reloadAdapters(sessionId);
+    } catch (err) {
+      throw new SwitchyardError(
+        "conflict",
+        `Pi reloaded, but its adapters could not refresh: ${errorMessage(err)}`,
+      );
+    }
     return { ok: true };
   }
 
@@ -1335,17 +1676,47 @@ export class SessionSupervisor {
     return { ok: true };
   }
 
-  async adapterAction(sessionId: string, adapterId: string, actionId: string, payload: unknown) {
+  async adapterAction(
+    sessionId: string,
+    adapterId: string,
+    actionId: string,
+    payload: unknown,
+    generation?: string,
+  ) {
+    const rec = this.requireRecord(sessionId);
     const l = this.live.get(sessionId);
+    if (rec.readOnly) throw new SwitchyardError("forbidden", "This session is read-only.");
+    if (l?.adapterRefreshPending)
+      throw new SwitchyardError(
+        "conflict",
+        "Pi reloaded; refresh its extension views before using their actions.",
+      );
+    if (l?.adapterMaintenance)
+      throw new SwitchyardError(
+        "conflict",
+        "Adapters are reloading; reopen this view when they finish.",
+      );
+    if (generation !== undefined && generation !== rec.adapterGeneration)
+      throw new SwitchyardError(
+        "conflict",
+        "This extension view changed. Reopen it before trying again.",
+      );
+    if (generation === undefined && rec.requiresAdapterGeneration)
+      throw new SwitchyardError("conflict", "Reload this client to use extension actions.");
     if (!l?.adapters) {
       throw new SwitchyardError(
         "invalid_request",
         "Session is not running; adapter actions need a live session",
       );
     }
-    const r = await l.adapters.onAction(adapterId, actionId, payload);
-    if (!r.ok) throw new SwitchyardError("invalid_request", r.reason);
-    return { ok: true };
+    l.adapterActionCount++;
+    try {
+      const r = await l.adapters.onAction(adapterId, actionId, payload);
+      if (!r.ok) throw new SwitchyardError("invalid_request", r.reason);
+      return { ok: true };
+    } finally {
+      l.adapterActionCount--;
+    }
   }
 
   snapshot(sessionId: string): SnapshotResult & { runtime: RuntimeState | null } {
@@ -1744,6 +2115,7 @@ export class SessionSupervisor {
     };
     // These lanes must never wait behind a prompt, slash command or adapter callback.
     ms.on("bridge_features", (hello) => {
+      const previousRuntime = l.bridgeRuntimeId;
       policyGeneration++;
       policyIdentity = { runtimeId: hello.runtimeId, nativeSessionId: hello.nativeSessionId };
       if (
@@ -1755,6 +2127,14 @@ export class SessionSupervisor {
         l.accountingNativeSessionId = hello.nativeSessionId;
       }
       l.binding = handle?.hello(hello) ?? null;
+      if (previousRuntime !== null && previousRuntime !== hello.runtimeId && l.adapters) {
+        l.adapterRefreshPending = hello.runtimeId;
+        l.adapterRefreshAttempted = null;
+        void Promise.resolve(l.binding).then(
+          () => this.scheduleAdapterRefresh(l),
+          () => {},
+        );
+      }
       void l.binding?.catch((err: unknown) =>
         this.opts.log.warn(
           { sessionId: rec.id, err: errorMessage(err) },
@@ -1792,6 +2172,9 @@ export class SessionSupervisor {
     ms.on("runtime", ({ runtime, detail }) => {
       if (l.ms !== ms || this.live.get(rec.id) !== l) return;
       const prevRuntime = rec.runtime;
+      // Resource discovery can take time after Pi becomes ready. Do not advertise idle
+      // before the requested launch prompt has been accepted (clients may send/archive).
+      if (runtime === "idle" && l.launchPromptPending && prevRuntime === "starting") return;
       if (runtime === "idle" && (prevRuntime === "running" || prevRuntime === "waiting_input")) {
         // Keep the record busy too: queue/model/native events must not leak an early idle.
         l.deferredIdle = { detail };
@@ -1865,7 +2248,12 @@ export class SessionSupervisor {
       this.enqueue(l, () => this.onUiResolved(l, r));
       this.opts.onDeliveryWake?.(rec.id);
     });
-    ms.on("bridge", (b) => this.enqueue(l, () => this.onBridge(l, b)));
+    ms.on("bridge", (b) => {
+      // Readiness must update outside maintenance's serialized event lane.
+      if (b.type === "ui_prompt_start") l.nativeDialogOpen = true;
+      else if (b.type === "ui_prompt_end") l.nativeDialogOpen = false;
+      this.enqueue(l, () => this.onBridge(l, b));
+    });
     ms.on("pi_event", (ev) => this.enqueue(l, () => this.onPiEvent(l, ev)));
     ms.on("exit", () => {
       policyGeneration++;
@@ -1881,29 +2269,36 @@ export class SessionSupervisor {
   }
 
   private teardown(l: Live): void {
+    l.markStartReady();
     l.broker?.close();
     l.broker = null;
     l.binding = null;
     if (this.live.get(l.rec.id) === l) this.live.delete(l.rec.id);
     l.adapters?.close();
     l.registry?.closeSession(l.rec.id);
+    this.opts.catalog.releaseSession(l.rec.id);
     l.claims.clear();
     l.ms = null;
   }
 
   private enqueue(l: Live, fn: () => Promise<void> | void): void {
-    l.chain = l.chain.then(fn).catch((err: unknown) => {
-      this.opts.log.error(
-        { sessionId: l.rec.id, err: errorMessage(err) },
-        "session event handling failed",
-      );
-      this.diagnostic(
-        l.rec.id,
-        null,
-        "error",
-        `Host failed to handle a Pi event: ${errorMessage(err)}`,
-      );
-    });
+    l.chain = l.chain
+      .then(fn)
+      .then(() => this.scheduleAdapterRefresh(l))
+      .catch((err: unknown) => {
+        // Queued startup/resource work may settle after Stop or host shutdown closed the DB.
+        if (this.closing || this.live.get(l.rec.id) !== l) return;
+        this.opts.log.error(
+          { sessionId: l.rec.id, err: errorMessage(err) },
+          "session event handling failed",
+        );
+        this.diagnostic(
+          l.rec.id,
+          null,
+          "error",
+          `Host failed to handle a Pi event: ${errorMessage(err)}`,
+        );
+      });
   }
 
   /** Invalidate in-flight reads and never carry completed-usage evidence across work/bindings. */
@@ -2037,6 +2432,7 @@ export class SessionSupervisor {
           partialResult: pr,
           details,
         });
+        await this.refreshGenericClaims(l);
         return;
       }
       case "tool_execution_end": {
@@ -2093,7 +2489,11 @@ export class SessionSupervisor {
     try {
       const card = await l.adapters.customMessageCard(message);
       if (!card || l.ms !== ms || generation !== (this.cardGenerations.get(ms) ?? 0)) return;
-      ms.patchItem(itemId, { card: card.node, adapterId: card.adapterId });
+      ms.patchItem(itemId, {
+        card: card.node,
+        adapterId: card.adapterId,
+        adapterGeneration: l.rec.adapterGeneration,
+      });
     } catch (err) {
       this.opts.log.warn({ err: errorMessage(err) }, "custom card failed");
     }
@@ -2111,10 +2511,17 @@ export class SessionSupervisor {
     },
   ): Promise<void> {
     if (!l.adapters || !l.ms) return;
-    const card = await l.adapters.toolCard(tool);
-    if (!card) return;
+    const generation = l.rec.adapterGeneration;
+    const adapterSession = l.adapters;
+    const card = await adapterSession.toolCard(tool);
+    if (!card || l.adapters !== adapterSession || generation !== l.rec.adapterGeneration) return;
     const item = l.ms?.toolItem(tool.toolCallId);
-    if (item) l.ms?.patchItem(item.id, { card: card.node, adapterId: card.adapterId });
+    if (item)
+      l.ms?.patchItem(item.id, {
+        card: card.node,
+        adapterId: card.adapterId,
+        adapterGeneration: generation,
+      });
   }
 
   private async onUiRequest(l: Live, req: PiUiRequest): Promise<void> {
@@ -2168,6 +2575,34 @@ export class SessionSupervisor {
         return;
       default:
         return this.onDialog(l, req);
+    }
+  }
+
+  /** RPC can flush a semantic tool update after the dialog it describes. Upgrade only an
+   * unanswered generic presentation; never replay an answer or replace a plugin-owned claim. */
+  private async refreshGenericClaims(l: Live): Promise<void> {
+    const adapters = l.adapters;
+    if (!adapters) return;
+    for (const current of this.pendingInteractions(l.rec.id)) {
+      const previous = l.claims.get(current.id);
+      if (!previous || previous.adapterId !== null || this.answering.has(current.id)) continue;
+      const outcome = await adapters.onUiRequest(previous.request, { consumeQueuedAnswers: false });
+      const latest = this.interaction(current.id);
+      if (
+        l.adapters !== adapters ||
+        outcome.kind !== "claim" ||
+        outcome.adapterId === null ||
+        latest?.state !== "pending" ||
+        latest.revision !== current.revision ||
+        this.answering.has(current.id)
+      )
+        continue;
+      l.claims.set(current.id, outcome);
+      this.updateInteraction(latest, {
+        adapterId: outcome.adapterId,
+        title: outcome.claim.title,
+        presentation: outcome.claim.presentation,
+      });
     }
   }
 
@@ -2321,6 +2756,7 @@ export class SessionSupervisor {
           mobileFallback: effect.mobileFallback,
           ...("state" in effect ? { state: effect.state } : {}),
           ...(effect.contribution ? { contribution: effect.contribution } : {}),
+          ...(l.rec.adapterGeneration ? { adapterGeneration: l.rec.adapterGeneration } : {}),
         });
         return;
       case "state":
@@ -2550,6 +2986,12 @@ export class SessionSupervisor {
     message: string,
     extra: Record<string, unknown> = {},
   ): void {
+    if (this.closing) return;
+    if (sessionId) {
+      const messages = this.adapterDiagnostics.get(sessionId) ?? [];
+      messages.push({ sessionId, adapterId, level, message: message.slice(0, 4000), at: nowIso() });
+      this.adapterDiagnostics.set(sessionId, messages.slice(-100));
+    }
     this.db.tx(() =>
       this.link.emit({
         type: "diagnostic",

@@ -17,6 +17,7 @@ import {
   PromptRequest,
   RenameRequest,
   type Session,
+  SessionAdaptersResult,
   SessionCommandsResult,
   SessionCompleteResult,
   SessionExportResult,
@@ -64,6 +65,21 @@ function requireSessionControls(ctx: CoordinatorContext, s: Session): void {
     throw new SwitchyardError(
       "invalid_request",
       "Update Switchyard on this host to change the model, effort or commands from here",
+    );
+  }
+}
+
+function requireWritableSession(s: Session): void {
+  if (s.readOnly) throw new SwitchyardError("forbidden", SUBAGENT_READ_ONLY);
+  if (s.archivedAt) throw new SwitchyardError("conflict", "Session is archived");
+}
+
+function requireAdapterDevelopment(ctx: CoordinatorContext, s: Session): void {
+  requireConnected(ctx, s.hostId);
+  if (ctx.store.hosts.get(s.hostId)?.capabilities?.adapterDevelopment !== true) {
+    throw new SwitchyardError(
+      "unsupported_capability",
+      "Update Switchyard on this host to inspect or reload adapters",
     );
   }
 }
@@ -429,8 +445,32 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   app.post("/api/sessions/:id/reload", async (req) => {
     const s = get(idOf(req));
     requireSessionControls(ctx, s);
-    await ctx.hostHub.request(s.hostId, { type: "session.reload", sessionId: s.id });
+    await ctx.hostHub.request(
+      s.hostId,
+      { type: "session.reload", sessionId: s.id },
+      { timeoutMs: 45_000 },
+    );
     return { ok: true };
+  });
+
+  app.get("/api/sessions/:id/adapters", async (req) => {
+    const s = get(idOf(req));
+    requireAdapterDevelopment(ctx, s);
+    return SessionAdaptersResult.parse(
+      await ctx.hostHub.request(s.hostId, { type: "session.adapters", sessionId: s.id }),
+    );
+  });
+
+  app.post("/api/sessions/:id/adapters/reload", async (req) => {
+    const s = get(idOf(req));
+    requireWritableSession(s);
+    requireAdapterDevelopment(ctx, s);
+    const result = z
+      .object({ generation: z.string().uuid() })
+      .parse(
+        await ctx.hostHub.request(s.hostId, { type: "session.reloadAdapters", sessionId: s.id }),
+      );
+    return { ok: true, generation: result.generation };
   });
 
   app.get("/api/sessions/:id/export", async (req) => {
@@ -621,10 +661,12 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   app.post("/api/sessions/:id/adapter-action", async (req) => {
     const s = get(idOf(req));
     const body = parse(AdapterActionRequest, req.body);
+    requireWritableSession(s);
     requireConnected(ctx, s.hostId);
     const result = await ctx.hostHub.request(s.hostId, {
       type: "session.adapterAction",
       sessionId: s.id,
+      ...(body.generation !== undefined ? { generation: body.generation } : {}),
       adapterId: body.adapterId,
       actionId: body.actionId,
       payload: body.payload ?? null,

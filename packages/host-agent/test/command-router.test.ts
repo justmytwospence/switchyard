@@ -37,6 +37,51 @@ function router(supervisor: object, workspaces: object): CommandRouter {
 }
 
 describe("CommandRouter lanes", () => {
+  it("routes adapter inspection independently and serializes reload on the control lane", async () => {
+    const gate = deferred<void>();
+    const calls: string[] = [];
+    const r = router(
+      {
+        reloadAdapters: async (id: string) => {
+          calls.push(`reload ${id}`);
+          await gate.promise;
+          return { ok: true, generation: "new" };
+        },
+        sessionAdapters: (id: string) => {
+          calls.push(`inspect ${id}`);
+          return { generation: "old" };
+        },
+        adapterAction: async (...args: unknown[]) => {
+          calls.push(JSON.stringify(args));
+          return { ok: true };
+        },
+      },
+      {},
+    );
+    const reload = r.handle("reload", { type: "session.reloadAdapters", sessionId: "ses_1" });
+    const inspection = await r.handle("inspection", {
+      type: "session.adapters",
+      sessionId: "ses_1",
+    });
+    expect(inspection).toMatchObject({ ok: true, result: { generation: "old" } });
+    expect(calls).toContain("inspect ses_1");
+    gate.resolve();
+    expect(await reload).toMatchObject({ ok: true, result: { generation: "new" } });
+    expect(
+      await r.handle("action", {
+        type: "session.adapterAction",
+        sessionId: "ses_1",
+        adapterId: "a",
+        actionId: "go",
+        payload: {},
+        generation: "123e4567-e89b-42d3-a456-426614174000",
+      }),
+    ).toMatchObject({ ok: true });
+    expect(calls).toContain(
+      JSON.stringify(["ses_1", "a", "go", {}, "123e4567-e89b-42d3-a456-426614174000"]),
+    );
+  });
+
   it("a slow read does not block other reads", async () => {
     const slow = deferred<unknown[]>();
     const r = router(

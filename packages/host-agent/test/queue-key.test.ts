@@ -34,7 +34,12 @@ describe("queueKey", () => {
     expect(queueKey({ type: "session.complete", sessionId: "ses_1", text: "/m " })).toBe(
       "control:ses_1",
     );
-    for (const type of ["session.tree", "session.export", "session.reload"] as const) {
+    for (const type of [
+      "session.tree",
+      "session.export",
+      "session.reload",
+      "session.reloadAdapters",
+    ] as const) {
       expect(queueKey({ type, sessionId: "ses_1" })).toBe("control:ses_1");
     }
     expect(
@@ -67,6 +72,7 @@ describe("read-only and checkout lanes", () => {
         sampleId: "sample_1",
         tool: { name: "bash", args: { command: "pwd" } },
       },
+      { type: "session.adapters", sessionId: "ses_1" },
       { type: "session.importable" },
       { type: "session.readNative", sessionFile: "/x.jsonl" },
       { type: "checkout.inspect", path: "/r" },

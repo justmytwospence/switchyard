@@ -20,6 +20,8 @@ export {
   DeliveryStatusArgs,
   deliveryOfferHash,
   parseBridgeRecord,
+  type ResourceSnapshot,
+  ResourceSnapshotData,
   validateAgentResult,
 } from "./bridge-wire.js";
 export {
@@ -50,6 +52,7 @@ export {
 } from "./importable.js";
 export { JsonlReader, serializeJsonl, writeJsonl } from "./jsonl.js";
 export { branchSession, loadPiSessionManager, treeRows } from "./pi-session-manager.js";
+export { type PiResourceInventory, resolveInstalledPiResources } from "./resources.js";
 export {
   bridgeExtensionPath,
   ensurePrivateDir,

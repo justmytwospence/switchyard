@@ -86,6 +86,7 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("session.adapterAction"),
     sessionId: z.string(),
+    generation: z.string().uuid().optional(),
     adapterId: z.string(),
     actionId: z.string(),
     payload: z.unknown(),
@@ -122,6 +123,8 @@ export const HostCommand = z.discriminatedUnion("type", [
     instructions: z.string().max(2000).nullable(),
   }),
   z.object({ type: z.literal("session.reload"), sessionId: z.string() }),
+  z.object({ type: z.literal("session.adapters"), sessionId: z.string() }),
+  z.object({ type: z.literal("session.reloadAdapters"), sessionId: z.string() }),
   z.object({ type: z.literal("session.export"), sessionId: z.string() }),
   z.object({
     type: z.literal("session.setModel"),

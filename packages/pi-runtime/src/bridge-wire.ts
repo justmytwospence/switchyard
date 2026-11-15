@@ -18,6 +18,7 @@ export const BridgeCapabilities = z.object({
   messageDelivery: z.boolean(),
   editorDraftGuard: z.boolean(),
   toolPolicy: z.boolean(),
+  resourceSnapshot: z.boolean().optional(),
 });
 export type BridgeCapabilities = z.infer<typeof BridgeCapabilities>;
 export const BridgeHello = z.object({
@@ -114,6 +115,22 @@ export const BridgeCommandHeader = z.object({
   bindingId: Id,
 });
 export type BridgeCommandHeader = z.infer<typeof BridgeCommandHeader>;
+/** Read-only inspection response, separately bounded from the enclosing 128 KiB frame. */
+export const ResourceSnapshotData = z.strictObject({
+  cwd: z.string().min(1).max(4096),
+  projectTrusted: z.boolean().nullable(),
+  reportedExtensionPaths: z.array(z.string().min(1).max(4096)).max(2048),
+  hasEditorDraft: z.boolean(),
+  pendingDialogs: z.number().int().nonnegative().max(2048),
+});
+export type ResourceSnapshotData = z.infer<typeof ResourceSnapshotData>;
+/** The identity pinned when a host reads a live snapshot. */
+export type ResourceSnapshot = ResourceSnapshotData & {
+  runtimeId: string;
+  nativeSessionId: string;
+  bindingId: string;
+};
+
 export const BridgeCommand = z
   .discriminatedUnion("method", [
     BridgeCommandHeader.extend({ method: z.literal("configure"), args: BridgeConfiguration }),
@@ -124,6 +141,10 @@ export const BridgeCommand = z
     BridgeCommandHeader.extend({
       method: z.literal("input.human"),
       args: z.object({ humanInputId: Id }),
+    }),
+    BridgeCommandHeader.extend({
+      method: z.literal("resources.snapshot"),
+      args: z.strictObject({}),
     }),
     BridgeCommandHeader.extend({ method: z.literal("delivery.accept"), args: DeliveryAcceptArgs }),
     BridgeCommandHeader.extend({ method: z.literal("delivery.status"), args: DeliveryStatusArgs }),
@@ -188,6 +209,7 @@ interface Pending {
   resolve: (value: any) => void;
   reject: (error: Error) => void;
   cleanup: () => void;
+  method: BridgeMethod;
 }
 
 /** Independent from native RPC ids; receipts are handled synchronously by the socket reader. */
@@ -291,6 +313,7 @@ export class BridgeRequests {
       );
       this.pending.set(requestId, {
         identity: frame,
+        method,
         configuration,
         resolve,
         reject,
@@ -321,7 +344,14 @@ export class BridgeRequests {
     p.cleanup();
     if (receipt.ok) {
       if (p.configuration) this.configuration = p.configuration;
-      p.resolve(receipt.result);
+      if (p.method === "resources.snapshot") {
+        const parsed = ResourceSnapshotData.safeParse(receipt.result);
+        if (!parsed.success) {
+          p.reject(new SwitchyardError("invalid_request", "Invalid resource snapshot response"));
+          return;
+        }
+        p.resolve(parsed.data);
+      } else p.resolve(receipt.result);
     } else
       p.reject(
         new SwitchyardError(receipt.error.code, receipt.error.message, receipt.error.details),
