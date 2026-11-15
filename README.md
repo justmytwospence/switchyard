@@ -4,7 +4,7 @@
 
 A coding agent has to run where your repositories, toolchains and logins are: your laptop, a workstation, a home server. You, on the other hand, are not always sitting in front of that machine. Switchyard keeps the agents where the work is and lets you follow along from anywhere: start a session from your phone, answer the question it asks while you are on your laptop, take over from a terminal, and get a notification when the result is ready for review. Every client looks at the same live session, and closing one never stops the work.
 
-On top of interactive sessions it adds tasks, a board, scheduled automations and a review flow, so an agent can work through a backlog while you are away and hand everything back for you to accept.
+On top of interactive sessions it adds tasks, a board, scheduled automations and a review flow, so an agent can work through a backlog while you are away and hand everything back for you to accept. Switchyard aims to preserve continuity with your evolving Pi setup: plugins own their workflows and optional adapters translate supported interactions, not arbitrary custom terminal UIs. See [plugin ownership](docs/plugin-boundaries.md).
 
 ## How it fits together
 

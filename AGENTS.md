@@ -1,5 +1,9 @@
 # Switchyard: agent instructions
 
+## Core and plugin ownership
+
+Follow [the ownership contract](docs/plugin-boundaries.md). Every meaningful feature plan or PR identifies authoritative state, core/plugin/adapter placement, absent-plugin behavior and compatibility tests. Do not add plugin-ID conditionals to coordinator or web core, workflow reducers to adapters, fake prompts to invoke plugin actions, or security checks enforced only by optional plugins.
+
 Build, test and release details are in [docs/development.md](docs/development.md).
 
 ## Branches and worktrees

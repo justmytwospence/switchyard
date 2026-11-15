@@ -41,6 +41,8 @@ flowchart TB
 
 ## Who owns what
 
+For the core, plugin and adapter boundary and feature checklist, see [plugin ownership](plugin-boundaries.md).
+
 | Area | Owner |
 |---|---|
 | Tasks, automations, dispatch decisions, devices, notifications | Coordinator |
