@@ -78,6 +78,8 @@ export function Inspector({
   return (
     <aside
       data-testid="inspector"
+      data-keyboard-pane
+      tabIndex={-1}
       aria-label="Inspector"
       className={cn("flex min-h-0 min-w-0 flex-col bg-surface", className)}
     >

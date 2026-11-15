@@ -4,6 +4,7 @@ import { BACK_STATE } from "../../app/useBackTo";
 import { useSyncStore } from "../../sync/store";
 import { SECTIONS } from "../settings/shared";
 import type { PaletteItem } from "./registry";
+import { usePalette } from "./registry";
 
 /** Palette items for every session, task, project, host, settings section and global action. */
 export function useGlobalItems(): PaletteItem[] {
@@ -74,6 +75,7 @@ export function useGlobalItems(): PaletteItem[] {
     action("queue", "Go to Queue", go("/queue"));
     action("automations", "Go to Automations", go("/automations"));
     action("settings", "Go to Settings", go("/settings"), "goSettings");
+    action("keyboard-help", "Keyboard shortcuts", () => usePalette.getState().setHelpOpen(true));
     return items;
   }, [navigate, sessions, tasks, projects, hosts]);
 }

@@ -229,7 +229,13 @@ export function BoardMobile() {
       </header>
       <BoardNotices board={board} />
 
-      <div className="flex min-w-0 flex-col gap-3 px-3 py-3">
+      <section
+        aria-label="Board tasks"
+        tabIndex={-1}
+        data-keyboard-scope
+        data-keyboard-default
+        className="flex min-w-0 flex-col gap-3 px-3 py-3"
+      >
         {!hydrated ? (
           <LoadingState label="Loading tasks…" />
         ) : noProjects ? (
@@ -288,7 +294,7 @@ export function BoardMobile() {
               </section>
             ))
         )}
-      </div>
+      </section>
 
       <Sheet open={newOpen} onClose={() => setNewOpen(false)} title="New task">
         <NewTaskForm

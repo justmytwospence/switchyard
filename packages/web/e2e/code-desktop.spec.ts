@@ -131,7 +131,7 @@ test.describe("desktop coding view", () => {
     await page.goto("/code");
     await expect(page.getByTestId("navigator")).toBeVisible();
     await page.keyboard.press("ControlOrMeta+k");
-    await page.getByRole("textbox", { name: "Search" }).fill(title.slice(0, 14));
+    await page.getByRole("combobox", { name: "Search" }).fill(title.slice(0, 14));
     await expect(page.getByTestId("palette-item").first()).toContainText(title);
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(new RegExp(`/code/${id}`));
@@ -143,7 +143,7 @@ test.describe("desktop coding view", () => {
     await page.goto("/code");
     await page.keyboard.press("ControlOrMeta+k");
     const dialog = page.getByRole("dialog", { name: "Command palette" });
-    const search = dialog.getByRole("textbox", { name: "Search" });
+    const search = dialog.getByRole("combobox", { name: "Search" });
     await search.fill("Go to");
     const options = dialog.getByRole("option");
     await expect(options.nth(2)).toBeVisible();

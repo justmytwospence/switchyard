@@ -76,7 +76,10 @@ function SectionNav({ compact }: { compact: boolean }) {
       <nav
         aria-label="Settings sections"
         data-testid="settings-nav"
-        className="sticky top-0 flex max-h-dvh flex-col gap-1 overflow-y-auto px-2 py-4"
+        tabIndex={-1}
+        data-keyboard-scope
+        data-keyboard-default
+        className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent sticky top-0 flex max-h-dvh flex-col gap-1 overflow-y-auto px-2 py-4"
       >
         <h2 className="mb-1 px-3 py-1 text-base font-semibold">Settings</h2>
         {SECTION_GROUPS.map((g) => (
@@ -91,6 +94,7 @@ function SectionNav({ compact }: { compact: boolean }) {
                   <li key={path}>
                     <Link
                       to={settingsPath(path)}
+                      data-keyboard-item
                       aria-current={current ? "page" : undefined}
                       className={cn(
                         "tap flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium",
@@ -144,7 +148,14 @@ function MobileIndex() {
     <div className="mx-auto flex w-full min-w-0 max-w-xl flex-col gap-3 px-4 py-4">
       <h1 className="text-lg font-semibold">Settings</h1>
       <LastKnownNote />
-      <nav aria-label="Settings sections" data-testid="settings-nav">
+      <nav
+        aria-label="Settings sections"
+        data-testid="settings-nav"
+        tabIndex={-1}
+        data-keyboard-scope
+        data-keyboard-default
+        className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+      >
         {SECTION_GROUPS.map((g) => (
           <div key={g.label}>
             <h2 className="px-1 pt-3 pb-1 text-xs font-semibold tracking-wide text-muted uppercase">
@@ -156,6 +167,7 @@ function MobileIndex() {
                   <Link
                     to={settingsPath(path)}
                     state={BACK_STATE}
+                    data-keyboard-item
                     className="tap flex min-h-14 items-center gap-3 px-4 py-2 hover:bg-surface-2"
                   >
                     <Icon aria-hidden className="size-5 shrink-0 text-muted" />

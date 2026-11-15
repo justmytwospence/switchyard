@@ -75,102 +75,112 @@ export default function AttentionView() {
         consequence="Answers are sent once the connection is back."
         show={hydrated}
       />
-      {show === "history" ? (
-        <div data-testid="attention-history" className="flex min-w-0 flex-col gap-2">
-          {!history.data && history.loading ? (
-            <LoadingState label="Loading history…" />
-          ) : !history.data && history.error ? (
-            <ErrorState
-              compact
-              title="Could not load history"
-              error={errorMessage(history.error)}
-              onRetry={history.reload}
-            />
-          ) : !history.data || history.data.length === 0 ? (
+      <section
+        aria-label="Attention items"
+        tabIndex={-1}
+        data-keyboard-scope
+        data-keyboard-default
+        className="flex min-w-0 flex-col gap-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        {show === "history" ? (
+          <div data-testid="attention-history" className="flex min-w-0 flex-col gap-2">
+            {!history.data && history.loading ? (
+              <LoadingState label="Loading history…" />
+            ) : !history.data && history.error ? (
+              <ErrorState
+                compact
+                title="Could not load history"
+                error={errorMessage(history.error)}
+                onRetry={history.reload}
+              />
+            ) : !history.data || history.data.length === 0 ? (
+              <EmptyState
+                icon={<History className="size-8" />}
+                title="No history yet"
+                description="Resolved questions, failures and reviews show up here."
+              />
+            ) : (
+              <>
+                <ul className="flex min-w-0 flex-col gap-2">
+                  {history.data.map((a) => (
+                    <li key={a.id} className="min-w-0">
+                      <HistoryRow item={a} />
+                    </li>
+                  ))}
+                </ul>
+                {history.data.length >= HISTORY_LIMIT && (
+                  <p className="text-sm text-muted">Showing the {HISTORY_LIMIT} most recent.</p>
+                )}
+              </>
+            )}
+          </div>
+        ) : !hydrated ? (
+          <LoadingState label="Loading attention…" />
+        ) : items.length === 0 ? (
+          show === "dismissed" ? (
             <EmptyState
-              icon={<History className="size-8" />}
-              title="No history yet"
-              description="Resolved questions, failures and reviews show up here."
+              icon={<Bell className="size-8" />}
+              title="No dismissed items"
+              description="Items you dismiss stay here until their question or task is resolved."
+              action={{ label: "Show open", onClick: () => setShow("open") }}
             />
           ) : (
-            <>
-              <ul className="flex min-w-0 flex-col gap-2">
-                {history.data.map((a) => (
-                  <li key={a.id} className="min-w-0">
-                    <HistoryRow item={a} />
-                  </li>
-                ))}
-              </ul>
-              {history.data.length >= HISTORY_LIMIT && (
-                <p className="text-sm text-muted">Showing the {HISTORY_LIMIT} most recent.</p>
-              )}
-            </>
-          )}
-        </div>
-      ) : !hydrated ? (
-        <LoadingState label="Loading attention…" />
-      ) : items.length === 0 ? (
-        show === "dismissed" ? (
-          <EmptyState
-            icon={<Bell className="size-8" />}
-            title="No dismissed items"
-            description="Items you dismiss stay here until their question or task is resolved."
-            action={{ label: "Show open", onClick: () => setShow("open") }}
-          />
+            <EmptyState
+              icon={<Bell className="size-8" />}
+              title={dismissedCount > 0 ? "All caught up" : "Nothing needs your attention"}
+              description={
+                dismissedCount > 0
+                  ? `${dismissedCount} dismissed ${dismissedCount === 1 ? "item is" : "items are"} still open.`
+                  : "Questions, failures and finished work show up here."
+              }
+              action={
+                dismissedCount > 0
+                  ? { label: "Show dismissed", onClick: () => setShow("dismissed") }
+                  : { label: "Go to Sessions", to: ROUTES.code }
+              }
+              secondaryAction={
+                dismissedCount > 0
+                  ? { label: "Go to Sessions", to: ROUTES.code }
+                  : { label: "Go to Board", to: ROUTES.board }
+              }
+            />
+          )
         ) : (
-          <EmptyState
-            icon={<Bell className="size-8" />}
-            title={dismissedCount > 0 ? "All caught up" : "Nothing needs your attention"}
-            description={
-              dismissedCount > 0
-                ? `${dismissedCount} dismissed ${dismissedCount === 1 ? "item is" : "items are"} still open.`
-                : "Questions, failures and finished work show up here."
-            }
-            action={
-              dismissedCount > 0
-                ? { label: "Show dismissed", onClick: () => setShow("dismissed") }
-                : { label: "Go to Sessions", to: ROUTES.code }
-            }
-            secondaryAction={
-              dismissedCount > 0
-                ? { label: "Go to Sessions", to: ROUTES.code }
-                : { label: "Go to Board", to: ROUTES.board }
-            }
-          />
-        )
-      ) : (
-        ATTENTION_GROUPS.filter((r) => groups[r].length > 0).map((reason) => {
-          const info = ATTENTION_STATUS[reason];
-          const Icon = info.icon;
-          return (
-            <section
-              key={reason}
-              data-testid={`attention-group-${reason}`}
-              aria-labelledby={`att-${reason}`}
-              className="flex min-w-0 flex-col gap-2"
-            >
-              <div>
-                <h2
-                  id={`att-${reason}`}
-                  className="flex items-center gap-2 text-base font-semibold"
-                >
-                  <Icon aria-hidden className="size-4 text-muted" />
-                  {info.label}
-                  <span className="text-sm font-normal text-muted">({groups[reason].length})</span>
-                </h2>
-                <p className="text-sm text-muted">{GROUP_HINT[reason]}</p>
-              </div>
-              <ul className="flex min-w-0 flex-col gap-2">
-                {groups[reason].map((a) => (
-                  <li key={a.id} className="min-w-0">
-                    <AttentionRow item={a} />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          );
-        })
-      )}
+          ATTENTION_GROUPS.filter((r) => groups[r].length > 0).map((reason) => {
+            const info = ATTENTION_STATUS[reason];
+            const Icon = info.icon;
+            return (
+              <section
+                key={reason}
+                data-testid={`attention-group-${reason}`}
+                aria-labelledby={`att-${reason}`}
+                className="flex min-w-0 flex-col gap-2"
+              >
+                <div>
+                  <h2
+                    id={`att-${reason}`}
+                    className="flex items-center gap-2 text-base font-semibold"
+                  >
+                    <Icon aria-hidden className="size-4 text-muted" />
+                    {info.label}
+                    <span className="text-sm font-normal text-muted">
+                      ({groups[reason].length})
+                    </span>
+                  </h2>
+                  <p className="text-sm text-muted">{GROUP_HINT[reason]}</p>
+                </div>
+                <ul className="flex min-w-0 flex-col gap-2">
+                  {groups[reason].map((a) => (
+                    <li key={a.id} className="min-w-0">
+                      <AttentionRow item={a} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })
+        )}
+      </section>
     </div>
   );
 }
@@ -309,7 +319,9 @@ function AttentionRow({ item }: { item: AttentionItem }) {
     return (
       <article
         aria-label={`Plan awaiting approval: ${metaText}`}
-        className="flex min-w-0 flex-col gap-2"
+        tabIndex={-1}
+        data-keyboard-item
+        className="flex min-w-0 flex-col gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
       >
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
           <span className="min-w-0 basis-full truncate sm:basis-auto sm:flex-1">{metaText}</span>
@@ -344,7 +356,9 @@ function AttentionRow({ item }: { item: AttentionItem }) {
   return (
     <article
       aria-label={`${ATTENTION_STATUS[item.reason].label}: ${task?.title ?? session?.title ?? item.summary}`}
-      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-3"
+      tabIndex={-1}
+      data-keyboard-item
+      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <StatusChip kind="attention" value={item.reason} size="sm" />
@@ -408,7 +422,9 @@ function HistoryRow({ item }: { item: AttentionItem }) {
   return (
     <article
       aria-label={`${ATTENTION_STATUS[item.reason].label}: ${task?.title ?? session?.title ?? item.summary}`}
-      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-3"
+      tabIndex={-1}
+      data-keyboard-item
+      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <StatusChip kind="attention" value={item.reason} size="sm" />

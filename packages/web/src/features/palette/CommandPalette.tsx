@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Dialog } from "../../components/ui/Overlay";
 import { TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
@@ -7,7 +7,7 @@ import { useSyncStore } from "../../sync/store";
 import { statusBucket } from "../code/model";
 import { emptyQueryItems, rankItems } from "./match";
 import { type PaletteItem, usePalette } from "./registry";
-import { formatShortcut, SHORTCUTS } from "./shortcuts";
+import { formatShortcut, paletteNavigationDelta, SHORTCUTS } from "./shortcuts";
 import { useGlobalItems } from "./useGlobalItems";
 
 const RECENT_KEY = "sy:palette:recent";
@@ -36,6 +36,8 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  const results = useRef<HTMLDivElement>(null);
+  const resultsId = useId();
 
   useEffect(() => {
     if (open) {
@@ -62,6 +64,22 @@ export function CommandPalette() {
     );
   }, [open, query, items, attention, interactions, sessions]);
 
+  useEffect(
+    () => setActive((index) => Math.max(0, Math.min(index, rows.length - 1))),
+    [rows.length],
+  );
+  useEffect(() => {
+    if (!open || !rows.length) return;
+    const frame = requestAnimationFrame(() => {
+      results.current
+        ?.querySelector<HTMLElement>(
+          `#${CSS.escape(`${resultsId}-${Math.min(active, rows.length - 1)}`)}`,
+        )
+        ?.scrollIntoView({ block: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, active, rows.length, resultsId]);
+
   const run = (item: PaletteItem) => {
     try {
       localStorage.setItem(
@@ -76,15 +94,18 @@ export function CommandPalette() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const ctrl = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
-    if (e.key === "ArrowDown" || (ctrl && (e.key === "j" || e.key === "n"))) {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      setActive((a) => Math.max(0, Math.min(rows.length - 1, a + 1)));
-    } else if (e.key === "ArrowUp" || (ctrl && (e.key === "k" || e.key === "p"))) {
+      setOpen(false);
+      return;
+    }
+    const delta = paletteNavigationDelta(e);
+    if (delta) {
       e.preventDefault();
       e.stopPropagation();
-      setActive((a) => Math.max(0, a - 1));
+      setActive((a) => Math.max(0, Math.min(rows.length - 1, a + delta)));
     } else if (e.key === "Enter") {
       e.preventDefault();
       const r = rows[active];
@@ -106,18 +127,32 @@ export function CommandPalette() {
           value={query}
           placeholder="Search sessions, tasks, settings and actions"
           aria-label="Search"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls={resultsId}
+          aria-activedescendant={
+            rows.length ? `${resultsId}-${Math.min(active, rows.length - 1)}` : undefined
+          }
           onKeyDown={onKeyDown}
           onChange={(e) => {
             setQuery(e.target.value);
             setActive(0);
           }}
         />
-        <div role="listbox" aria-label="Results" className="max-h-80 overflow-y-auto">
+        <div
+          ref={results}
+          id={resultsId}
+          role="listbox"
+          aria-label="Results"
+          className="max-h-80 overflow-y-auto"
+        >
           {rows.length === 0 && <p className="px-2 py-4 text-sm text-muted">No matches.</p>}
           {rows.map(({ item, label }, i) => (
             <div key={item.id}>
               {label && <p className="px-2 pt-2 pb-1 text-xs font-medium text-muted">{label}</p>}
               <div
+                id={`${resultsId}-${i}`}
                 role="option"
                 tabIndex={-1}
                 aria-selected={i === active}

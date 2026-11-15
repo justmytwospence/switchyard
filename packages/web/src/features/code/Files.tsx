@@ -29,7 +29,9 @@ import {
 import { TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
 import { langFor } from "../../lib/highlight";
+import { usePrefs } from "../../prefs";
 import { isApiError } from "../../sync/api";
+import { horizontalNavigationDelta, verticalNavigationDelta } from "../palette/shortcuts";
 import { codeApi, type FileContent } from "./api";
 import { STATUS_LABEL, type WorkspaceDiff } from "./Changes";
 import type { SessionContext } from "./hooks";
@@ -265,6 +267,7 @@ export function FilesTab({
       <TextInput
         type="search"
         aria-label="Filter files"
+        data-keyboard-search
         placeholder="Filter files"
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
@@ -287,7 +290,23 @@ export function FilesTab({
         <div
           ref={listRef}
           role="tree"
+          data-keyboard-scope
+          tabIndex={-1}
           aria-label="Workspace files"
+          onKeyDown={(ev) => {
+            if (
+              ev.target === ev.currentTarget &&
+              usePrefs.getState().vimNavigation &&
+              !ev.ctrlKey &&
+              !ev.altKey &&
+              !ev.metaKey &&
+              !ev.shiftKey &&
+              !ev.nativeEvent.isComposing &&
+              (ev.key === "h" || ev.key === "l")
+            ) {
+              ev.stopPropagation();
+            }
+          }}
           className="flex min-w-0 flex-col"
         >
           {visible.map(({ entry: e, rel, depth }) => {
@@ -306,6 +325,7 @@ export function FilesTab({
                 <button
                   type="button"
                   role="treeitem"
+                  data-keyboard-item
                   aria-selected={false}
                   aria-expanded={isDir ? open : undefined}
                   tabIndex={rel === tabbable ? 0 : -1}
@@ -314,17 +334,35 @@ export function FilesTab({
                   className="flex h-8 w-full min-w-0 items-center gap-1.5 rounded pr-2 text-left text-[13px] hover:bg-surface-2"
                   onClick={() => (isDir ? toggle(rel) : setFile(rel))}
                   onKeyDown={(ev) => {
-                    if (ev.key === "ArrowDown") {
+                    const vim =
+                      usePrefs.getState().vimNavigation &&
+                      !ev.ctrlKey &&
+                      !ev.altKey &&
+                      !ev.metaKey &&
+                      !ev.shiftKey &&
+                      !ev.nativeEvent.isComposing;
+                    const vertical = verticalNavigationDelta(ev.key, vim);
+                    const horizontal = horizontalNavigationDelta(ev.key, vim);
+                    if (vertical === 1) {
                       ev.preventDefault();
+                      ev.stopPropagation();
                       move(ev.currentTarget, 1);
-                    } else if (ev.key === "ArrowUp") {
+                    } else if (vertical === -1) {
                       ev.preventDefault();
+                      ev.stopPropagation();
                       move(ev.currentTarget, -1);
-                    } else if (ev.key === "ArrowRight" && isDir && !open) {
+                    } else if (horizontal === 1) {
+                      if (isDir && !open) {
+                        ev.preventDefault();
+                        toggle(rel);
+                      }
+                      if (vim && ev.key === "l") {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                      }
+                    } else if (horizontal === -1) {
                       ev.preventDefault();
-                      toggle(rel);
-                    } else if (ev.key === "ArrowLeft") {
-                      ev.preventDefault();
+                      ev.stopPropagation();
                       if (isDir && open) toggle(rel);
                       else if (rel.includes("/")) {
                         const parent = parentDir(rel);

@@ -14,7 +14,11 @@ test.describe("keyboard layers", () => {
     await page.keyboard.press("ControlOrMeta+k");
     const palette = page.getByRole("dialog", { name: "Command palette" });
     await expect(palette).toBeVisible();
-    await palette.getByRole("combobox", { name: "Search" }).press("Escape");
+    const search = palette.getByRole("combobox", { name: "Search" });
+    await search.fill("Board");
+    await search.press("Control+j");
+    await expect(search).toBeFocused();
+    await search.press("Escape");
     await expect(palette).toHaveCount(0);
     await expect(opener).toBeFocused();
 

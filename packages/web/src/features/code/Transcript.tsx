@@ -247,6 +247,9 @@ export function Transcript({
         <div
           ref={scrollRef}
           data-testid="transcript"
+          data-keyboard-pane
+          data-keyboard-scroll="transcript"
+          tabIndex={-1}
           role="log"
           aria-live="off"
           aria-label="Transcript"

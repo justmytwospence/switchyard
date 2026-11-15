@@ -268,6 +268,8 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
           <section
             ref={scrollerRef}
             aria-label="Board columns"
+            data-keyboard-columns
+            data-keyboard-default
             onScroll={(e) => {
               boardMemory.boardScrollLeft = e.currentTarget.scrollLeft;
             }}
@@ -438,6 +440,9 @@ function Column({
       ref={setNodeRef}
       data-testid={`column-${state}`}
       aria-labelledby={headingId}
+      tabIndex={-1}
+      data-keyboard-scope
+      data-keyboard-column
       style={{ width: `clamp(288px, ${width}px, 360px)` }}
       data-drop={drop ?? undefined}
       className={cn(

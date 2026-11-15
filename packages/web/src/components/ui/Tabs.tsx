@@ -1,5 +1,7 @@
 import { type ReactNode, useId, useRef } from "react";
+import { horizontalNavigationDelta } from "../../features/palette/shortcuts";
 import { cn } from "../../lib/cn";
+import { usePrefs } from "../../prefs";
 
 export interface TabItem {
   id: string;
@@ -62,12 +64,20 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
         className,
       )}
       onKeyDown={(e) => {
-        if (e.key === "ArrowRight") move(1);
-        else if (e.key === "ArrowLeft") move(-1);
+        const vim =
+          usePrefs.getState().vimNavigation &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !e.metaKey &&
+          !e.shiftKey &&
+          !e.nativeEvent.isComposing;
+        const delta = horizontalNavigationDelta(e.key, vim);
+        if (delta) move(delta);
         else if (e.key === "Home") move("first");
         else if (e.key === "End") move("last");
         else return;
         e.preventDefault();
+        e.stopPropagation();
       }}
     >
       {tabs.map((t) => {

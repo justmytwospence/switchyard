@@ -203,7 +203,14 @@ function AutomationRows({
           <span className="sr-only">Actions</span>
         </div>
       )}
-      <ul data-testid="automations-list" className="divide-y divide-border">
+      <ul
+        data-testid="automations-list"
+        aria-label="Automations"
+        tabIndex={-1}
+        data-keyboard-scope
+        data-keyboard-default
+        className="divide-y divide-border focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+      >
         {automations.map((a) => {
           const project = projects[a.projectId];
           const hostId = a.hostId ?? project?.defaultHostId ?? null;
@@ -316,6 +323,7 @@ function TableRow(p: RowProps) {
         <Link
           to={editPath(a.id)}
           state={BACK_STATE}
+          data-keyboard-item
           className="truncate font-medium text-text hover:underline focus-visible:underline"
         >
           {a.name}
@@ -373,6 +381,7 @@ function CardRow(p: RowProps) {
           <Link
             to={editPath(a.id)}
             state={BACK_STATE}
+            data-keyboard-item
             className="font-medium break-words text-text hover:underline focus-visible:underline"
           >
             {a.name}

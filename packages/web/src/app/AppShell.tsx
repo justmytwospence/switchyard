@@ -1,6 +1,7 @@
 import {
   Bell,
   Ellipsis,
+  Keyboard,
   type LucideIcon,
   MessagesSquare,
   PanelLeftClose,
@@ -18,6 +19,8 @@ import { statusInfo } from "../components/ui/StatusChip";
 import { ReconnectingBanner } from "../components/ui/states";
 import { Toaster } from "../components/ui/Toast";
 import { CommandPalette } from "../features/palette/CommandPalette";
+import { KeyboardHelp } from "../features/palette/KeyboardHelp";
+import { usePalette } from "../features/palette/registry";
 import { useGlobalShortcuts } from "../features/palette/useGlobalShortcuts";
 import { cn } from "../lib/cn";
 import { usePrefs } from "../prefs";
@@ -125,6 +128,7 @@ export function AppShell() {
         {mobile && <BottomNav />}
       </div>
       <CommandPalette />
+      <KeyboardHelp />
       <Toaster />
     </div>
   );
@@ -166,6 +170,8 @@ function Rail() {
     >
       <nav
         aria-label="Primary"
+        data-keyboard-scope
+        tabIndex={-1}
         className="flex h-full w-full flex-col overflow-hidden border-r border-border bg-surface safe-pt safe-pb"
       >
         <div className="flex h-14 items-center gap-2 px-3.5" aria-hidden={!expanded}>
@@ -187,6 +193,7 @@ function Rail() {
               <li key={d.to}>
                 <Link
                   to={d.to}
+                  data-keyboard-item
                   title={expanded ? undefined : d.label}
                   aria-current={active ? "page" : undefined}
                   className={cn(
@@ -218,6 +225,18 @@ function Rail() {
           })}
         </ul>
         <div className="flex flex-col gap-1 border-t border-border px-2 py-2">
+          <button
+            type="button"
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)"
+            onClick={() => usePalette.getState().setHelpOpen(true)}
+            className="tap flex h-11 items-center gap-3 rounded-lg px-3 text-sm text-muted hover:bg-surface-2 hover:text-text"
+          >
+            <Keyboard aria-hidden className="size-5 shrink-0" />
+            <span className={cn("min-w-0 flex-1 truncate", !expanded && "sr-only")}>
+              Keyboard shortcuts (?)
+            </span>
+          </button>
           <div
             className="flex h-9 items-center gap-3 px-3 text-xs text-muted"
             title={`Connection: ${conn.label}`}

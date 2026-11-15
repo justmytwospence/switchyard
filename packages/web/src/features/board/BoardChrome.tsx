@@ -85,6 +85,7 @@ export function SearchBox({
       <TextInput
         id={id}
         type="search"
+        data-keyboard-search
         placeholder="Search tasks"
         autoFocus={autoFocus}
         className="pl-8"

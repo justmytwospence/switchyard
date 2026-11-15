@@ -128,6 +128,7 @@ export function TaskCard({
             type="button"
             ref={drag.setHandleRef}
             {...drag.handleProps}
+            data-keyboard-ignore
             aria-label={`Drag ${task.title}${ancestryLabel}`}
             title="Drag to move (Space to pick up, arrows to move, Space to drop)"
             className="tap -ml-1.5 inline-flex h-7 w-5 shrink-0 cursor-grab items-center justify-center rounded text-subtle hover:bg-surface-2 hover:text-text"
@@ -138,6 +139,7 @@ export function TaskCard({
         <button
           type="button"
           data-card-open={task.id}
+          data-keyboard-item
           onClick={() => onOpen(task)}
           className="tap min-w-0 flex-1 rounded text-left font-medium leading-snug"
         >

@@ -75,7 +75,7 @@ test("session-scoped slots, palette and namespaced form", async ({
   await page.keyboard.press("Meta+k");
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect(palette).toBeVisible();
-  await palette.getByRole("textbox").fill("Slots palette");
+  await palette.getByRole("combobox", { name: "Search" }).fill("Slots palette");
   await palette.getByText("Slots palette").click();
   const confirmation = page.getByRole("dialog", { name: "Slots palette" });
   await expect(confirmation).toContainText("Confirm fixture action");

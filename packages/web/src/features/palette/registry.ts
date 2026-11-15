@@ -15,16 +15,20 @@ export interface PaletteItem {
 
 interface PaletteStore {
   open: boolean;
+  helpOpen: boolean;
   providers: Record<string, PaletteItem[]>;
   setOpen(open: boolean): void;
+  setHelpOpen(open: boolean): void;
   contribute(id: string, items: PaletteItem[]): void;
   withdraw(id: string): void;
 }
 
 export const usePalette = create<PaletteStore>()((set) => ({
   open: false,
+  helpOpen: false,
   providers: {},
   setOpen: (open) => set({ open }),
+  setHelpOpen: (helpOpen) => set({ helpOpen }),
   contribute: (id, items) => set((s) => ({ providers: { ...s.providers, [id]: items } })),
   withdraw: (id) =>
     set((s) => {

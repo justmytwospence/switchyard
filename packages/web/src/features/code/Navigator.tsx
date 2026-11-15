@@ -305,6 +305,10 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   return (
     <nav
       data-testid="navigator"
+      data-keyboard-scope
+      data-keyboard-default
+      data-keyboard-pane
+      tabIndex={-1}
       aria-label="Sessions"
       style={style}
       className={cn("flex min-h-0 min-w-0 flex-col bg-surface", className)}
@@ -367,6 +371,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           <TextInput
             type="search"
             aria-label="Search sessions"
+            data-keyboard-search
             placeholder="Search sessions, branches"
             value={prefs.query}
             onChange={(e) => setPrefs({ ...prefs, query: e.target.value })}
@@ -593,6 +598,7 @@ function SessionRow({
     <li className="min-w-0">
       <Link
         data-testid="session-row"
+        data-keyboard-item
         to={`/code/${encodeURIComponent(session.id)}`}
         state={BACK_STATE}
         aria-current={selected ? "page" : undefined}

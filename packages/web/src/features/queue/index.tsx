@@ -136,7 +136,13 @@ export default function QueueView() {
           action={{ label: "Go to Board", to: ROUTES.board }}
         />
       ) : (
-        <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
+        <section
+          aria-label="Running and queued tasks"
+          tabIndex={-1}
+          data-keyboard-scope
+          data-keyboard-default
+          className="grid min-w-0 grid-cols-1 gap-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent xl:grid-cols-2 xl:items-start"
+        >
           <section aria-labelledby="now-running" className="flex min-w-0 flex-col gap-2">
             <h2 id="now-running" className="text-base font-semibold">
               Running <span className="text-sm font-normal text-muted">({running.length})</span>
@@ -173,7 +179,7 @@ export default function QueueView() {
               </ul>
             )}
           </section>
-        </div>
+        </section>
       )}
     </div>
   );
@@ -203,6 +209,7 @@ function RunningRow({
         )}
         <Link
           to={ROUTES.task(taskId)}
+          data-keyboard-item
           className="min-w-0 flex-1 basis-48 font-medium break-words hover:underline"
         >
           {task?.title ?? "Task"}
@@ -276,7 +283,11 @@ function QueuedRow({
       className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-3 sm:flex-row sm:items-center"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <Link to={ROUTES.task(taskId)} className="min-w-0 font-medium break-words hover:underline">
+        <Link
+          to={ROUTES.task(taskId)}
+          data-keyboard-item
+          className="min-w-0 font-medium break-words hover:underline"
+        >
           {task?.title ?? "Task"}
         </Link>
         {project && <span className="text-xs text-muted">{project.name}</span>}

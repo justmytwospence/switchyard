@@ -26,6 +26,7 @@ import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
 import { useContributions, useSyncStore } from "../../sync/store";
+import { paletteNavigationDelta } from "../palette/shortcuts";
 import { AdapterCommandDialog, type AdapterCommandRequest } from "./AdapterCommandDialog";
 import { AdapterSlot } from "./AdapterSlots";
 import { adapterCommandError, adapterCommandName } from "./adapterIdentity";
@@ -570,6 +571,7 @@ export function Composer({
           </label>
           <TextArea
             id={`${hintId}-input`}
+            data-keyboard-composer
             ref={textRef}
             value={draft}
             minRows={mobile ? 1 : 2}
@@ -607,11 +609,18 @@ export function Composer({
             }}
             enterKeyHint={mobile ? "enter" : "send"}
             onKeyDown={(e) => {
+              const delta =
+                e.key === "ArrowDown" ||
+                e.key === "ArrowUp" ||
+                (usePrefs.getState().vimNavigation && !e.nativeEvent.isComposing)
+                  ? paletteNavigationDelta(e)
+                  : 0;
               if (completing) {
                 const n = completions.items.length;
-                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                if (delta) {
                   e.preventDefault();
-                  setActive((a) => (e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n));
+                  e.stopPropagation();
+                  setActive((a) => (a + delta + n) % n);
                   return;
                 }
                 if (
@@ -629,10 +638,11 @@ export function Composer({
                 }
               }
               if (slashOpen && controls && shown.length > 0) {
-                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                if (delta) {
                   e.preventDefault();
+                  e.stopPropagation();
                   const n = shown.length;
-                  setActive((a) => (e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n));
+                  setActive((a) => (a + delta + n) % n);
                   return;
                 }
                 if (
