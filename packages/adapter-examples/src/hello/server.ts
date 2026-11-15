@@ -6,9 +6,9 @@ import type { UINode } from "@switchyard/protocol";
  * reports its progress with `ctx.ui.setStatus("hello", text)`.
  *
  * - `toolCard`: the `hello` tool becomes a section with a table of its arguments.
- * - `onStatus`: the `hello` status becomes the `hello` panel, as progress when the text carries a
- *   fraction ("2/5") or a percentage ("40%") and as plain text otherwise; clearing the status
- *   clears the panel.
+ * - `onStatus`: the `hello` status publishes session-scoped portable UI slots; clearing it
+ *   removes them. `onAction` records the most recent demo action without executing anything.
+ * - `customMessageCard`: visible hello custom messages get a portable timeline card.
  *
  * It has no runtime imports (`import type` is erased), so the same file works as an adapter
  * shipped inside a Pi package and loaded with Node's type stripping.
@@ -70,18 +70,120 @@ export function helloPanel(text: string): UINode {
     : { t: "progress", label: text, value, status: value >= 1 ? "ok" : "running" };
 }
 
+const form: UINode = {
+  t: "form",
+  formId: "hello-note",
+  fields: [{ kind: "text", name: "note", label: "Note" }],
+  submitLabel: "Save note",
+};
+
+function slots(ctx: AdapterContext, shown: string | null) {
+  const last = ctx.state.get<string>("last") ?? "No action yet";
+  ctx.setContribution(
+    "header",
+    shown
+      ? {
+          placement: "sidebar.header",
+          title: "Hello header",
+          node: { t: "text", text: shown },
+          mobileFallback: shown,
+        }
+      : null,
+  );
+  ctx.setContribution(
+    "footer",
+    shown
+      ? {
+          placement: "sidebar.footer",
+          title: "Hello footer",
+          node: { t: "text", text: last },
+          mobileFallback: last,
+        }
+      : null,
+  );
+  ctx.setContribution(
+    "panel",
+    shown
+      ? {
+          placement: "session.panel",
+          title: "Hello details",
+          node: { t: "section", title: "Hello", children: [form] },
+          mobileFallback: `${shown}: ${last}`,
+          actionId: "save",
+          state: { shown, last },
+        }
+      : null,
+  );
+  ctx.setContribution(
+    "pill",
+    shown
+      ? {
+          placement: "composer.pill",
+          title: "Hello progress",
+          node: helloPanel(shown),
+          mobileFallback: shown,
+        }
+      : null,
+  );
+  ctx.setContribution(
+    "palette",
+    shown
+      ? {
+          placement: "palette.item",
+          title: "Hello action",
+          node: { t: "text", text: "Record a hello action" },
+          mobileFallback: "Record a hello action",
+          actionId: "run",
+          keywords: ["hello"],
+        }
+      : null,
+  );
+  ctx.setContribution(
+    "command",
+    shown
+      ? {
+          placement: "slash.command",
+          title: "Hello note",
+          name: "note",
+          node: form,
+          mobileFallback: "Enter a hello note",
+          actionId: "save",
+        }
+      : null,
+  );
+}
+
 const adapter: ServerAdapter = {
   toolCard(tool) {
     return tool.name === TOOL_NAME ? helloCard(tool) : undefined;
+  },
+  customMessageCard(message) {
+    return message.customType === "hello"
+      ? {
+          t: "section",
+          title: "Hello message",
+          children: [{ t: "text", text: String(message.content ?? "Hello") }],
+        }
+      : undefined;
+  },
+  onAction(actionId, payload, ctx) {
+    if (actionId !== "save" && actionId !== "run") return;
+    const last = `${actionId}: ${JSON.stringify(payload)}`;
+    ctx.state.set("last", last);
+    const shown = ctx.state.get<string>("shown");
+    if (shown) slots(ctx, shown);
   },
 
   onStatus(key: string, text: string | undefined, ctx: AdapterContext) {
     if (key !== STATUS_KEY) return false;
     const shown = text?.trim() ? text : null;
+    if (shown) ctx.state.set("shown", shown);
+    else ctx.state.delete("shown");
     ctx.setPanel("hello", shown ? helloPanel(shown) : null, {
       title: "Hello",
       mobileFallback: shown,
     });
+    slots(ctx, shown);
     return true;
   },
 };

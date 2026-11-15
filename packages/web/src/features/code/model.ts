@@ -1244,7 +1244,7 @@ export function fitPanes(
 
 // ---- session controls: slash commands, model, effort, context ----
 
-export type CommandSource = "switchyard" | SlashCommand["source"] | "terminal";
+export type CommandSource = "switchyard" | SlashCommand["source"] | "terminal" | "adapter";
 
 export interface CommandEntry {
   name: string;

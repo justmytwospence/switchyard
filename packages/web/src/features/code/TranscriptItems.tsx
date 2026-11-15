@@ -109,7 +109,13 @@ export function TimelineRow(props: TimelineRowProps) {
     case "tool":
       return <ToolCard data={item.data} stream={stream} sessionId={props.sessionId} />;
     case "notice":
-      return (
+      return item.data.card && item.data.adapterId ? (
+        <NoticeCard
+          data={item.data}
+          sessionId={props.sessionId}
+          readOnly={props.interactionReadOnly}
+        />
+      ) : (
         <NoticeItem level={item.data.level} text={item.data.text} repeat={entry.repeat ?? 1} />
       );
     case "system":
@@ -346,6 +352,60 @@ export function ToolCard({
 
 const NOTICE_ICON = { info: Info, warning: TriangleAlert, error: CircleAlert } as const;
 const NOTICE_LABEL = { info: "Notice", warning: "Warning", error: "Error" } as const;
+
+function NoticeCard({
+  data,
+  sessionId,
+  readOnly,
+}: {
+  data: Extract<TranscriptItem, { kind: "notice" }>["data"];
+  sessionId: string;
+  readOnly: string | null;
+}) {
+  const { openFile } = useCodeContext();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const action = async (id: string) => {
+    if (!data.adapterId || readOnly || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await codeApi.adapterAction(sessionId, data.adapterId, id);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article
+      data-testid="notice-card"
+      className="min-w-0 rounded-md border border-border bg-surface p-3"
+    >
+      <p className="mb-2 text-xs font-medium text-muted">
+        {data.adapterId} · {data.customType ?? "Message"}
+      </p>
+      {data.card && (
+        <UINodeRenderer
+          node={data.card}
+          onOpenFile={openFile}
+          onAction={(id) => void action(id)}
+          busy={busy}
+          disabled={!!readOnly}
+        />
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
+      <details className="mt-2 text-xs text-muted">
+        <summary className="cursor-pointer">Original message</summary>
+        <p className="mt-1 whitespace-pre-wrap break-words">{data.text}</p>
+      </details>
+    </article>
+  );
+}
 
 function NoticeItem({
   level,

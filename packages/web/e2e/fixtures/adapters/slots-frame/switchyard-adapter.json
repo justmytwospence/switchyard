@@ -1,0 +1,9 @@
+{
+  "id": "slots-frame",
+  "version": "0.0.0",
+  "target": { "extension": "e2e-slots", "versionRange": "*", "testedVersions": [] },
+  "protocolVersion": 1,
+  "server": "server.js",
+  "webRenderer": "renderer.html",
+  "capabilities": ["panels"]
+}

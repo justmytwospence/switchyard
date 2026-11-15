@@ -1,6 +1,8 @@
 import type {
+  AdapterContribution,
   AdapterInfo,
   AttentionReason,
+  ContributionDescriptor,
   InteractionResponse,
   UINode,
 } from "@switchyard/protocol";
@@ -137,6 +139,7 @@ export interface AdapterContext {
   /** Persistent, server-authoritative key/value state (JSON values). */
   readonly state: AdapterStateStore;
   setPanel(slot: string, node: UINode | null, opts?: PanelOptions): void;
+  setContribution(id: string, contribution: AdapterContribution | null): void;
   attention(reason: AttentionReason, summary: string): void;
   linkSubagent(link: SubagentLink): void;
   /**
@@ -167,6 +170,10 @@ export type PresentedFlag = boolean | undefined | void;
  */
 export interface ServerAdapter {
   toolCard?(tool: ToolInfo, ctx: AdapterContext): MaybePromise<UINode | undefined>;
+  customMessageCard?(
+    message: CustomMessageInfo,
+    ctx: AdapterContext,
+  ): MaybePromise<UINode | undefined>;
   claimInteraction?(req: PiUiRequest, ctx: AdapterContext): MaybePromise<Claim | undefined>;
   onToolStart?(e: ToolStartEvent, ctx: AdapterContext): MaybePromise<void>;
   onToolUpdate?(e: ToolUpdateEvent, ctx: AdapterContext): MaybePromise<void>;
@@ -223,6 +230,7 @@ export type AdapterEffect =
       webRenderer: boolean;
       mobileFallback: string | null;
       state?: unknown;
+      contribution?: ContributionDescriptor;
     }
   | { type: "attention"; adapterId: string; reason: AttentionReason; summary: string }
   | { type: "subagent"; adapterId: string; link: SubagentLink }
@@ -237,6 +245,8 @@ export interface AdapterSessionHost {
   emit(effect: AdapterEffect): void;
   /** Previously persisted adapter state: adapterId -> key -> value. */
   initialState?: Record<string, Record<string, unknown>>;
+  /** Restored panels seed legacy-slot ownership and contribution deletion/limits. */
+  initialPanels?: import("@switchyard/protocol").Panel[];
 }
 
 /** Client sent an answer the claim cannot map (e.g. unknown option). Keep the interaction. */

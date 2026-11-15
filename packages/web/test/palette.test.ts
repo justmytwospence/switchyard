@@ -35,6 +35,18 @@ describe("rankItems", () => {
 });
 
 describe("emptyQueryItems", () => {
+  it("keeps adapter entries in their own section without altering built-in actions", () => {
+    const out = emptyQueryItems(
+      [
+        item("action", "New session", { group: "Actions" }),
+        item('["ses","adapter","slot"]', "Slot action", { group: "Extensions" }),
+      ],
+      { needsYou: new Set(), review: new Set() },
+    );
+    expect(out.map((section) => section.label)).toEqual(["Actions", "Extensions"]);
+    expect(out[1]?.items[0]?.id).toContain("adapter");
+  });
+
   it("orders sections and omits empty ones", () => {
     const items = [
       item("s1", "One"),

@@ -89,6 +89,7 @@ The real-world example is [pi-plugins](https://github.com/justmytwospence/pi-plu
 ```ts
 interface ServerAdapter {
   toolCard?(tool, ctx): UINode | undefined;
+  customMessageCard?(message, ctx): UINode | undefined;
   claimInteraction?(req: PiUiRequest, ctx): Claim | undefined;
   onToolStart?(e, ctx); onToolUpdate?(e, ctx); onToolEnd?(e, ctx);
   onEntry?(entry, ctx); onCustomMessage?(m, ctx);
@@ -99,7 +100,7 @@ interface ServerAdapter {
 
 Every hook is optional and may be async. The host calls them in precedence order:
 
-- `toolCard` and `claimInteraction`: the first adapter that returns something wins.
+- `toolCard`, `customMessageCard` and `claimInteraction`: the first valid result in precedence order wins.
 - Observation hooks (`onToolStart`, `onToolUpdate`, `onToolEnd`, `onEntry`, `onCustomMessage`, `onStatus`, `onWidget`): every adapter is called. `onToolUpdate` gets each `tool_execution_update` with the partial result and its `details`. `onStatus` and `onWidget` may return `true` to say they presented the value: the host then leaves that status key out of the generic Status panel, or removes the generic `widget:<key>` panel. Return nothing (or `false`) to keep the generic presentation; if the adapter is later disabled, the key's next update shows in the generic panel again.
 - `onAction`: only the adapter named in the action.
 
@@ -113,11 +114,51 @@ Each adapter gets its own context per session:
 |---|---|
 | `sessionId`, `adapterId` | Identity. |
 | `state.get/set/delete/keys` | Server-authoritative JSON state, persisted by the host and restored when the session reopens. |
-| `setPanel(slot, node \| null, {title?, mobileFallback?, state?})` | Create, update or clear a panel. `state` is passed to the web renderer. |
+| `setPanel(slot, node \| null, {title?, mobileFallback?, state?})` | Create, update or clear a legacy panel. `state` is passed to the web renderer. |
+| `setContribution(id, contribution \| null)` | Create or update a typed, session-scoped contribution, or remove an owned contribution. |
 | `attention(reason, summary)` | Raise a semantic attention item. |
 | `linkSubagent({runId, label, status, sessionFile})` | Show a subagent run, linked to a read-only view of its session file. |
 | `queueAnswers(matcher, responses, {toolCallId?})` | Pre-answer later dialogs of the same tool call (see below). |
 | `log(level, message)` | Adapter log line. |
+
+### Session contributions
+
+`setContribution` adds portable UI to the current session, not globally to the host. Even navigator and palette entries belong only to the selected session; selecting another session or none removes them from those surfaces. Contributions sort by `order` (default `0`), then adapter ID, then contribution ID. For example:
+
+```ts
+ctx.setContribution("build", {
+  placement: "sidebar.header",
+  title: "Build",
+  node: { t: "text", text: "Building" },
+  mobileFallback: "Building",
+  order: 10,
+});
+ctx.setContribution("build", null); // remove it
+```
+
+| Placement | Web presentation and requirements |
+|---|---|
+| `sidebar.header`, `sidebar.footer` | Portable content above or below the selected session's navigator body. Areas scroll when full. |
+| `session.panel` | Inspector tab; may use the adapter's custom renderer on desktop. Only this placement accepts renderer `state`. |
+| `composer.pill` | Compact, non-interactive text or progress root node; no `actionId`. The title remains available when the display is truncated. |
+| `palette.item` | An Extensions palette entry; requires `actionId`, optionally `keywords`. Selection previews the portable node with interactions disabled; Run invokes the action. |
+| `slash.command` | Requires `actionId`, a root `form` node and a `name` matching `[a-z][a-z0-9-]{0,39}`. Its name is always `/adapter:<adapterId>:<name>`. It opens a form, not a Pi prompt. |
+
+All contributions require a nonempty `title` (at most 100 characters), a portable `node`, and a nonempty `mobileFallback` (at most 2,000 characters). IDs match `[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}`. `order`, if supplied, is an integer from -1000 to 1000. An `actionId` is 1–200 characters and is required for nodes containing a form or confirm. Palette keywords are limited to 20 nonempty strings of at most 80 characters each. Contribution objects reject unknown fields. There may be at most 64 active contributions per adapter per session, including restored contributions.
+
+The contribution envelope must be plain JSON: no cycles, non-plain objects, undefined, functions or non-finite numbers. It is limited to 256 KiB serialized, 20,000 values and depth 32; renderer `state` is additionally limited to 64 KiB. Portable nodes also have the existing UI limits of depth 12 and 2,000 nodes. These stricter envelope limits do not redefine legacy `setPanel` validation.
+
+Contributions use the existing panel lifecycle and the slot `@slot/<id>`; the placement is not the storage slot. Identity includes session, adapter and slot, and `contributionKey(adapterId, id)` encodes the adapter/ID pair without ambiguous delimiters. Legacy slots remain arbitrary, including names beginning `@slot/`: a contribution cannot overwrite an existing legacy panel at its slot. Conversely, `setPanel` at an occupied contribution slot removes that contribution first and writes the legacy panel. Deleting an untracked contribution does nothing. Restored panels count toward ownership and limits; disabling an adapter removes its contributions, including restored ones. Legacy panels retain their existing lifecycle and appear in Extensions rather than typed slots.
+
+Portable action buttons invoke their own action ID. For contribution forms and confirms, the descriptor's `actionId` receives `{kind: "form", values}` or `{kind: "confirm", confirmed}`; cancel sends nothing. Palette Run sends `{kind: "command", source: "palette"}`; slash form submission sends `{kind: "form", values, source: "slash"}`. These go to `onAction` through the existing adapter action path, not through a Pi interaction or automatic prompt. Actions are unavailable for read-only, archived or disconnected sessions; errors are shown and a retry requires another explicit action.
+
+Clients without slot capability receive contributions as non-interactive legacy panels in Extensions, with `mobileFallback` as text. Capable web clients render the portable node on mobile; only legacy panels and desktop `session.panel` contributions can use a custom frame. Sidebar, pills, commands and timeline cards never run frames.
+
+### Custom message cards
+
+`customMessageCard(message, ctx)` receives `CustomMessageInfo` (`customType`, `content`, optional `display` and `details`) for a visible Pi custom message. Return a portable node or `undefined`; adapters are tried in precedence order. The hook has the usual timeout and failure isolation. Cards use the bounded contribution JSON and UI limits above and cannot contain form or confirm nodes; explicit action buttons are supported. Hidden (`display: false`) messages do not invoke this rendering hook. `onCustomMessage` remains a separate observation hook.
+
+A visible custom message remains a notice with readable text; a successful card is attached to that same notice, and the web offers the original text. Failure leaves the fallback intact. Older clients receive the text without card metadata. Historical imports and rewinds reconstruct text only: they do not run adapter rendering hooks or replay their side effects. Cards already stored at the coordinator remain available on normal reconnect.
 
 ### Claims and dialog responses
 
@@ -180,7 +221,7 @@ A `webRenderer` HTML file is served to browsers in `<iframe sandbox="allow-scrip
 | frame to parent | `{type: "action", actionId, payload}`: forwarded to the adapter's `onAction` through the adapter action API |
 | frame to parent | `{type: "resize", height}`: requested height, a finite number from 0 to 4000 (`FRAME_MAX_HEIGHT`) |
 
-The parent validates every frame message with `parseFrameMessage` (`@switchyard/protocol`, re-exported by `@switchyard/adapter-sdk`): an action needs an `actionId` of 1 to 200 characters; anything else is ignored. The web app sizes the frame to the requested height, at least 80 px and at most 4000 px. It also ignores messages from other sources. Renderers should set a restrictive Content-Security-Policy and must render a usable fallback from `node` when `state` is missing. Clients without frames (terminal, constrained mobile) render `node` or `mobileFallback`. See the pi-bg adapter's renderer in pi-plugins, `packages/pi-bg/src/switchyard/bg-renderer.html`.
+The parent validates every frame message with `parseFrameMessage` (`@switchyard/protocol`, re-exported by `@switchyard/adapter-sdk`): an action needs an `actionId` of 1 to 200 characters; anything else is ignored. The web app sizes the frame to the requested height, at least 80 px and at most 4000 px. It also ignores messages from other sources. Renderers should set a restrictive Content-Security-Policy and must render a usable fallback from `node` when `state` is missing. Clients without frames (including mobile) use the portable node or `mobileFallback`. For a typed contribution, only `session.panel` can use this bridge; its optional JSON `state` is passed through to the frame. Legacy `setPanel` keeps its existing renderer behavior. See the pi-bg adapter's renderer in pi-plugins, `packages/pi-bg/src/switchyard/bg-renderer.html`.
 
 ## Adapters for the pi-plugins suite
 

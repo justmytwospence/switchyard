@@ -6,6 +6,7 @@ import {
   AttentionReason,
   CompletedUsageWatermark,
   type CoordinatorToHost,
+  contributionSlot,
   Diagnostic,
   type Host,
   HostAgentRequestFrame,
@@ -27,6 +28,8 @@ import {
   type TermServerToViewer,
   TranscriptItem,
   UNTITLED_SESSION_TITLE,
+  validateContribution,
+  validateContributionCard,
   Workspace,
 } from "@switchyard/protocol";
 import type { Logger } from "pino";
@@ -871,6 +874,9 @@ export class HostHub {
         return;
       case "transcript.item": {
         let item = TranscriptItem.parse(raw);
+        if (item.kind === "notice" && item.data.card) {
+          validateContributionCard(item.data.card);
+        }
         const session = this.ownedSession(hostId, item.sessionId);
         if (item.kind === "subagent") item = linkSubagentItem(this.store, hostId, session, item);
         this.store.upsertItem(item);
@@ -886,8 +892,25 @@ export class HostHub {
         return;
       case "panel.updated": {
         const panel = Panel.parse(raw);
+        if (panel.contribution) {
+          const { id, ...descriptor } = panel.contribution;
+          if (panel.slot !== contributionSlot(id))
+            throw new Error("Contribution slot does not match id");
+          if (panel.node !== null) {
+            const checked = validateContribution(id, {
+              ...descriptor,
+              title: panel.title,
+              node: panel.node,
+              mobileFallback: panel.mobileFallback,
+              ...(panel.state === undefined ? {} : { state: panel.state }),
+            });
+            if (JSON.stringify(checked.descriptor) !== JSON.stringify(panel.contribution)) {
+              throw new Error("Contribution descriptor mismatch");
+            }
+          }
+        }
         const session = this.ownedSession(hostId, panel.sessionId);
-        if (panel.node === null)
+        if (panel.node === null && !panel.webRenderer)
           this.store.deletePanel(panel.sessionId, panel.adapterId, panel.slot);
         else this.store.upsertPanel(panel);
         this.store.appendEvent(
@@ -899,19 +922,40 @@ export class HostHub {
       }
       case "adapters.updated": {
         const adapters = AdapterInfo.array().parse(raw.adapters ?? []);
-        this.store.setHostAdapters(hostId, adapters);
-        const renderers = (raw.renderers ?? {}) as Record<string, unknown>;
-        const rawAdapters = (Array.isArray(raw.adapters) ? raw.adapters : []) as Record<
-          string,
-          unknown
-        >[];
-        for (const a of adapters) {
-          const fromList = rawAdapters.find((x) => x?.id === a.id);
-          const html =
-            (typeof renderers[a.id] === "string" ? (renderers[a.id] as string) : null) ??
-            (typeof fromList?.webRendererHtml === "string" ? fromList.webRendererHtml : null);
-          if (html !== null) this.store.setRenderer(hostId, a.id, html);
-          else if (!a.webRenderer) this.store.setRenderer(hostId, a.id, null);
+        if (Object.hasOwn(raw, "renderers")) {
+          const supplied = raw.renderers;
+          if (!supplied || typeof supplied !== "object" || Array.isArray(supplied))
+            throw new Error("Renderers must be an object");
+          const renderers: Record<string, string> = {};
+          let total = 0;
+          for (const [id, html] of Object.entries(supplied)) {
+            if (!adapters.some((a) => a.id === id && a.status === "active" && a.webRenderer))
+              throw new Error(`Renderer ${id} has no active advertised adapter`);
+            if (typeof html !== "string") throw new Error(`Renderer ${id} must be HTML text`);
+            const size = Buffer.byteLength(html, "utf8");
+            if (size > 256 * 1024) throw new Error(`Renderer ${id} exceeds 256 KiB`);
+            total += size;
+            if (total > 8 * 1024 * 1024) throw new Error("Renderers exceed 8 MiB");
+            renderers[id] = html;
+          }
+          this.store.setHostAdapters(hostId, adapters);
+          this.store.replaceRenderers(hostId, renderers);
+        } else {
+          // Older hosts can still provide inline HTML on adapter info entries.
+          this.store.setHostAdapters(hostId, adapters);
+          const renderers = (raw.renderers ?? {}) as Record<string, unknown>;
+          const rawAdapters = (Array.isArray(raw.adapters) ? raw.adapters : []) as Record<
+            string,
+            unknown
+          >[];
+          for (const a of adapters) {
+            const fromList = rawAdapters.find((x) => x?.id === a.id);
+            const html =
+              (typeof renderers[a.id] === "string" ? (renderers[a.id] as string) : null) ??
+              (typeof fromList?.webRendererHtml === "string" ? fromList.webRendererHtml : null);
+            if (html !== null) this.store.setRenderer(hostId, a.id, html);
+            else if (!a.webRenderer) this.store.setRenderer(hostId, a.id, null);
+          }
         }
         this.store.appendEvent("adapters.updated", { hostId }, { hostId, adapters });
         return;

@@ -1,4 +1,12 @@
-import { type InteractionResponse, type UINode, validateUINode } from "@switchyard/protocol";
+import {
+  contributionSlot,
+  type InteractionResponse,
+  type Panel,
+  type UINode,
+  validateContribution,
+  validateContributionCard,
+  validateUINode,
+} from "@switchyard/protocol";
 import { genericClaim } from "./generic.js";
 import {
   type PiUiMethod,
@@ -144,6 +152,11 @@ export class AdapterSession {
   private readonly entries: Entry[];
   private readonly activeTools = new Map<string, ToolStartEvent>();
   private readonly queues = new Map<string, QueueItem[]>();
+  private readonly panels = new Map<string, Map<string, Panel>>();
+  private readonly contributions = new Map<
+    string,
+    Map<string, Extract<Parameters<AdapterSessionHost["emit"]>[0], { type: "panel" }>>
+  >();
   private closed = false;
 
   constructor(
@@ -152,6 +165,27 @@ export class AdapterSession {
     private readonly hookTimeoutMs = DEFAULT_HOOK_TIMEOUT_MS,
   ) {
     this.sessionId = host.sessionId;
+    for (const panel of host.initialPanels ?? []) {
+      if (panel.node === null) continue;
+      const owned = this.panels.get(panel.adapterId) ?? new Map<string, Panel>();
+      owned.set(panel.slot, panel);
+      this.panels.set(panel.adapterId, owned);
+      if (panel.contribution && panel.slot === contributionSlot(panel.contribution.id)) {
+        const contributions = this.contributions.get(panel.adapterId) ?? new Map();
+        contributions.set(panel.contribution.id, {
+          type: "panel",
+          adapterId: panel.adapterId,
+          slot: panel.slot,
+          title: panel.title,
+          node: panel.node,
+          webRenderer: panel.webRenderer,
+          mobileFallback: panel.mobileFallback,
+          contribution: panel.contribution,
+          ...("state" in panel ? { state: panel.state } : {}),
+        });
+        this.contributions.set(panel.adapterId, contributions);
+      }
+    }
     this.entries = adapters.map((adapter) => {
       const entry: Entry = {
         adapter,
@@ -197,6 +231,23 @@ export class AdapterSession {
         return { adapterId: entry.id, node: validateUINode(r.value) };
       } catch (err) {
         this.disable(entry, "toolCard", `returned an invalid card: ${errorMessage(err)}`);
+      }
+    }
+    return undefined;
+  }
+
+  /** First valid card for a visible custom message; hidden messages never invoke hooks. */
+  async customMessageCard(
+    message: CustomMessageInfo,
+  ): Promise<{ adapterId: string; node: UINode } | undefined> {
+    if (message.display === false) return undefined;
+    for (const entry of this.enabled("customMessageCard")) {
+      const r = await this.call(entry, "customMessageCard", [message]);
+      if (!r.ok || r.value === undefined || r.value === null) continue;
+      try {
+        return { adapterId: entry.id, node: validateContributionCard(r.value) };
+      } catch (err) {
+        this.disable(entry, "customMessageCard", `returned an invalid card: ${errorMessage(err)}`);
       }
     }
     return undefined;
@@ -450,6 +501,11 @@ export class AdapterSession {
   private disable(entry: Entry, where: string, reason: string) {
     if (entry.disabled) return;
     entry.disabled = `${where} failed: ${reason}`;
+    for (const effect of this.contributions.get(entry.id)?.values() ?? []) {
+      this.emit({ ...effect, node: null, webRenderer: false });
+      this.panels.get(entry.id)?.delete(effect.slot);
+    }
+    this.contributions.get(entry.id)?.clear();
     for (const [id, items] of this.queues) {
       const kept = items.filter((i) => i.adapterId !== entry.id);
       if (kept.length === 0) this.queues.delete(id);
@@ -503,6 +559,26 @@ export class AdapterSession {
       setPanel: (slot, node, opts) => {
         const checked = node === null ? null : validateUINode(node);
         if (!live()) return;
+        const owned = this.contributions.get(adapterId);
+        for (const [id, effect] of owned ?? []) {
+          if (effect.slot !== slot) continue;
+          this.emit({ ...effect, node: null, webRenderer: false });
+          owned?.delete(id);
+        }
+        const panels = this.panels.get(adapterId) ?? new Map<string, Panel>();
+        if (checked === null) panels.delete(slot);
+        else
+          panels.set(slot, {
+            adapterId,
+            slot,
+            title: opts?.title ?? slot,
+            node: checked,
+            webRenderer: entry.adapter.webRendererPath !== null,
+            mobileFallback: opts?.mobileFallback ?? null,
+            sessionId: this.sessionId,
+            updatedAt: "",
+          });
+        this.panels.set(adapterId, panels);
         this.emit({
           type: "panel",
           adapterId,
@@ -513,6 +589,46 @@ export class AdapterSession {
           mobileFallback: opts?.mobileFallback ?? null,
           ...(opts && "state" in opts ? { state: opts.state } : {}),
         });
+      },
+      setContribution: (id, contribution) => {
+        if (!live()) return;
+        const slot = contributionSlot(id);
+        const owned = this.contributions.get(adapterId) ?? new Map();
+        if (contribution === null) {
+          const previous = owned.get(id);
+          if (!previous) return;
+          this.emit({ ...previous, node: null, webRenderer: false });
+          owned.delete(id);
+          this.panels.get(adapterId)?.delete(slot);
+          return;
+        }
+        const checked = validateContribution(id, contribution);
+        if (!owned.has(id) && this.panels.get(adapterId)?.has(slot)) {
+          throw new Error(
+            `Contribution ${id} conflicts with legacy panel ${slot}; choose another id`,
+          );
+        }
+        if (!owned.has(id) && owned.size >= 64)
+          throw new Error("At most 64 contributions per adapter/session");
+        const effect = {
+          type: "panel" as const,
+          adapterId,
+          slot,
+          title: checked.title,
+          node: checked.node,
+          webRenderer:
+            checked.descriptor.placement === "session.panel" &&
+            entry.adapter.webRendererPath !== null,
+          mobileFallback: checked.mobileFallback,
+          contribution: checked.descriptor,
+          ...(checked.state === undefined ? {} : { state: checked.state }),
+        };
+        owned.set(id, effect);
+        this.contributions.set(adapterId, owned);
+        const panels = this.panels.get(adapterId) ?? new Map();
+        panels.set(slot, { ...effect, sessionId: this.sessionId, updatedAt: "" });
+        this.panels.set(adapterId, panels);
+        this.emit(effect);
       },
       attention: (reason, summary) => {
         if (live()) this.emit({ type: "attention", adapterId, reason, summary });

@@ -413,6 +413,29 @@ export function useRunsForTask(taskId: string | null | undefined) {
   return useMemo(() => (taskId ? runsForTask(runs, taskId) : []), [runs, taskId]);
 }
 
+/** Typed contributions are session-scoped; legacy panels stay in Extensions. */
+export function contributionsForSession(
+  panels: Record<string, Panel>,
+  sessionId: string | null | undefined,
+): Panel[] {
+  if (!sessionId) return [];
+  return Object.values(panels)
+    .filter(
+      (p) => p.sessionId === sessionId && p.contribution && (p.node !== null || p.webRenderer),
+    )
+    .sort(
+      (a, b) =>
+        (a.contribution?.order ?? 0) - (b.contribution?.order ?? 0) ||
+        a.adapterId.localeCompare(b.adapterId) ||
+        (a.contribution?.id ?? "").localeCompare(b.contribution?.id ?? ""),
+    );
+}
+
+export function useContributions(sessionId: string | null | undefined): Panel[] {
+  const panels = useSyncStore((s) => s.panels);
+  return useMemo(() => contributionsForSession(panels, sessionId), [panels, sessionId]);
+}
+
 export function usePanels(sessionId: string | null | undefined) {
   const panels = useSyncStore((s) => s.panels);
   return useMemo(() => (sessionId ? panelsForSession(panels, sessionId) : []), [panels, sessionId]);

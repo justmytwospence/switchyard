@@ -36,6 +36,26 @@ const questionSchema = {
 };
 
 export default function askExtension(pi) {
+  pi.registerCommand("fixture-slots", {
+    description: "Publish adapter slot fixtures",
+    handler: async (args, ctx) => {
+      ctx.ui.setStatus("slots", args?.trim() || "Fixture slots active");
+      pi.sendMessage(
+        { customType: "slots-visible", content: "Visible slots fixture", display: true },
+        { triggerTurn: false },
+      );
+      pi.sendMessage(
+        { customType: "slots-hidden", content: "Hidden slots fixture", display: false },
+        { triggerTurn: false },
+      );
+    },
+  });
+  pi.registerCommand("fixture-slots-clear", {
+    description: "Clear adapter slot fixtures",
+    handler: async (_args, ctx) => {
+      ctx.ui.setStatus("slots", undefined);
+    },
+  });
   pi.registerTool({
     name: "ask_user_question",
     label: "Ask user question",

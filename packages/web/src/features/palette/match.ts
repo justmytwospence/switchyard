@@ -60,5 +60,6 @@ export function emptyQueryItems(
     { label: "Ready to review", items: review },
     { label: "Recent", items: recent },
     { label: "Actions", items: items.filter((i) => i.group === "Actions") },
+    { label: "Extensions", items: items.filter((i) => i.group === "Extensions") },
   ].filter((s) => s.items.length > 0);
 }

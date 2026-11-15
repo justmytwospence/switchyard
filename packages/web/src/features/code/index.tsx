@@ -4,9 +4,11 @@ import { useBreakpoint } from "../../app/useBreakpoint";
 import { usePrefs } from "../../prefs";
 import { useViewingSession } from "../../presence";
 import { useSession, useSyncStore } from "../../sync/store";
+import { AdapterCommandDialog } from "./AdapterCommandDialog";
 import { CodeDesktop, CodeMobile } from "./CodeLayouts";
 import type { InspectorTab } from "./context";
 import { useSessionLookup } from "./hooks";
+import { useAdapterCommands } from "./useAdapterCommands";
 
 const INSPECTOR_TABS: readonly string[] = ["changes", "files", "task", "extensions", "pr"];
 
@@ -35,6 +37,7 @@ export default function CodeView() {
   const setPref = usePrefs((s) => s.set);
 
   useViewingSession(session ? session.id : null);
+  const adapterCommands = useAdapterCommands(session?.id ?? null);
 
   useEffect(() => {
     if (!session) return;
@@ -54,9 +57,18 @@ export default function CodeView() {
     focusInteractionId,
     tabRequest: requestedTab ? { tab: requestedTab, key: requestKey } : null,
   };
-  return bp === "mobile" ? (
-    <CodeMobile {...props} />
-  ) : (
-    <CodeDesktop {...props} compact={bp === "compact"} />
+  return (
+    <>
+      {bp === "mobile" ? (
+        <CodeMobile {...props} />
+      ) : (
+        <CodeDesktop {...props} compact={bp === "compact"} />
+      )}
+      <AdapterCommandDialog
+        activeSessionId={session?.id ?? null}
+        request={adapterCommands.preview && { panel: adapterCommands.preview, source: "palette" }}
+        onClose={() => adapterCommands.setPreview(null)}
+      />
+    </>
   );
 }

@@ -748,4 +748,49 @@ describe("host link", () => {
     const host = await t.admin("GET", `/api/hosts/${creds.hostId}`);
     expect(host.body.adapters).toHaveLength(1);
   });
+
+  it("atomically replaces authoritative renderers and rejects invalid maps without partial writes", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connect(t, creds);
+    const adapter = {
+      id: "frame",
+      version: "1.0.0",
+      tier: "project",
+      status: "active",
+      detail: null,
+      target: { extension: "fixture", versionRange: "*", testedVersions: [] },
+      capabilities: ["panels"],
+      webRenderer: true,
+    };
+    const frame = () => t!.admin("GET", `/adapter-frames/${creds.hostId}/frame`);
+    await h.event("adapters.updated", {
+      adapters: [adapter, { ...adapter, tier: "owner", status: "disabled", webRenderer: false }],
+      renderers: { frame: "first" },
+    });
+    expect((await frame()).body).toBe("first");
+    await h.event("adapters.updated", {
+      adapters: [adapter, { ...adapter, tier: "owner", status: "disabled", webRenderer: false }],
+      renderers: { frame: "second" },
+    });
+    expect((await frame()).body).toBe("second");
+    await h.event("adapters.updated", {
+      adapters: [adapter],
+      renderers: { frame: "updated", extra: "invalid" },
+    });
+    expect((await frame()).body).toBe("second");
+    await h.event("adapters.updated", {
+      adapters: [adapter],
+      renderers: { frame: "x".repeat(256 * 1024 + 1) },
+    });
+    expect((await frame()).body).toBe("second");
+    await h.event("adapters.updated", {
+      adapters: [{ ...adapter, webRenderer: false }],
+      renderers: {},
+    });
+    expect((await frame()).status).toBe(404);
+    // A host from the previous release may still send inline HTML with no authoritative map.
+    await h.event("adapters.updated", { adapters: [{ ...adapter, webRendererHtml: "legacy" }] });
+    expect((await frame()).body).toBe("legacy");
+  });
 });

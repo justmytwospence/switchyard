@@ -11,7 +11,12 @@ import {
   mergeTranscriptItems,
   toSyncState,
 } from "../src/sync/reduce";
-import { countAttention, groupTasksByState, useSyncStore } from "../src/sync/store";
+import {
+  contributionsForSession,
+  countAttention,
+  groupTasksByState,
+  useSyncStore,
+} from "../src/sync/store";
 import { assistant, attention, ev, interaction, session, snapshot, task } from "./fixtures";
 
 describe("snapshot", () => {
@@ -45,6 +50,46 @@ describe("snapshot", () => {
     expect(s.transcripts.ses_1!.stale).toBe(true);
     expect(s.transcripts.ses_1!.items).toHaveLength(1);
     expect(s.streaming).toEqual({});
+  });
+});
+
+describe("contribution snapshots and replay", () => {
+  it("retains metadata/state and notice cards while honoring tombstones", () => {
+    const panel = {
+      sessionId: "ses_1",
+      adapterId: "slots",
+      slot: "@slot/panel",
+      title: "Panel",
+      node: { t: "text", text: "portable" },
+      mobileFallback: "portable",
+      webRenderer: false,
+      state: { count: 2 },
+      contribution: { id: "panel", placement: "session.panel", order: -1 },
+      updatedAt: "x",
+    };
+    let s = applySnapshot(emptySyncData(), 10, snapshot({ panels: [panel as never] }));
+    expect(contributionsForSession(s.panels, "ses_1")[0]?.state).toEqual({ count: 2 });
+    expect(toSyncState(s).panels[0]?.contribution?.id).toBe("panel");
+    s = applyEvent(s, ev("panel.updated", { ...panel, state: { count: 3 } }, 11));
+    expect(contributionsForSession(s.panels, "ses_1")[0]?.state).toEqual({ count: 3 });
+    s = applyEvent(s, ev("panel.updated", { ...panel, node: null }, 12));
+    expect(contributionsForSession(s.panels, "ses_1")).toEqual([]);
+    const notice = {
+      id: "itm_card",
+      sessionId: "ses_1",
+      kind: "notice",
+      order: 1,
+      at: "x",
+      data: {
+        level: "info",
+        text: "Fallback",
+        customType: "fixture",
+        adapterId: "slots",
+        card: { t: "text", text: "Card" },
+      },
+    };
+    s = applyEvent(s, ev("transcript.item", notice, 13));
+    expect(s.transcripts.ses_1?.items[0]?.data).toEqual(notice.data);
   });
 });
 

@@ -865,6 +865,12 @@ export class Store {
       .run(hostId, adapterId, html, this.nowIso());
   }
 
+  /** Replace a host's authoritative asset set within the host event transaction. */
+  replaceRenderers(hostId: string, renderers: Record<string, string>): void {
+    this.st.get("DELETE FROM adapter_renderers WHERE host_id = ?").run(hostId);
+    for (const [id, html] of Object.entries(renderers)) this.setRenderer(hostId, id, html);
+  }
+
   getRenderer(hostId: string | null, adapterId: string): string | undefined {
     const row = (
       hostId

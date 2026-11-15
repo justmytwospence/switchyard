@@ -188,6 +188,13 @@ export interface ManagedSessionEventMap {
   title: [string | null];
   /** Every raw Pi session event (tool_execution_*, entry_appended, message_end, ...). */
   pi_event: [PiEvent];
+  /** Visible custom notice, emitted after the fallback item with its exact id. */
+  custom_message: [
+    {
+      itemId: string;
+      message: { customType: string; content: unknown; display?: boolean; details?: unknown };
+    },
+  ];
   diagnostic: [SessionDiagnostic];
   stderr: [string];
   /** The live model or effort changed. */
@@ -1474,7 +1481,26 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
           : message.display !== false;
         if (!show) break;
         const { text } = contentText(message.content);
-        if (text) this.notice("info", text);
+        const customType = message.customType;
+        if (typeof customType !== "string" || !customType.trim() || customType.length > 200) {
+          if (text) this.notice("info", text);
+          break;
+        }
+        const item = this.newItem("notice", {
+          level: "info",
+          text: text || `Custom message: ${customType}`,
+          customType,
+        });
+        this.emitItem(item);
+        this.emit("custom_message", {
+          itemId: item.id,
+          message: {
+            customType,
+            content: message.content,
+            display: message.display,
+            details: message.details,
+          },
+        });
         break;
       }
       case "bashExecution": {

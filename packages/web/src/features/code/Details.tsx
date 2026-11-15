@@ -1,21 +1,23 @@
-import type { AdapterInfo, Panel, Run, Task } from "@switchyard/protocol";
+import type { AdapterInfo, Run, Task } from "@switchyard/protocol";
 import { Bot, CircleCheck, Hand, Square, SquareKanban } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { Link } from "react-router";
-import { CustomFrame } from "../../components/intent/CustomFrame";
 import { Markdown } from "../../components/intent/Markdown";
-import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { UnsupportedCapability } from "../../components/ui/states";
 import { TextLink } from "../../components/ui/TextLink";
-import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatRelative, formatTime } from "../../lib/time";
-import { errorMessage } from "../../sync/api";
-import { usePanels, useRunsForTask, useSyncStore, useTranscript } from "../../sync/store";
+import {
+  useContributions,
+  usePanels,
+  useRunsForTask,
+  useSyncStore,
+  useTranscript,
+} from "../../sync/store";
 import { protectionLabel } from "../settings/policyLogic";
-import { codeApi } from "./api";
+import { AdapterPanel } from "./AdapterPanel";
 import { ControlChip } from "./ConversationHeader";
 import { useCodeContext } from "./context";
 import type { SessionContext } from "./hooks";
@@ -286,63 +288,9 @@ function AdapterRow({ a }: { a: AdapterInfo }) {
   );
 }
 
-function PanelView({ ctx, panel }: { ctx: SessionContext; panel: Panel }) {
-  const { mobile, openFile } = useCodeContext();
-  const onAction = (actionId: string, payload?: unknown) => {
-    codeApi
-      .adapterAction(ctx.session.id, panel.adapterId, actionId, payload)
-      .then(() => toast.success("Action sent"))
-      .catch((e) => toast.error(errorMessage(e)));
-  };
-  let body: ReactNode;
-  if (panel.webRenderer && !mobile && ctx.host) {
-    body = (
-      <CustomFrame
-        hostId={ctx.session.hostId}
-        adapterId={panel.adapterId}
-        node={panel.node}
-        title={panel.title}
-        onAction={onAction}
-      />
-    );
-  } else if (panel.node) {
-    body = (
-      <>
-        {panel.webRenderer && mobile && (
-          <p className="text-xs text-muted">
-            Showing the portable version; this panel&apos;s custom renderer is desktop-only.
-          </p>
-        )}
-        <UINodeRenderer node={panel.node} onAction={(id) => onAction(id)} onOpenFile={openFile} />
-      </>
-    );
-  } else {
-    body = (
-      <UnsupportedCapability
-        capability="This panel"
-        reason="It only has a custom web renderer, which is desktop-only and is not shown on mobile."
-        fallback={
-          <p className="text-sm">
-            {panel.mobileFallback ?? "The adapter provides no mobile fallback text."}
-          </p>
-        }
-      />
-    );
-  }
-  return (
-    <article className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-2">
-      <header className="flex min-w-0 items-baseline gap-2">
-        <h4 className="min-w-0 flex-1 truncate text-sm font-medium">{panel.title}</h4>
-        <span className="shrink-0 font-mono text-xs text-subtle">{panel.adapterId}</span>
-      </header>
-      {body}
-    </article>
-  );
-}
-
 /** Extension panels, adapter compatibility and diagnostics. */
 export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
-  const panels = usePanels(ctx.session.id);
+  const panels = usePanels(ctx.session.id).filter((p) => !p.contribution);
   const diagnostics = useSyncStore((s) => s.diagnostics);
   const adapterIds = useMemo(() => new Set(ctx.adapters.map((a) => a.id)), [ctx.adapters]);
   const mine = useMemo(
@@ -364,7 +312,9 @@ export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
         {panels.length === 0 ? (
           <p className="text-sm text-muted">No extension panels for this session.</p>
         ) : (
-          panels.map((p) => <PanelView key={`${p.adapterId}:${p.slot}`} ctx={ctx} panel={p} />)
+          panels.map((p) => (
+            <AdapterPanel key={`${p.adapterId}:${p.slot}`} ctx={ctx} panel={p} allowFrame />
+          ))
         )}
       </Section>
       <Section title={`Adapters on ${ctx.hostName}`}>
@@ -495,6 +445,9 @@ export function MobileDetails({
   const { openInspector } = useCodeContext();
   const transcript = useTranscript(ctx.session.id);
   const subagents = transcript.items.filter((i) => i.kind === "subagent");
+  const sessionPanels = useContributions(ctx.session.id).filter(
+    (panel) => panel.contribution?.placement === "session.panel",
+  );
   return (
     <div className="flex min-w-0 flex-col gap-5 px-3 py-3">
       <Section title="Session">
@@ -528,6 +481,20 @@ export function MobileDetails({
           </ul>
         )}
       </Section>
+      {sessionPanels.length > 0 && (
+        <Section title="Session panels">
+          <div className="flex flex-col gap-3">
+            {sessionPanels.map((panel) => (
+              <AdapterPanel
+                key={`${panel.adapterId}:${panel.slot}`}
+                ctx={ctx}
+                panel={panel}
+                allowFrame={false}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
       <Section title="Extensions">
         <ExtensionsSection ctx={ctx} />
       </Section>

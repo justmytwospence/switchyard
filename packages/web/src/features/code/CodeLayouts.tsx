@@ -173,6 +173,8 @@ function SessionPanes({
 }) {
   const actions = useSessionActions(ctx);
   const [tab, setTab] = useState<InspectorTab>(tabRequest?.tab ?? "changes");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the selected session changes
+  useEffect(() => setTab("changes"), [ctx.session.id]);
   const inspectorVisible = compact ? drawerOpen : showInspector;
   const github = usePullRequest(ctx, inspectorVisible && tab === "pr");
   const [openPath, setOpenPath] = useState<{ path: string; nonce: number } | null>(null);

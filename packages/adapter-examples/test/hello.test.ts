@@ -83,13 +83,28 @@ describe("hello", () => {
     expect(await session.onStatus("hello", "resting")).toBe(true);
     expect(await session.onStatus("other", "ignored")).toBe(false);
     await session.onStatus("hello", undefined);
-    const p = panels();
+    const p = panels().filter((e) => e.slot === "hello");
     expect(p.map((e) => e.node)).toEqual([
       { t: "progress", label: "greeting 2/4", value: 0.5, status: "running" },
       { t: "progress", label: "waving 100%", value: 1, status: "ok" },
       { t: "text", text: "resting" },
       null,
     ]);
+    expect(
+      panels()
+        .filter((e) => e.contribution && e.node !== null)
+        .map((e) => e.contribution?.placement),
+    ).toEqual(
+      expect.arrayContaining([
+        "sidebar.header",
+        "sidebar.footer",
+        "session.panel",
+        "composer.pill",
+        "palette.item",
+        "slash.command",
+      ]),
+    );
+    expect(panels().filter((e) => e.contribution && e.node === null)).toHaveLength(6);
     expect(p[0]).toMatchObject({
       adapterId: "hello",
       slot: "hello",

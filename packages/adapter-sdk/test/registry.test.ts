@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Panel } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
   AdapterRegistry,
@@ -445,6 +446,170 @@ describe("context effects", () => {
     expect(await session.onAction("b", "go", null)).toEqual({ ok: true });
     expect(await session.onAction("zzz", "go", null)).toMatchObject({ ok: false });
     expect(calls).toEqual(["b:go"]);
+  });
+});
+
+describe("session contributions", () => {
+  const contribution = (text = "hello") => ({
+    placement: "sidebar.header" as const,
+    title: text,
+    node: { t: "text" as const, text },
+    mobileFallback: text,
+  });
+  const restored = (slot: string, descriptor?: Panel["contribution"]): Panel => ({
+    adapterId: "a",
+    sessionId: "s",
+    slot,
+    updatedAt: "2025-01-01T00:00:00Z",
+    title: "Restored",
+    node: { t: "text", text: "old" },
+    webRenderer: false,
+    mobileFallback: "old",
+    ...(descriptor ? { contribution: descriptor } : {}),
+  });
+
+  it("replaces, deletes, and isolates multiple same-placement IDs by session", async () => {
+    const registry = new AdapterRegistry();
+    registry.setAdapters([
+      inline("a", {
+        onStatus(_k, text, ctx) {
+          ctx.setContribution("one", contribution(text));
+          ctx.setContribution("two", contribution("two"));
+          ctx.setContribution("one", null);
+          ctx.setContribution("missing", null);
+        },
+      }),
+    ]);
+    const first = open(registry, "s1");
+    const second = open(registry, "s2");
+    await first.session.onStatus("x", "first");
+    await second.session.onStatus("x", "second");
+    expect(
+      first.effects.filter((e) => e.type === "panel").map((e) => [e.slot, e.node === null]),
+    ).toEqual([
+      ["@slot/one", false],
+      ["@slot/two", false],
+      ["@slot/one", true],
+    ]);
+    expect(second.effects[0]).toMatchObject({ title: "second", contribution: { id: "one" } });
+  });
+
+  it("refuses legacy collisions, while a legacy write clears contribution ownership first", async () => {
+    const errors: string[] = [];
+    const registry = new AdapterRegistry();
+    registry.setAdapters([
+      inline("a", {
+        onStatus(_k, _text, ctx) {
+          ctx.setPanel("@slot/legacy", { t: "text", text: "legacy" });
+          try {
+            ctx.setContribution("legacy", contribution());
+          } catch (err) {
+            errors.push(String(err));
+          }
+          ctx.setContribution("new", contribution());
+          ctx.setPanel("@slot/new", { t: "text", text: "wins" });
+          ctx.setContribution("new", null);
+        },
+      }),
+    ]);
+    const { session, effects } = open(registry);
+    await session.onStatus("x", "y");
+    expect(errors[0]).toContain("Contribution legacy conflicts with legacy panel @slot/legacy");
+    expect(
+      effects.filter((e) => e.type === "panel" && e.slot === "@slot/new").map((e) => e.node),
+    ).toEqual([{ t: "text", text: "hello" }, null, { t: "text", text: "wins" }]);
+  });
+
+  it("seeds restored IDs and legacy slots, respects the 64 limit, and tombstones on disable", async () => {
+    const errors: string[] = [];
+    const registry = new AdapterRegistry();
+    registry.setAdapters([
+      inline("a", {
+        onStatus(_k, _text, ctx) {
+          try {
+            ctx.setContribution("legacy", contribution());
+          } catch (err) {
+            errors.push(String(err));
+          }
+          try {
+            ctx.setContribution("next", contribution());
+          } catch (err) {
+            errors.push(String(err));
+          }
+          ctx.setContribution("old0", null);
+          ctx.setContribution("next", contribution());
+          throw new Error("disable");
+        },
+      }),
+    ]);
+    const effects = sink();
+    const initialPanels = [
+      restored("@slot/legacy"),
+      ...Array.from({ length: 64 }, (_, i) =>
+        restored(`@slot/old${i}`, { id: `old${i}`, placement: "sidebar.header" }),
+      ),
+    ];
+    const session = registry.openSession({ sessionId: "s", emit: effects.emit, initialPanels });
+    await session.onStatus("x", "y");
+    expect(errors).toHaveLength(2);
+    expect(errors[1]).toContain("64 contributions");
+    expect(session.statuses()[0]?.status).toBe("disabled");
+    const tombstones = effects.effects.filter((e) => e.type === "panel" && e.node === null);
+    expect(tombstones).toHaveLength(65);
+    expect(tombstones).toContainEqual(
+      expect.objectContaining({
+        slot: "@slot/old63",
+        contribution: expect.objectContaining({ id: "old63" }),
+      }),
+    );
+    expect(tombstones).not.toContainEqual(expect.objectContaining({ slot: "@slot/legacy" }));
+  });
+
+  it("times out a renderer, disables it, and uses a lower-priority fallback", async () => {
+    const registry = new AdapterRegistry({ hookTimeoutMs: 5 });
+    registry.setAdapters([
+      inline("slow", { customMessageCard: () => new Promise(() => {}) }),
+      inline("fallback", { customMessageCard: () => ({ t: "text", text: "safe" }) }),
+    ]);
+    const { session } = open(registry);
+    expect(await session.customMessageCard({ customType: "x", content: null })).toEqual({
+      adapterId: "fallback",
+      node: { t: "text", text: "safe" },
+    });
+    expect(session.statuses()[0]?.status).toBe("disabled");
+  });
+
+  it("uses first valid custom card, rejects interactive cards, and skips hidden messages", async () => {
+    const calls: string[] = [];
+    const registry = new AdapterRegistry();
+    registry.setAdapters([
+      inline("bad", {
+        customMessageCard() {
+          calls.push("bad");
+          return { t: "confirm", message: "x", confirmLabel: "Yes", cancelLabel: "No" };
+        },
+      }),
+      inline("good", {
+        customMessageCard() {
+          calls.push("good");
+          return { t: "text", text: "card" };
+        },
+      }),
+    ]);
+    const { session } = open(registry);
+    const message = { customType: "x", content: "ok" };
+    expect(await session.customMessageCard({ ...message, display: false })).toBeUndefined();
+    expect(calls).toEqual([]);
+    expect(await session.customMessageCard(message)).toEqual({
+      adapterId: "good",
+      node: { t: "text", text: "card" },
+    });
+    expect(session.statuses()[0]?.status).toBe("disabled");
+    expect(await session.customMessageCard(message)).toEqual({
+      adapterId: "good",
+      node: { t: "text", text: "card" },
+    });
+    expect(calls).toEqual(["bad", "good", "good"]);
   });
 });
 

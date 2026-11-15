@@ -356,7 +356,8 @@ export function activeBranch(entries: any[]): any[] {
   return branch.reverse();
 }
 
-/** Session entries to AgentMessage-like records for `messagesToItems`. */
+/** Session entries to AgentMessage-like records for `messagesToItems`. Historical imports
+ * retain the custom type and readable fallback, but do not replay adapter card hooks. */
 export function entriesToMessages(entries: any[]): any[] {
   const messages: any[] = [];
   for (const e of entries) {

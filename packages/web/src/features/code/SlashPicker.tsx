@@ -9,6 +9,7 @@ const SOURCE_LABEL: Record<CommandSource, string> = {
   prompt: "Prompt",
   skill: "Skill",
   terminal: "Terminal only",
+  adapter: "Adapter",
 };
 
 export interface SlashPickerProps {

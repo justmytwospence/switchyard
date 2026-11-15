@@ -180,7 +180,15 @@ export function messagesToItems(
       case "custom": {
         if (m.display === false) break;
         const { text } = contentText(m.content);
-        if (text) push("notice", { level: "info", text }, at);
+        const customType = m.customType;
+        // Historical imports are text-only: never run adapter rendering hooks while replaying history.
+        if (typeof customType === "string" && customType.trim() && customType.length <= 200) {
+          push(
+            "notice",
+            { level: "info", text: text || `Custom message: ${customType}`, customType },
+            at,
+          );
+        } else if (text) push("notice", { level: "info", text }, at);
         break;
       }
       case "bashExecution": {

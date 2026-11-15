@@ -1,8 +1,10 @@
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { CountBadge } from "../../components/ui/Badge";
 import { TabPanel, Tabs } from "../../components/ui/Tabs";
 import { cn } from "../../lib/cn";
-import { usePanels } from "../../sync/store";
+import { useContributions, usePanels } from "../../sync/store";
+import { AdapterPanel } from "./AdapterPanel";
+import { adapterTabId } from "./adapterIdentity";
 import { ChangesTab, useWorkspaceDiff } from "./Changes";
 import type { InspectorTab } from "./context";
 import { ExtensionsSection, TaskSection } from "./Details";
@@ -38,11 +40,22 @@ export function Inspector({
   hideTitle,
 }: InspectorProps) {
   const prefix = useId();
-  const panels = usePanels(ctx.session.id);
+  const panels = usePanels(ctx.session.id).filter((p) => !p.contribution);
+  const allContributions = useContributions(ctx.session.id);
+  const contributions = useMemo(
+    () => allContributions.filter((p) => p.contribution?.placement === "session.panel"),
+    [allContributions],
+  );
   const changed = ctx.workspace?.git.changedFiles ?? 0;
   const diff = useWorkspaceDiff(ctx);
   const [visited, setVisited] = useState<Set<InspectorTab>>(() => new Set([tab]));
   useEffect(() => setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab))), [tab]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: discard previously mounted panes when changing sessions
+  useEffect(() => setVisited(new Set(["changes"])), [ctx.session.id]);
+  useEffect(() => {
+    if (tab.startsWith("adapter:") && !contributions.some((p) => adapterTabId(p) === tab))
+      onTab("changes");
+  }, [contributions, tab, onTab]);
   const panes: { id: InspectorTab; body: ReactNode; flush?: boolean }[] = [
     { id: "changes", body: <ChangesTab ctx={ctx} diff={diff} /> },
     { id: "files", body: <FilesTab ctx={ctx} diff={diff} openPath={openPath} />, flush: true },
@@ -57,6 +70,10 @@ export function Inspector({
     },
     { id: "pr", body: <PullRequest ctx={ctx} state={github} active={visible && tab === "pr"} /> },
     { id: "extensions", body: <ExtensionsSection ctx={ctx} /> },
+    ...contributions.map((panel) => ({
+      id: adapterTabId(panel),
+      body: <AdapterPanel ctx={ctx} panel={panel} allowFrame />,
+    })),
   ];
   return (
     <aside
@@ -86,11 +103,12 @@ export function Inspector({
             label: "Extensions",
             badge: <CountBadge count={panels.length} label="panels" tone="neutral" />,
           },
+          ...contributions.map((p) => ({ id: adapterTabId(p), label: p.title })),
         ]}
       />
       {panes.map((p) => (
         <TabPanel
-          key={p.id}
+          key={`${ctx.session.id}:${p.id}`}
           idPrefix={prefix}
           id={p.id}
           hidden={tab !== p.id}

@@ -35,6 +35,7 @@ import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
 import { usePalette } from "../palette/registry";
 import { ProjectSuggestions } from "../settings/ProjectSuggestions";
+import { AdapterSlot } from "./AdapterSlots";
 import {
   buildNavTree,
   DEFAULT_SORT,
@@ -439,9 +440,11 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           )}
         </div>
       </div>
+      <AdapterSlot sessionId={selectedId} placement="sidebar.header" />
       <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 pt-2">
         {body}
       </div>
+      <AdapterSlot sessionId={selectedId} placement="sidebar.footer" />
     </nav>
   );
 }

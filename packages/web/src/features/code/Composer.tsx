@@ -21,11 +21,14 @@ import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
-import { applyReplyNotes, type ReplyNotes, setDraftNow } from "../../drafts";
+import { applyReplyNotes, type ReplyNotes } from "../../drafts";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
-import { useSyncStore } from "../../sync/store";
+import { useContributions, useSyncStore } from "../../sync/store";
+import { AdapterCommandDialog, type AdapterCommandRequest } from "./AdapterCommandDialog";
+import { AdapterSlot } from "./AdapterSlots";
+import { adapterCommandError, adapterCommandName } from "./adapterIdentity";
 import { codeApi, type PromptMode } from "./api";
 import { applyPrefill, canNavigate, useOpenBranch } from "./branching";
 import { CommandViewDrawer } from "./CommandViewDrawer";
@@ -142,7 +145,16 @@ export function Composer({
     loading: cmdLoading,
     refresh,
   } = useSessionCommands(session.id, controls);
-  const entries = controls ? mergeCommands(CLIENT_COMMANDS, commands) : [];
+  const contributions = useContributions(session.id);
+  const slash = contributions.filter((p) => p.contribution?.placement === "slash.command");
+  const [adapterRequest, setAdapterRequest] = useState<AdapterCommandRequest | null>(null);
+  const adapterEntries: CommandEntry[] = slash.map((p) => ({
+    name: adapterCommandName(p),
+    description: p.title,
+    source: "adapter",
+    argumentHint: null,
+  }));
+  const entries = controls ? [...mergeCommands(CLIENT_COMMANDS, commands), ...adapterEntries] : [];
   const [argsDismissed, setArgsDismissed] = useState(false);
   const completions = useArgumentCompletions(session.id, draft, controls && focused && !slashOpen);
   const completing = completions.items.length > 0 && !argsDismissed;
@@ -230,6 +242,18 @@ export function Composer({
 
   const send = async (mode: PromptMode) => {
     if (block || noText || busy || commandProblem) return;
+    const typedName = /^\/(\S+)/.exec(text)?.[1];
+    const adapterPanel = slash.find((p) => adapterCommandName(p) === typedName);
+    if (adapterPanel) {
+      const problem = adapterCommandError(text, typedName!, attachments.length);
+      if (problem) {
+        setError({ error: problem, mode });
+        return;
+      }
+      setError(null);
+      setAdapterRequest({ panel: adapterPanel, source: "slash", draft });
+      return;
+    }
     dictation.stop();
     const sent = draft;
     setBusy(mode);
@@ -707,9 +731,11 @@ export function Composer({
               className="flex min-w-0 flex-1 items-center gap-1 max-md:overflow-hidden"
             >
               {pills}
+              <AdapterSlot sessionId={session.id} placement="composer.pill" />
             </div>
           ) : (
             <>
+              <AdapterSlot sessionId={session.id} placement="composer.pill" />
               <span
                 className="hidden min-w-0 flex-1 truncate text-xs text-muted sm:inline"
                 title="Profile, model and effort come from the session's Pi profile (Settings › Profiles). They apply when a session starts."
@@ -809,6 +835,14 @@ export function Composer({
         )}
       </div>
 
+      <AdapterCommandDialog
+        request={adapterRequest}
+        activeSessionId={session.id}
+        onClose={() => setAdapterRequest(null)}
+        onSuccess={(request) => {
+          if (textRef.current?.value === request.draft) clearDraft();
+        }}
+      />
       <Sheet open={attachSheet} onClose={() => setAttachSheet(false)} title="Attach images">
         <div className="flex flex-col gap-2">
           <Button

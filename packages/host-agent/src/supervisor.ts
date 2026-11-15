@@ -364,6 +364,7 @@ export class SessionSupervisor {
   private readonly db: HostDb;
   private readonly link: CoordinatorLink;
   private readonly live = new Map<string, Live>();
+  private readonly cardGenerations = new WeakMap<ManagedSession, number>();
   private readonly records = new Map<string, HostSessionRecord>();
   private spawned = 0;
   private closing = false;
@@ -638,7 +639,14 @@ export class SessionSupervisor {
     try {
       l.registry = await this.opts.catalog.forWorkspace(workspacePath);
       this.emitAdapters();
+      const loaded = new Set(l.registry.adapters().map((adapter) => adapter.manifest.id));
+      for (const panel of this.panels(l.rec.id)) {
+        if (panel.contribution && !loaded.has(panel.adapterId)) {
+          this.setPanel(l.rec.id, { ...panel, node: null });
+        }
+      }
       l.adapters = l.registry.openSession({
+        initialPanels: this.panels(l.rec.id),
         sessionId: l.rec.id,
         emit: (effect) => this.onAdapterEffect(l, effect),
         initialState: this.loadAdapterState(l.rec.id),
@@ -1279,6 +1287,7 @@ export class SessionSupervisor {
   ): Promise<{ items: TranscriptItem[]; prefill: string | null }> {
     const ms = this.requireLive(sessionId, "navigate");
     const l = this.live.get(sessionId)!;
+    this.cardGenerations.set(ms, (this.cardGenerations.get(ms) ?? 0) + 1);
     const r = await ms.navigate(entryId, summarize, instructions);
     const start = ms.snapshot().nextOrder;
     const items = messagesToItems(entriesToMessages(r.entries as any[]), {
@@ -1762,6 +1771,9 @@ export class SessionSupervisor {
       this.invalidateUsage(l);
       handle?.lost();
     });
+    ms.on("custom_message", ({ itemId, message }) => {
+      void this.applyCustomMessageCard(l, ms, itemId, message);
+    });
     ms.on("item", (item) => {
       rec.nextOrder = Math.max(rec.nextOrder, ms.nextOrder, item.order + 1);
       rec.lastActivityAt = nowIso();
@@ -2069,6 +2081,24 @@ export class SessionSupervisor {
     }
   }
 
+  private async applyCustomMessageCard(
+    l: Live,
+    ms: ManagedSession,
+    itemId: string,
+    message: { customType: string; content: unknown; display?: boolean; details?: unknown },
+  ): Promise<void> {
+    // Rendering is asynchronous. An old runtime or a rewound item must never be resurrected.
+    if (l.ms !== ms || !l.adapters) return;
+    const generation = this.cardGenerations.get(ms) ?? 0;
+    try {
+      const card = await l.adapters.customMessageCard(message);
+      if (!card || l.ms !== ms || generation !== (this.cardGenerations.get(ms) ?? 0)) return;
+      ms.patchItem(itemId, { card: card.node, adapterId: card.adapterId });
+    } catch (err) {
+      this.opts.log.warn({ err: errorMessage(err) }, "custom card failed");
+    }
+  }
+
   private async applyToolCard(
     l: Live,
     tool: {
@@ -2290,6 +2320,7 @@ export class SessionSupervisor {
           webRenderer: effect.webRenderer,
           mobileFallback: effect.mobileFallback,
           ...("state" in effect ? { state: effect.state } : {}),
+          ...(effect.contribution ? { contribution: effect.contribution } : {}),
         });
         return;
       case "state":
@@ -2354,6 +2385,18 @@ export class SessionSupervisor {
         );
         return;
       case "diagnostic":
+        if (
+          effect.adapterId &&
+          l.adapters
+            ?.statuses()
+            .some((status) => status.adapterId === effect.adapterId && status.status === "disabled")
+        ) {
+          for (const panel of this.panels(sessionId)) {
+            if (panel.adapterId === effect.adapterId && panel.contribution) {
+              this.setPanel(sessionId, { ...panel, node: null });
+            }
+          }
+        }
         this.diagnostic(
           effect.sessionId ?? sessionId,
           effect.adapterId,
@@ -2381,33 +2424,42 @@ export class SessionSupervisor {
   /** Emit `adapters.updated` when the host's adapter list changed. */
   emitAdapters(): void {
     const adapters = this.opts.catalog.info();
-    const json = JSON.stringify(adapters);
+    const renderers = this.opts.catalog.renderers();
+    const json = JSON.stringify({ adapters, renderers });
     if (json === this.lastAdapters) return;
     this.lastAdapters = json;
     this.db.tx(() =>
-      this.link.emit({ type: "adapters.updated", data: { hostId: this.opts.hostId, adapters } }),
+      this.link.emit({
+        type: "adapters.updated",
+        data: { hostId: this.opts.hostId, adapters, renderers },
+      }),
     );
   }
 
   // ---- internals: persistence + events ----
 
-  private setPanel(
-    sessionId: string,
-    p: Omit<Panel, "sessionId" | "updatedAt"> & { state?: unknown },
-  ): void {
-    const panel = { ...p, sessionId, updatedAt: nowIso() };
+  private setPanel(sessionId: string, p: Omit<Panel, "sessionId" | "updatedAt">): void {
     const prev = this.db.get<{ json: string }>(
       "SELECT json FROM panels WHERE session_id = ? AND adapter_id = ? AND slot = ?",
       [sessionId, p.adapterId, p.slot],
     );
-    if (!prev && panel.node === null) return;
+    // A new null-node legacy frame is live; a null-node update to an existing row is a
+    // tombstone, regardless of the renderer flag inherited from the previous panel.
+    const deleting = p.node === null && (Boolean(prev) || !p.webRenderer);
+    const panel = {
+      ...p,
+      webRenderer: deleting ? false : p.webRenderer,
+      sessionId,
+      updatedAt: nowIso(),
+    };
+    if (!prev && deleting) return;
     if (prev) {
       const old = JSON.parse(prev.json) as Panel;
       if (JSON.stringify({ ...old, updatedAt: "" }) === JSON.stringify({ ...panel, updatedAt: "" }))
         return;
     }
     this.db.tx(() => {
-      if (panel.node === null) {
+      if (deleting) {
         this.db.run("DELETE FROM panels WHERE session_id = ? AND adapter_id = ? AND slot = ?", [
           sessionId,
           p.adapterId,
