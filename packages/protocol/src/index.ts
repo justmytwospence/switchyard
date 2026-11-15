@@ -2,6 +2,7 @@ export * from "./agent-wire.js";
 export * from "./api.js";
 export * from "./backoff.js";
 export * from "./client-wire.js";
+export * from "./contributions.js";
 export * from "./entities.js";
 export * from "./errors.js";
 export * from "./events.js";

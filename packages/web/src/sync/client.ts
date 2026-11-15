@@ -1,4 +1,8 @@
-import type { ClientToServer, ServerToClient } from "@switchyard/protocol";
+import {
+  CLIENT_CAPABILITIES,
+  type ClientToServer,
+  type ServerToClient,
+} from "@switchyard/protocol";
 import { apiGet } from "./api";
 import { clearCache, loadCache, saveCache } from "./cache";
 import { toSyncState } from "./reduce";
@@ -49,6 +53,12 @@ export class SyncClient {
   private liveListeners = new Set<Listener>();
   private logoutListeners = new Set<(reason: string) => void>();
   private cacheLoaded: Promise<void> | null = null;
+  private projectionId: string | null = null;
+  private negotiatedCapabilities = new Set<string>();
+
+  get capabilities(): ReadonlySet<string> {
+    return this.negotiatedCapabilities;
+  }
 
   constructor(private readonly url: string = defaultWsUrl()) {}
 
@@ -67,6 +77,7 @@ export class SyncClient {
     this.stopPersistence = startTranscriptPersistence();
     this.cacheLoaded ??= loadCache().then((cached) => {
       if (cached && !syncStore.getState().synced) {
+        this.projectionId = cached.projectionId ?? null;
         syncStore.getState().hydrateFromCache(cached.seq, cached.state, cached.savedAt);
       }
     });
@@ -148,7 +159,14 @@ export class SyncClient {
       if (this.ws !== ws) return;
       opened = true;
       const cursor = syncStore.getState().seq;
-      ws.send(JSON.stringify({ type: "hello", cursor } satisfies ClientToServer));
+      ws.send(
+        JSON.stringify({
+          type: "hello",
+          cursor,
+          capabilities: [...CLIENT_CAPABILITIES],
+          projectionId: this.projectionId,
+        } satisfies ClientToServer),
+      );
     };
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return;
@@ -198,10 +216,12 @@ export class SyncClient {
     const store = syncStore.getState();
     switch (msg.type) {
       case "snapshot":
+        this.acknowledge(msg);
         store.applySnapshot(msg.seq, msg.state);
         this.becomeLive();
         break;
       case "replay":
+        this.acknowledge(msg);
         store.applyReplay(msg.seq, msg.events);
         this.becomeLive();
         break;
@@ -222,6 +242,11 @@ export class SyncClient {
     }
   }
 
+  private acknowledge(msg: Extract<ServerToClient, { type: "snapshot" | "replay" }>): void {
+    this.negotiatedCapabilities = new Set(msg.capabilities ?? []);
+    this.projectionId = msg.projectionId ?? null;
+  }
+
   private becomeLive(): void {
     if (this.connectTimer) clearTimeout(this.connectTimer);
     this.connectTimer = null;
@@ -236,6 +261,8 @@ export class SyncClient {
   private emitLogout(reason: string): void {
     this.stop();
     void clearCache();
+    this.projectionId = null;
+    this.negotiatedCapabilities.clear();
     syncStore.getState().reset();
     for (const fn of this.logoutListeners) fn(reason);
   }
@@ -297,7 +324,12 @@ export class SyncClient {
       this.persistTimer = null;
       const s = syncStore.getState();
       if (!s.synced || s.seq === null) return;
-      void saveCache({ seq: s.seq, state: toSyncState(s), savedAt: new Date().toISOString() });
+      void saveCache({
+        seq: s.seq,
+        state: toSyncState(s),
+        projectionId: this.projectionId,
+        savedAt: new Date().toISOString(),
+      });
     }, PERSIST_DELAY_MS);
   }
 

@@ -81,6 +81,38 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("SyncClient projection negotiation", () => {
+  it("advertises both capabilities, remembers the acknowledgement across reconnects, and clears old-server acknowledgements", async () => {
+    const ws = await started();
+    ws.open();
+    expect(ws.lastSent()).toMatchObject({
+      type: "hello",
+      cursor: null,
+      capabilities: ["adapter.slots.v1", "timeline.cards.v1"],
+      projectionId: null,
+    });
+    ws.receive({
+      type: "snapshot",
+      seq: 42,
+      state: snapshot(),
+      capabilities: ["adapter.slots.v1"],
+      projectionId: "v1:adapter.slots.v1",
+    });
+    expect([...client.capabilities]).toEqual(["adapter.slots.v1"]);
+    ws.onclose?.({ code: 1006, reason: "" });
+    await vi.advanceTimersByTimeAsync(1000);
+    const next = FakeWebSocket.instances[1]!;
+    next.open();
+    expect(next.lastSent()).toMatchObject({ cursor: 42, projectionId: "v1:adapter.slots.v1" });
+    next.receive({ type: "replay", seq: 42, events: [] });
+    expect([...client.capabilities]).toEqual([]);
+    next.onclose?.({ code: 1006, reason: "" });
+    await vi.advanceTimersByTimeAsync(1000);
+    FakeWebSocket.instances[2]!.open();
+    expect(FakeWebSocket.instances[2]!.lastSent()).toMatchObject({ projectionId: null });
+  });
+});
+
 describe("SyncClient connect timeout", () => {
   it("drops a socket that opens but never syncs and reconnects", async () => {
     const ws = await started();

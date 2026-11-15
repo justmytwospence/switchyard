@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContributionDescriptor } from "./contributions.js";
 import { GitHubIssue, HostGitHub, WorkspaceGitHub } from "./github.js";
 import { CompletedUsageWatermark, PolicyPermission, PolicyPhase } from "./policies.js";
 import { UINodeSchema } from "./ui.js";
@@ -694,7 +695,15 @@ export const TranscriptItem = z.discriminatedUnion("kind", [
     order: z.number().int(),
     at: Iso,
     kind: z.literal("notice"),
-    data: z.object({ level: DiagnosticLevel, text: z.string() }),
+    data: z
+      .object({
+        level: DiagnosticLevel,
+        text: z.string(),
+        customType: z.string().min(1).max(200).optional(),
+        card: UINodeSchema.optional(),
+        adapterId: z.string().optional(),
+      })
+      .refine((data) => !data.card || !!data.adapterId, "Card requires adapterId"),
   }),
   z.object({
     id: Id,
@@ -737,6 +746,8 @@ export const Panel = z.object({
   node: UINodeSchema.nullable(),
   webRenderer: z.boolean(),
   mobileFallback: z.string().nullable(),
+  contribution: ContributionDescriptor.optional(),
+  state: z.unknown().optional(),
   updatedAt: Iso,
 });
 export type Panel = z.infer<typeof Panel>;

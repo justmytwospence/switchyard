@@ -1,4 +1,6 @@
 import {
+  CLIENT_CAPABILITIES,
+  type ClientCapability,
   ClientToServer,
   type EventEnvelope,
   type ServerToClient,
@@ -7,6 +9,7 @@ import {
 import type { Logger } from "pino";
 import type { WebSocket } from "ws";
 import type { AuthedDevice } from "./auth.js";
+import { projectClientMessage, projectionIdFor } from "./client-projection.js";
 import type { EventHub } from "./event-hub.js";
 import type { Store } from "./store.js";
 
@@ -22,6 +25,8 @@ interface ClientConn {
   deviceId: string;
   synced: boolean;
   alive: boolean;
+  capabilities: Set<ClientCapability>;
+  advertisesCapabilities: boolean;
 }
 
 const WsOpen = 1;
@@ -68,7 +73,14 @@ export class ClientHub {
   }
 
   handleSocket(socket: WebSocket, device: AuthedDevice): void {
-    const conn: ClientConn = { socket, deviceId: device.id, synced: false, alive: true };
+    const conn: ClientConn = {
+      socket,
+      deviceId: device.id,
+      synced: false,
+      alive: true,
+      capabilities: new Set(),
+      advertisesCapabilities: false,
+    };
     this.conns.add(conn);
     socket.on("message", (raw) => {
       let msg: ClientToServer;
@@ -93,9 +105,14 @@ export class ClientHub {
 
   private onMessage(conn: ClientConn, msg: ClientToServer): void {
     switch (msg.type) {
-      case "hello":
-        this.sync(conn, msg.cursor);
+      case "hello": {
+        conn.advertisesCapabilities = msg.capabilities !== undefined;
+        conn.capabilities = new Set(
+          CLIENT_CAPABILITIES.filter((name) => msg.capabilities?.includes(name)),
+        );
+        this.sync(conn, msg.cursor, msg.projectionId ?? null);
         return;
+      }
       case "ping":
         this.sendTo(conn, { type: "pong" });
         return;
@@ -126,19 +143,40 @@ export class ClientHub {
    * Replay when every event after `cursor` is still retained; otherwise send a snapshot. Runs
    * synchronously so no event can be published between the query and the subscription.
    */
-  private sync(conn: ClientConn, cursor: number | null): void {
+  private sync(conn: ClientConn, cursor: number | null, priorProjectionId: string | null): void {
     const current = this.store.currentSeq();
     const maxReplay = this.opts.maxReplay ?? 5000;
     const canReplay =
       cursor !== null &&
       cursor >= this.store.minRetainedSeq() &&
       cursor <= current &&
-      current - cursor <= maxReplay;
+      current - cursor <= maxReplay &&
+      (!conn.advertisesCapabilities || priorProjectionId === projectionIdFor(conn.capabilities));
     if (canReplay) {
       const events = this.store.eventsAfter(cursor, maxReplay + 1);
-      this.sendTo(conn, { type: "replay", seq: current, events });
+      this.sendTo(conn, {
+        type: "replay",
+        seq: current,
+        events,
+        ...(conn.advertisesCapabilities
+          ? {
+              capabilities: [...conn.capabilities],
+              projectionId: projectionIdFor(conn.capabilities),
+            }
+          : {}),
+      });
     } else {
-      this.sendTo(conn, { type: "snapshot", seq: current, state: this.store.syncState() });
+      this.sendTo(conn, {
+        type: "snapshot",
+        seq: current,
+        state: this.store.syncState(),
+        ...(conn.advertisesCapabilities
+          ? {
+              capabilities: [...conn.capabilities],
+              projectionId: projectionIdFor(conn.capabilities),
+            }
+          : {}),
+      });
     }
     conn.synced = true;
   }
@@ -151,16 +189,22 @@ export class ClientHub {
       s.close(1013, "too slow; reconnect with cursor");
       return;
     }
-    s.send(JSON.stringify(msg));
+    s.send(JSON.stringify(projectClientMessage(msg, conn.capabilities)));
   }
 
   private broadcast(msg: ServerToClient): void {
-    const text = JSON.stringify(msg);
+    const encoded = new Map<string, string>();
     for (const c of this.conns) {
       if (!c.synced || c.socket.readyState !== WsOpen) continue;
       if (c.socket.bufferedAmount > MAX_BUFFERED) {
         c.socket.close(1013, "too slow; reconnect with cursor");
         continue;
+      }
+      const key = projectionIdFor(c.capabilities);
+      let text = encoded.get(key);
+      if (!text) {
+        text = JSON.stringify(projectClientMessage(msg, c.capabilities));
+        encoded.set(key, text);
       }
       c.socket.send(text);
     }

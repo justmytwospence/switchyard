@@ -7,6 +7,8 @@ import type { SyncState, TranscriptItem } from "@switchyard/protocol";
  */
 
 export interface CachedSync {
+  /** Absent in caches made by older clients; null requests a fresh projection. */
+  projectionId?: string | null;
   seq: number;
   state: SyncState;
   savedAt: string;

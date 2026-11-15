@@ -15,6 +15,14 @@ Host and coordinator negotiate optional features without a global protocol versi
 
 Pre-provider `model_request` enforcement is deferred; no compatibility claim implies a spending cap during a running turn.
 
+## Client capability negotiation (Phase 4)
+
+`/ws/client` hello accepts optional `capabilities` and `projectionId` alongside the existing durable event cursor. New clients advertise `adapter.slots.v1` and `timeline.cards.v1`; the coordinator acknowledges only supported names in snapshot/replay and returns a projection ID for the negotiated set. A reconnect may replay only when the cached projection ID matches; otherwise it sends a full snapshot, so a changed capability set never leaves stale panel representations behind. Old clients omit these fields and receive portable text fallbacks for contributed panels and notices while preserving event sequence numbers and panel tombstones. This is a permanent compatibility mechanism, not a temporary migration shim.
+
+Older hosts still work with a new coordinator and retain their legacy panels and tool cards. New adapter contribution APIs require a new host; upgrade the coordinator before the host, since an old coordinator cannot reliably downgrade new host contribution fields to safe text-only UI. SDK clients connecting to older coordinators can still use baseline REST, cursor replay and snapshots, but do not receive acknowledgement of new slots/cards.
+
+[The typed Node SDK](client-sdk.md) exposes reset notices when replay history is gone; its `sessions.waitForFinish` observes session quiescence, not the completion of a specific submitted message. Pre-provider `model_request` enforcement remains deferred.
+
 ## Capabilities
 
 | Capability         | Status      | Mechanism / reason                                                                                                                                                                                                                                                                  |

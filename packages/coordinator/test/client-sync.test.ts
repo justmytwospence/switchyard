@@ -24,6 +24,99 @@ function addProfile(tc: TestCoordinator, name: string) {
 }
 
 describe("client sync", () => {
+  it("negotiates optional client capabilities and resets on projection changes", async () => {
+    t = await startCoordinator();
+    const dev = await enrollDevice(t);
+    const c = await FakeClient.connect(t, { token: dev.credential });
+    const cursor = t.c.store.currentSeq();
+    c.send({
+      type: "hello",
+      cursor,
+      capabilities: ["adapter.slots.v1", "unknown"],
+      projectionId: null,
+    });
+    const first = await c.inbox.waitFor((m) => m.type === "snapshot");
+    expect(first).toMatchObject({
+      type: "snapshot",
+      projectionId: "v1:adapter.slots.v1",
+      capabilities: ["adapter.slots.v1"],
+    });
+    c.send({
+      type: "hello",
+      cursor,
+      capabilities: ["adapter.slots.v1"],
+      projectionId: "v1:adapter.slots.v1",
+    });
+    const second = await c.inbox.waitFor((m) => m.type === "replay");
+    expect(second).toMatchObject({
+      type: "replay",
+      events: [],
+      projectionId: "v1:adapter.slots.v1",
+    });
+    const from = c.inbox.messages.length;
+    c.send({ type: "hello", cursor, capabilities: [], projectionId: "v1:adapter.slots.v1" });
+    const downgrade = await c.inbox.waitFor((m) => m.type === "snapshot", 5000, from);
+    expect(downgrade).toMatchObject({ type: "snapshot", projectionId: "v1:", capabilities: [] });
+    c.close();
+  });
+
+  it("projects contributed panels and cards independently for old and new clients", async () => {
+    t = await startCoordinator();
+    const hostCreds = await enrollHost(t);
+    const host = await FakeHost.connect(t, hostCreds);
+    await host.event("session.updated", hostSession("ses_slots", { runtime: "idle" }));
+    const dev = await enrollDevice(t);
+    const old = await FakeClient.connect(t, { token: dev.credential });
+    const modern = await FakeClient.connect(t, { token: dev.credential });
+    await old.hello(null);
+    modern.send({
+      type: "hello",
+      cursor: null,
+      capabilities: ["adapter.slots.v1", "timeline.cards.v1"],
+      projectionId: null,
+    });
+    await modern.inbox.waitFor((m) => m.type === "snapshot");
+    const panel = {
+      sessionId: "ses_slots",
+      adapterId: "sample",
+      slot: "@slot/check",
+      title: "Check",
+      node: { t: "text", text: "Rich" },
+      mobileFallback: "Plain fallback",
+      webRenderer: false,
+      updatedAt: new Date().toISOString(),
+      contribution: { id: "check", placement: "session.panel" },
+    };
+    const fromOld = old.inbox.messages.length;
+    const fromNew = modern.inbox.messages.length;
+    await host.event("panel.updated", panel);
+    const oldEvent = await old.inbox.waitFor(
+      (m) => m.type === "event" && m.event.type === "panel.updated",
+      5000,
+      fromOld,
+    );
+    const modernEvent = await modern.inbox.waitFor(
+      (m) => m.type === "event" && m.event.type === "panel.updated",
+      5000,
+      fromNew,
+    );
+    if (oldEvent.type !== "event" || modernEvent.type !== "event")
+      throw new Error("expected events");
+    expect(oldEvent.event.seq).toBe(modernEvent.event.seq);
+    expect(oldEvent.event.data).toMatchObject({ node: { t: "text", text: "Plain fallback" } });
+    expect(oldEvent.event.data).not.toHaveProperty("contribution");
+    expect(modernEvent.event.data).toMatchObject({
+      contribution: { id: "check" },
+      node: { t: "text", text: "Rich" },
+    });
+    const replay = await old.hello(oldEvent.event.seq - 1);
+    if (replay.type !== "replay") throw new Error("expected replay");
+    expect(replay.events.at(-1)?.data).not.toHaveProperty("contribution");
+    old.close();
+    modern.close();
+    await host.close();
+  });
+
   it("sends a snapshot for a null cursor, with the seeded Default profile", async () => {
     t = await startCoordinator();
     const dev = await enrollDevice(t);

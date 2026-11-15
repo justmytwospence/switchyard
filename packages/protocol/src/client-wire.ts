@@ -45,8 +45,16 @@ export const Presence = z.object({
 });
 export type Presence = z.infer<typeof Presence>;
 
+export const CLIENT_CAPABILITIES = ["adapter.slots.v1", "timeline.cards.v1"] as const;
+export type ClientCapability = (typeof CLIENT_CAPABILITIES)[number];
+
 export const ClientToServer = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("hello"), cursor: z.number().int().nullable() }),
+  z.object({
+    type: z.literal("hello"),
+    cursor: z.number().int().nullable(),
+    capabilities: z.array(z.string().min(1).max(80)).max(32).optional(),
+    projectionId: z.string().max(256).nullable().optional(),
+  }),
   z.object({ type: z.literal("presence"), presence: Presence }),
   z.object({ type: z.literal("ping") }),
 ]);
@@ -57,8 +65,16 @@ export const ServerToClient = z.discriminatedUnion("type", [
     type: z.literal("replay"),
     seq: z.number().int(),
     events: z.array(EventEnvelope),
+    capabilities: z.array(z.enum(CLIENT_CAPABILITIES)).optional(),
+    projectionId: z.string().optional(),
   }),
-  z.object({ type: z.literal("snapshot"), seq: z.number().int(), state: SyncState }),
+  z.object({
+    type: z.literal("snapshot"),
+    seq: z.number().int(),
+    state: SyncState,
+    capabilities: z.array(z.enum(CLIENT_CAPABILITIES)).optional(),
+    projectionId: z.string().optional(),
+  }),
   z.object({ type: z.literal("event"), event: EventEnvelope }),
   z.object({ type: z.literal("stream"), delta: StreamDelta }),
   z.object({ type: z.literal("pong") }),
