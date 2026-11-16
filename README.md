@@ -118,7 +118,7 @@ switchyard up
 ```sh
 docker run -d --name switchyard -p 127.0.0.1:7400:7400 -v switchyard-data:/data \
   -e SWITCHYARD_PUBLIC_URL=https://switchyard.example.com \
-  ghcr.io/justmytwospence/switchyard:0.12.0
+  ghcr.io/justmytwospence/switchyard:0.14.0
 # Single sign-on is required off localhost: see docs/auth.md
 ```
 
@@ -132,7 +132,7 @@ switchyard host install-service    # launchd on macOS, a systemd user service on
 
 Settings › Hosts › Add host shows these three commands with your token filled in. To build from source instead, see [docs/development.md](docs/development.md).
 
-[docs/deployment.md](docs/deployment.md) has recipes for Caddy, Traefik, nginx and Tailscale, a compose file, and every setting. A typed Node client for scripts and CI is in development for the next release; see [docs/client-sdk.md](docs/client-sdk.md) for its API and limitations.
+[docs/deployment.md](docs/deployment.md) has recipes for Caddy, Traefik, nginx and Tailscale, a compose file, and every setting. A typed Node client for scripts and CI accompanies the release; see [docs/client-sdk.md](docs/client-sdk.md) for its API and limitations.
 
 ## Security model
 

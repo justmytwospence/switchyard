@@ -1,16 +1,16 @@
 # Roadmap
 
-This roadmap tracks the 2026 competitor review (Paseo, Orca, Omnigent, Ovis, Collie, omp-deck). Phase 1 shipped in v0.10.0 (session UX), phase 2 in v0.11.0 (live session control), and phase 3 in v0.12.0 (orchestration, policies and GitHub). Phase 4 is planned for dev review before any production promotion.
+This roadmap tracks the 2026 competitor review (Paseo, Orca, Omnigent, Ovis, Collie, omp-deck). Phase 1 shipped in v0.10.0 (session UX), phase 2 in v0.11.0 (live session control), and phase 3 in v0.12.0 (orchestration, policies and GitHub). Phase 4 shipped in v0.13.0; v0.14.0 adds the reviewed plugin-development workflow and keyboard navigation.
 
 Each phase below is a scope, not an implementation plan. Before a phase starts, write a detailed plan against the code as it stands then, and check each assumption here against that code. Feature placement and failure behavior follow the [core/plugin ownership contract](plugin-boundaries.md).
 
 Each phase is reviewed on https://dev.switchyard.spencerboucher.com before promotion of `dev` to `main` with `scripts/promote.sh`; production releases use a version tag (see [development.md](development.md)).
 
-## Evolving Pi plugins: dev tranche
+## Evolving Pi plugins: v0.14.0
 
 The current source implements session-scoped, trust-aware Pi resource discovery, target entrypoint and component-version matching, idle-only adapter refresh with generation fencing, presentation-only restore, and a portable UI preview. Native Pi reload confirmation and safe adapter refresh are distinct from browser refresh. See [adapters.md](adapters.md), [development.md](development.md#adapter-development-and-cross-repository-checks), and [compatibility.md](compatibility.md#adapter-development-compatibility-dev-tranche). This translates explicit plugin contracts, not arbitrary TUIs; runtime helper imports are not promised hot reload.
 
-The build, lint, full unit/integration suite, four-viewport browser suite and packaged CLI/client smoke checks pass. The three-version compatibility matrix and the first core dev deployment also pass. Managed plugin rollout, final paired deployment and live phone review are tracked separately in [acceptance-report.md](acceptance-report.md#current-dev-tranche-automated-verification); historical results below do not establish them. Production promotion remains separate.
+The build, lint, full unit/integration suite, four-viewport browser suite and packaged CLI/client smoke checks pass. The three-version compatibility matrix and the first core dev deployment also pass. Managed plugin rollout, paired deployment and live phone verification are tracked separately in [acceptance-report.md](acceptance-report.md#current-dev-tranche-automated-verification); historical results below do not establish them. Production promotion uses the reviewed release process below.
 
 ## Phase 3: orchestration, policies and GitHub
 
@@ -84,7 +84,7 @@ All GitHub access runs through the `gh` CLI on the host, with the user's own log
 
 ## Phase 4: adapter UI slots and client SDK
 
-Target release: 0.13.0. The UI slots, capability negotiation and typed Node SDK are implemented in the `dev` working branch for review at https://dev.switchyard.spencerboucher.com; they are not promoted to production or published on npm until approved. The optional relay is deferred.
+The adapter slots and capability negotiation shipped in v0.13.0. The typed Node SDK accompanies the v0.14.0 release; first publication requires its own npm trusted-publisher setup. The optional relay remains deferred.
 
 ### 4.1 Adapter UI slots
 
