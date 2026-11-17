@@ -13,7 +13,7 @@ import {
 } from "./commands/coordinator.js";
 import { defaultDoctorDeps, printDoctor, runDoctor } from "./commands/doctor.js";
 import { herdrDaemon, herdrNew, herdrPair, herdrPane, herdrStatus } from "./commands/herdr.js";
-import { hostBackup, hostEnroll, hostRun, hostStatus } from "./commands/host.js";
+import { hostBackup, hostEnroll, hostPiExtension, hostRun, hostStatus } from "./commands/host.js";
 import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
 import { installService } from "./commands/service.js";
 import { tmuxDaemon, tmuxNew, tmuxPair, tmuxPane, tmuxStatus } from "./commands/tmux.js";
@@ -170,6 +170,10 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     )
     .option("--json", "JSON output")
     .action((o) => hostStatus(ctx, o));
+  host
+    .command("pi-extension")
+    .description("Print the Pi extension path that lets Pi you start yourself appear in Switchyard")
+    .action(() => hostPiExtension(ctx));
 
   const pairCmd = program
     .command("pair")
@@ -390,8 +394,15 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--mode <mode>", "all (matching or pinned) or pinned (pinned only)")
     .option("--project <project>", "limit to a project (repeatable)", collect)
     .option("--host <host>", "limit to a host (repeatable)", collect)
+    .option("--client <id>", "collect sessions started in this client, e.g. herdr:default")
     .action((name, o) =>
-      viewsCreate(ctx, name, { ...connFlags(o), mode: o.mode, project: o.project, host: o.host }),
+      viewsCreate(ctx, name, {
+        ...connFlags(o),
+        mode: o.mode,
+        project: o.project,
+        host: o.host,
+        client: o.client,
+      }),
     );
   connectionOptions(views.command("edit <view>").description("Change a view"))
     .option("--name <name>", "new name")
@@ -400,6 +411,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--host <host>", "limit to a host (repeatable)", collect)
     .option("--any-project", "remove the project limit")
     .option("--any-host", "remove the host limit")
+    .option("--client <id>", "collect sessions started in this client, e.g. herdr:default")
+    .option("--no-client", "stop collecting sessions from a client")
     .action((ref, o) =>
       viewsEdit(ctx, ref, {
         ...connFlags(o),
@@ -409,6 +422,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
         host: o.host,
         anyProject: o.anyProject,
         anyHost: o.anyHost,
+        client: typeof o.client === "string" ? o.client : undefined,
+        noClient: o.client === false,
       }),
     );
   connectionOptions(views.command("delete <view>").description("Delete a view")).action((ref, o) =>

@@ -97,6 +97,11 @@ export interface AgentBrokerSession {
   readonly mode: "rpc" | "terminal";
   /** Authoritative launch record, never a tool argument. A true value is latched until close. */
   readonly policyRequired: boolean;
+  /**
+   * A Pi the user started and enrolled: it binds locally (no agent tools, no policy), like a
+   * session on a coordinator without agent requests, and shows as unprotected.
+   */
+  readonly external?: boolean;
   /** Resolve/verify the original host launch cwd and workspace root, never hello/tool fields. */
   getPolicyBoundary(): Promise<HostPolicyBoundary>;
   /** Reverify the pinned boundary and classify this exact tool outside the session chain. */
@@ -566,8 +571,9 @@ export class AgentBrokerHandle {
     this.check(generation, signal);
     const link = this.broker.link;
     let bind: z.infer<typeof BindResult>;
-    if (!link.negotiatedFeatures.has("agentRequests.v1")) {
-      // Old coordinator: disable the extension explicitly; do not emit an unknown global frame.
+    if (!link.negotiatedFeatures.has("agentRequests.v1") || this.session.external) {
+      // Old coordinator, or a Pi the user started: disable the agent features explicitly; do
+      // not emit an unknown global frame or bind it to coordinator policy.
       bind = {
         version: 1,
         sessionId: this.sessionId,

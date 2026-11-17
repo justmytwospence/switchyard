@@ -1,4 +1,13 @@
+export {
+  clientId,
+  type EnrollMeta,
+  enrollRuntimeDir,
+  isEnrollMeta,
+  metaPath,
+  readEnrollMeta,
+} from "./bridge/enroll.js";
 export { modelInfo, supportedThinkingLevels } from "./bridge/pi-model.js";
+export { defaultStateDir } from "./bridge/state-dir.js";
 export {
   AgentContextIds,
   BridgeAgentRequest,

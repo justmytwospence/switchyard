@@ -352,6 +352,14 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
         {ctx.link !== "connected" && ` (${ctx.link})`}
         {host?.piVersion && ` · Pi ${host.piVersion}`}
       </dd>
+      {session.external && (
+        <>
+          <dt className="text-muted">Runs in</dt>
+          <dd className="min-w-0 break-words">
+            Your terminal{session.external.client ? ` (${session.external.client})` : ""}
+          </dd>
+        </>
+      )}
       <dt className="text-muted">Control</dt>
       <dd>{ctx.control === "none" ? "Manual session" : <ControlChip ctx={ctx} />}</dd>
       <dt className="text-muted">Policies</dt>

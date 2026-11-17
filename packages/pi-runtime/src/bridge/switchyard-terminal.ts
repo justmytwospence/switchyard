@@ -14,20 +14,34 @@
  *
  * Other extensions that draw a custom terminal dialog can also ask the same question as a
  * web-only dialog through `switchyard.remote-ui.v1` on `pi.events`; the first answer wins.
+ *
+ * Enrolled mode: loaded into a Pi the user started themselves (no `SWITCHYARD_CONTROL_SOCKET`),
+ * the extension plays the holder's part instead. It listens on an `ext-*.sock` in the host
+ * agent's runtime directory, and the host attaches to it like to a holder. The terminal stays the
+ * user's: no agent tools or policy hooks, no remote answers to the editor, and `shutdown` never
+ * quits Pi. See `enroll.ts`.
  */
 import { randomUUID } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
+import { chmodSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
+import { fileURLToPath } from "node:url";
 import { createAgentChannel } from "./agent-channel.js";
 import { registerAgentTools } from "./agent-tools.js";
+import { clientId, type EnrollMeta, enrollRuntimeDir, metaPath } from "./enroll.js";
 import { LineSplitter } from "./lines.js";
 import { createMessageDelivery } from "./message-delivery.js";
 import { modelInfo } from "./pi-model.js";
 import { installPolicyHooks } from "./policy.js";
 import { resourceSnapshot } from "./resource-snapshot.js";
+import { shortSocketPath } from "./socket-paths.js";
 
 const PATCHED = Symbol.for("switchyard.terminal");
 const WRAPPED = Symbol.for("switchyard.terminal.wrapped");
 const REMOTE_UI_CHANNEL = "switchyard.remote-ui.v1";
+/** Set while one copy of this extension is active in the process (a global shim plus `-e`). */
+const LOADED = Symbol.for("switchyard.terminal.loaded");
+/** Records kept for the host while no controller is attached (enrolled mode). */
+const BACKLOG_MAX = 5000;
 
 type Json = Record<string, unknown>;
 type Body = { value?: string; confirmed?: boolean; cancelled?: boolean };
@@ -85,9 +99,29 @@ export function sessionTotals(entries: any[]): { tokens: number; cost: number } 
   return totals;
 }
 
+/** Whether this module is the copy at `path` (symlinks resolved); unknown counts as yes. */
+function isCopy(path: string | undefined): boolean {
+  if (!path) return true;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path);
+  } catch {
+    return true;
+  }
+}
+
 export default function switchyardTerminal(pi: any): void {
+  const g = globalThis as any;
+  if (g[LOADED]) return;
   const socketPath = process.env.SWITCHYARD_CONTROL_SOCKET;
-  if (!socketPath) return;
+  // Inside a holder, only the copy the holder loaded with -e runs.
+  if (socketPath && !isCopy(process.env.SWITCHYARD_TERMINAL_EXTENSION)) return;
+  const enrollDir = socketPath
+    ? null
+    : enrollRuntimeDir(process.env, process.stdin.isTTY === true && process.stdout.isTTY === true);
+  if (!socketPath && !enrollDir) return;
+  g[LOADED] = true;
+  /** Started by the user, not inside a Switchyard holder. */
+  const enrolled = !socketPath;
 
   let ctx: any = null;
   let completer: any = null;
@@ -136,8 +170,8 @@ export default function switchyardTerminal(pi: any): void {
     appendEntry: (customType, data) => pi.appendEntry(customType, data),
     mode: "terminal",
     getCapabilities: () => ({
-      agentTools: true,
-      messageDelivery: true,
+      agentTools: !enrolled,
+      messageDelivery: !enrolled,
       editorDraftGuard: (() => {
         try {
           return typeof ctx?.ui?.getEditorText?.() === "string";
@@ -155,18 +189,33 @@ export default function switchyardTerminal(pi: any): void {
     return resourceSnapshot(pi, ctx, nativeDialogs + pending.size);
   });
   snapshotRegistered = true;
-  toolPolicy = installPolicyHooks(pi, channel);
-  registerAgentTools(pi, channel);
-  const delivery = createMessageDelivery(pi, {
-    channel,
-    getContext: () => ctx,
-    isDialogOpen: () => nativeDialogs > 0 || pending.size > 0,
-    mode: "terminal",
-  });
+  // A Pi the user started is theirs: no Switchyard tools, policy hooks or message delivery.
+  toolPolicy = enrolled ? false : installPolicyHooks(pi, channel);
+  if (!enrolled) registerAgentTools(pi, channel);
+  const delivery = enrolled
+    ? null
+    : createMessageDelivery(pi, {
+        channel,
+        getContext: () => ctx,
+        isDialogOpen: () => nativeDialogs > 0 || pending.size > 0,
+        mode: "terminal",
+      });
+  const backlog: string[] = [];
+  let gap = false;
 
   const send = (obj: unknown): void => {
     try {
-      if (!socket || socket.destroyed) return;
+      if (!socket || socket.destroyed) {
+        // Enrolled: keep records for the host agent until it attaches, like a holder does.
+        if (enrolled) {
+          backlog.push(JSON.stringify(obj));
+          if (backlog.length > BACKLOG_MAX) {
+            backlog.shift();
+            gap = true;
+          }
+        }
+        return;
+      }
       socket.write(`${JSON.stringify(obj)}\n`);
     } catch {
       // never throw into Pi
@@ -416,7 +465,8 @@ export default function switchyardTerminal(pi: any): void {
         );
       }
       const origEditor = ui.editor;
-      if (typeof origEditor === "function") {
+      // Enrolled: nothing can dismiss the editor remotely (no pty), so it stays terminal-only.
+      if (typeof origEditor === "function" && !enrolled) {
         ui.editor = wrap((title: string, prefill: unknown) =>
           raceEditor(ui, origEditor, title, prefill),
         );
@@ -656,6 +706,8 @@ export default function switchyardTerminal(pi: any): void {
           return;
         case "shutdown":
           respond(id, type);
+          // Never quit a Pi the user started.
+          if (enrolled) return;
           setImmediate(() => {
             try {
               ctx.shutdown();
@@ -811,10 +863,10 @@ export default function switchyardTerminal(pi: any): void {
   // The holder listens before it starts Pi, but retry a few times anyway (a slow or restarting holder).
   const CONNECT_ATTEMPTS = 5;
   const CONNECT_RETRY_MS = 200;
-  const connect = (attempt: number): void => {
+  const connect = (path: string, attempt: number): void => {
     let s: Socket;
     try {
-      s = createConnection(socketPath);
+      s = createConnection(path);
     } catch {
       socket = null;
       return;
@@ -841,13 +893,123 @@ export default function switchyardTerminal(pi: any): void {
         socket = null;
       }
       if (!connected && attempt < CONNECT_ATTEMPTS) {
-        setTimeout(() => connect(attempt + 1), CONNECT_RETRY_MS).unref();
+        setTimeout(() => connect(path, attempt + 1), CONNECT_RETRY_MS).unref();
       }
     });
     s.unref();
     s.write(`${JSON.stringify({ role: "extension" })}\n`);
   };
-  connect(1);
+  if (socketPath) connect(socketPath, 1);
+
+  // ---- enrolled: listen like a holder ----
+
+  let server: Server | null = null;
+  let enrollSocket: string | null = null;
+  let attachedBefore = false;
+  const startedAt = new Date().toISOString();
+
+  const writeMeta = (): void => {
+    if (!enrollSocket || !ctx) return;
+    const file = ctx.sessionManager.getSessionFile?.();
+    if (!file) return;
+    const meta: EnrollMeta = {
+      pid: process.pid,
+      cwd: ctx.cwd ?? process.cwd(),
+      client: clientId(process.env),
+      sessionId: ctx.sessionManager.getSessionId(),
+      sessionFile: file,
+      startedAt,
+    };
+    try {
+      writeFileSync(metaPath(enrollSocket), JSON.stringify(meta), { mode: 0o600 });
+    } catch {
+      // never throw into Pi
+    }
+  };
+
+  const removeEnrollFiles = (): void => {
+    if (!enrollSocket) return;
+    for (const f of [enrollSocket, metaPath(enrollSocket)]) {
+      try {
+        rmSync(f, { force: true });
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  /** A host agent attached: replay what it missed, then announce like a fresh holder attach. */
+  const attachControl = (s: Socket): void => {
+    if (socket && socket !== s) socket.destroy();
+    socket = s;
+    s.write(`${JSON.stringify({ type: "holder_status", piPid: process.pid })}\n`);
+    if (gap) s.write(`${JSON.stringify({ type: "holder_gap" })}\n`);
+    for (const line of backlog.splice(0)) s.write(`${line}\n`);
+    gap = false;
+    announce();
+    if (attachedBefore) channel.onControlAttached();
+    else channel.onConnect();
+    attachedBefore = true;
+  };
+
+  const listen = (): void => {
+    if (!enrollDir || server) return;
+    try {
+      const path = shortSocketPath(enrollDir, "ext");
+      const srv = createServer((s) => {
+        let role: string | null = null;
+        const lines = new LineSplitter((line) => {
+          if (role === "control") {
+            if (socket !== s) return;
+            try {
+              if (JSON.parse(line)?.type === "holder_kill") return; // the user's Pi is not killed
+            } catch {
+              return;
+            }
+            onLine(line);
+            return;
+          }
+          try {
+            role = String(JSON.parse(line)?.role ?? "");
+          } catch {
+            role = "";
+          }
+          if (role === "control") attachControl(s);
+          else s.destroy(); // no viewers: the terminal is the user's
+        });
+        s.setEncoding("utf8");
+        s.on("data", (chunk: string) => lines.push(chunk));
+        s.on("error", () => {});
+        s.on("close", () => {
+          if (socket === s) {
+            channel.onDisconnect();
+            socket = null;
+          }
+        });
+        s.unref();
+      });
+      srv.on("error", () => {});
+      const old = process.umask(0o077);
+      try {
+        srv.listen(path, () => {
+          try {
+            chmodSync(path, 0o600);
+          } catch {
+            // ignore
+          }
+          writeMeta();
+        });
+      } finally {
+        process.umask(old);
+      }
+      srv.unref();
+      server = srv;
+      enrollSocket = path;
+      process.once("exit", removeEnrollFiles);
+    } catch {
+      // No socket, no enrolment; Pi works as usual.
+    }
+  };
 
   try {
     pi.events?.on?.(REMOTE_UI_CHANNEL, (data: unknown) => {
@@ -897,7 +1059,9 @@ export default function switchyardTerminal(pi: any): void {
     channel.announce();
     if (event?.reason && event.reason !== "startup") {
       send({ type: "switchyard_native", sessionId, sessionFile });
+      writeMeta();
     }
+    if (enrolled && sessionFile) listen();
     for (const cmd of early.splice(0)) handleCommand(cmd);
   });
 
@@ -980,8 +1144,18 @@ export default function switchyardTerminal(pi: any): void {
   on("session_shutdown", () => {
     snapshotRegistered = false;
     removeSnapshot();
-    delivery.close();
+    delivery?.close();
     channel.close();
+    delete g[LOADED];
+    if (enrolled) {
+      // Like a holder whose Pi quit: the host marks the session stopped.
+      send({ type: "holder_exit", code: 0, signal: null, screen: [] });
+      socket?.end();
+      server?.close();
+      server = null;
+      removeEnrollFiles();
+      process.removeListener("exit", removeEnrollFiles);
+    }
   });
   on("input", (event) => {
     if (event?.source !== "interactive") return;

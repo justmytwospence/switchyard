@@ -10,7 +10,7 @@ import {
   runHostAgent,
   waitForConfigChange,
 } from "@switchyard/host-agent";
-import { detectPi, SUPPORTED_RANGE } from "@switchyard/pi-runtime";
+import { detectPi, SUPPORTED_RANGE, terminalExtensionPath } from "@switchyard/pi-runtime";
 import { ApiClient } from "@switchyard/terminal";
 import { CliError, type Connection, resolveConnection, trimUrl } from "../config.js";
 import type { Ctx } from "../context.js";
@@ -200,4 +200,9 @@ export async function hostStatus(
   );
   const svc = status.service as { kind: string; file: string; installed: boolean } | null;
   if (svc) ctx.out(`Service:      ${svc.installed ? `installed (${svc.file})` : "not installed"}`);
+}
+
+/** `switchyard host pi-extension`: the extension a Pi you start yourself loads to enrol. */
+export function hostPiExtension(ctx: Ctx): void {
+  ctx.out(terminalExtensionPath());
 }

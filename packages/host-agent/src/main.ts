@@ -19,6 +19,7 @@ import {
 } from "./config.js";
 import { type HostDb, openHostDb, PRUNE_INTERVAL_MS, pruneHostDb } from "./db/index.js";
 import { Dispatcher } from "./dispatch.js";
+import { ExternalSessionWatcher } from "./external-sessions.js";
 import { GitHubService } from "./github.js";
 import { CoordinatorLink } from "./link.js";
 import { createLogger, type Logger } from "./logger.js";
@@ -427,6 +428,12 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
 
   supervisor.emitAdapters();
 
+  // Pi processes the user started themselves, offered through the runtime directory.
+  const externals = terminalEnabled
+    ? new ExternalSessionWatcher({ supervisor, runtimeDir: paths.runtime, log })
+    : null;
+  externals?.start();
+
   let stopping: Promise<void> | null = null;
   const onSignal = (signal: NodeJS.Signals) => {
     log.info({ signal }, "stopping host agent");
@@ -458,6 +465,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         process.off("SIGTERM", onSignal);
         process.off("SIGINT", onSignal);
         relay.closeAll();
+        externals?.stop();
         usagePoller.stop();
         clearInterval(deliveryTimer);
         await delivery.stop();

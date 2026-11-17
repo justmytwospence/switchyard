@@ -14,6 +14,7 @@ import {
 export const LANDED_GRACE_MS = 10 * 60_000;
 
 const BUSY: Session["runtime"][] = ["starting", "running", "waiting_input"];
+const LIVE: Session["runtime"][] = ["starting", "idle", "running", "waiting_input"];
 
 const ensuredKey = (id: string) => `ensuredSession:${id}`;
 const landedKey = (id: string) => `landedAt:${id}`;
@@ -85,6 +86,8 @@ export class WorkspaceLifecycleService {
     if (!w.branch) return;
     const sessions = this.sessionsOf(w);
     if (sessions.some((s) => BUSY.includes(s.runtime))) return;
+    // A Pi the user started is theirs: never remove its worktree from under it.
+    if (sessions.some((s) => s.external && LIVE.includes(s.runtime))) return;
     const notLanded = () => store.deleteSetting(landedKey(w.id));
     let snapshot: Workspace["github"] | null = null;
     try {

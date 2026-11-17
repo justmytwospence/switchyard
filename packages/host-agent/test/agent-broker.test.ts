@@ -137,6 +137,7 @@ function fixture(
     features?: string[];
     connected?: boolean;
     timeoutMs?: number;
+    external?: boolean;
   } = {},
 ) {
   let connected = options.connected ?? true;
@@ -169,6 +170,7 @@ function fixture(
     sessionId: "ses_one",
     mode: "rpc" as const,
     policyRequired: options.required ?? false,
+    external: options.external,
     getPolicyBoundary: vi.fn<AgentBrokerSession["getPolicyBoundary"]>(async () => ({
       ...BOUNDARY,
     })),
@@ -374,6 +376,23 @@ describe("AgentBroker binding and configuration", () => {
     f.session.configureAgent.mockResolvedValue(receipt);
     await expect(f.announce()).rejects.toMatchObject({ code: "invalid_request" });
     expect(f.handle.snapshot().configuration).toBeNull();
+  });
+
+  it("binds a Pi the user started locally: no session.bind, no agent features, unprotected", async () => {
+    const f = fixture({ external: true });
+    await f.announce();
+    expect(f.link.requestAgent).not.toHaveBeenCalled();
+    expect(f.session.configureAgent.mock.calls[0][0]).toMatchObject({
+      features: [],
+      policyRequired: false,
+      sessionUrl: null,
+    });
+    expect(f.handle.snapshot().bridge).toMatchObject({
+      agentTools: false,
+      policyState: "unsupported",
+    });
+    await f.handle.humanInput();
+    expect(f.session.bridgeRequest).toHaveBeenCalled();
   });
 
   it("explicitly configures an old coordinator disabled without emitting session.bind or agent frames", async () => {

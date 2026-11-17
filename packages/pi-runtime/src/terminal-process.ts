@@ -251,6 +251,9 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     delete env.SWITCHYARD_BRIDGE_SOCKET;
     delete env.SWITCHYARD_HOLDER_CONFIG;
     env.SWITCHYARD_CONTROL_SOCKET = socketPath;
+    // The copy the holder loads is the one that controls this Pi, not a global shim that may be
+    // another Switchyard version (see switchyard-terminal.ts).
+    env.SWITCHYARD_TERMINAL_EXTENSION = terminalExtensionPath();
     env.TERM = "xterm-256color";
     env.COLORTERM = "truecolor";
     const cfg = {

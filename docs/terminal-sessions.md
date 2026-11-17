@@ -30,9 +30,26 @@ The herdr integration in [`integrations/herdr/`](../integrations/herdr/README.md
 
 Policy approval requests show a Switchyard URL in Pi; answer through the existing web interaction flow, not a native terminal policy picker. A healthy approval wait can outlast 30 seconds, but loss of coordinator communication fails closed. Older live holders may lack the current bridge and remain unprotected until explicitly reloaded or restarted; see [policies.md](policies.md).
 
+## Sessions you start yourself
+
+A Pi you start by hand in your own terminal can show up in Switchyard too, so you can follow it and answer it from your phone. Load Switchyard's extension into every Pi on the machine with a one-line global extension:
+
+```sh
+echo "export { default } from \"$(switchyard host pi-extension)\";" > ~/.pi/agent/extensions/switchyard.js
+```
+
+An interactive Pi with a terminal then enrols with the host agent on that machine (the one whose state directory is `SWITCHYARD_STATE_DIR` or the default; set `SWITCHYARD_ENROLL_STATE_DIR` to pick another, such as a dev agent's). Within a few seconds it is a live session in the workspace containing its working directory. Pi that Switchyard starts, print and RPC runs, `--no-session` and `SWITCHYARD_ENROLL=0` never enrol, and without a host agent nothing happens. In a Pi that Switchyard starts, only the copy its holder loads (`SWITCHYARD_TERMINAL_EXTENSION`) runs, so a global shim of another version stays out of the way.
+
+The terminal stays yours:
+
+- Web and phone can prompt, steer, queue, stop the current turn, change model and effort, and answer `select`, `confirm` and `input` questions (first answer wins). Pi's editor dialog is answered in the terminal only.
+- Stop and archive never quit your Pi. Quitting it leaves a stopped session, and sending to it from Switchyard resumes it as an ordinary Switchyard session.
+- There is no terminal relay: `switchyard tui`, the web terminal and herdr tabs do not show it.
+- No `switchyard_*` agent tools and no policy hooks: the session shows as unprotected ([policies.md](policies.md#enrolled-sessions)).
+
 ## Views and TUI clients
 
-A view is a named filter over sessions (projects, hosts, pinned sessions), managed with `switchyard views`. A herdr or tmux session bound to a view (`SWITCHYARD_VIEW`, set by `switchyard herdr pair --view` or `switchyard tmux pair --view`) mirrors only that view, and any number of clients can share one: closing a tab or window archives the session, so every client and the web app stay in sync. The web navigator has a view switcher and shows which clients have a view open. A [tracker](trackers.md) keeps a view of its own name pointed at the projects it covers. See the [herdr](../integrations/herdr/README.md) and [tmux](../integrations/tmux/README.md) integrations.
+A view is a named filter over sessions (projects, hosts, pinned sessions), managed with `switchyard views`. Each view has one membership authority: its own filters and pins, a [tracker](trackers.md) that keeps its projects, or a client. A view with a client (`switchyard views create daily --mode pinned --client herdr:default`) collects the sessions enrolled from that herdr session: each is pinned when it first appears. That herdr session needs no pairing file; Switchyard does not open anything in it. A herdr or tmux session bound to a view (`SWITCHYARD_VIEW`, set by `switchyard herdr pair --view` or `switchyard tmux pair --view`) mirrors only that view, and any number of clients can share one: closing a tab or window archives the session, so every client and the web app stay in sync. The web navigator has a view switcher and shows which clients have a view open. A [tracker](trackers.md) keeps a view of its own name pointed at the projects it covers. See the [herdr](../integrations/herdr/README.md) and [tmux](../integrations/tmux/README.md) integrations.
 
 ## Limits
 

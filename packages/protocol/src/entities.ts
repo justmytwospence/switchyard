@@ -269,6 +269,11 @@ export const View = z.object({
   clients: z.array(ViewClient),
   /** A tracker keeps this view's projects (see docs/trackers.md). */
   trackerId: z.string().nullable().optional(),
+  /**
+   * A client as membership authority: sessions enrolled from this client (`ViewClient` id,
+   * `herdr:<session>@<machine>`) are pinned here when they first appear.
+   */
+  clientId: z.string().min(1).max(200).nullable().optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -339,6 +344,14 @@ export const Session = z.object({
   createdAt: Iso,
   /** A live terminal session: `switchyard tui` can attach to its Pi terminal. */
   terminal: z.boolean().optional(),
+  /**
+   * A Pi the user started in their own terminal and enrolled (`client`: the herdr session it runs
+   * in, when known). Switchyard never shows or closes that terminal.
+   */
+  external: z
+    .object({ client: z.string().min(1).max(200).nullable() })
+    .nullable()
+    .optional(),
   /** Set when the session finished or failed with nobody viewing it; cleared when viewed (coordinator-owned). */
   unreadSince: Iso.nullable().optional(),
   /** Identity of the adapter presentation currently installed on the host. */

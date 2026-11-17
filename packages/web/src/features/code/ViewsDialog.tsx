@@ -157,6 +157,9 @@ export function ViewsDialog({
               </Select>
             )}
           </Field>
+          {view?.clientId && (
+            <p className="text-sm text-muted">Collects sessions started in {view.clientId}.</p>
+          )}
           {mode === "all" && (
             <>
               <fieldset className="flex flex-col gap-1">

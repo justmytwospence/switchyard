@@ -57,6 +57,7 @@ Older hosts still work with a new coordinator and retain their legacy panels and
 
 | Feature | Meaning |
 |---|---|
+| Enrolment | A Pi started outside Switchyard with `switchyard-terminal.js` loaded listens on `<runtime>/ext-*.sock` (meta in `ext-*.sock.json`) and plays the holder's control side; the host agent adopts it with the terminal reattach path. The session reports `terminal: false` and `external`. |
 | `trackers.v1` | The host answers `tracker.sync`, `tracker.prepareBranch`, `tracker.startIssue` and `tracker.setStatus`. Without it, trackers on that host report "does not support trackers" and nothing else changes. `workspace.remove` `deleteBranch` and `GitState.head` are optional and ignored or absent on older hosts. |
 
 ## Terminal transport

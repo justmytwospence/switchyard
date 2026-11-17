@@ -336,6 +336,8 @@ export interface IntegrationOptions {
   /** Prepare the repository before the project is registered. */
   prepareRepo?: (path: string) => void;
   project?: { checks?: string[]; maxConcurrentRuns?: number };
+  /** Run the host agent with terminal sessions (default false: headless RPC). */
+  terminalSessions?: boolean;
 }
 
 export class Integration {
@@ -468,7 +470,7 @@ export class Integration {
       extraExtensions: [fixtureExtensionPath(), ...(this.opts.extraExtensions ?? [])],
       ownerAdapterDir: this.ownerAdapterDir,
       handleSignals: false,
-      terminalSessions: false,
+      terminalSessions: this.opts.terminalSessions ?? false,
       backoffMs: [50, 100, 200],
       logger: silentLogger(),
       testHooks: {

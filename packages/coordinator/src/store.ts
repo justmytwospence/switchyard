@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import type { StatementSync } from "node:sqlite";
 import {
   type AdapterInfo,
@@ -718,6 +719,18 @@ export class Store {
 
   workspaceByPath(hostId: string, path: string): Workspace | undefined {
     return this.workspaces.list("host_id = ? AND path = ?", [hostId, path])[0];
+  }
+
+  /** The non-archived workspace whose path is `path` or its nearest ancestor. */
+  workspaceContaining(hostId: string, path: string): Workspace | undefined {
+    let p = path.length > 1 ? path.replace(/\/+$/, "") : path;
+    for (;;) {
+      const ws = this.workspaceByPath(hostId, p);
+      if (ws && !ws.archivedAt) return ws;
+      const parent = dirname(p);
+      if (parent === p) return undefined;
+      p = parent;
+    }
   }
 
   sessionByNativeFile(hostId: string, sessionFile: string): Session | undefined {

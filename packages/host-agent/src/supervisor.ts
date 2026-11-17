@@ -18,6 +18,7 @@ import {
   type BridgeEvent,
   branchSession,
   type DeliveryEvidence,
+  type EnrollMeta,
   entriesToMessages,
   type HolderSweep,
   listImportable,
@@ -107,6 +108,17 @@ const NOT_LIVE = {
   navigate: "resume to rewind",
 } as const;
 
+/** Placeholder profile of an enrolled Pi: its real model and flags are whatever the user chose. */
+const EXTERNAL_PROFILE: Profile = {
+  id: "prf_external",
+  name: "Your terminal",
+  provider: null,
+  model: null,
+  thinking: null,
+  projectTrust: "ask",
+  extraArgs: [],
+};
+
 export const SESSION_LIVE_CONFLICT = "Session already live on this host";
 
 /** Potential A.1 support; actual protection still requires a live configure receipt. */
@@ -169,6 +181,8 @@ export interface HostSessionRecord {
   createdAt: string;
   /** Terminal sessions: the holder's socket while the session is live. */
   terminal?: { socketPath: string } | null;
+  /** A Pi the user started and enrolled (its socket is the extension's, not a holder's). */
+  external?: { client: string | null } | null;
   /** Dispatch whose launch prompt this session was sent; a retry dispatch with another key sends its own. */
   promptedDispatchKey?: string | null;
   /** When the session last left a live runtime (pruning age). */
@@ -480,6 +494,7 @@ export class SessionSupervisor {
     rec.compacting = false;
     rec.queue = { steering: [], followUp: [] };
     rec.terminal = null;
+    rec.external = null;
     this.expirePending(rec.id, lost.expireSummary);
     if (next === "interrupted") {
       const item: TranscriptItem = {
@@ -1063,6 +1078,77 @@ export class SessionSupervisor {
     await l.broker.humanInput();
   }
 
+  /** Whether a live session is attached through this socket. */
+  usesSocket(path: string): boolean {
+    for (const l of this.live.values()) if (l.rec.terminal?.socketPath === path) return true;
+    return false;
+  }
+
+  /**
+   * Adopt a Pi the user started that enrolled through `socketPath` (see `ExternalSessionWatcher`):
+   * a record (reused for the same session file) attached like a holder that outlived the agent.
+   */
+  async adoptExternal(socketPath: string, meta: EnrollMeta): Promise<"adopted" | "skipped"> {
+    const file = realpathOr(meta.sessionFile);
+    for (const l of this.live.values()) {
+      const other = l.rec.nativeHandle?.sessionFile;
+      if (other && realpathOr(other) === file) {
+        this.opts.log.info(
+          { sessionId: l.rec.id, socketPath },
+          "external Pi skipped: its session is already live",
+        );
+        return "skipped";
+      }
+    }
+    const known =
+      [...this.records.values()].find((r) => r.nativeHandle?.sessionFile === meta.sessionFile) ??
+      this.db.allJson<HostSessionRecord>(
+        "SELECT json FROM sessions WHERE json_extract(json, '$.nativeHandle.sessionFile') = ?",
+        [meta.sessionFile],
+      )[0];
+    const now = nowIso();
+    const rec: HostSessionRecord = known
+      ? { ...(this.records.get(known.id) ?? known) }
+      : {
+          id: newId("ses"),
+          title: basename(meta.cwd) || "Terminal",
+          subtitle: null,
+          cwd: meta.cwd,
+          workspaceRoot: meta.cwd,
+          projectId: null,
+          workspaceId: null,
+          runId: null,
+          taskId: null,
+          dispatchKey: null,
+          profile: EXTERNAL_PROFILE,
+          nativeHandle: { sessionId: meta.sessionId, sessionFile: meta.sessionFile },
+          policyRequired: false,
+          runtime: "starting",
+          runtimeDetail: null,
+          controlRevision: 1,
+          controlMode: "human",
+          origin: "human",
+          readOnly: false,
+          provenance: "imported",
+          nextOrder: 0,
+          queue: { steering: [], followUp: [] },
+          stats: null,
+          lastAssistantText: null,
+          lastActivityAt: now,
+          createdAt: now,
+        };
+    rec.runtime = "starting";
+    rec.runtimeDetail = "Attaching to your terminal…";
+    rec.terminal = { socketPath };
+    rec.external = { client: meta.client };
+    rec.endedAt = null;
+    rec.lastActivityAt = now;
+    this.records.set(rec.id, rec);
+    this.db.tx(() => this.saveAndEmit(rec));
+    const result = await this.reattachOne(rec, { runtime: "idle", compacting: false });
+    return result === "reattached" ? "adopted" : "skipped";
+  }
+
   /** Whether a live session runs in `path` (or below it). */
   hasActiveSession(path: string): boolean {
     const target = realpathOr(path);
@@ -1102,7 +1188,8 @@ export class SessionSupervisor {
       promptCache: rec.promptCache ?? null,
       lastAssistantText: rec.lastAssistantText,
       createdAt: rec.createdAt,
-      terminal: rec.terminal != null,
+      terminal: rec.terminal != null && !rec.external,
+      external: rec.external ?? null,
       ...(rec.bridge ? { bridge: rec.bridge } : {}),
       ...(rec.adapterGeneration ? { adapterGeneration: rec.adapterGeneration } : {}),
     };
@@ -1360,6 +1447,7 @@ export class SessionSupervisor {
           : new SwitchyardError("host_unreachable", "Host agent is shutting down");
       }
       rec.terminal = null;
+      rec.external = null;
       if (rec.runtime === "starting") {
         rec.runtime = "failed";
         rec.runtimeDetail = errorMessage(err);
@@ -1399,6 +1487,7 @@ export class SessionSupervisor {
   private canceledStart(l: Live): StartResult {
     const { rec } = l;
     rec.terminal = null;
+    rec.external = null;
     if (rec.runtime === "starting") {
       rec.runtime = "stopped";
       rec.runtimeDetail = null;
@@ -1524,6 +1613,11 @@ export class SessionSupervisor {
       await pending.done.catch(() => {});
     }
     const l = this.live.get(sessionId);
+    if (l?.ms && l.rec.external) {
+      // A Pi the user started is never quit from here: stop its turn and leave it running.
+      if (l.rec.runtime === "running" || l.rec.runtime === "waiting_input") await l.ms.abort(false);
+      return { runtime: l.rec.runtime };
+    }
     if (!l?.ms) {
       const rec = this.requireRecord(sessionId);
       if (rec.runtime === "starting") {
@@ -1802,7 +1896,12 @@ export class SessionSupervisor {
     await Promise.allSettled(
       [...this.live.values()].map(async (l) => {
         const ms = l.ms;
-        if (ms?.transport === "terminal" && ms.isAlive && opts.terminals !== "stop") {
+        // A Pi the user started is only ever let go of, never stopped.
+        if (
+          ms?.transport === "terminal" &&
+          ms.isAlive &&
+          (opts.terminals !== "stop" || l.rec.external)
+        ) {
           ms.detach();
           await l.chain.catch(() => {});
           this.teardown(l);
@@ -2019,6 +2118,7 @@ export class SessionSupervisor {
       sessionId: rec.id,
       mode: ms.transport,
       policyRequired: rec.policyRequired === true,
+      external: rec.external != null,
       getPolicyBoundary: async () => {
         const fence = policyFence();
         const boundary = await verifiedBoundary(fence);
@@ -2262,6 +2362,7 @@ export class SessionSupervisor {
       // Runtime (stopped/interrupted) was already recorded by the runtime handler.
       if (rec.terminal) {
         rec.terminal = null;
+        rec.external = null;
         this.db.tx(() => this.saveAndEmit(rec));
       }
       void l.chain.finally(() => this.teardown(l));

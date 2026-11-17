@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import type { Host, Project, View } from "@switchyard/protocol";
 import { findView, openClients } from "@switchyard/protocol";
 import type { ApiClient } from "@switchyard/terminal";
@@ -14,6 +15,16 @@ export interface ViewFlags extends ConnectionFlags {
   anyProject?: boolean;
   anyHost?: boolean;
   name?: string;
+  client?: string;
+  noClient?: boolean;
+}
+
+/** A client id for `--client`: `kind:name@machine`, this machine when `@machine` is left out. */
+export function clientRef(raw: string, machine: string = hostname()): string {
+  const v = raw.trim();
+  if (!/^(herdr|tmux):[^@\s]+(@\S+)?$/.test(v))
+    throw new CliError('--client must look like "herdr:<session>" or "herdr:<session>@<machine>"');
+  return v.includes("@") ? v : `${v}@${machine}`;
 }
 
 async function resolveView(api: ApiClient, ref: string): Promise<View> {
@@ -43,13 +54,14 @@ export async function viewsList(ctx: Ctx, flags: ViewFlags): Promise<void> {
     ctx,
     flags.json,
     views,
-    ["NAME", "MODE", "PROJECTS", "HOSTS", "PINNED", "OPEN IN"],
+    ["NAME", "MODE", "PROJECTS", "HOSTS", "PINNED", "CLIENT", "OPEN IN"],
     views.map((v) => [
       v.name,
       v.mode,
       names(v.projectIds, projects),
       names(v.hostIds, hosts),
       String(v.sessionIds.length),
+      v.clientId ?? "-",
       openClients(v)
         .map((c) => `${c.kind} ${c.name} (${c.machine})`)
         .join(", ") || "-",
@@ -77,6 +89,7 @@ export async function viewsCreate(ctx: Ctx, name: string, flags: ViewFlags): Pro
     ...(flags.mode ? { mode: flags.mode } : {}),
     ...(projectIds ? { projectIds } : {}),
     ...(hostIds ? { hostIds } : {}),
+    ...(flags.client ? { clientId: clientRef(flags.client) } : {}),
   });
   ctx.out(`Created view ${v.name} (${v.id})`);
 }
@@ -92,6 +105,11 @@ export async function viewsEdit(ctx: Ctx, ref: string, flags: ViewFlags): Promis
     ...(flags.mode ? { mode: flags.mode } : {}),
     ...(projectIds !== undefined ? { projectIds } : {}),
     ...(hostIds !== undefined ? { hostIds } : {}),
+    ...(flags.noClient
+      ? { clientId: null }
+      : flags.client
+        ? { clientId: clientRef(flags.client) }
+        : {}),
   };
   await api.request<View>("PATCH", `/api/views/${encodeURIComponent(v.id)}`, body);
   ctx.out(`Updated view ${flags.name ?? v.name}`);

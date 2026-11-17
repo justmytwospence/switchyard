@@ -63,10 +63,10 @@ Vibe Kanban is a historical board-oriented precedent, not a deployment dependenc
 
 - Single owner, multiple trusted devices and hosts.
 - Pi is the harness; do not build another agent loop.
-- One managed Pi process owns each live session.
+- One Pi process owns each live session: managed by Switchyard, or started by the user and enrolled.
 - The terminal interface is a new client of the managed session. Stock Pi TUI preservation is not required.
 - Arbitrary Pi terminal widgets need adapters.
-- Import inactive existing Pi sessions; do not claim live adoption of unmanaged processes.
+- Import inactive existing Pi sessions. A running Pi is adopted only when it enrols itself through the Switchyard extension; unmanaged processes are never attached to.
 - Viewing can move across devices; execution stays on its host.
 - Closing clients never stops execution.
 

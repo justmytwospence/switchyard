@@ -3,6 +3,7 @@ export default defineConfig({
   test: {
     name: "pi-runtime",
     include: ["test/**/*.test.ts"],
+    setupFiles: ["test/setup.ts"],
     testTimeout: 60000,
     hookTimeout: 60000,
   },

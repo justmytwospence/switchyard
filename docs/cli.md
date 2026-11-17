@@ -9,12 +9,13 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `up` | Run a coordinator and a local host in one process; prints a sign-in link on first start when there is no single sign-on or device, and opens it (`--no-open` to only print it) |
 | `pair` / `pair host` | Print a single-use sign-in link and QR for a browser, or (`pair host`) a host enrollment token, using the admin token: for local servers and recovery |
 | `coordinator start` / `backup` / `restore` / `migrate` | Run the coordinator; back up, restore and migrate its database |
+| `host pi-extension` | Print the extension path a Pi you start yourself loads to appear in Switchyard ([terminal-sessions.md](terminal-sessions.md#sessions-you-start-yourself)) |
 | `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it (`status --instance <name>` with `--config` and `--state-dir` for a second agent) |
 | `login` | Sign this terminal in by approving a code in a browser (`--coordinator`, `--name`, `--open`/`--no-open`; `--token <link>` from `pair` instead) |
 | `tui <sessionId>` | Open a terminal session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
 | `herdr daemon` / `pane` / `new` / `status` / `pair` | The herdr integration: mirror Switchyard into a paired herdr session, a space per workspace and a tab per session ([integrations/herdr](../integrations/herdr/README.md)); `pair` writes the env file that pairs a herdr session (default: the unnamed one), optionally bound to a view |
 | `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux integration: mirror Switchyard into a paired tmux session, a window per session ([integrations/tmux](../integrations/tmux/README.md)) |
-| `views list` / `create` / `edit` / `delete` / `pin` / `unpin` | Views: named session filters (projects, hosts, pins) that herdr and tmux sessions bind to with `SWITCHYARD_VIEW`, and the web navigator can select |
+| `views list` / `create` / `edit` / `delete` / `pin` / `unpin` | Views: named session filters (projects, hosts, pins) that herdr and tmux sessions bind to with `SWITCHYARD_VIEW`, and the web navigator can select; `--client herdr:<session>` collects the sessions started in that herdr session |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
 | `trackers list` / `create` / `edit` / `delete` / `sync` | GitHub trackers: sync assigned issues into tasks and worktrees, optionally with a Projects board ([trackers.md](trackers.md)) |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |

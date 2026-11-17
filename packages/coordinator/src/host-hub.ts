@@ -85,6 +85,7 @@ export type AgentRequestHandler = (
 
 /** Session fields the host is authoritative for; the rest belong to the coordinator. */
 const HOST_SESSION_FIELDS = [
+  "external",
   "title",
   "subtitle",
   "cwd",
@@ -1046,12 +1047,10 @@ export class HostHub {
       if (!next.nativeHandle && existing.nativeHandle) next.nativeHandle = existing.nativeHandle;
     } else {
       const now = this.store.nowIso();
-      const ws = partial.cwd ? this.store.workspaceByPath(hostId, partial.cwd) : undefined;
+      const ws = partial.cwd ? this.store.workspaceContaining(hostId, partial.cwd) : undefined;
       next = Session.parse({
         title: UNTITLED_SESSION_TITLE,
         subtitle: null,
-        workspaceId: ws?.id ?? null,
-        projectId: ws?.projectId ?? null,
         cwd: "",
         nativeHandle: null,
         profileSnapshot:
@@ -1069,6 +1068,9 @@ export class HostHub {
         lastAssistantText: null,
         createdAt: now,
         ...partial,
+        // Hosts send null ids for sessions the coordinator did not create: map them by cwd.
+        workspaceId: partial.workspaceId ?? ws?.id ?? null,
+        projectId: partial.projectId ?? ws?.projectId ?? null,
         id,
         hostId,
         connectivity,
@@ -1143,6 +1145,8 @@ export class HostHub {
     }
     if (existing && JSON.stringify(existing) === JSON.stringify(next)) return;
     this.store.putSession(next);
+    const client = next.external?.client;
+    if (client && existing?.external?.client !== client) this.pinToClientViews(next.id, client);
     if (partial.bridge !== undefined) {
       // Recheck the current guard only after the bridge projection is durable.
       this.store.afterCommit(() => this.retryDeferred(hostId));
@@ -1159,6 +1163,18 @@ export class HostHub {
       // an unevaluated settle (see RunsService.recover).
       if (next.runId) this.store.noteRunSettle(next.runId);
       this.store.afterCommit(() => this.hub.emit("session.settled", payload));
+    }
+  }
+
+  /** A client is the membership authority of these views: pin a session enrolled from it. */
+  private pinToClientViews(sessionId: string, client: string): void {
+    for (const v of this.store.views.list()) {
+      if (v.clientId !== client || v.sessionIds.includes(sessionId)) continue;
+      this.store.putView({
+        ...v,
+        sessionIds: [...v.sessionIds, sessionId],
+        updatedAt: this.store.nowIso(),
+      });
     }
   }
 

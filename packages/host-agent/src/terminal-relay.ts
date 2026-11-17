@@ -66,7 +66,8 @@ export class TerminalRelay {
     const existing = this.streams.get(streamId);
     if (existing) return;
     const rec = this.opts.supervisor.record(sessionId);
-    if (!rec?.terminal || !this.opts.supervisor.isLive(sessionId)) {
+    // An enrolled Pi's terminal is the user's own; there is nothing to relay.
+    if (!rec?.terminal || rec.external || !this.opts.supervisor.isLive(sessionId)) {
       this.opts.send(streamId, { t: "closed", reason: NO_TERMINAL });
       return;
     }
