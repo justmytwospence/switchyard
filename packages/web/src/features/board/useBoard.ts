@@ -1,8 +1,15 @@
-import type { Eligibility, TaskState } from "@switchyard/protocol";
-import { useMemo } from "react";
+import {
+  type Eligibility,
+  type Task,
+  type TaskState,
+  taskInView,
+  type View,
+} from "@switchyard/protocol";
+import { useCallback, useMemo } from "react";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
 import { useNow } from "../queue/useNow";
+import { useSelectedView } from "../views/selection";
 import {
   type BoardFilters,
   type BoardTaskNode,
@@ -21,6 +28,10 @@ export interface BoardState {
   setFilters: (f: BoardFilters) => void;
   projectId: string | null;
   setProjectId: (id: string | null) => void;
+  /** The selected view (shared with Sessions). */
+  view: View | null;
+  /** Projects the project selector offers (the view's), or null for all. */
+  projectOptions: string[] | null;
   columns: Columns;
   trees: Record<TaskState, BoardTaskNode[]>;
   childProgress: Map<string, ChildProgress>;
@@ -45,20 +56,30 @@ export function useBoard(): BoardState {
   const runs = useSyncStore((s) => s.runs);
   const attention = useSyncStore((s) => s.attention);
   const projects = useSyncStore((s) => s.projects);
+  const views = useSyncStore((s) => s.views);
+  const [viewId] = useSelectedView();
   const now = useNow();
 
-  const validProject = projectId && projects[projectId] ? projectId : null;
+  const view = (viewId ? views[viewId] : undefined) ?? null;
+  const viewProjects = view && view.mode === "all" ? view.projectIds : null;
+  const validProject =
+    projectId && projects[projectId] && (!viewProjects || viewProjects.includes(projectId))
+      ? projectId
+      : null;
+  const inScope = useCallback(
+    (t: Pick<Task, "projectId" | "sessionId">) =>
+      (!validProject || t.projectId === validProject) && (!view || taskInView(view, t)),
+    [validProject, view],
+  );
 
   const columns = useMemo(() => {
     const attentionTaskIds = new Set(openAttentionByTask(attention).keys());
-    return buildColumns(tasks, filters, { projectId: validProject, runs, attentionTaskIds });
-  }, [tasks, filters, validProject, runs, attention]);
+    return buildColumns(tasks, filters, { projectId: validProject, view, runs, attentionTaskIds });
+  }, [tasks, filters, validProject, view, runs, attention]);
 
   const hierarchy = useMemo(() => {
     // Do not apply board filters here: hidden/completed/canceled children still count.
-    const allTasks = Object.fromEntries(
-      Object.entries(tasks).filter(([, t]) => !validProject || t.projectId === validProject),
-    );
+    const allTasks = Object.fromEntries(Object.entries(tasks).filter(([, t]) => inScope(t)));
     const trees = {} as Record<TaskState, BoardTaskNode[]>;
     for (const state of Object.keys(columns) as TaskState[])
       trees[state] = buildColumnTree(columns[state], allTasks);
@@ -66,7 +87,7 @@ export function useBoard(): BoardState {
     const parentIds = new Set(Object.values(allTasks).map((t) => t.parentTaskId));
     for (const id of parentIds) if (id) progress.set(id, childProgress(id, allTasks));
     return { trees, progress };
-  }, [tasks, validProject, columns]);
+  }, [tasks, inScope, columns]);
 
   const waits = useMemo(() => {
     const m = new Map<string, Eligibility>();
@@ -76,24 +97,19 @@ export function useBoard(): BoardState {
 
   const queueCount = useMemo(() => {
     if (now.data)
-      return now.data.queued.filter(
-        (q) => !validProject || tasks[q.taskId]?.projectId === validProject,
-      ).length;
+      return now.data.queued.filter((q) => {
+        const t = tasks[q.taskId];
+        return !t ? !validProject && !view : inScope(t);
+      }).length;
     return Object.values(tasks).filter(
-      (t) =>
-        t.state === "ready" &&
-        !t.hiddenFromBoard &&
-        (!validProject || t.projectId === validProject),
+      (t) => t.state === "ready" && !t.hiddenFromBoard && inScope(t),
     ).length;
-  }, [now.data, tasks, validProject]);
+  }, [now.data, tasks, validProject, view, inScope]);
 
   const states = visibleColumns(filters);
   const totalTasks = useMemo(
-    () =>
-      Object.values(tasks).filter(
-        (t) => !t.hiddenFromBoard && (!validProject || t.projectId === validProject),
-      ).length,
-    [tasks, validProject],
+    () => Object.values(tasks).filter((t) => !t.hiddenFromBoard && inScope(t)).length,
+    [tasks, inScope],
   );
   const visibleCount = states.reduce((n, s) => n + columns[s].length, 0);
 
@@ -102,6 +118,8 @@ export function useBoard(): BoardState {
     setFilters: (f) => setFilter("board", f),
     projectId: validProject,
     setProjectId: (id) => setPref("selectedProjectId", id),
+    view,
+    projectOptions: viewProjects,
     columns,
     trees: hierarchy.trees,
     childProgress: hierarchy.progress,
@@ -109,7 +127,8 @@ export function useBoard(): BoardState {
     waits,
     queueCount,
     now,
-    showProject: !validProject && Object.keys(projects).length > 1,
+    showProject:
+      !validProject && (viewProjects ? viewProjects.length : Object.keys(projects).length) > 1,
     totalTasks,
     visibleCount,
   };

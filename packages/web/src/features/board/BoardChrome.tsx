@@ -53,11 +53,13 @@ export function ProjectSelect({
         onChange={(e) => board.setProjectId(e.target.value || null)}
       >
         <option value="">All projects</option>
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
+        {projects
+          .filter((p) => !board.projectOptions || board.projectOptions.includes(p.id))
+          .map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
       </Select>
     </div>
   );

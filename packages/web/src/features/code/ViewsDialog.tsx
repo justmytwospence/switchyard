@@ -1,5 +1,6 @@
-import type { View } from "@switchyard/protocol";
+import { openClients, type View } from "@switchyard/protocol";
 import { useEffect, useState } from "react";
+import { ROUTES } from "../../app/routes";
 import { Button } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
@@ -7,8 +8,57 @@ import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { apiDelete, apiPatch, apiPost, errorMessage, isApiError } from "../../sync/api";
-import { useHosts, useProjects, useSyncStore } from "../../sync/store";
+import { useHosts, useProjects } from "../../sync/store";
+import { viewSource } from "../views/describe";
+import { useViewDescriber } from "../views/ViewSelect";
+
+/** Where a view's sessions come from, and how to open it in a terminal. */
+function ViewAbout({
+  view,
+  describe,
+  onNavigate,
+}: {
+  view: View;
+  describe: (v: View) => string;
+  onNavigate: () => void;
+}) {
+  const source = viewSource(view);
+  const open = openClients(view);
+  const session = view.name.trim().replace(/\s+/g, "-");
+  return (
+    <div data-testid="view-about" className="flex flex-col gap-1 rounded-md bg-surface-2 px-3 py-2">
+      <p className="text-sm">{describe(view)}</p>
+      {source === "tracker" && (
+        <p className="text-sm text-muted">
+          Managed by a tracker.{" "}
+          <TextLink to={ROUTES.settings("trackers")} onClick={onNavigate}>
+            Open Trackers
+          </TextLink>
+        </p>
+      )}
+      {source === "client" && (
+        <p className="text-sm text-muted">
+          Sessions are pinned here as they appear. Nothing is opened in that terminal.
+        </p>
+      )}
+      {source !== "client" &&
+        (open.length > 0 ? (
+          <p className="text-sm text-muted">
+            Open in: {open.map((c) => `${c.kind} ${c.name} (${c.machine})`).join(", ")}
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-muted">Not open in a terminal. To mirror it in herdr:</p>
+            <code className="block break-all text-xs">
+              switchyard herdr pair --session {session} --view {view.name}
+            </code>
+          </>
+        ))}
+    </div>
+  );
+}
 
 function toggle(list: string[], id: string, on: boolean): string[] {
   return on ? [...list, id] : list.filter((x) => x !== id);
@@ -28,7 +78,7 @@ export function ViewsDialog({
   onSaved: (id: string) => void;
   onDeleted?: () => void;
 }) {
-  const views = useSyncStore((s) => s.views);
+  const { views, describe } = useViewDescriber();
   const projects = useProjects();
   const hosts = useHosts();
   const [current, setCurrent] = useState<string | "new" | null>(editing);
@@ -96,7 +146,7 @@ export function ViewsDialog({
         open={open && !confirmDelete}
         onClose={onClose}
         title={view ? "Edit view" : "New view"}
-        description="A herdr or tmux session named like a view mirrors it."
+        description="A view is a saved filter over sessions and the board."
         footer={
           <>
             {view && (
@@ -135,6 +185,7 @@ export function ViewsDialog({
               )}
             </Field>
           )}
+          {view && <ViewAbout view={view} describe={describe} onNavigate={onClose} />}
           <Field label="Name" id="sy-view-name" error={nameError}>
             {(p) => (
               <TextInput
@@ -157,16 +208,10 @@ export function ViewsDialog({
               </Select>
             )}
           </Field>
-          {view?.clientId && (
-            <p className="text-sm text-muted">Collects sessions started in {view.clientId}.</p>
-          )}
           {mode === "all" && (
             <>
               <fieldset className="flex flex-col gap-1">
                 <legend className="text-sm font-medium">Projects (none checked: any)</legend>
-                {view?.trackerId && (
-                  <p className="text-xs text-muted">Projects are managed by this view's tracker.</p>
-                )}
                 {projects.map((p) => (
                   <Checkbox
                     key={p.id}

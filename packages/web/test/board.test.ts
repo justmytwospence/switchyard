@@ -128,6 +128,20 @@ describe("filters", () => {
     expect(
       buildColumns(tasks, DEFAULT_FILTERS, { ...ctx, projectId: "prj_2" }).backlog,
     ).toHaveLength(1);
+    const v = {
+      id: "viw_1",
+      name: "fg",
+      mode: "all" as const,
+      projectIds: ["prj_2"],
+      hostIds: null,
+      sessionIds: [],
+      clients: [],
+      createdAt: "",
+      updatedAt: "",
+    };
+    expect(
+      buildColumns(tasks, DEFAULT_FILTERS, { ...ctx, view: v }).backlog.map((t) => t.id),
+    ).toEqual(["e"]);
     expect(buildColumns(tasks, { ...DEFAULT_FILTERS, search: "login" }, ctx).backlog).toHaveLength(
       1,
     );

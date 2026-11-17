@@ -19,7 +19,6 @@ import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
-import { Select } from "../../components/ui/Select";
 import {
   REVIEW_STATUS,
   RUNTIME_STATUS,
@@ -35,6 +34,7 @@ import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
 import { usePalette } from "../palette/registry";
 import { ProjectSuggestions } from "../settings/ProjectSuggestions";
+import { useViewDescriber, ViewSelect } from "../views/ViewSelect";
 import { AdapterSlot } from "./AdapterSlots";
 import {
   buildNavTree,
@@ -101,7 +101,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const sessions = useSyncStore((s) => s.sessions);
   const sort = prefs.sorts?.[prefs.layout] ?? DEFAULT_SORT[prefs.layout];
   const hostsMap = useSyncStore((s) => s.hosts);
-  const views = useSyncStore((s) => s.views);
+  const { views, describe: describeView } = useViewDescriber();
   const [selectedViewId, setSelectedViewId] = useSelectedView();
   const [editingView, setEditingView] = useState<string | "new" | null>(null);
   const view = (selectedViewId ? views[selectedViewId] : null) ?? null;
@@ -380,22 +380,12 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         </div>
         <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex min-w-0 items-center gap-1">
-            <Select
-              aria-label="View"
-              value={view?.id ?? ""}
-              onChange={(e) => setSelectedViewId(e.target.value || null)}
-            >
-              <option value="">All sessions</option>
-              {Object.values(views).map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </Select>
+            <ViewSelect allLabel="All sessions" className="min-w-0 flex-1" />
             <Button onClick={() => setEditingView(view?.id ?? "new")}>
               {view ? "Edit" : "New view"}
             </Button>
           </div>
+          {view && <p className="truncate text-subtle text-xs">{describeView(view)}</p>}
           {view && openClients(view).length > 0 && (
             <p className="truncate text-subtle text-xs">
               Open in:{" "}

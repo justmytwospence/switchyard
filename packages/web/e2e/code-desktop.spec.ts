@@ -647,4 +647,14 @@ test.describe("desktop coding view", () => {
       await expect(selected).toHaveAttribute("id", new RegExp(`-opt-${state.projectId}$`));
     }
   });
+
+  test("the view selector explains the selected view", async ({ page, api, state }, info) => {
+    const v = await api("POST", "/api/views", { name: `pins-${uid(info)}`, mode: "pinned" });
+    await page.goto(`/code/${state.sessions.long}`);
+    await expect(page.getByTestId("conversation")).toBeVisible();
+    const nav = page.getByTestId("navigator");
+    await nav.getByLabel("View", { exact: true }).selectOption(v.id);
+    await expect(nav.getByText("0 pinned sessions", { exact: true })).toBeVisible();
+    await api("DELETE", `/api/views/${v.id}`);
+  });
 });

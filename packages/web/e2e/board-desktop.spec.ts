@@ -228,4 +228,24 @@ test.describe("desktop board", () => {
     const running = page.getByRole("dialog", { name: "Long running migration" });
     await expect(running.getByRole("link", { name: "Open session" })).toHaveCount(1);
   });
+
+  test("the view selector filters the board", async ({ page, api, state }, info) => {
+    const id = uid(info);
+    const t = await createTask(api, state, { title: `In view ${id}` });
+    const inView = await api("POST", "/api/views", {
+      name: `board-in-${id}`,
+      projectIds: [state.projectId],
+    });
+    const pinned = await api("POST", "/api/views", { name: `board-pinned-${id}`, mode: "pinned" });
+    const select = page.getByLabel("View", { exact: true });
+    await expect(card(page, t.title)).toBeVisible();
+    await select.selectOption(inView.id);
+    await expect(card(page, t.title)).toBeVisible();
+    await select.selectOption(pinned.id);
+    await expect(card(page, t.title)).toHaveCount(0);
+    await select.selectOption("");
+    await expect(card(page, t.title)).toBeVisible();
+    await api("DELETE", `/api/views/${inView.id}`);
+    await api("DELETE", `/api/views/${pinned.id}`);
+  });
 });

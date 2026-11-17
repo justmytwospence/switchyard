@@ -1,4 +1,4 @@
-import type { Session, View, ViewClient, Workspace } from "./entities.js";
+import type { Session, Task, View, ViewClient, Workspace } from "./entities.js";
 
 /** A client counts as open in a view while its last report is younger than this. */
 export const CLIENT_OPEN_MS = 10 * 60_000;
@@ -44,4 +44,11 @@ export function findView(views: View[], ref: string): View | null {
   if (byId) return byId;
   const named = views.filter((v) => v.name.toLowerCase() === ref.toLowerCase());
   return named.length === 1 ? named[0]! : null;
+}
+
+/** Is a task in a view? By its project, or because its session is pinned. Host filters do not apply to tasks. */
+export function taskInView(view: View, t: Pick<Task, "projectId" | "sessionId">): boolean {
+  if (t.sessionId !== null && view.sessionIds.includes(t.sessionId)) return true;
+  if (view.mode === "pinned") return false;
+  return view.projectIds === null || view.projectIds.includes(t.projectId);
 }

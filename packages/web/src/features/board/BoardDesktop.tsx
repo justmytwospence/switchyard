@@ -30,6 +30,7 @@ import { TextLink } from "../../components/ui/TextLink";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
+import { ViewSelect } from "../views/ViewSelect";
 import {
   BoardNotices,
   CompletedToggle,
@@ -198,6 +199,7 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
     <div data-testid="board" className="absolute inset-0 flex min-w-0 flex-col">
       <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
         <h1 className="mr-2 text-lg font-semibold">Board</h1>
+        <ViewSelect allLabel="All tasks" />
         <ProjectSelect board={board} />
         <SearchBox board={board} className="w-56 max-w-full" />
         <FilterButton board={board} />

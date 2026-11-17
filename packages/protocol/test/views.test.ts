@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { CLIENT_OPEN_MS, findView, openClients, sessionInView, type View } from "../src/index.js";
+import {
+  CLIENT_OPEN_MS,
+  findView,
+  openClients,
+  sessionInView,
+  taskInView,
+  type View,
+} from "../src/index.js";
 
 const NOW = Date.parse("2026-11-03T00:00:00Z");
 
@@ -88,5 +95,30 @@ describe("openClients", () => {
       ],
     });
     expect(openClients(v, NOW).map((x) => x.id)).toEqual(["2", "1"]);
+  });
+});
+
+describe("taskInView", () => {
+  const t = (over: { projectId?: string; sessionId?: string | null } = {}) => ({
+    projectId: "prj_a",
+    sessionId: null as string | null,
+    ...over,
+  });
+  it("matches by project in an all view, with any project when unlimited", () => {
+    expect(taskInView(view(), t())).toBe(true);
+    expect(taskInView(view({ projectIds: ["prj_a"] }), t())).toBe(true);
+    expect(taskInView(view({ projectIds: ["prj_b"] }), t())).toBe(false);
+  });
+  it("ignores host filters", () => {
+    expect(taskInView(view({ hostIds: ["hst_9"] }), t())).toBe(true);
+  });
+  it("in a pinned view, only tasks whose session is pinned", () => {
+    expect(taskInView(view({ mode: "pinned" }), t())).toBe(false);
+    expect(
+      taskInView(view({ mode: "pinned", sessionIds: ["ses_1"] }), t({ sessionId: "ses_1" })),
+    ).toBe(true);
+    expect(
+      taskInView(view({ projectIds: ["prj_b"], sessionIds: ["ses_1"] }), t({ sessionId: "ses_1" })),
+    ).toBe(true);
   });
 });
