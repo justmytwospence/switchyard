@@ -19,6 +19,7 @@ import { ProjectDetail } from "./ProjectDetail";
 import { ProjectCreate, ProjectsSection } from "./ProjectsSection";
 import { SignInSection } from "./SignInSection";
 import { SECTION_GROUPS, settingsPath } from "./shared";
+import { TrackersSection } from "./TrackersSection";
 
 /**
  * Settings (spec 15): hosts, devices, projects, Pi profiles, adapters,
@@ -42,6 +43,7 @@ export default function SettingsView() {
       <Route path="projects" element={<ProjectsSection />} />
       <Route path="projects/new" element={<ProjectCreate />} />
       <Route path="projects/:projectId" element={<ProjectDetail />} />
+      <Route path="trackers" element={<TrackersSection />} />
       <Route path="profiles" element={<ProfilesSection />} />
       <Route path="policies" element={<PoliciesSection />} />
       <Route path="adapters" element={<AdaptersSection />} />

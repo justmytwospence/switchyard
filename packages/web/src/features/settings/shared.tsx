@@ -5,6 +5,7 @@ import {
   Bell,
   ChevronLeft,
   CircleCheck,
+  CircleDot,
   DatabaseBackup,
   FolderGit2,
   Keyboard,
@@ -46,6 +47,13 @@ export const SECTIONS: SectionDef[] = [
     label: "Projects",
     description: "Repositories, checkouts and workspaces",
     icon: FolderGit2,
+    group: "Workspace",
+  },
+  {
+    path: "trackers",
+    label: "Trackers",
+    description: "GitHub issues and boards that feed the board",
+    icon: CircleDot,
     group: "Workspace",
   },
   {

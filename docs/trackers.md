@@ -30,7 +30,7 @@ The tracker owns its task only for these fields: the title while in Backlog, and
 Trackers use the host's `gh` login, like the rest of the [GitHub integration](github.md). For a Projects board, the login also needs the `project` scope: `gh auth refresh -h github.com -s project`.
 
 1. Add the repositories as projects (Settings > Projects) on the host that will run the work, and turn on the two project settings if you want them.
-2. Create a tracker:
+2. Create a tracker in Settings > Trackers, or with the CLI:
 
    ```sh
    switchyard trackers create fieldgoal --host mac --owner fieldgoalco
@@ -40,6 +40,10 @@ Trackers use the host's `gh` login, like the rest of the [GitHub integration](gi
 
    `--repo owner/name` (repeatable) limits it to some repositories. `--status-field` names the board's status field (default `Status`).
 3. `switchyard trackers sync <name>` syncs now; otherwise every tracker syncs every two minutes. `switchyard trackers list` shows the last sync and error.
+
+### In the web app
+
+Settings > Trackers shows each tracker as a card: its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, its task count, and links that open its view on Sessions or the Board. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** and **Delete** change or remove it (its tasks stay and stop updating, its view stays as an ordinary view). The view selector on Sessions and the Board names each view's source, such as `fieldgoal · GitHub`.
 
 A tracker keeps a view of its own name pointed at the projects in its owner (an existing view of that name is adopted). Its project list is the tracker's; hosts and pins stay editable. Bind a herdr session to it with `switchyard herdr pair --session <name> --view <name>`.
 
