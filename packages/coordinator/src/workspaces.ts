@@ -7,6 +7,7 @@ import {
   GitState,
   newId,
   type Project,
+  type Session,
   SwitchyardError,
   type Workspace,
 } from "@switchyard/protocol";
@@ -82,6 +83,27 @@ export function recordCreatedWorkspace(
 }
 
 /**
+ * Move sessions the host introduced to the most specific workspace containing their folder.
+ * `active` are the checkout's current workspaces. Call inside a transaction.
+ */
+function rehomeSessions(ctx: CoordinatorContext, checkout: Checkout, active: Workspace[]): void {
+  const under = (s: Session) =>
+    active
+      .filter((w) => s.cwd === w.path || s.cwd.startsWith(`${w.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+  for (const s of ctx.store.sessions.list("host_id = ? AND archived_at IS NULL", [
+    checkout.hostId,
+  ])) {
+    if (s.provenance !== "imported" || s.runId || s.taskId || !s.cwd) continue;
+    const local = under(s);
+    if (!local || local.id === s.workspaceId) continue;
+    const ws = ctx.store.workspaceContaining(checkout.hostId, s.cwd);
+    if (!ws || ws.id === s.workspaceId) continue;
+    ctx.store.putSession({ ...s, workspaceId: ws.id, projectId: ws.projectId });
+  }
+}
+
+/**
  * `workspace.discover` for a checkout: upsert every worktree, archive the ones that vanished.
  * Accepts either an array or `{worktrees: [...]}` as the host result.
  */
@@ -132,6 +154,7 @@ export async function refreshCheckoutWorkspaces(
     ])) {
       if (!seen.has(ws.path)) ctx.store.putWorkspace({ ...ws, archivedAt: now, updatedAt: now });
     }
+    rehomeSessions(ctx, checkout, out);
     return out;
   });
 }

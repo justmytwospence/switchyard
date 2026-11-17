@@ -34,6 +34,20 @@ const board = (status: string | null) => ({
   ],
 });
 
+function discovered(path: string, branch: string, provenance: "main" | "discovered" | "managed") {
+  return {
+    path,
+    head: "a".repeat(40),
+    branch: `refs/heads/${branch}`,
+    bare: false,
+    detached: false,
+    locked: false,
+    prunable: false,
+    provenance,
+    git: null,
+  };
+}
+
 let h: Harness;
 let items: TrackerItem[];
 let truncated: boolean;
@@ -153,6 +167,38 @@ describe("tracker sync", () => {
     expect(task!.tracker!.branch).toBe("feat/x");
     await service().sync(t.id);
     expect(commandsOf(h.host, "workspace.create")).toHaveLength(1);
+  });
+
+  it("links a worktree that already exists instead of creating one", async () => {
+    const base = h.override!;
+    const wt = `${ROOT}/.worktrees/feat-x`;
+    h.override = (cmd, id) =>
+      cmd.type === "workspace.discover"
+        ? [discovered(ROOT, "main", "main"), discovered(wt, "feat/x", "discovered")]
+        : base(cmd, id);
+    items = [item(1, { branches: ["feat/x"] })];
+    const t = await create();
+    expect(commandsOf(h.host, "tracker.prepareBranch")).toHaveLength(0);
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
+    const [task] = tracked(t.id);
+    expect(task!.tracker!.workspaceId).toBe(store().workspaceByPath(h.creds.hostId, wt)!.id);
+    expect(t.lastError).toBeNull();
+  });
+
+  it("rescans a checkout once per sync", async () => {
+    const base = h.override!;
+    h.override = (cmd, id) =>
+      cmd.type === "workspace.discover"
+        ? [
+            discovered(ROOT, "main", "main"),
+            ...worktrees.map((w) => discovered(w.path, w.branch, "managed")),
+          ]
+        : base(cmd, id);
+    items = [item(1, { branches: ["feat/a"] }), item(2, { branches: ["feat/b"] })];
+    const before = commandsOf(h.host, "workspace.discover").length;
+    await create();
+    expect(commandsOf(h.host, "workspace.discover").length - before).toBe(1);
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(2);
   });
 
   it("makes no worktree for a merged issue", async () => {

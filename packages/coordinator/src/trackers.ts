@@ -13,6 +13,7 @@ import {
 import type { CoordinatorContext } from "./context.js";
 import { createWorkspace } from "./sessions/service.js";
 import { createTask } from "./tasks/service.js";
+import { refreshCheckoutWorkspaces } from "./workspaces.js";
 
 const GITHUB = "https://github.com/";
 const SYNC_TIMEOUT_MS = 90_000;
@@ -196,9 +197,10 @@ export class TrackerService {
     });
 
     const current: Tracker = { ...tracker, login: result.login };
+    const refreshed = new Set<string>();
     for (const m of matched) {
       try {
-        await this.linkWorkspace(current, m.item, m.project, m.taskId);
+        await this.linkWorkspace(current, m.item, m.project, m.taskId, refreshed);
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
@@ -262,6 +264,7 @@ export class TrackerService {
     item: TrackerItem,
     project: Project,
     taskId: string,
+    refreshed: Set<string>,
   ): Promise<void> {
     const { store, hostHub } = this.ctx;
     const branch = item.branches[0];
@@ -275,9 +278,23 @@ export class TrackerService {
         .list("checkout_id = ? AND archived_at IS NULL", [checkout.id])
         .find((w) => w.branch !== null && item.branches.includes(w.branch));
     let ws = find();
+    const key = `trackerBranchTried:${taskId}:${branch}`;
     if (!ws) {
-      const key = `trackerBranchTried:${taskId}:${branch}`;
       if (store.getSetting<string | null>(key, null) !== null) return;
+      if (!refreshed.has(checkout.id)) {
+        refreshed.add(checkout.id);
+        try {
+          await refreshCheckoutWorkspaces(this.ctx, checkout);
+        } catch (err) {
+          this.ctx.log.debug(
+            { err, checkoutId: checkout.id },
+            "tracker: workspace discovery failed",
+          );
+        }
+        ws = find();
+      }
+    }
+    if (!ws) {
       store.setSetting(key, store.nowIso());
       await hostHub.request(
         tracker.hostId,

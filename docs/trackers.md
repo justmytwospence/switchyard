@@ -19,7 +19,7 @@ Trackers and clients never talk to each other; both meet at the core objects. A 
 ## What happens
 
 1. **An issue is assigned to you** in the tracker's owner: a Backlog task appears, titled like the issue, with a Tracker section (issue, branch, pull request, board column). Issues in repositories that have no project in Switchyard are counted in the tracker's error instead.
-2. **Work starts** when a branch is associated with the issue: a linked branch (the issue's Development sidebar, `gh issue develop`) or the head branch of an open pull request that closes it. **Start work** on the task creates the linked branch (`<number>-<title>`) for you. Switchyard fetches the branch and creates its worktree once; with "Keep a session in every worktree" on, an idle session starts in it. The worktree shows up in the tracker's view in every client.
+2. **Work starts** when a branch is associated with the issue: a linked branch (the issue's Development sidebar, `gh issue develop`) or the head branch of an open pull request that closes it. **Start work** on the task creates the linked branch (`<number>-<title>`) for you. Switchyard fetches the branch and creates its worktree once, or links the worktree you already have for that branch; with "Keep a session in every worktree" on, an idle session starts in it. The worktree shows up in the tracker's view in every client.
 3. **The pull request merges**: with "Remove merged worktrees" on, about ten minutes later the sessions are archived and the worktree and local branch are removed.
 4. **The issue closes or is unassigned**: its task disappears if it is still in Backlog with no session or run. Tasks with work are left alone.
 

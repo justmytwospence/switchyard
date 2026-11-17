@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { Project, Session, Workspace } from "@switchyard/protocol";
+import type { EventEnvelope, Project, Session, Workspace } from "@switchyard/protocol";
 import type { CoordinatorContext } from "./context.js";
 import { requireService } from "./services.js";
 import { archiveSession } from "./sessions/control.js";
@@ -26,6 +26,13 @@ const landedKey = (id: string) => `landedAt:${id}`;
 export class WorkspaceLifecycleService {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  /** `${sessionId}\n${cwd}` already checked for an unknown worktree (per process). */
+  private readonly checked = new Set<string>();
+  /** Checkouts with a rescan in flight. */
+  private readonly rescanning = new Set<string>();
+  private readonly onEvent = (ev: EventEnvelope) => {
+    if (ev.type === "session.updated") this.noteSession(ev.data as Session);
+  };
 
   constructor(
     private readonly ctx: CoordinatorContext,
@@ -33,14 +40,38 @@ export class WorkspaceLifecycleService {
   ) {}
 
   start(): void {
+    this.ctx.hub.on("event", this.onEvent);
     if (this.opts.tickMs <= 0) return;
     this.timer = setInterval(() => void this.tick(), this.opts.tickMs);
     this.timer.unref();
   }
 
   stop(): void {
+    this.ctx.hub.off("event", this.onEvent);
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** A hand-started session below the main checkout, in a folder that is no known worktree: rescan once. */
+  private noteSession(s: Session): void {
+    const { store, hostHub } = this.ctx;
+    if (s?.archivedAt !== null || s.provenance !== "imported" || !s.cwd || !s.workspaceId) return;
+    const ws = store.workspaces.get(s.workspaceId);
+    if (!ws || ws.archivedAt || ws.provenance !== "main" || s.cwd === ws.path) return;
+    const key = `${s.id}\n${s.cwd}`;
+    if (this.checked.has(key)) return;
+    const checkout = store.checkouts.get(ws.checkoutId);
+    if (!checkout || !hostHub.isConnected(checkout.hostId) || this.rescanning.has(checkout.id)) {
+      return;
+    }
+    this.checked.add(key);
+    this.rescanning.add(checkout.id);
+    void refreshCheckoutWorkspaces(this.ctx, checkout)
+      .catch((err) => {
+        this.checked.delete(key);
+        this.ctx.log.warn({ err, checkoutId: checkout.id }, "workspace discovery failed");
+      })
+      .finally(() => this.rescanning.delete(checkout.id));
   }
 
   async tick(now = this.ctx.store.now().getTime()): Promise<void> {
