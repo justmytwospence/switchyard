@@ -71,6 +71,8 @@ const pkg = {
   version: readJson(join(root, "package.json")).version,
   description: "Node.js REST and WebSocket SDK for Switchyard",
   license: "MIT",
+  // npm checks provenance against this.
+  repository: { type: "git", url: "git+https://github.com/justmytwospence/switchyard.git" },
   type: "module",
   engines: { node: ">=24" },
   exports: { ".": { types: "./dist/types/index.d.ts", import: "./dist/index.js" } },
