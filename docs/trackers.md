@@ -8,7 +8,7 @@ Trackers ──sync──> Project / Workspace / Task / Session <──filter─
  GitHub Projects)                                                              herdr, tmux)
 ```
 
-Trackers and clients never talk to each other; both meet at the core objects. A view is a lens over sessions with one membership authority: manual (filters and pins), a tracker, or a client ([terminal-sessions.md](terminal-sessions.md#views-and-tui-clients)).
+Trackers and clients never talk to each other; both meet at the core objects. A view is a lens over sessions with one source: your own filters and pins, a tracker, or a terminal ([terminal-sessions.md](terminal-sessions.md#views-and-tui-clients)).
 
 | Concept | What it is | Who owns the truth |
 |---|---|---|

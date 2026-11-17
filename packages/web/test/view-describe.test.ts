@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   clientLabel,
   describeView,
+  emptyViewState,
+  shownIn,
   viewOptionLabel,
   viewSource,
 } from "../src/features/views/describe";
@@ -89,8 +91,10 @@ describe("view descriptions", () => {
     expect(describeView(view({ clientId: "herdr:default@mac" }), ctx)).toBe(
       "Pi you start in herdr default on mac",
     );
-    expect(describeView(view({ mode: "pinned", sessionIds: ["s"] }), ctx)).toBe("1 pinned session");
-    expect(describeView(view({ mode: "pinned" }), ctx)).toBe("0 pinned sessions");
+    expect(describeView(view({ mode: "pinned", sessionIds: ["s"] }), ctx)).toBe(
+      "Only sessions you pin",
+    );
+    expect(describeView(view({ mode: "pinned" }), ctx)).toBe("Only sessions you pin");
   });
 
   it("describes filters", () => {
@@ -103,5 +107,47 @@ describe("view descriptions", () => {
     expect(describeView(view({ projectIds: ["a", "b", "c", "d", "e"] }), ctx)).toBe(
       "Sessions in Alpha, Beta, Gamma and 2 more",
     );
+  });
+
+  it("lists the terminals a view is shown in", () => {
+    const now = Date.parse(T);
+    const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+    expect(shownIn(view(), now)).toBeNull();
+    const stale = { id: "herdr:vo@mac", kind: "herdr", name: "vo", machine: "mac" } as const;
+    expect(shownIn(view({ clients: [{ ...stale, lastSeenAt: at(11) }] }), now)).toBeNull();
+    expect(
+      shownIn(
+        view({
+          clients: [
+            { id: "tmux:main@nuc", kind: "tmux", name: "main", machine: "nuc", lastSeenAt: at(1) },
+            { ...stale, lastSeenAt: at(2) },
+          ],
+        }),
+        now,
+      ),
+    ).toBe("herdr vo on mac, tmux main on nuc");
+  });
+
+  it("explains an empty view by its source", () => {
+    const opts = { filter: "all" as const, source: "Every session", origin: "dev.example" };
+    expect(emptyViewState(view(), { ...opts, filter: "attention" }).title).toBe(
+      "Nothing needs your input in work",
+    );
+    expect(emptyViewState(view(), { ...opts, filter: "active" }).title).toBe(
+      "No active sessions in work",
+    );
+    expect(emptyViewState(view(), opts).title).toBe("No sessions in work");
+    const term = view({ mode: "pinned", clientId: "herdr:default@mac-pro" });
+    expect(emptyViewState(term, opts).description).toBe(
+      "A Pi you start in herdr default on mac-pro joins this view once it enrols with a host agent connected to dev.example. Sessions that started before the view existed are not added; pin them from the session menu.",
+    );
+    expect(
+      emptyViewState({ ...term, sessionIds: ["s"] }, { ...opts, source: "Pi you start in x" })
+        .description,
+    ).toBe("This view's source: Pi you start in x.");
+    expect(emptyViewState(view({ mode: "pinned" }), opts).description).toBe(
+      "This view holds only sessions you pin. Pin one from its menu: Pin to work.",
+    );
+    expect(emptyViewState(view(), opts).description).toBe("This view's source: Every session.");
   });
 });

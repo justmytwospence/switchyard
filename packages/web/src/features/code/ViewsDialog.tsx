@@ -1,4 +1,4 @@
-import { openClients, type View } from "@switchyard/protocol";
+import type { View } from "@switchyard/protocol";
 import { useEffect, useState } from "react";
 import { ROUTES } from "../../app/routes";
 import { Button } from "../../components/ui/Button";
@@ -11,10 +11,10 @@ import { TextInput } from "../../components/ui/TextArea";
 import { TextLink } from "../../components/ui/TextLink";
 import { apiDelete, apiPatch, apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useHosts, useProjects } from "../../sync/store";
-import { viewSource } from "../views/describe";
+import { shownIn, viewSource } from "../views/describe";
 import { useViewDescriber } from "../views/ViewSelect";
 
-/** Where a view's sessions come from, and how to open it in a terminal. */
+/** A view's source (what decides its sessions) and the terminals it is shown in. */
 function ViewAbout({
   view,
   describe,
@@ -25,38 +25,43 @@ function ViewAbout({
   onNavigate: () => void;
 }) {
   const source = viewSource(view);
-  const open = openClients(view);
+  const shown = shownIn(view);
   const session = view.name.trim().replace(/\s+/g, "-");
   return (
-    <div data-testid="view-about" className="flex flex-col gap-1 rounded-md bg-surface-2 px-3 py-2">
-      <p className="text-sm">{describe(view)}</p>
-      {source === "tracker" && (
-        <p className="text-sm text-muted">
-          Managed by a tracker.{" "}
-          <TextLink to={ROUTES.settings("trackers")} onClick={onNavigate}>
-            Open Trackers
-          </TextLink>
-        </p>
-      )}
-      {source === "client" && (
-        <p className="text-sm text-muted">
-          Sessions are pinned here as they appear. Nothing is opened in that terminal.
-        </p>
-      )}
-      {source !== "client" &&
-        (open.length > 0 ? (
-          <p className="text-sm text-muted">
-            Open in: {open.map((c) => `${c.kind} ${c.name} (${c.machine})`).join(", ")}
-          </p>
-        ) : (
+    <dl
+      data-testid="view-about"
+      className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md bg-surface-2 px-3 py-2 text-sm"
+    >
+      <dt className="text-muted">Source</dt>
+      <dd className="flex min-w-0 flex-col gap-0.5">
+        <span>{describe(view)}</span>
+        {source === "tracker" && (
+          <span className="text-muted">
+            Its projects are kept by a GitHub tracker.{" "}
+            <TextLink to={ROUTES.settings("trackers")} onClick={onNavigate}>
+              Open Trackers
+            </TextLink>
+          </span>
+        )}
+        {source === "client" && (
+          <span className="text-muted">
+            Sessions join as they start there. Nothing is opened in that terminal.
+          </span>
+        )}
+      </dd>
+      <dt className="text-muted">Shown in</dt>
+      <dd className="flex min-w-0 flex-col gap-0.5">
+        {shown ?? <span>No terminal.</span>}
+        {!shown && source !== "client" && (
           <>
-            <p className="text-sm text-muted">Not open in a terminal. To mirror it in herdr:</p>
+            <span className="text-muted">To show it in herdr:</span>
             <code className="block break-all text-xs">
               switchyard herdr pair --session {session} --view {view.name}
             </code>
           </>
-        ))}
-    </div>
+        )}
+      </dd>
+    </dl>
   );
 }
 
@@ -90,6 +95,7 @@ export function ViewsDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const source = view ? viewSource(view) : "manual";
 
   useEffect(() => {
     setCurrent(editing);
@@ -107,7 +113,7 @@ export function ViewsDialog({
     setError(null);
     const body = {
       name: name.trim(),
-      mode,
+      ...(source === "manual" ? { mode } : {}),
       // A tracker's view: the tracker owns the projects.
       ...(view?.trackerId ? {} : { projectIds: projectIds.length ? projectIds : null }),
       hostIds: hostIds.length ? hostIds : null,
@@ -196,22 +202,28 @@ export function ViewsDialog({
               />
             )}
           </Field>
-          <Field label="Contents" id="sy-view-mode">
-            {(p) => (
-              <Select
-                {...p}
-                value={mode}
-                onChange={(e) => setMode(e.target.value as "all" | "pinned")}
-              >
-                <option value="all">Matching sessions, plus pinned</option>
-                <option value="pinned">Only pinned sessions</option>
-              </Select>
-            )}
-          </Field>
+          {source === "manual" && (
+            <Field label="Sessions" id="sy-view-mode">
+              {(p) => (
+                <Select
+                  {...p}
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as "all" | "pinned")}
+                >
+                  <option value="all">Matching the filters below, plus any you pin</option>
+                  <option value="pinned">Only sessions you pin</option>
+                </Select>
+              )}
+            </Field>
+          )}
           {mode === "all" && (
             <>
               <fieldset className="flex flex-col gap-1">
-                <legend className="text-sm font-medium">Projects (none checked: any)</legend>
+                <legend className="text-sm font-medium">
+                  {view?.trackerId
+                    ? "Projects (kept by the tracker)"
+                    : "Projects (none checked: any)"}
+                </legend>
                 {projects.map((p) => (
                   <Checkbox
                     key={p.id}
@@ -244,7 +256,7 @@ export function ViewsDialog({
         open={open && confirmDelete}
         onClose={() => setConfirmDelete(false)}
         title="Delete this view?"
-        description="Sessions are not affected. herdr and tmux sessions bound to it stop mirroring and keep their tabs."
+        description="Sessions are not affected. Terminals showing it stop mirroring and keep their tabs."
         confirmLabel="Delete view"
         busy={busy}
         error={error}

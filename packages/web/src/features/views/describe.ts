@@ -1,4 +1,10 @@
-import type { Host, Project, Tracker, View } from "@switchyard/protocol";
+import {
+  type Host,
+  openClients,
+  type Project,
+  type Tracker,
+  type View,
+} from "@switchyard/protocol";
 
 /** What decides a view's members: a GitHub tracker, a terminal client, or the view's own filter. */
 export type ViewSource = "tracker" | "client" | "manual";
@@ -48,13 +54,45 @@ export function describeView(v: View, ctx: DescribeContext): string {
     return `GitHub issues assigned to ${t.login ?? "you"} in ${t.owner}${board}`;
   }
   if (source === "client") return `Pi you start in ${clientLabel(v.clientId ?? "")}`;
-  if (v.mode === "pinned") {
-    const n = v.sessionIds.length;
-    return `${n} pinned ${n === 1 ? "session" : "sessions"}`;
-  }
+  if (v.mode === "pinned") return "Only sessions you pin";
   const projectNames = v.projectIds ? names(v.projectIds, ctx.projects) : "";
   const hostNames = v.hostIds ? names(v.hostIds, ctx.hosts) : "";
   if (!projectNames && !hostNames) return "Every session";
   if (!projectNames) return `Sessions on ${hostNames}`;
   return `Sessions in ${projectNames}${hostNames ? ` on ${hostNames}` : ""}`;
+}
+
+/** Terminals showing this view now, as "herdr vo on mac-pro, tmux main on nuc"; null when none. */
+export function shownIn(v: View, now = Date.now()): string | null {
+  const open = openClients(v, now);
+  if (open.length === 0) return null;
+  return open.map((c) => `${c.kind} ${c.name} on ${c.machine}`).join(", ");
+}
+
+export type ViewEmptyFilter = "active" | "attention" | "all";
+
+/**
+ * Title and explanation for a selected view with nothing to list. `source` is describeView's
+ * text; `origin` is this deployment's host name.
+ */
+export function emptyViewState(
+  v: View,
+  opts: { filter: ViewEmptyFilter; source: string; origin: string },
+): { title: string; description: string } {
+  const title =
+    opts.filter === "attention"
+      ? `Nothing needs your input in ${v.name}`
+      : opts.filter === "active"
+        ? `No active sessions in ${v.name}`
+        : `No sessions in ${v.name}`;
+  const source = viewSource(v);
+  let description: string;
+  if (source === "client" && v.sessionIds.length === 0) {
+    description = `A Pi you start in ${clientLabel(v.clientId ?? "")} joins this view once it enrols with a host agent connected to ${opts.origin}. Sessions that started before the view existed are not added; pin them from the session menu.`;
+  } else if (source === "manual" && v.mode === "pinned") {
+    description = `This view holds only sessions you pin. Pin one from its menu: Pin to ${v.name}.`;
+  } else {
+    description = `This view's source: ${opts.source}.`;
+  }
+  return { title, description };
 }

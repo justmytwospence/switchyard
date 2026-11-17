@@ -1,4 +1,4 @@
-import { openClients, type Session } from "@switchyard/protocol";
+import type { Session } from "@switchyard/protocol";
 import {
   ChevronDown,
   ChevronRight,
@@ -34,6 +34,7 @@ import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
 import { usePalette } from "../palette/registry";
 import { ProjectSuggestions } from "../settings/ProjectSuggestions";
+import { emptyViewState, shownIn } from "../views/describe";
 import { useViewDescriber, ViewSelect } from "../views/ViewSelect";
 import { AdapterSlot } from "./AdapterSlots";
 import {
@@ -246,6 +247,20 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         description={`Nothing matches "${prefs.query}".`}
         action={{ label: "Clear search", onClick: () => setPrefs({ ...prefs, query: "" }) }}
       />
+    ) : view ? (
+      <EmptyState
+        {...emptyViewState(view, {
+          filter: prefs.filter,
+          source: describeView(view),
+          origin: window.location.host,
+        })}
+        action={{ label: "New session", onClick: () => onNewSession() }}
+        secondaryAction={
+          prefs.filter !== "all"
+            ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
+            : { label: "All sessions", onClick: () => setSelectedViewId(null) }
+        }
+      />
     ) : (
       <EmptyState
         title={
@@ -386,13 +401,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             </Button>
           </div>
           {view && <p className="truncate text-subtle text-xs">{describeView(view)}</p>}
-          {view && openClients(view).length > 0 && (
-            <p className="truncate text-subtle text-xs">
-              Open in:{" "}
-              {openClients(view)
-                .map((c) => `${c.kind} ${c.name} (${c.machine})`)
-                .join(", ")}
-            </p>
+          {view && shownIn(view) && (
+            <p className="truncate text-subtle text-xs">Shown in: {shownIn(view)}</p>
           )}
         </div>
         <ViewsDialog

@@ -56,7 +56,7 @@ export function TrackersSection() {
   return (
     <SectionPage
       title="Trackers"
-      description="A tracker turns the GitHub issues assigned to you into Backlog tasks and worktrees, and keeps a view of its projects."
+      description="A tracker turns the GitHub issues assigned to you into Backlog tasks and worktrees, and is the source of a view of its projects."
       testId="trackers-section"
       actions={
         <Button
@@ -99,7 +99,7 @@ export function TrackersSection() {
         open={deleting !== null}
         onClose={() => setDeleting(null)}
         title="Delete this tracker?"
-        description="Its tasks stay and stop updating. Its view stays as an ordinary view."
+        description="Its tasks stay and stop updating. Its view stays, with its current projects as your own filter."
         confirmLabel="Delete tracker"
         danger
         busy={deleteBusy}
