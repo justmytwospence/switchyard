@@ -1,14 +1,10 @@
-import {
-  CreateWorkspaceRequest,
-  RemoveWorkspaceRequest,
-  SwitchyardError,
-} from "@switchyard/protocol";
+import { CreateWorkspaceRequest, RemoveWorkspaceRequest } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { CoordinatorContext } from "../context.js";
 import { parse } from "../http.js";
-import { createWorkspace, LIVE_RUNTIMES, requireConnected } from "../sessions/service.js";
-import { baseFor, refreshWorkspaceStatus } from "../workspaces.js";
+import { createWorkspace, requireConnected } from "../sessions/service.js";
+import { baseFor, refreshWorkspaceStatus, removeWorkspace } from "../workspaces.js";
 
 const ListQuery = z.object({
   projectId: z.string().optional(),
@@ -47,30 +43,7 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: CoordinatorCo
   app.post("/api/workspaces/:id/remove", async (req) => {
     const { id } = req.params as { id: string };
     const body = parse(RemoveWorkspaceRequest, req.body);
-    const ws = ctx.store.workspaces.require(id);
-    if (ws.provenance === "main") {
-      throw new SwitchyardError("forbidden", "The main checkout cannot be removed");
-    }
-    const live = ctx.store.sessions
-      .list("workspace_id = ? AND archived_at IS NULL", [id])
-      .filter((s) => LIVE_RUNTIMES.includes(s.runtime));
-    if (live.length > 0) {
-      throw new SwitchyardError(
-        "workspace_active_sessions",
-        "Stop the sessions in this workspace before removing it",
-        { sessionIds: live.map((s) => s.id) },
-      );
-    }
-    requireConnected(ctx, ws.hostId);
-    const checkout = ctx.store.checkouts.require(ws.checkoutId);
-    await ctx.hostHub.request(ws.hostId, {
-      type: "workspace.remove",
-      path: ws.path,
-      checkoutPath: checkout.path,
-      base: baseFor(ctx, ws),
-      force: body.force,
-    });
-    ctx.store.archiveWorkspace(ws);
+    await removeWorkspace(ctx, id, { force: body.force });
     return { ok: true, id };
   });
 

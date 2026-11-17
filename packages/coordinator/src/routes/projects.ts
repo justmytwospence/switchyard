@@ -16,7 +16,12 @@ import { inspectCheckout, refreshCheckoutWorkspaces, worktreeDirOf } from "../wo
 
 /** Projects stored before 0.2 have no worktree folder: report the default. */
 function withDefaults(p: Project): Project {
-  return { ...p, worktreeDir: worktreeDirOf(p) };
+  return {
+    ...p,
+    worktreeDir: worktreeDirOf(p),
+    ensureSessions: p.ensureSessions ?? false,
+    removeLanded: p.removeLanded ?? false,
+  };
 }
 
 function projectView(ctx: CoordinatorContext, p: Project) {

@@ -21,6 +21,7 @@ import {
   SwitchyardError,
   type TermCoordinatorMsg,
   type TermServerToViewer,
+  TRACKERS_FEATURE,
 } from "@switchyard/protocol";
 import WebSocket from "ws";
 import type { HostDb } from "./db/index.js";
@@ -30,6 +31,8 @@ import type { Logger } from "./logger.js";
 export const OUTBOX_RETENTION_MS = 24 * 60 * 60 * 1000;
 const ACKED_META = "outbox.ackedHostSeq";
 const AGENT_FEATURES = ["agentRequests.v1", "policies.v1"] as const;
+/** Host features the coordinator gates commands on; not negotiated in `welcome`. */
+const HOST_FEATURES: readonly string[] = [TRACKERS_FEATURE];
 
 export interface AgentRequestOptions {
   toolCallId?: string;
@@ -411,12 +414,13 @@ export class CoordinatorLink {
           AGENT_FEATURES.some((known) => known === f),
         ),
       );
+      const hostFeatures = (hello.features ?? []).filter((f) => HOST_FEATURES.includes(f));
       this.send({
         ...hello,
         type: "hello",
         hostId: this.opts.hostId,
         credential: this.opts.credential,
-        features: [...this.advertisedFeatures],
+        features: [...this.advertisedFeatures, ...hostFeatures],
       });
       this.startPing(ws);
       this.events.emit("connected");

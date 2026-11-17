@@ -69,6 +69,8 @@ export function newProject(input: {
     checks: input.checks ?? [],
     workspaceSharing: "single_writer",
     worktreeDir: input.worktreeDir ?? DEFAULT_WORKTREE_DIR,
+    ensureSessions: false,
+    removeLanded: false,
     createdAt: input.now,
     updatedAt: input.now,
   };

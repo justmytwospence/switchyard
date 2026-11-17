@@ -36,15 +36,18 @@ function fixture() {
     refresh: vi.fn(async () => ({ snapshot: "view" })),
     failedLogs: vi.fn(async () => ({ jobs: [] })),
     merge: vi.fn(async () => ({ status: "outcome_unknown" })),
+    trackerSync: vi.fn(async () => ({ login: "me", items: [], truncated: false })),
+    trackerStartIssue: vi.fn(async () => ({ branch: "12-x" })),
+    trackerSetStatus: vi.fn(async () => ({ status: "moved" })),
   };
   const sendReceipt = vi.fn();
-  const make = (integration: object | undefined = github) =>
+  const make = (integration: object | null = github) =>
     new CommandRouter({
       db,
       supervisor: {} as CommandRouterOptions["supervisor"],
       workspaces: {} as CommandRouterOptions["workspaces"],
       dispatcher: {} as CommandRouterOptions["dispatcher"],
-      github: integration as CommandRouterOptions["github"],
+      github: (integration ?? undefined) as CommandRouterOptions["github"],
       log: silentLogger(),
       sendReceipt,
     });
@@ -57,6 +60,63 @@ function gate<T>() {
   });
   return { promise, resolve };
 }
+
+describe("tracker host commands", () => {
+  const sync = { type: "tracker.sync", owner: "acme", repositories: null, board: null } as const;
+  const start = {
+    type: "tracker.startIssue",
+    checkoutPath: "/repo",
+    repository: "acme/app",
+    number: 12,
+    branch: "12-x",
+    base: "main",
+  } as const;
+  const status = {
+    type: "tracker.setStatus",
+    projectId: "P",
+    projectItemId: "I",
+    fieldId: "F",
+    statusField: "Status",
+    optionId: "O",
+    expectedOptionId: null,
+    login: "me",
+    allowShared: true,
+  } as const;
+
+  it("routes to the GitHub service", async () => {
+    const f = fixture();
+    expect(await f.router.handle("s", sync)).toMatchObject({ ok: true, result: { login: "me" } });
+    expect(await f.router.handle("t", start)).toMatchObject({
+      ok: true,
+      result: { branch: "12-x" },
+    });
+    expect(await f.router.handle("u", status)).toMatchObject({
+      ok: true,
+      result: { status: "moved" },
+    });
+    const { type: _s, ...syncArgs } = sync;
+    const { type: _t, ...startArgs } = start;
+    const { type: _u, ...statusArgs } = status;
+    expect(f.github.trackerSync).toHaveBeenCalledWith(syncArgs);
+    expect(f.github.trackerStartIssue).toHaveBeenCalledWith(startArgs);
+    expect(f.github.trackerSetStatus).toHaveBeenCalledWith(statusArgs);
+    expect(READ_ONLY_COMMANDS.has("tracker.sync")).toBe(true);
+    expect(READ_ONLY_COMMANDS.has("tracker.setStatus")).toBe(false);
+    expect(queueKey({ type: "tracker.prepareBranch", checkoutPath: "/repo", branch: "b" })).toBe(
+      "checkout:/repo",
+    );
+  });
+
+  it.each([
+    ["sync", sync],
+    ["start", start],
+    ["status", status],
+  ] as const)("%s fails without the GitHub integration", async (_name, command) => {
+    const f = fixture();
+    const r = await f.make(null).handle("x", command as HostCommand);
+    expect(r).toMatchObject({ ok: false, error: { code: "unsupported_capability" } });
+  });
+});
 
 describe("GitHub host command routing and receipt discipline", () => {
   it("routes strict reusable command arguments to the service", async () => {

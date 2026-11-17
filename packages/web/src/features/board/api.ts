@@ -92,6 +92,16 @@ export async function requestChanges(id: string, feedback: string[]): Promise<Ta
   return upsertTask(await apiPost<unknown>(`${base(id)}/request-changes`, { feedback }));
 }
 
+/** "Start work": create the issue's linked branch, then its worktree. */
+export async function startTrackerWork(id: string): Promise<Task | null> {
+  return upsertTask(await apiPost<unknown>(`${base(id)}/tracker/start`, {}));
+}
+
+/** Move the task's GitHub Projects card to another column. */
+export async function setTrackerStatus(id: string, status: string): Promise<Task | null> {
+  return upsertTask(await apiPost<unknown>(`${base(id)}/tracker/status`, { status }));
+}
+
 export function fetchEligibility(id: string, signal?: AbortSignal): Promise<Eligibility> {
   return apiGet<Eligibility>(`${base(id)}/eligibility`, undefined, signal);
 }

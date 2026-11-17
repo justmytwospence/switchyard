@@ -92,6 +92,7 @@ describe("read-only and checkout lanes", () => {
       { type: "workspace.files", path: "/r", dir: "" },
       { type: "workspace.readFile", path: "/r", file: "a" },
       { type: "dispatch.reconcile", dispatchKey: "k" },
+      { type: "tracker.sync", owner: "acme", repositories: null, board: null },
     ];
     expect(
       queueKey({

@@ -127,6 +127,8 @@ function ProjectForm({
   const [maxRuns, setMaxRuns] = useState(String(project.maxConcurrentRuns));
   const [automationEnabled, setAutomationEnabled] = useState(project.automationEnabled);
   const [sharing, setSharing] = useState(project.workspaceSharing);
+  const [ensureSessions, setEnsureSessions] = useState(project.ensureSessions ?? false);
+  const [removeLanded, setRemoveLanded] = useState(project.removeLanded ?? false);
   const [profileId, setProfileId] = useState(project.defaultProfileId ?? "");
   const [hostId, setHostId] = useState(project.defaultHostId ?? "");
   const [worktreeDir, setWorktreeDir] = useState(project.worktreeDir ?? DEFAULT_WORKTREE_DIR);
@@ -152,6 +154,8 @@ function ProjectForm({
         checks: splitLines(checks),
         maxConcurrentRuns: runs,
         automationEnabled,
+        ensureSessions,
+        removeLanded,
         workspaceSharing: sharing,
         defaultProfileId: profileId || null,
         defaultHostId: hostId || null,
@@ -254,6 +258,18 @@ function ProjectForm({
           description="When off, Ready tasks in this project wait instead of starting automatically."
           checked={automationEnabled}
           onChange={setAutomationEnabled}
+        />
+        <SwitchRow
+          label="Keep a session in every worktree"
+          description="When a worktree first appears without a session, start one. Closing that session does not bring it back."
+          checked={ensureSessions}
+          onChange={setEnsureSessions}
+        />
+        <SwitchRow
+          label="Remove merged worktrees"
+          description="Ten minutes after a worktree's pull request is merged, archive its sessions and remove the worktree and local branch. Skipped while a session is running or the worktree has unpushed or uncommitted changes."
+          checked={removeLanded}
+          onChange={setRemoveLanded}
         />
         <fieldset className="flex min-w-0 flex-col gap-2">
           <legend className="mb-1 text-sm font-medium">Workspace sharing</legend>

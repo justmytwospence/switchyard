@@ -26,6 +26,7 @@ import {
   SwitchyardError,
   type TermCoordinatorMsg,
   type TermServerToViewer,
+  TRACKERS_FEATURE,
   TranscriptItem,
   UNTITLED_SESSION_TITLE,
   validateContribution,
@@ -70,6 +71,8 @@ interface Conn {
   alive: boolean;
   features: Set<string>;
   github: boolean;
+  /** The host answers `tracker.*` commands. */
+  trackers: boolean;
 }
 
 export type AgentRequestHandler = (
@@ -372,6 +375,7 @@ export class HostHub {
     if (command.type === "session.deliverMessage" || command.type === "session.messageStatus") {
       return conn.features.has("agentRequests.v1");
     }
+    if (command.type.startsWith("tracker.")) return conn.trackers;
     if (
       (command.type === "session.start" || command.type === "dispatch.start") &&
       command.policyRequired !== undefined
@@ -530,7 +534,13 @@ export class HostHub {
     );
     // An unresolved external merge is never automatically replayed, including on replacement.
     if (old) this.rejectPendingMerges(hostId);
-    this.conns.set(hostId, { socket, alive: true, features, github: hello.github !== undefined });
+    this.conns.set(hostId, {
+      socket,
+      alive: true,
+      features,
+      github: hello.github !== undefined,
+      trackers: hello.features?.includes(TRACKERS_FEATURE) === true,
+    });
     if (old && old.socket !== socket) old.socket.close(4000, "replaced by a newer connection");
     const t = this.unreachableTimers.get(hostId);
     if (t) clearTimeout(t);

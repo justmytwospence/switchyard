@@ -23,6 +23,7 @@ import { registerAutomationRoutes } from "./routes/automations.js";
 import { registerPolicyRoutes } from "./routes/policies.js";
 import { registerPushRoutes } from "./routes/push.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
+import { registerTrackerRoutes } from "./routes/trackers.js";
 import type { BuiltinServices } from "./services.js";
 import { requireConnected } from "./sessions/service.js";
 import {
@@ -31,6 +32,8 @@ import {
   type DispatcherOptions,
 } from "./tasks/dispatcher.js";
 import { RunsService } from "./tasks/runs.js";
+import { TrackerService } from "./trackers.js";
+import { WorkspaceLifecycleService } from "./workspace-lifecycle.js";
 
 export interface BuiltinOptions {
   /** Push delivery (default: web-push with the stored VAPID keys). */
@@ -46,6 +49,10 @@ export interface BuiltinOptions {
   projectScanIntervalMs?: number;
   /** Prompt-cache alert tick (default 15 s; 0 disables the timer). */
   cacheAlertTickMs?: number;
+  /** Worktree session and landed-removal tick (default 5 min; 0 disables the timer). */
+  workspaceLifecycleTickMs?: number;
+  /** Tracker sync tick (default 2 min; 0 disables the timer). */
+  trackerTickMs?: number;
 }
 
 /**
@@ -171,6 +178,10 @@ export function installBuiltins(
   });
   const cacheAlerts = new CacheAlertService(ctx, { tickMs: opts.cacheAlertTickMs ?? 15_000 });
   const github = new GitHubService(ctx);
+  const workspaceLifecycle = new WorkspaceLifecycleService(ctx, {
+    tickMs: opts.workspaceLifecycleTickMs ?? 300_000,
+  });
+  const trackers = new TrackerService(ctx, { tickMs: opts.trackerTickMs ?? 120_000 });
   const services: BuiltinServices = {
     github,
     policies,
@@ -184,10 +195,13 @@ export function installBuiltins(
     push,
     notifications,
     projectFolders,
+    workspaceLifecycle,
+    trackers,
   };
   for (const [name, svc] of Object.entries(services)) ctx.services.set(name, svc);
   registerPolicyRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
+  registerTrackerRoutes(app, ctx);
   registerAutomationRoutes(app, ctx);
   registerPushRoutes(app, ctx);
   return {
@@ -205,11 +219,15 @@ export function installBuiltins(
       cacheAlerts.start();
       messages.start();
       github.start();
+      workspaceLifecycle.start();
+      trackers.start();
     },
     async stop() {
       ctx.hostHub.setAgentHandler(null);
       lifetime.abort(new SwitchyardError("host_unreachable", "The coordinator is stopping."));
       const messagesStopped = messages.stop();
+      trackers.stop();
+      workspaceLifecycle.stop();
       github.stop();
       cacheAlerts.stop();
       projectFolders.stop();

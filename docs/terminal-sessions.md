@@ -32,7 +32,7 @@ Policy approval requests show a Switchyard URL in Pi; answer through the existin
 
 ## Views and TUI clients
 
-A view is a named filter over sessions (projects, hosts, pinned sessions), managed with `switchyard views`. A herdr or tmux session bound to a view (`SWITCHYARD_VIEW`, set by `switchyard herdr pair --view` or `switchyard tmux pair --view`) mirrors only that view, and any number of clients can share one: closing a tab or window archives the session, so every client and the web app stay in sync. The web navigator has a view switcher and shows which clients have a view open. See the [herdr](../integrations/herdr/README.md) and [tmux](../integrations/tmux/README.md) integrations.
+A view is a named filter over sessions (projects, hosts, pinned sessions), managed with `switchyard views`. A herdr or tmux session bound to a view (`SWITCHYARD_VIEW`, set by `switchyard herdr pair --view` or `switchyard tmux pair --view`) mirrors only that view, and any number of clients can share one: closing a tab or window archives the session, so every client and the web app stay in sync. The web navigator has a view switcher and shows which clients have a view open. A [tracker](trackers.md) keeps a view of its own name pointed at the projects it covers. See the [herdr](../integrations/herdr/README.md) and [tmux](../integrations/tmux/README.md) integrations.
 
 ## Limits
 

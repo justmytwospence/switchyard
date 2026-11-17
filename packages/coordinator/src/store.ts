@@ -22,6 +22,7 @@ import {
   SwitchyardError,
   type SyncState,
   type Task,
+  type Tracker,
   type TranscriptItem,
   type View,
   type Workspace,
@@ -181,6 +182,8 @@ export class Store {
   readonly workspaces: JsonRepo<Workspace>;
   readonly profiles: JsonRepo<Profile>;
   readonly views: JsonRepo<View>;
+  /** Trackers are REST resources: no events; their per-item data rides on tasks. */
+  readonly trackers: JsonRepo<Tracker>;
   readonly sessions: JsonRepo<Session>;
   readonly interactions: JsonRepo<Interaction>;
   readonly tasks: JsonRepo<Task>;
@@ -254,6 +257,13 @@ export class Store {
       "views",
       "View",
       { name: (v) => v.name },
+      { created_at: () => now() },
+    );
+    this.trackers = new JsonRepo<Tracker>(
+      st,
+      "trackers",
+      "Tracker",
+      { name: (t) => t.name },
       { created_at: () => now() },
     );
     this.sessions = new JsonRepo<Session>(st, "sessions", "Session", {
@@ -533,6 +543,11 @@ export class Store {
 
   putWorkspace(w: Workspace): Workspace {
     return this.tx(() => {
+      if (w.archivedAt) {
+        // A worktree that comes back later is a new one for the lifecycle rules.
+        this.deleteSetting(`ensuredSession:${w.id}`);
+        this.deleteSetting(`landedAt:${w.id}`);
+      }
       this.workspaces.upsert(w);
       this.appendEvent("workspace.updated", { projectId: w.projectId, hostId: w.hostId }, w);
       return w;

@@ -11,7 +11,13 @@ import { runChecks } from "./checks.js";
 import type { HostDb } from "./db/index.js";
 import type { Dispatcher } from "./dispatch.js";
 import { listDir, readWorkspaceFile } from "./files.js";
-import { diffWorkspace, discoverWorktrees, inspectCheckout, worktreeStatus } from "./git.js";
+import {
+  diffWorkspace,
+  discoverWorktrees,
+  inspectCheckout,
+  prepareTrackingBranch,
+  worktreeStatus,
+} from "./git.js";
 import type { GitHubService } from "./github.js";
 import type { Logger } from "./logger.js";
 import type { MessageDeliveryWorker } from "./message-delivery.js";
@@ -47,7 +53,10 @@ export interface CommandRouterOptions {
   sendReceipt: (receipt: Receipt) => void;
   testHooks?: HostTestHooks;
   delivery?: Pick<MessageDeliveryWorker, "accept" | "getStatus">;
-  github?: Pick<GitHubService, "refresh" | "failedLogs" | "merge">;
+  github?: Pick<
+    GitHubService,
+    "refresh" | "failedLogs" | "merge" | "trackerSync" | "trackerStartIssue" | "trackerSetStatus"
+  >;
   /** Environment for checks. */
   env?: Record<string, string | undefined>;
   /** Timeout per check command (default 30 min). */
@@ -73,6 +82,7 @@ export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostComm
   "workspace.readFile",
   "workspace.prView",
   "workspace.prFailedLogs",
+  "tracker.sync",
   "dispatch.reconcile",
 ]);
 /** Read-only commands in flight at once. */
@@ -110,6 +120,7 @@ const RERUNNABLE = new Set<HostCommand["type"]>([
   "workspace.readFile",
   "workspace.prView",
   "workspace.prFailedLogs",
+  "tracker.sync",
 ]);
 
 /** Map any thrown value to a protocol error body. */
@@ -154,7 +165,11 @@ export function queueKey(command: HostCommand): string | null {
   ) {
     return `control:${command.sessionId}`;
   }
-  if (command.type === "workspace.create" || command.type === "workspace.remove") {
+  if (
+    command.type === "workspace.create" ||
+    command.type === "workspace.remove" ||
+    command.type === "tracker.prepareBranch"
+  ) {
     return `checkout:${command.checkoutPath}`;
   }
   if ("sessionId" in command && typeof command.sessionId === "string") {
@@ -503,10 +518,24 @@ export class CommandRouter {
         const { type: _type, ...request } = c;
         return github.merge(request);
       }
+      case "tracker.sync":
+      case "tracker.startIssue":
+      case "tracker.setStatus": {
+        const github = this.opts.github;
+        if (!github)
+          throw new SwitchyardError("unsupported_capability", "GitHub integration is unavailable");
+        const { type: _type, ...request } = c;
+        if (c.type === "tracker.sync") return github.trackerSync(request as never);
+        if (c.type === "tracker.startIssue") return github.trackerStartIssue(request as never);
+        return github.trackerSetStatus(request as never);
+      }
+      case "tracker.prepareBranch":
+        await prepareTrackingBranch(c.checkoutPath, c.branch);
+        return { ok: true };
       case "workspace.status":
         return { path: c.path, git: await worktreeStatus(c.path, c.base) };
       case "workspace.remove":
-        return workspaces.remove(c.path, c.checkoutPath, c.base, c.force);
+        return workspaces.remove(c.path, c.checkoutPath, c.base, c.force, c.deleteBranch === true);
       case "workspace.diff":
         return diffWorkspace(c.path, c.base, c.file);
       case "workspace.files":

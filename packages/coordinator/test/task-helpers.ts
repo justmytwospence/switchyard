@@ -147,6 +147,8 @@ export async function setupHarness(
   const t = await startCoordinator({
     dispatcher: { tickMs: 0 },
     schedulerTickMs: 0,
+    workspaceLifecycleTickMs: 0,
+    trackerTickMs: 0,
     ...opts.coordinator,
   });
   const creds = await enrollHost(t);

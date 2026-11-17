@@ -48,6 +48,7 @@ For the core, plugin and adapter boundary and feature checklist, see [plugin own
 | Tasks, automations, dispatch decisions, devices, notifications | Coordinator |
 | Pi processes, interactions, filesystem and git state | Host |
 | Native conversation history (Pi's session files) | Pi |
+| Issues, assignees, board columns | GitHub (a snapshot on the task; see [trackers.md](trackers.md)) |
 | Transcript items for display | Coordinator (a cache built from host events) |
 
 ## Reliability rules

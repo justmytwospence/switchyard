@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ContributionDescriptor } from "./contributions.js";
 import { GitHubIssue, HostGitHub, WorkspaceGitHub } from "./github.js";
 import { CompletedUsageWatermark, PolicyPermission, PolicyPhase } from "./policies.js";
+import { TaskTracker } from "./trackers.js";
 import { UINodeSchema } from "./ui.js";
 
 const Iso = z.string();
@@ -132,6 +133,10 @@ export const Project = z.object({
   checks: z.array(z.string()),
   workspaceSharing: z.enum(["single_writer", "shared"]),
   worktreeDir: WorktreeDir.default(DEFAULT_WORKTREE_DIR),
+  /** Start one session in every non-main worktree the first time it appears without one. */
+  ensureSessions: z.boolean().default(false),
+  /** Archive sessions and remove a worktree (and its local branch) once its PR has merged. */
+  removeLanded: z.boolean().default(false),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -154,6 +159,11 @@ export const GitState = z.object({
   ahead: z.number().int(),
   behind: z.number().int(),
   unmerged: z.boolean(),
+  /** HEAD commit; absent from older hosts. */
+  head: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/)
+    .optional(),
 });
 export type GitState = z.infer<typeof GitState>;
 
@@ -257,6 +267,8 @@ export const View = z.object({
   hostIds: z.array(z.string()).nullable(),
   sessionIds: z.array(z.string()),
   clients: z.array(ViewClient),
+  /** A tracker keeps this view's projects (see docs/trackers.md). */
+  trackerId: z.string().nullable().optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -438,6 +450,8 @@ export const Task = z.object({
   parentTaskId: Id.nullable().optional(),
   agentOrigin: z.object({ sessionId: Id, toolCallId: Id }).optional(),
   githubIssue: GitHubIssue.optional(),
+  /** Set while a tracker owns this task (server-owned). */
+  tracker: TaskTracker.optional(),
   currentRunId: Id.nullable(),
   sessionId: Id.nullable(),
   review: z.object({ feedback: z.array(z.string()), changesRequested: z.boolean() }),

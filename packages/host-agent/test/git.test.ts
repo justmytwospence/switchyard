@@ -21,6 +21,7 @@ import {
   managedWorktreePath,
   normalizeRemote,
   parseWorktreePorcelain,
+  prepareTrackingBranch,
   removeWorktree,
   runSetup,
   validateBranch,
@@ -351,6 +352,7 @@ describe("worktrees", () => {
       ahead: 0,
       behind: 0,
       unmerged: false,
+      head: git(path, ["rev-parse", "HEAD"]).trim(),
     });
 
     writeFileSync(join(path, "README.md"), "# changed\n");
@@ -462,6 +464,43 @@ describe("worktrees", () => {
     const diff = await diffWorkspace(path, null, null);
     expect(diff.patch).toBeNull();
     expect(diff.files[0]).toMatchObject({ path: "big.txt", added: 25_000 });
+  });
+
+  it("prepares a local tracking branch for a remote-only branch", async () => {
+    const remote = tempDir();
+    git(remote, ["init", "-q", "--bare", "-b", "main"]);
+    git(r.path, ["remote", "add", "origin", remote]);
+    git(r.path, ["push", "-q", "origin", "main"]);
+    git(r.path, ["switch", "-q", "-c", "feat/remote"]);
+    writeFileSync(join(r.path, "r.txt"), "r\n");
+    git(r.path, ["add", "r.txt"]);
+    git(r.path, ["commit", "-q", "-m", "test: remote work"]);
+    git(r.path, ["push", "-q", "origin", "feat/remote"]);
+    const remoteHead = git(r.path, ["rev-parse", "HEAD"]).trim();
+    git(r.path, ["switch", "-q", "main"]);
+    git(r.path, ["branch", "-q", "-D", "feat/remote"]);
+
+    await prepareTrackingBranch(r.path, "feat/remote");
+    expect(git(r.path, ["rev-parse", "refs/heads/feat/remote"]).trim()).toBe(remoteHead);
+    expect(git(r.path, ["config", "branch.feat/remote.remote"]).trim()).toBe("origin");
+    // A second call keeps the local branch.
+    await prepareTrackingBranch(r.path, "feat/remote");
+    expect(git(r.path, ["rev-parse", "refs/heads/feat/remote"]).trim()).toBe(remoteHead);
+  });
+
+  it("deletes the local branch only when asked", async () => {
+    const base = { checkoutPath: r.path, base: null, force: { dirty: false, unmerged: true } };
+    const kept = await createWorktree(r.path, "keep", "main");
+    await removeWorktree({ ...base, path: kept.path });
+    expect(git(r.path, ["branch", "--list", "keep"]).trim()).toBe("keep");
+
+    const gone = await createWorktree(r.path, "feat/gone", "main");
+    writeFileSync(join(gone.path, "a.txt"), "a\n");
+    git(gone.path, ["add", "a.txt"]);
+    git(gone.path, ["commit", "-q", "-m", "test: add change"]);
+    await removeWorktree({ ...base, path: gone.path, deleteBranch: true });
+    expect(existsSync(gone.path)).toBe(false);
+    expect(git(r.path, ["branch", "--list", "feat/gone"]).trim()).toBe("");
   });
 
   it("guards worktree removal", async () => {

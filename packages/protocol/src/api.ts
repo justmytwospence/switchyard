@@ -80,6 +80,8 @@ export const UpdateProjectRequest = z.object({
   checks: z.array(z.string()).optional(),
   workspaceSharing: z.enum(["single_writer", "shared"]).optional(),
   worktreeDir: WorktreeDir.optional(),
+  ensureSessions: z.boolean().optional(),
+  removeLanded: z.boolean().optional(),
 });
 export const AddCheckoutRequest = z.object({ hostId: z.string(), path: z.string().min(1) });
 
@@ -357,6 +359,7 @@ export const UpdateTaskRequest = z.object({
   githubIssueUrl: z.never().optional(),
   githubIssue: z.never().optional(),
   launchPrompt: z.never().optional(),
+  tracker: z.never().optional(),
   title: z.string().min(1).max(300).optional(),
   objective: z.string().optional(),
   acceptanceCriteria: z.array(z.string()).optional(),

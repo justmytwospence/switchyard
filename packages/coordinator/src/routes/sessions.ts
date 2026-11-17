@@ -34,7 +34,7 @@ import { z } from "zod";
 import type { CoordinatorContext } from "../context.js";
 import { parse } from "../http.js";
 import { requireService } from "../services.js";
-import { returnToAutomation, stopSession, takeover } from "../sessions/control.js";
+import { archiveSession, returnToAutomation, stopSession, takeover } from "../sessions/control.js";
 import {
   createSession,
   LIVE_RUNTIMES,
@@ -628,27 +628,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
    * Archive. Stops an idle Pi process first; refuses while running, and refuses while the host is
    * offline if its Pi process may still be live (nothing could stop it or confirm it is gone).
    */
-  app.post("/api/sessions/:id/archive", async (req) => {
-    const s = get(idOf(req));
-    if (LIVE_RUNTIMES.includes(s.runtime) && !ctx.hostHub.isConnected(s.hostId)) {
-      const name = ctx.store.hosts.get(s.hostId)?.name ?? s.hostId;
-      throw new SwitchyardError(
-        "host_unreachable",
-        `Host ${name} is offline and this session's Pi process may still be running; archive it once the host reconnects`,
-        { hostId: s.hostId },
-      );
-    }
-    if (s.runtime === "running" || s.runtime === "waiting_input") {
-      throw new SwitchyardError("conflict", "Stop the session before archiving it");
-    }
-    if ((s.runtime === "idle" || s.runtime === "starting") && ctx.hostHub.isConnected(s.hostId)) {
-      await ctx.hostHub.request(s.hostId, { type: "session.stop", sessionId: s.id });
-    }
-    return ctx.store.tx(() => {
-      const cur = ctx.store.sessions.require(s.id);
-      return ctx.store.putSession({ ...cur, archivedAt: cur.archivedAt ?? ctx.store.nowIso() });
-    });
-  });
+  app.post("/api/sessions/:id/archive", async (req) => archiveSession(ctx, idOf(req)));
 
   app.post("/api/sessions/:id/unarchive", async (req) =>
     ctx.store.tx(() => {

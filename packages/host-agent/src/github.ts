@@ -15,12 +15,18 @@ import {
   GitHubViewResult,
   type HostGitHub,
   SwitchyardError,
+  type TrackerHostSetStatusRequest,
+  type TrackerHostStartIssueRequest,
+  type TrackerHostSyncRequest,
+  type TrackerSetStatusResult,
+  type TrackerSyncResult,
   WorkspaceGitHub,
 } from "@switchyard/protocol";
 import { tailBytes } from "./checks.js";
 import { mapLimit } from "./concurrency.js";
 import type { HostDb } from "./db/index.js";
 import { normalizeRemote } from "./git.js";
+import { trackerSetStatus, trackerSync } from "./github-trackers.js";
 
 const JSON_BYTES = 2 * 1024 * 1024;
 const SNAPSHOT_BYTES = 512 * 1024;
@@ -1345,6 +1351,41 @@ export class GitHubService {
         jobs.some((j) => j.truncated),
       omittedJobs,
     });
+  }
+
+  /** The host user's assigned issues for a tracker (`tracker.sync`). */
+  trackerSync(req: TrackerHostSyncRequest): Promise<TrackerSyncResult> {
+    const deadline = Date.now() + 60_000;
+    return trackerSync((args) => this.json(args, process.cwd(), deadline), req);
+  }
+
+  /** Create a linked branch for an issue with `gh issue develop` (`tracker.startIssue`). */
+  async trackerStartIssue(req: TrackerHostStartIssueRequest): Promise<{ branch: string }> {
+    const deadline = Date.now() + 60_000;
+    const r = await this.run(
+      "gh",
+      [
+        "issue",
+        "develop",
+        String(req.number),
+        "--repo",
+        req.repository,
+        "--name",
+        req.branch,
+        "--base",
+        req.base,
+      ],
+      req.checkoutPath,
+      deadline,
+    );
+    if (r.code !== 0) throw new Error(r.stderr || "gh issue develop failed");
+    return { branch: req.branch };
+  }
+
+  /** Move a board card, guarded by assignee and last-seen column (`tracker.setStatus`). */
+  trackerSetStatus(req: TrackerHostSetStatusRequest): Promise<TrackerSetStatusResult> {
+    const deadline = Date.now() + 30_000;
+    return trackerSetStatus((args) => this.json(args, process.cwd(), deadline), req);
   }
 
   async stop(): Promise<void> {

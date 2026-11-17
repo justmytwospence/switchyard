@@ -4,6 +4,7 @@ import { getService } from "../services.js";
 import { putTaskState, raiseFailed, saveRun } from "../tasks/common.js";
 import { isRunAutomationCommand } from "../tasks/runs.js";
 import { isTerminalTask, TERMINAL_RUN_STATES } from "../tasks/state.js";
+import { LIVE_RUNTIMES } from "./service.js";
 
 /** Session control: take over, return to automation and stop. */
 
@@ -234,4 +235,30 @@ export async function stopSession(ctx: CoordinatorContext, sessionId: string): P
     release?.();
   }
   return ctx.store.sessions.require(sessionId);
+}
+
+/**
+ * Archive. Stops an idle Pi process first; refuses while running, and refuses while the host is
+ * offline if its Pi process may still be live (nothing could stop it or confirm it is gone).
+ */
+export async function archiveSession(ctx: CoordinatorContext, sessionId: string): Promise<Session> {
+  const s = ctx.store.sessions.require(sessionId);
+  if (LIVE_RUNTIMES.includes(s.runtime) && !ctx.hostHub.isConnected(s.hostId)) {
+    const name = ctx.store.hosts.get(s.hostId)?.name ?? s.hostId;
+    throw new SwitchyardError(
+      "host_unreachable",
+      `Host ${name} is offline and this session's Pi process may still be running; archive it once the host reconnects`,
+      { hostId: s.hostId },
+    );
+  }
+  if (s.runtime === "running" || s.runtime === "waiting_input") {
+    throw new SwitchyardError("conflict", "Stop the session before archiving it");
+  }
+  if ((s.runtime === "idle" || s.runtime === "starting") && ctx.hostHub.isConnected(s.hostId)) {
+    await ctx.hostHub.request(s.hostId, { type: "session.stop", sessionId: s.id });
+  }
+  return ctx.store.tx(() => {
+    const cur = ctx.store.sessions.require(s.id);
+    return ctx.store.putSession({ ...cur, archivedAt: cur.archivedAt ?? ctx.store.nowIso() });
+  });
 }

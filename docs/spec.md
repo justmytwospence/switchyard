@@ -133,6 +133,7 @@ The coordinator needs neither the host home mount nor Docker socket.
 | Task           | Objective, acceptance criteria, project, dependencies, priority, state, policy |
 | Run            | Task/session, dispatch key, attempt, limits, control revision, outcome         |
 | Automation     | Trigger, filters, task template, grouping/overlap/missed-run policy            |
+| Tracker        | Host, GitHub owner, repositories, optional board, write-back; tasks link back  |
 | Interaction    | Session, ID/revision, payload, allowed responses, resolution                   |
 | Attention item | Session/task, reason, severity, acknowledgment                                 |
 | Device         | Identity, credentials, presence, push subscription, revocation                 |
@@ -232,7 +233,7 @@ Setup hooks stream output and surface failure.
 
 A `.worktreeinclude` file at the repository root (gitignore syntax) lists ignored files, such as `.env`, to copy into each new managed worktree. Only files that match and that Git already ignores are copied; existing files are kept, and a copy failure removes the new worktree.
 
-Finishing a session never deletes its workspace.
+Finishing a session never deletes its workspace. A project can opt in to removing worktrees whose pull request has merged (clean, HEAD at the merged head, no running session, for ten minutes); see [trackers.md](trackers.md).
 
 Removal checks active sessions, dirty files, and unmerged changes. Destructive overrides are explicit.
 

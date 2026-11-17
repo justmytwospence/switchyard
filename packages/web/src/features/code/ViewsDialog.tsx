@@ -58,7 +58,8 @@ export function ViewsDialog({
     const body = {
       name: name.trim(),
       mode,
-      projectIds: projectIds.length ? projectIds : null,
+      // A tracker's view: the tracker owns the projects.
+      ...(view?.trackerId ? {} : { projectIds: projectIds.length ? projectIds : null }),
       hostIds: hostIds.length ? hostIds : null,
     };
     try {
@@ -160,10 +161,14 @@ export function ViewsDialog({
             <>
               <fieldset className="flex flex-col gap-1">
                 <legend className="text-sm font-medium">Projects (none checked: any)</legend>
+                {view?.trackerId && (
+                  <p className="text-xs text-muted">Projects are managed by this view's tracker.</p>
+                )}
                 {projects.map((p) => (
                   <Checkbox
                     key={p.id}
                     label={p.name}
+                    disabled={!!view?.trackerId}
                     checked={projectIds.includes(p.id)}
                     onChange={(on) => setProjectIds(toggle(projectIds, p.id, on))}
                   />

@@ -14,6 +14,10 @@ The user can explicitly send failing CI or unresolved review comments to the age
 
 Squash merge is a separate explicit confirmation against the displayed head SHA. Switchyard rechecks PR identity, head, mergeability, checks, review and snapshot completeness, and uses GitHub's SHA-guarded direct merge endpoint. Stale, incomplete, offline or ambiguous data blocks the action; a changed head requires refresh and a new confirmation. Auto-merge, merge queues, admin bypass and branch deletion are not performed. If the outcome is unknown, refresh and reconcile rather than blindly retrying. Accepting a Switchyard task does not merge it.
 
+## Trackers
+
+A tracker syncs the issues assigned to the host's `gh` user in one owner into Backlog tasks, creates worktrees for their branches, and can move their GitHub Projects cards. See [trackers.md](trackers.md).
+
 ## Tasks from issues
 
 Create a task with a canonical `https://github.com/OWNER/REPO/issues/NUMBER` URL (no query, fragment or trailing slash). The issue is not fetched at creation and `gh` authentication is not needed merely to save the URL. An empty title defaults to `OWNER/REPO #NUMBER`. The first logical launch and its transport retries use this frozen prompt, with no trailing newline:

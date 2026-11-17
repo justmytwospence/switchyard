@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { piAgentDir } from "@switchyard/adapter-sdk";
 import { detectPi, type PiDetection, terminalSupport } from "@switchyard/pi-runtime";
-import { PROTOCOL_VERSION, type Receipt } from "@switchyard/protocol";
+import { PROTOCOL_VERSION, type Receipt, TRACKERS_FEATURE } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
 import { AgentBroker } from "./agent-broker.js";
 import { stopAllShells } from "./checks.js";
@@ -202,7 +202,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
             adapterDevelopment: true,
           }
         : null,
-      features: agentSupport ? ["agentRequests.v1", "policies.v1"] : [],
+      features: [...(agentSupport ? ["agentRequests.v1", "policies.v1"] : []), TRACKERS_FEATURE],
       protocolVersion: PROTOCOL_VERSION,
       github: github.github,
     }),

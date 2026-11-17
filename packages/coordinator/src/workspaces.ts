@@ -7,11 +7,13 @@ import {
   GitState,
   newId,
   type Project,
+  SwitchyardError,
   type Workspace,
 } from "@switchyard/protocol";
 import { z } from "zod";
 import type { CoordinatorContext } from "./context.js";
 import { githubForBranch } from "./github.js";
+import { LIVE_RUNTIMES, requireConnected } from "./sessions/service.js";
 
 /** A project's worktree folder (rows written before 0.2 have none: the default). */
 export function worktreeDirOf(project: Pick<Project, "worktreeDir"> | undefined): string {
@@ -155,4 +157,40 @@ export async function refreshWorkspaceStatus(
 /** Base branch for diff/status: the workspace's, else its checkout default. */
 export function baseFor(ctx: CoordinatorContext, ws: Workspace): string | null {
   return ws.baseBranch ?? ctx.store.checkouts.get(ws.checkoutId)?.defaultBranch ?? null;
+}
+
+/**
+ * Remove a worktree. Dirty/unmerged need explicit force flags; the branch is kept unless
+ * `deleteBranch`. The main checkout and workspaces with live sessions are refused.
+ */
+export async function removeWorkspace(
+  ctx: CoordinatorContext,
+  id: string,
+  opts: { force: { dirty: boolean; unmerged: boolean }; deleteBranch?: boolean },
+): Promise<void> {
+  const ws = ctx.store.workspaces.require(id);
+  if (ws.provenance === "main") {
+    throw new SwitchyardError("forbidden", "The main checkout cannot be removed");
+  }
+  const live = ctx.store.sessions
+    .list("workspace_id = ? AND archived_at IS NULL", [id])
+    .filter((s) => LIVE_RUNTIMES.includes(s.runtime));
+  if (live.length > 0) {
+    throw new SwitchyardError(
+      "workspace_active_sessions",
+      "Stop the sessions in this workspace before removing it",
+      { sessionIds: live.map((s) => s.id) },
+    );
+  }
+  requireConnected(ctx, ws.hostId);
+  const checkout = ctx.store.checkouts.require(ws.checkoutId);
+  await ctx.hostHub.request(ws.hostId, {
+    type: "workspace.remove",
+    path: ws.path,
+    checkoutPath: checkout.path,
+    base: baseFor(ctx, ws),
+    force: opts.force,
+    ...(opts.deleteBranch ? { deleteBranch: true } : {}),
+  });
+  ctx.store.archiveWorkspace(ws);
 }

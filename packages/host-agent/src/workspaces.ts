@@ -86,6 +86,7 @@ export class WorkspaceService {
     checkoutPath: string,
     base: string | null,
     force: { dirty: boolean; unmerged: boolean },
+    deleteBranch = false,
   ): Promise<{ ok: true; path: string }> {
     await removeWorktree({
       path,
@@ -93,6 +94,7 @@ export class WorkspaceService {
       base,
       force,
       hasActiveSession: this.opts.hasActiveSession,
+      deleteBranch,
     });
     this.opts.db.tx(() =>
       this.opts.link.emit({ type: "workspace.deleted", data: { id: path, path } }),

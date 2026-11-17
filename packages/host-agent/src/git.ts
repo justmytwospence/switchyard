@@ -484,7 +484,18 @@ export async function worktreeStatus(path: string, base: string | null): Promise
     const cherry = await runGit(path, ["cherry", baseRef, "HEAD"], { allowFail: true });
     unmerged = cherry.code === 0 && cherry.stdout.split("\n").some((l) => l.startsWith("+"));
   }
-  return { dirty: changedFiles > 0, changedFiles, ahead, behind, unmerged };
+  const rev = await runGit(path, ["rev-parse", "--verify", "--quiet", "HEAD"], {
+    allowFail: true,
+  });
+  const head = rev.stdout.trim();
+  return {
+    dirty: changedFiles > 0,
+    changedFiles,
+    ahead,
+    behind,
+    unmerged,
+    ...(rev.code === 0 && /^[0-9a-f]{40}$/.test(head) ? { head } : {}),
+  };
 }
 
 function parseNumstat(
@@ -673,6 +684,8 @@ export async function removeWorktree(opts: {
   base: string | null;
   force: { dirty: boolean; unmerged: boolean };
   hasActiveSession?: (path: string) => boolean;
+  /** Also delete the worktree's local branch once the worktree is gone. */
+  deleteBranch?: boolean;
 }): Promise<void> {
   let real: string;
   try {
@@ -686,7 +699,8 @@ export async function removeWorktree(opts: {
   if (real === info.root || real === worktrees[0]?.real) {
     throw new SwitchyardError("forbidden", "Cannot remove the main checkout");
   }
-  if (!worktrees.some((w) => w.real === real)) {
+  const wt = worktrees.find((w) => w.real === real);
+  if (!wt) {
     throw new SwitchyardError("not_found", `${opts.path} is not a worktree of ${info.root}`);
   }
   if (opts.hasActiveSession?.(real)) {
@@ -710,6 +724,9 @@ export async function removeWorktree(opts: {
   if (status.dirty) args.push("--force");
   args.push(real);
   await runGit(info.root, args);
+  if (opts.deleteBranch && wt.branch) {
+    await runGit(info.root, ["branch", "-D", "--", wt.branch], { allowFail: true });
+  }
 }
 
 /** Run the owner-configured setup command in a new workspace; resolves with its outcome and the last 64 KB of output. */
@@ -744,4 +761,24 @@ export async function runSetup(
     log = tailBytes(`${log}${nl}${reason}`, SETUP_LOG_BYTES);
   }
   return { state, log };
+}
+
+/**
+ * Make a remote branch available locally: fetch it from origin and create a tracking branch when
+ * there is no local one yet.
+ */
+export async function prepareTrackingBranch(checkoutPath: string, branch: string): Promise<void> {
+  const info = await inspectCheckout(checkoutPath);
+  await validateBranch(branch);
+  await runGit(info.root, ["fetch", "origin", "--", branch]);
+  const known = await runGit(
+    info.root,
+    ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`],
+    {
+      allowFail: true,
+    },
+  );
+  if (known.code !== 0) {
+    await runGit(info.root, ["branch", "--track", "--", branch, `origin/${branch}`]);
+  }
 }

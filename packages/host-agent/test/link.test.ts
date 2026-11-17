@@ -218,6 +218,36 @@ describe("agent request transport", () => {
     expect(requests()).toHaveLength(0);
   });
 
+  it("advertises known host features from the hello, and nothing unknown", async () => {
+    await link.stop();
+    frames.length = 0;
+    link = new CoordinatorLink({
+      db,
+      coordinatorUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      hostId: "hst_agent",
+      credential: "secret",
+      hello: () => ({
+        name: "host",
+        agentVersion: "test",
+        piVersion: null,
+        piCompatible: false,
+        platform: "darwin",
+        capabilities: null,
+        protocolVersion: 1,
+        features: ["agentRequests.v1", "trackers.v1", "bogus.v1"],
+      }),
+      onCommand,
+      log: silentLogger(),
+      backoffMs: [10],
+    });
+    link.start();
+    await waitFor(() => frames.some((f) => f.type === "hello"));
+    expect(frames.find((f) => f.type === "hello").features).toEqual([
+      "agentRequests.v1",
+      "trackers.v1",
+    ]);
+  });
+
   it("intersects welcome features and gates policy requests independently", async () => {
     await welcome(["agentRequests.v1", "unknown.v1"]);
     expect([...link.negotiatedFeatures]).toEqual(["agentRequests.v1"]);

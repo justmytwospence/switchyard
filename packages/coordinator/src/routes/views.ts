@@ -56,6 +56,9 @@ export function registerViewRoutes(app: FastifyInstance, ctx: CoordinatorContext
     return store.tx(() => {
       const cur = store.views.require(idOf(req));
       if (body.name !== undefined) checkName(body.name, cur.id);
+      if (cur.trackerId && body.projectIds !== undefined) {
+        throw new SwitchyardError("conflict", "This view's projects are managed by its tracker");
+      }
       const next = ViewSchema.parse({
         ...cur,
         ...stripUndefined(body),

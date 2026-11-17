@@ -878,7 +878,7 @@ function fenceHighWater(db: Db) {
 describe("one-time legacy import and stale overlay cleanup", () => {
   it("applies schema-only 013 before atomically importing at startup, with a final-write fault and retry", async () => {
     const { db, store, service, corrupt } = await legacyDatabaseAt12();
-    expect(migrate(db)).toBe(13);
+    expect(migrate(db)).toBe(14);
     const history = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
     const workspaces = db.prepare("SELECT * FROM workspaces ORDER BY id").all();
     expect(upgradeFences(db)).toEqual([]);
@@ -905,7 +905,7 @@ describe("one-time legacy import and stale overlay cleanup", () => {
     const imported = upgradeFences(db);
     const highWater = fenceHighWater(db);
     service.stop();
-    expect(migrate(db)).toBe(13);
+    expect(migrate(db)).toBe(14);
     service.start();
     expect(upgradeFences(db)).toEqual(imported);
     expect(fenceHighWater(db)).toEqual(highWater);
@@ -914,7 +914,7 @@ describe("one-time legacy import and stale overlay cleanup", () => {
 
   it("never imports stale display strings when 012 already records completed backfill", async () => {
     const { db, store, service, corrupt } = await legacyDatabaseAt12(1);
-    expect(migrate(db)).toBe(13);
+    expect(migrate(db)).toBe(14);
     expect(upgradeFences(db)).toEqual([]);
     expect(store.getSetting(`githubCorruptedMergeMarker:${corrupt.id}`, null)).toBeNull();
     service.start();
@@ -977,7 +977,7 @@ describe("one-time legacy import and stale overlay cleanup", () => {
       const missingCorrupt = { ...corrupt, id: "missing-corrupt", path: "/repo/missing-corrupt" };
       store.workspaces.upsert(missingCorrupt);
       store.workspaces.upsert({ ...corrupt, updatedAt: "2026-03-01T00:00:00.000Z" });
-      expect(migrate(db)).toBe(13);
+      expect(migrate(db)).toBe(14);
       expect(upgradeFences(db)).toEqual(original);
       expect(fenceHighWater(db)).toEqual({ seq: 2 });
       service.start();
@@ -999,7 +999,9 @@ describe("one-time legacy import and stale overlay cleanup", () => {
       service.start();
       expect(upgradeFences(db)).toEqual(imported);
       expect(fenceHighWater(db)).toEqual(highWater);
-      expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(history);
+      expect(
+        db.prepare("SELECT * FROM schema_migrations WHERE version <= 13 ORDER BY version").all(),
+      ).toEqual(history);
       expect(
         db
           .prepare(

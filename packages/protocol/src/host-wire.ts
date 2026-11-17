@@ -25,6 +25,12 @@ import {
 } from "./github.js";
 import { HostPolicySampleRequest, HostToolPolicyContext } from "./policies.js";
 import { TermCoordinatorMsg, TermServerToViewer } from "./terminal-wire.js";
+import {
+  TrackerHostPrepareBranchRequest,
+  TrackerHostSetStatusRequest,
+  TrackerHostStartIssueRequest,
+  TrackerHostSyncRequest,
+} from "./trackers.js";
 import { InteractionResponseSchema } from "./ui.js";
 
 const Origin = z.enum(["human", "automation"]);
@@ -164,6 +170,8 @@ export const HostCommand = z.discriminatedUnion("type", [
     checkoutPath: z.string(),
     base: z.string().nullable(),
     force: z.object({ dirty: z.boolean(), unmerged: z.boolean() }),
+    /** Also delete the worktree's local branch (hosts before trackers ignore it). */
+    deleteBranch: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("workspace.diff"),
@@ -176,6 +184,10 @@ export const HostCommand = z.discriminatedUnion("type", [
   GitHubHostViewRequest.extend({ type: z.literal("workspace.prView") }),
   GitHubHostLogsRequest.extend({ type: z.literal("workspace.prFailedLogs") }),
   GitHubHostMergeRequest.extend({ type: z.literal("workspace.prMerge") }),
+  TrackerHostSyncRequest.extend({ type: z.literal("tracker.sync") }),
+  TrackerHostPrepareBranchRequest.extend({ type: z.literal("tracker.prepareBranch") }),
+  TrackerHostStartIssueRequest.extend({ type: z.literal("tracker.startIssue") }),
+  TrackerHostSetStatusRequest.extend({ type: z.literal("tracker.setStatus") }),
   z.object({
     type: z.literal("dispatch.start"),
     dispatchKey: z.string(),

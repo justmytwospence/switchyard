@@ -17,6 +17,13 @@ import { hostBackup, hostEnroll, hostRun, hostStatus } from "./commands/host.js"
 import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
 import { installService } from "./commands/service.js";
 import { tmuxDaemon, tmuxNew, tmuxPair, tmuxPane, tmuxStatus } from "./commands/tmux.js";
+import {
+  trackersCreate,
+  trackersDelete,
+  trackersEdit,
+  trackersList,
+  trackersSync,
+} from "./commands/trackers.js";
 import { tuiCommand } from "./commands/tui.js";
 import { up } from "./commands/up.js";
 import { viewsCreate, viewsDelete, viewsEdit, viewsList, viewsPin } from "./commands/views.js";
@@ -413,6 +420,65 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
   connectionOptions(
     views.command("unpin <view> <sessionId>").description("Unpin a session"),
   ).action((ref, id, o) => viewsPin(ctx, ref, id, connFlags(o), true));
+
+  const trackers = program
+    .command("trackers")
+    .description("Trackers: sync assigned GitHub issues into tasks and worktrees");
+  const trackerFlags = (o: Record<string, any>) => ({
+    ...connFlags(o),
+    name: o.name,
+    host: o.host,
+    owner: o.owner,
+    repo: o.repo,
+    allRepos: o.allRepos,
+    board: typeof o.board === "string" ? o.board : undefined,
+    noBoard: o.board === false,
+    statusField: o.statusField,
+    onStart: o.onStart,
+    onReview: o.onReview,
+    writeBack: o.writeBack,
+    moveShared: o.moveShared,
+    enable: o.enable,
+    disable: o.disable,
+  });
+  connectionOptions(trackers.command("list").description("List trackers"))
+    .option("--json", "JSON output")
+    .action((o) => trackersList(ctx, { ...connFlags(o), json: o.json }));
+  connectionOptions(trackers.command("create <name>").description("Create a tracker"))
+    .option("--host <host>", "host whose gh login is used (required)")
+    .option("--owner <login>", "GitHub organization or user (required)")
+    .option("--repo <owner/name>", "limit to a repository (repeatable)", collect)
+    .option("--board <number>", "GitHub Projects board number in the owner")
+    .option("--status-field <name>", "board status field (default Status)")
+    .option("--on-start <column>", "column once the worktree exists (write-back)")
+    .option("--on-review <column>", "column once a pull request is open (write-back)")
+    .option("--write-back", "let Switchyard move board cards")
+    .option("--no-move-shared", "never move cards assigned to someone else too")
+    .action((name, o) => trackersCreate(ctx, name, trackerFlags(o)));
+  connectionOptions(trackers.command("edit <tracker>").description("Change a tracker"))
+    .option("--name <name>", "new name")
+    .option("--host <host>", "host whose gh login is used")
+    .option("--owner <login>", "GitHub organization or user")
+    .option("--repo <owner/name>", "limit to a repository (repeatable)", collect)
+    .option("--all-repos", "remove the repository limit")
+    .option("--board <number>", "GitHub Projects board number")
+    .option("--no-board", "stop using a board")
+    .option("--status-field <name>", "board status field")
+    .option("--on-start <column>", "column once the worktree exists")
+    .option("--on-review <column>", "column once a pull request is open")
+    .option("--write-back", "let Switchyard move board cards")
+    .option("--no-write-back", "never move board cards")
+    .option("--move-shared", "also move cards assigned to someone else too")
+    .option("--no-move-shared", "never move cards assigned to someone else too")
+    .option("--enable", "sync this tracker")
+    .option("--disable", "stop syncing this tracker")
+    .action((ref, o) => trackersEdit(ctx, ref, trackerFlags(o)));
+  connectionOptions(trackers.command("delete <tracker>").description("Delete a tracker")).action(
+    (ref, o) => trackersDelete(ctx, ref, connFlags(o)),
+  );
+  connectionOptions(trackers.command("sync <tracker>").description("Sync a tracker now")).action(
+    (ref, o) => trackersSync(ctx, ref, connFlags(o)),
+  );
 
   const tasks = program.command("tasks").description("Tasks");
   connectionOptions(tasks.command("create").description("Create a task"))

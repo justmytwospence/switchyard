@@ -20,6 +20,23 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("014 adds the trackers table to a version 13 database", () => {
+    const db = dbAt(13);
+    expect(migrate(db)).toBe(14);
+    db.prepare("INSERT INTO trackers (id, name, json, created_at) VALUES (?, ?, ?, ?)").run(
+      "trk_1",
+      "fieldgoal",
+      "{}",
+      "2026-01-01T00:00:00.000Z",
+    );
+    expect(() =>
+      db
+        .prepare("INSERT INTO trackers (id, name, json, created_at) VALUES (?, ?, ?, ?)")
+        .run("trk_2", "FieldGoal", "{}", "2026-01-01T00:00:00.000Z"),
+    ).toThrow();
+    db.close();
+  });
+
   it.each([undefined, 1])(
     "013 is schema-only with legacy snapshots and backfill marker %s",
     (version) => {
@@ -64,7 +81,7 @@ describe("coordinator migrations", () => {
       const originals = db.prepare("SELECT * FROM workspaces ORDER BY id").all();
       const settings = db.prepare("SELECT * FROM settings ORDER BY key").all();
       const history = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
-      expect(migrate(db)).toBe(13);
+      expect(migrate(db)).toBe(14);
       expect(db.prepare("SELECT * FROM workspaces ORDER BY id").all()).toEqual(originals);
       expect(db.prepare("SELECT * FROM settings ORDER BY key").all()).toEqual(settings);
       expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual([]);
@@ -94,7 +111,7 @@ describe("coordinator migrations", () => {
           .all(),
       ).toContainEqual({ name: "github_merge_fences_target" });
       const applied = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
-      expect(migrate(db)).toBe(13);
+      expect(migrate(db)).toBe(14);
       expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(applied);
       expect(db.prepare("SELECT * FROM settings ORDER BY key").all()).toEqual(settings);
       expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual([]);
