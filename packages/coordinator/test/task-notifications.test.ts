@@ -1,3 +1,4 @@
+// @module-tag slow
 import { join } from "node:path";
 import {
   DEFAULT_TASK_POLICY,

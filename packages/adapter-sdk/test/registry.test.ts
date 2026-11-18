@@ -1,3 +1,4 @@
+// @module-tag slow
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Panel } from "@switchyard/protocol";

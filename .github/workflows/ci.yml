@@ -9,7 +9,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  # Fast feedback: compile, lint and the client SDK tarball (no Pi needed).
+  # Fast feedback: compile, lint, test tiers and the client SDK tarball (no Pi needed).
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -21,6 +21,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm lint
+      - run: pnpm test:tiers
+      - run: pnpm test:fast
       - run: pnpm build:client-npm
       - run: pnpm test:client-npm
 

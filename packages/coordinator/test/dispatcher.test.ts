@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { enrollHost, FakeHost, hostSession, NO_REPLY, sleep, until } from "./helpers.js";
 import {

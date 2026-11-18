@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { AttentionItem, PushPayload } from "@switchyard/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { type PushSender, requireService } from "../src/index.js";

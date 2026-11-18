@@ -1,3 +1,4 @@
+// @module-tag slow
 import { createHash } from "node:crypto";
 import { request } from "node:http";
 import {

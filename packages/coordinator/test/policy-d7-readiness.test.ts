@@ -1,3 +1,4 @@
+// @module-tag slow
 import {
   CAPABILITY_KEYS,
   type Host,

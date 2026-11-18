@@ -1,3 +1,4 @@
+// @module-tag slow
 import { join } from "node:path";
 import { SwitchyardError } from "@switchyard/protocol";
 import { afterEach, describe, expect, it } from "vitest";

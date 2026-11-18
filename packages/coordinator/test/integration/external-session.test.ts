@@ -1,3 +1,4 @@
+// @module-tag slow
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";

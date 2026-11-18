@@ -1,3 +1,4 @@
+// @module-tag slow
 import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import {

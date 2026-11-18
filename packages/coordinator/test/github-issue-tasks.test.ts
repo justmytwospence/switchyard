@@ -1,3 +1,4 @@
+// @module-tag slow
 import { DEFAULT_TASK_POLICY, githubIssueFromUrl, MARKERS, type Task } from "@switchyard/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/index.js";

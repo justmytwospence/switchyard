@@ -1,2 +1,9 @@
 import { defineConfig } from "vitest/config";
-export default defineConfig({ test: { name: "protocol", include: ["test/**/*.test.ts"] } });
+import { tags } from "../../vitest.shared.ts";
+export default defineConfig({
+  test: {
+    tags,
+    name: "protocol",
+    include: ["test/**/*.test.ts"],
+  },
+});

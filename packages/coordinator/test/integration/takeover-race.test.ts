@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { CommandLogEntry } from "@switchyard/host-agent";
 import type { Run } from "@switchyard/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

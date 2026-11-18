@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { Session } from "@switchyard/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { CacheAlertService, cacheTtlSec, cacheWarning } from "../src/cache-alerts.js";

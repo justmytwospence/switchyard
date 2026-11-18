@@ -1,3 +1,4 @@
+// @module-tag slow
 // biome-ignore-all lint/complexity/useLiteralKeys: Bracket access tests private wiring without starting Pi.
 import { EventEmitter } from "node:events";
 import type { ManagedSession } from "@switchyard/pi-runtime";

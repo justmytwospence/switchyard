@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PolicyEvaluator } from "../src/policies/evaluator.js";
 import { policyContext, policyRule } from "./policy-evaluator-fixtures.js";

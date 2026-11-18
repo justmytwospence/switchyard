@@ -1,3 +1,4 @@
+// @module-tag slow
 import { existsSync } from "node:fs";
 import { terminalSupport } from "@switchyard/pi-runtime";
 import type { HostEvent } from "@switchyard/protocol";

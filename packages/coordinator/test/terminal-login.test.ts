@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it } from "vitest";
 import { TERMINAL_LOGIN_TTL_MS } from "../src/index.js";
 import { enrollDevice, startCoordinator, type TestCoordinator } from "./helpers.js";

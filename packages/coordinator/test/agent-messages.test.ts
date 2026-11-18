@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { AgentMessage, DeliveryState, Session } from "@switchyard/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {

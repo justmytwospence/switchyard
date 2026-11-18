@@ -1,3 +1,4 @@
+// @module-tag slow
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GitHubLogs, GitHubMergeResult, GitHubViewResult } from "@switchyard/protocol";

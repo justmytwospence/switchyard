@@ -1,3 +1,4 @@
+// @module-tag slow
 import { once } from "node:events";
 import { Worker } from "node:worker_threads";
 import { afterEach, expect, it } from "vitest";

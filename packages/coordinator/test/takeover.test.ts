@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/index.js";
 import { hostSession, NO_REPLY, sleep, until } from "./helpers.js";

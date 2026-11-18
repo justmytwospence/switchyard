@@ -1,3 +1,4 @@
+// @module-tag slow
 import { spawn } from "node:child_process";
 import {
   existsSync,

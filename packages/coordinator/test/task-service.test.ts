@@ -1,3 +1,4 @@
+// @module-tag slow
 import { DEFAULT_TASK_POLICY, type Project, type Task } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { migrate, openDb } from "../src/db/index.js";

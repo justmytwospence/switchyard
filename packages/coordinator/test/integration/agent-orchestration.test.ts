@@ -1,3 +1,4 @@
+// @module-tag slow
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentInbox, AgentRequestFrame, AgentResultFrame } from "@switchyard/protocol";

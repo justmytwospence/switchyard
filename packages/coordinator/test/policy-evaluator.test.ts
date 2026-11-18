@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { PolicyContext, PolicyRule } from "@switchyard/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { PolicyEvaluator } from "../src/policies/evaluator.js";

@@ -1,3 +1,4 @@
+// @module-tag slow
 import { request as httpRequest } from "node:http";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

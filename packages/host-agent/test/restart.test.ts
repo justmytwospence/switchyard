@@ -1,3 +1,4 @@
+// @module-tag slow
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { lostRuntime, openHostDb } from "../src/index.js";

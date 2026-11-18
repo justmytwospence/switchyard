@@ -1,3 +1,4 @@
+// @module-tag slow
 import { type MockOidc, type MockOidcOptions, startMockOidc } from "@switchyard/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import type { OidcConfig } from "../src/index.js";

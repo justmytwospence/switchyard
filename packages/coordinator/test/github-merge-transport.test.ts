@@ -1,3 +1,4 @@
+// @module-tag slow
 import {
   ERROR_CODES,
   type GitHubMergeResult,

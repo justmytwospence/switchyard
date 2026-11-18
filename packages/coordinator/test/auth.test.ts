@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLogger } from "../src/index.js";
 import {

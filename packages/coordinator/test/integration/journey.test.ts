@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { AttentionItem, Interaction, Session, Task } from "@switchyard/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Integration, steps, uiResponses, WsClient, waitFor } from "./harness.js";

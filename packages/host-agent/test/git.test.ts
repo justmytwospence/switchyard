@@ -1,3 +1,4 @@
+// @module-tag slow
 import { execFileSync } from "node:child_process";
 import {
   existsSync,

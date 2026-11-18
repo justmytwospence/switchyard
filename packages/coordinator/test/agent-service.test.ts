@@ -1,3 +1,4 @@
+// @module-tag slow
 import {
   type AgentMessage,
   type AgentRequestFrame,

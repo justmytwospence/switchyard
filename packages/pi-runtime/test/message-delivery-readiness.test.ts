@@ -1,3 +1,4 @@
+// @module-tag slow
 import { createHash, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentChannel } from "../src/bridge/agent-channel.js";

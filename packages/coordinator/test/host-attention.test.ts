@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it } from "vitest";
 import { hostSession } from "./helpers.js";
 import { cleanupHarness, type Harness, ROOT, setupHarness } from "./task-helpers.js";

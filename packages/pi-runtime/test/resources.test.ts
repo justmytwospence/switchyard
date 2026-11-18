@@ -1,3 +1,4 @@
+// @module-tag slow
 import { execFile as nodeExecFile } from "node:child_process";
 import {
   chmodSync,

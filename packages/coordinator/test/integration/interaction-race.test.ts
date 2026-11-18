@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { Interaction } from "@switchyard/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Integration, steps, uiResponses } from "./harness.js";

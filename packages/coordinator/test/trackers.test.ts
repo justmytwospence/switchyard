@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { HostCommand, Tracker, TrackerItem } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/index.js";

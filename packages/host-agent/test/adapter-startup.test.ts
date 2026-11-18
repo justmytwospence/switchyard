@@ -1,3 +1,4 @@
+// @module-tag slow
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ManagedSession, resolvePiPackageRoot } from "@switchyard/pi-runtime";

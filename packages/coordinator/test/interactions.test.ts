@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { HostCommand, Interaction } from "@switchyard/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import {

@@ -1,3 +1,4 @@
+// @module-tag slow
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";

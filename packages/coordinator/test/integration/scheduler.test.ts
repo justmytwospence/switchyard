@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { Occurrence, Task } from "@switchyard/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getService, nextOccurrences } from "../../src/index.js";

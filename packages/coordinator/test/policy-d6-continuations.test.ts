@@ -1,3 +1,4 @@
+// @module-tag slow
 import { SwitchyardError } from "@switchyard/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requireService } from "../src/services.js";

@@ -1,3 +1,4 @@
+// @module-tag slow
 // biome-ignore-all lint/complexity/useLiteralKeys: Exercise private supervisor wiring without starting Pi.
 import { type ChildProcess, execFile } from "node:child_process";
 import { createHash } from "node:crypto";

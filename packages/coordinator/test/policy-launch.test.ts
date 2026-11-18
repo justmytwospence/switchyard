@@ -1,3 +1,4 @@
+// @module-tag slow
 import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import {

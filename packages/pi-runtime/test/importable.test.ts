@@ -1,3 +1,4 @@
+// @module-tag slow
 import {
   appendFileSync,
   mkdtempSync,

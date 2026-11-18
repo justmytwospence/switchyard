@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { HostCommand } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { commandsOf, type Harness, ROOT, setupHarness } from "./task-helpers.js";

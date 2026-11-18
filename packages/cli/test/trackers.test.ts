@@ -1,3 +1,4 @@
+// @module-tag slow
 import { describe, expect, it } from "vitest";
 import {
   trackersCreate,

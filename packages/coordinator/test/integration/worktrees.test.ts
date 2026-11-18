@@ -1,3 +1,4 @@
+// @module-tag slow
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Workspace } from "@switchyard/protocol";

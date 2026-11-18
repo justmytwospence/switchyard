@@ -1,3 +1,4 @@
+// @module-tag slow
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {

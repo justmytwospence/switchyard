@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requireService } from "../src/services.js";
 import { CONTINUATION_PREFIX, type PendingContinuation } from "../src/tasks/continuations.js";

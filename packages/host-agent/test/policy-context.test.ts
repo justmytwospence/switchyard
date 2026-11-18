@@ -1,3 +1,4 @@
+// @module-tag slow
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: Shell expansions must remain inert literal test input.
 import { execFileSync } from "node:child_process";
 import {

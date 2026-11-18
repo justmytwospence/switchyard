@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it } from "vitest";
 import { startCoordinator, type TestCoordinator } from "./helpers.js";
 

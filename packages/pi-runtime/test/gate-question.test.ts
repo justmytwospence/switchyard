@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { TranscriptItem } from "@switchyard/protocol";
 import { when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

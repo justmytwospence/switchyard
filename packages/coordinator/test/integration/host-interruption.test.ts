@@ -1,3 +1,4 @@
+// @module-tag slow
 import { existsSync, rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Integration, sessionFiles, steps, waitFor } from "./harness.js";

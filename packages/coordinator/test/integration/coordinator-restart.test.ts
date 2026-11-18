@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Integration, steps, waitFor } from "./harness.js";
 

@@ -1,3 +1,4 @@
+// @module-tag slow
 import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import type { TranscriptItem } from "@switchyard/protocol";

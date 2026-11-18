@@ -1,3 +1,4 @@
+// @module-tag slow
 import { readFileSync } from "node:fs";
 import { type CoordinatorToHost, HostToCoordinator } from "@switchyard/protocol";
 import { skipRealPi, when } from "@switchyard/test-fixtures";

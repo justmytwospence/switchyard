@@ -1,3 +1,4 @@
+// @module-tag slow
 import { readFileSync, rmSync } from "node:fs";
 import { when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

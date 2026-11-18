@@ -1,3 +1,4 @@
+// @module-tag slow
 import { writeFileSync } from "node:fs";
 import { type MockScript, when } from "@switchyard/test-fixtures";
 import { describe, expect, it } from "vitest";

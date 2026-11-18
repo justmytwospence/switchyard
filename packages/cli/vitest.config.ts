@@ -1,4 +1,11 @@
 import { defineConfig } from "vitest/config";
+import { tags } from "../../vitest.shared.ts";
 export default defineConfig({
-  test: { name: "cli", include: ["test/**/*.test.ts"], testTimeout: 60000, hookTimeout: 60000 },
+  test: {
+    tags,
+    name: "cli",
+    include: ["test/**/*.test.ts"],
+    testTimeout: 60000,
+    hookTimeout: 60000,
+  },
 });

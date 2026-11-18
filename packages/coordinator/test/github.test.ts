@@ -1,3 +1,4 @@
+// @module-tag slow
 import { readFileSync } from "node:fs";
 import type {
   GitHubLogs,

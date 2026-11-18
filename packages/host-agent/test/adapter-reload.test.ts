@@ -1,3 +1,4 @@
+// @module-tag slow
 // biome-ignore-all lint/complexity/useLiteralKeys: Exercise private supervisor wiring without bypassing reload guards.
 import { EventEmitter } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";

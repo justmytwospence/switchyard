@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PolicyService } from "../src/policies/service.js";
 import {

@@ -1,3 +1,4 @@
+// @module-tag slow
 import {
   AGENT_FRAME_MAX_BYTES,
   type AgentRequestFrame,

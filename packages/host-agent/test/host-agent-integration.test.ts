@@ -1,3 +1,4 @@
+// @module-tag slow
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";

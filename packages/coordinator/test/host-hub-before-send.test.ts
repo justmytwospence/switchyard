@@ -1,3 +1,4 @@
+// @module-tag slow
 import { PROTOCOL_VERSION, SwitchyardError } from "@switchyard/protocol";
 import { describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";

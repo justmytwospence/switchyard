@@ -1,3 +1,4 @@
+// @module-tag slow
 import { existsSync } from "node:fs";
 import type { EventEnvelope, Session, TranscriptItem } from "@switchyard/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

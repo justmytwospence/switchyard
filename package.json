@@ -12,6 +12,8 @@
     "build": "tsc -b && pnpm --filter @switchyard/web --if-present build",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "test:fast": "vitest run --tags-filter=!slow",
+    "test:tiers": "node scripts/check-test-tiers.mjs",
     "test:plugins": "node scripts/check-plugin-compat.mjs",
     "test:e2e": "playwright test",
     "adapter:preview": "node scripts/preview-adapter.mjs",

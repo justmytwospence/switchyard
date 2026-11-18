@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { AgentRequestFrame, AgentResultFrame } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/services.js";

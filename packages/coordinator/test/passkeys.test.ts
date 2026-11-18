@@ -1,3 +1,4 @@
+// @module-tag slow
 import { createHash, generateKeyPairSync, type KeyObject, randomBytes, sign } from "node:crypto";
 import { isoCBOR } from "@simplewebauthn/server/helpers";
 import { afterEach, describe, expect, it } from "vitest";

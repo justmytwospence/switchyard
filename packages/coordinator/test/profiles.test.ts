@@ -1,3 +1,4 @@
+// @module-tag slow
 import { afterEach, describe, expect, it } from "vitest";
 import { seedDefaultProfiles } from "../src/routes/profiles.js";
 import { resolveProfile } from "../src/sessions/service.js";

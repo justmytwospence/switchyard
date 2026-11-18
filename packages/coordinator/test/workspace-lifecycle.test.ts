@@ -1,3 +1,4 @@
+// @module-tag slow
 import type { GitState, HostCommand } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requireService } from "../src/index.js";

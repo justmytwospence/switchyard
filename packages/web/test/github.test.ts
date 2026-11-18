@@ -1,3 +1,4 @@
+// @module-tag slow
 import { GitHubLogs, WorkspaceGitHub } from "@switchyard/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { codeApi } from "../src/features/code/api";
