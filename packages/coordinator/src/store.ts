@@ -23,6 +23,7 @@ import {
   SwitchyardError,
   type SyncState,
   type Task,
+  type TrackedIssue,
   type Tracker,
   type TranscriptItem,
   type View,
@@ -185,6 +186,7 @@ export class Store {
   readonly views: JsonRepo<View>;
   /** Trackers are REST resources: no events; their per-item data rides on tasks. */
   readonly trackers: JsonRepo<Tracker>;
+  readonly issues: JsonRepo<TrackedIssue>;
   readonly sessions: JsonRepo<Session>;
   readonly interactions: JsonRepo<Interaction>;
   readonly tasks: JsonRepo<Task>;
@@ -265,6 +267,13 @@ export class Store {
       "trackers",
       "Tracker",
       { name: (t) => t.name },
+      { created_at: () => now() },
+    );
+    this.issues = new JsonRepo<TrackedIssue>(
+      st,
+      "tracked_issues",
+      "Issue",
+      { tracker_id: (i) => i.trackerId, project_id: (i) => i.projectId },
       { created_at: () => now() },
     );
     this.sessions = new JsonRepo<Session>(st, "sessions", "Session", {
@@ -585,6 +594,21 @@ export class Store {
     this.tx(() => {
       this.views.delete(id);
       this.appendEvent("view.deleted", {}, { id });
+    });
+  }
+
+  putIssue(i: TrackedIssue): TrackedIssue {
+    return this.tx(() => {
+      this.issues.upsert(i);
+      this.appendEvent("issue.updated", { projectId: i.projectId }, i);
+      return i;
+    });
+  }
+
+  deleteIssue(i: TrackedIssue): void {
+    this.tx(() => {
+      this.issues.delete(i.id);
+      this.appendEvent("issue.deleted", { projectId: i.projectId }, { id: i.id });
     });
   }
 
@@ -1239,6 +1263,7 @@ export class Store {
       interactions: this.interactions.list("state IN ('pending', 'unsupported')", [], "created_at"),
       panels: this.listPanels(),
       devices: this.devices.list("is_admin = 0", [], "created_at"),
+      issues: this.issues.list(undefined, [], "created_at, rowid"),
       adapters: this.adaptersByHost(),
       dispatchPaused: this.dispatchPaused,
     };

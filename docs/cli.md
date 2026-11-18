@@ -17,7 +17,7 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux integration: mirror Switchyard into a paired tmux session, a window per session ([integrations/tmux](../integrations/tmux/README.md)) |
 | `views list` / `create` / `edit` / `delete` / `pin` / `unpin` | Views: named session filters (projects, hosts, pins) that herdr and tmux sessions bind to with `SWITCHYARD_VIEW`, and the web navigator can select; `--client herdr:<session>` collects the sessions started in that herdr session |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
-| `trackers list` / `create` / `edit` / `delete` / `sync` | GitHub trackers: sync assigned issues into tasks and worktrees, optionally with a Projects board ([trackers.md](trackers.md)) |
+| `trackers list` / `create` / `edit` / `delete` / `sync` | GitHub trackers: sync assigned issues into tracked issues and worktrees, optionally with a Projects board ([trackers.md](trackers.md)) |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
 | `tasks create` / `list` / `move` | Create, list and move tasks |
 | `automations list` / `run` | List automations; fire one now |

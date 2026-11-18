@@ -19,6 +19,7 @@ import type {
   StreamDelta,
   SyncState,
   Task,
+  TrackedIssue,
   TranscriptItem,
   View,
   Workspace,
@@ -53,6 +54,7 @@ export interface EntityState {
   /** Keyed by `panelKey(sessionId, adapterId, slot)`. */
   panels: ById<Panel>;
   devices: ById<Device>;
+  issues: ById<TrackedIssue>;
   /** Adapters per host id. */
   adapters: Record<string, AdapterInfo[]>;
   /** Occurrences seen live (newest first) per automation id; history loads over REST. */
@@ -125,6 +127,7 @@ export function emptyEntities(): EntityState {
     interactions: {},
     panels: {},
     devices: {},
+    issues: {},
     adapters: {},
     occurrences: {},
     diagnostics: [],
@@ -205,6 +208,7 @@ export function applySnapshot<S extends SyncData>(state: S, seq: number, snap: S
     interactions: byId(snap.interactions),
     panels,
     devices: byId(snap.devices),
+    issues: byId(snap.issues ?? []),
     adapters: { ...snap.adapters },
     dispatchPaused: snap.dispatchPaused,
     transcripts,
@@ -229,6 +233,7 @@ export function toSyncState(state: EntityState): SyncState {
     interactions: Object.values(state.interactions),
     panels: Object.values(state.panels),
     devices: Object.values(state.devices),
+    issues: Object.values(state.issues),
     adapters: state.adapters,
     dispatchPaused: state.dispatchPaused,
   };
@@ -490,6 +495,14 @@ function reduceEvent<S extends SyncData, T extends EventType>(
         ...state,
         devices: d.revokedAt ? drop(state.devices, d.id) : put(state.devices, d.id, d),
       };
+    }
+    case "issue.updated": {
+      const d = data as EventData<"issue.updated">;
+      return { ...state, issues: put(state.issues, d.id, d) };
+    }
+    case "issue.deleted": {
+      const d = data as EventData<"issue.deleted">;
+      return { ...state, issues: drop(state.issues, d.id) };
     }
     case "settings.updated": {
       const d = data as EventData<"settings.updated">;

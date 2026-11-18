@@ -3,16 +3,16 @@ import {
   type Project,
   SwitchyardError,
   type Task,
-  type TaskTracker,
+  type TrackedIssue,
   type Tracker,
   type TrackerItem,
   TrackerSetStatusResult,
   TrackerSyncResult,
+  trackedIssueId,
   type View,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "./context.js";
 import { createWorkspace } from "./sessions/service.js";
-import { createTask } from "./tasks/service.js";
 import { refreshCheckoutWorkspaces } from "./workspaces.js";
 
 const GITHUB = "https://github.com/";
@@ -71,9 +71,9 @@ export function issueBranch(number: number, title: string): string {
 }
 
 /**
- * Syncs each tracker's assigned issues into Backlog tasks, worktrees for their branches and a view
- * of the projects it covers; optionally moves board cards. GitHub stays authoritative for the
- * issues; Switchyard keeps a snapshot on each task (`Task.tracker`).
+ * Syncs each tracker's assigned issues into tracked issues, worktrees for their branches and a
+ * view of the projects it covers; optionally moves board cards. GitHub stays authoritative for
+ * the issues; Switchyard keeps a snapshot of each (`TrackedIssue`).
  */
 export class TrackerService {
   private timer: NodeJS.Timeout | null = null;
@@ -85,6 +85,7 @@ export class TrackerService {
   ) {}
 
   start(): void {
+    this.retireTrackerTasks();
     if (this.opts.tickMs <= 0) return;
     this.timer = setInterval(() => void this.tick(), this.opts.tickMs);
     this.timer.unref();
@@ -93,6 +94,29 @@ export class TrackerService {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /**
+   * Trackers used to create a Backlog task per issue. Once, delete those nobody touched and
+   * detach the tracker from the rest (through the store, so clients get the events).
+   */
+  private retireTrackerTasks(): void {
+    const { store } = this.ctx;
+    if (store.getSetting("trackerTasksRetired", false)) return;
+    store.tx(() => {
+      const now = store.nowIso();
+      for (const t of store.tasks.list()) {
+        const legacy = t as Task & { tracker?: unknown };
+        if (!legacy.tracker) continue;
+        if (t.state === "backlog" && t.sessionId === null && t.currentRunId === null) {
+          store.deleteTask(t);
+        } else {
+          const { tracker: _tracker, ...rest } = legacy;
+          store.putTask({ ...rest, updatedAt: now });
+        }
+      }
+      store.setSetting("trackerTasksRetired", true);
+    });
   }
 
   async tick(): Promise<void> {
@@ -114,8 +138,8 @@ export class TrackerService {
     return p;
   }
 
-  private tasksOf(trackerId: string): Task[] {
-    return this.ctx.store.tasks.list().filter((t) => t.tracker?.trackerId === trackerId);
+  private issuesOf(trackerId: string): TrackedIssue[] {
+    return this.ctx.store.issues.list("tracker_id = ?", [trackerId]);
   }
 
   private save(trackerId: string, patch: Partial<Tracker>): Tracker {
@@ -136,6 +160,13 @@ export class TrackerService {
     if (err instanceof SwitchyardError && err.code === "unsupported_capability")
       return `Host ${this.hostName(tracker.hostId)} does not support trackers; upgrade its host agent`;
     return err instanceof Error ? err.message : String(err);
+  }
+
+  /** A workspace id that still names a live workspace, else null. */
+  private liveWorkspace(id: string | null | undefined): string | null {
+    if (!id) return null;
+    const ws = this.ctx.store.workspaces.get(id);
+    return ws && !ws.archivedAt ? id : null;
   }
 
   private async syncOnce(trackerId: string): Promise<Tracker> {
@@ -169,54 +200,47 @@ export class TrackerService {
 
     const errors: string[] = [];
     let unmatched = 0;
-    const matched: { item: TrackerItem; project: Project; taskId: string }[] = [];
+    const matched: { item: TrackerItem; project: Project; issueId: string }[] = [];
     store.tx(() => {
       const now = store.nowIso();
       const projects = store.projects.list();
-      const mine = this.tasksOf(trackerId);
       for (const item of result.items) {
         const project = projectForRepository(projects, item.repository);
         if (!project) {
           unmatched++;
           continue;
         }
-        let task =
-          mine.find((t) => t.tracker!.itemId === item.itemId) ??
-          store.tasks
-            .list("project_id = ?", [project.id])
-            .find((t) => !t.tracker && t.githubIssue?.url === item.url);
-        if (!task) {
-          task = createTask(
-            this.ctx,
-            { projectId: project.id, githubIssueUrl: item.url, title: item.title.slice(0, 300) },
-            { kind: "manual" },
-          );
-        }
-        const prev = task.tracker;
-        const next: TaskTracker = {
+        const id = trackedIssueId(trackerId, item.itemId);
+        const prev = store.issues.get(id);
+        const next: TrackedIssue = {
+          id,
           trackerId,
           itemId: item.itemId,
+          projectId: project.id,
           repository: item.repository,
           number: item.number,
+          title: item.title.slice(0, 300),
+          url: item.url,
           assignees: item.assignees,
+          branches: item.branches,
           branch: prev?.branch ?? null,
-          workspaceId: prev?.workspaceId ?? null,
+          workspaceId: this.liveWorkspace(prev?.workspaceId),
           pullRequest: item.pullRequest,
           board: item.board,
+          updatedAt: now,
         };
-        const title = task.state === "backlog" ? item.title.slice(0, 300) : task.title;
-        if (JSON.stringify(prev) !== JSON.stringify(next) || title !== task.title) {
-          task = store.putTask({ ...task, tracker: next, title, updatedAt: now });
+        if (
+          !prev ||
+          JSON.stringify({ ...prev, updatedAt: "" }) !== JSON.stringify({ ...next, updatedAt: "" })
+        ) {
+          store.putIssue(next);
         }
-        matched.push({ item, project, taskId: task.id });
+        matched.push({ item, project, issueId: id });
       }
       if (!result.truncated) {
         const seen = new Set(result.items.map((i) => i.itemId));
-        for (const t of this.tasksOf(trackerId)) {
-          if (seen.has(t.tracker!.itemId)) continue;
-          if (t.state === "backlog" && t.sessionId === null && t.currentRunId === null) {
-            store.deleteTask(t);
-          }
+        for (const i of this.issuesOf(trackerId)) {
+          if (!seen.has(i.itemId)) store.deleteIssue(i);
         }
       }
       this.syncView(store.trackers.require(trackerId), projects);
@@ -226,13 +250,13 @@ export class TrackerService {
     const refreshed = new Set<string>();
     for (const m of matched) {
       try {
-        await this.linkWorkspace(current, m.item, m.project, m.taskId, refreshed);
+        await this.linkWorkspace(current, m.item, m.project, m.issueId, refreshed);
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
       if (tracker.writeBack && tracker.board) {
         try {
-          await this.writeBack(current, m.item, m.taskId);
+          await this.writeBack(current, m.item, m.issueId);
         } catch (err) {
           errors.push(this.hostError(tracker, err));
         }
@@ -284,28 +308,41 @@ export class TrackerService {
     if (!same) store.putView({ ...view, trackerId: tracker.id, projectIds, updatedAt: now });
   }
 
+  /**
+   * The checkout to make an issue's worktree in: the project's default host, else the tracker's
+   * host, else any. The tracker's host is only where `gh` runs.
+   */
+  private workCheckout(tracker: Tracker, project: Project) {
+    const checkouts = this.ctx.store.checkouts.list("project_id = ?", [project.id]);
+    return (
+      checkouts.find((c) => c.hostId === project.defaultHostId) ??
+      checkouts.find((c) => c.hostId === tracker.hostId) ??
+      checkouts[0]
+    );
+  }
+
   /** Create (once) and link the worktree for an issue's branch. */
   private async linkWorkspace(
     tracker: Tracker,
     item: TrackerItem,
     project: Project,
-    taskId: string,
+    issueId: string,
     refreshed: Set<string>,
   ): Promise<void> {
     const { store, hostHub } = this.ctx;
-    const branch = item.branches[0];
+    const branch = item.branches[0] ?? store.issues.get(issueId)?.branch ?? null;
     if (!branch || item.pullRequest?.state === "MERGED") return;
-    const checkout = store.checkouts
-      .list("project_id = ?", [project.id])
-      .find((c) => c.hostId === tracker.hostId);
-    if (!checkout) return;
     const find = () =>
       store.workspaces
-        .list("checkout_id = ? AND archived_at IS NULL", [checkout.id])
-        .find((w) => w.branch !== null && item.branches.includes(w.branch));
+        .list("project_id = ? AND archived_at IS NULL", [project.id])
+        .find(
+          (w) => w.branch !== null && (w.branch === branch || item.branches.includes(w.branch)),
+        );
     let ws = find();
-    const key = `trackerBranchTried:${taskId}:${branch}`;
-    if (!ws) {
+    const checkout = this.workCheckout(tracker, project);
+    if (!ws && !checkout) return;
+    const key = `issueBranchTried:${issueId}:${branch}`;
+    if (!ws && checkout) {
       if (store.getSetting<string | null>(key, null) !== null) return;
       if (!refreshed.has(checkout.id)) {
         refreshed.add(checkout.id);
@@ -320,53 +357,57 @@ export class TrackerService {
         ws = find();
       }
     }
-    if (!ws) {
+    if (!ws && checkout) {
       store.setSetting(key, store.nowIso());
-      await hostHub.request(
-        tracker.hostId,
-        { type: "tracker.prepareBranch", checkoutPath: checkout.path, branch },
-        { timeoutMs: 60_000 },
-      );
+      try {
+        await hostHub.request(
+          checkout.hostId,
+          { type: "tracker.prepareBranch", checkoutPath: checkout.path, branch },
+          { timeoutMs: 60_000 },
+        );
+      } catch (err) {
+        this.ctx.log.debug({ err, branch }, "tracker: prepareBranch failed");
+      }
       ws = await createWorkspace(this.ctx, project, checkout, branch, null);
     }
-    const found = ws;
+    const found = ws!;
     store.tx(() => {
-      const task = store.tasks.get(taskId);
-      if (!task?.tracker || task.tracker.workspaceId === found.id) return;
-      store.putTask({
-        ...task,
-        tracker: { ...task.tracker, branch: found.branch, workspaceId: found.id },
+      const issue = store.issues.get(issueId);
+      if (!issue || issue.workspaceId === found.id) return;
+      store.putIssue({
+        ...issue,
+        branch: found.branch,
+        workspaceId: found.id,
         updatedAt: store.nowIso(),
       });
     });
   }
 
   /** Move the card once per target column: started once a worktree exists, review once a PR is open. */
-  private async writeBack(tracker: Tracker, item: TrackerItem, taskId: string): Promise<void> {
+  private async writeBack(tracker: Tracker, item: TrackerItem, issueId: string): Promise<void> {
     const { store } = this.ctx;
     const board = tracker.board!;
-    const task = store.tasks.get(taskId);
-    const link = task?.tracker;
-    if (!task || !link?.board) return;
+    const issue = store.issues.get(issueId);
+    if (!issue?.board) return;
     const target =
       item.pullRequest?.state === "OPEN" && board.onReview
         ? board.onReview
-        : link.workspaceId && board.onStart
+        : issue.workspaceId && board.onStart
           ? board.onStart
           : null;
     if (!target) return;
-    const key = `trackerMoved:${taskId}:${target}`;
+    const key = `issueMoved:${issueId}:${target}`;
     if (store.getSetting<string | null>(key, null) !== null) return;
-    if (link.board.status?.toLowerCase() === target.toLowerCase()) {
+    if (issue.board.status?.toLowerCase() === target.toLowerCase()) {
       store.setSetting(key, store.nowIso());
       return;
     }
-    const option = link.board.options.find((o) => o.name.toLowerCase() === target.toLowerCase());
+    const option = issue.board.options.find((o) => o.name.toLowerCase() === target.toLowerCase());
     if (!option) throw new Error(`Board has no "${target}" column`);
-    const result = await this.requestMove(tracker, task, option.id);
+    const result = await this.requestMove(tracker, issue, option.id);
     if (result.status === "moved") {
       store.setSetting(key, store.nowIso());
-      this.applyMove(taskId, option);
+      this.applyMove(issueId, option);
     } else if (result.reason !== "stale") {
       store.setSetting(key, store.nowIso());
     }
@@ -374,10 +415,10 @@ export class TrackerService {
 
   private async requestMove(
     tracker: Tracker,
-    task: Task,
+    issue: TrackedIssue,
     optionId: string,
   ): Promise<TrackerSetStatusResult> {
-    const board = task.tracker!.board!;
+    const board = issue.board!;
     const raw = await this.ctx.hostHub.request(
       tracker.hostId,
       {
@@ -396,69 +437,72 @@ export class TrackerService {
     return TrackerSetStatusResult.parse(raw);
   }
 
-  private applyMove(taskId: string, option: { id: string; name: string }): Task | undefined {
+  private applyMove(
+    issueId: string,
+    option: { id: string; name: string },
+  ): TrackedIssue | undefined {
     const { store } = this.ctx;
     return store.tx(() => {
-      const t = store.tasks.get(taskId);
-      if (!t?.tracker?.board) return t;
-      return store.putTask({
-        ...t,
-        tracker: {
-          ...t.tracker,
-          board: { ...t.tracker.board, status: option.name, statusOptionId: option.id },
-        },
+      const i = store.issues.get(issueId);
+      if (!i?.board) return i;
+      return store.putIssue({
+        ...i,
+        board: { ...i.board, status: option.name, statusOptionId: option.id },
         updatedAt: store.nowIso(),
       });
     });
   }
 
-  /** "Start work": create the issue's linked branch on GitHub, then sync to make its worktree. */
-  async startIssue(taskId: string): Promise<Task> {
+  /**
+   * Give an issue a branch: its linked branch, else create one named `<number>-<title>` (as a
+   * linked branch on GitHub when the tracker's host has a checkout, else only locally).
+   */
+  async startIssue(issueId: string): Promise<TrackedIssue> {
     const { store, hostHub } = this.ctx;
-    const task = store.tasks.require(taskId);
-    if (!task.tracker)
-      throw new SwitchyardError("invalid_request", "This task is not from a tracker");
-    if (task.tracker.branch !== null)
-      throw new SwitchyardError("conflict", "This issue already has a branch");
-    const tracker = store.trackers.require(task.tracker.trackerId);
-    const checkout = store.checkouts
-      .list("project_id = ?", [task.projectId])
-      .find((c) => c.hostId === tracker.hostId);
-    if (!checkout)
-      throw new SwitchyardError(
-        "invalid_request",
-        `No checkout of this project on ${this.hostName(tracker.hostId)}`,
-      );
-    const title = store.tasks.require(taskId).title;
-    await hostHub.request(
-      tracker.hostId,
-      {
-        type: "tracker.startIssue",
-        checkoutPath: checkout.path,
-        repository: task.tracker.repository,
-        number: task.tracker.number,
-        branch: issueBranch(task.tracker.number, title),
-        base: checkout.defaultBranch,
-      },
-      { timeoutMs: 60_000 },
-    );
-    await this.sync(tracker.id);
-    return store.tasks.require(taskId);
+    const issue = store.issues.require(issueId);
+    const tracker = store.trackers.require(issue.trackerId);
+    if (issue.branch === null && issue.branches.length === 0) {
+      const name = issueBranch(issue.number, issue.title);
+      const checkout = store.checkouts
+        .list("project_id = ?", [issue.projectId])
+        .find((c) => c.hostId === tracker.hostId);
+      if (checkout) {
+        await hostHub.request(
+          tracker.hostId,
+          {
+            type: "tracker.startIssue",
+            checkoutPath: checkout.path,
+            repository: issue.repository,
+            number: issue.number,
+            branch: name,
+            base: checkout.defaultBranch,
+          },
+          { timeoutMs: 60_000 },
+        );
+        await this.sync(tracker.id);
+      }
+      store.tx(() => {
+        const cur = store.issues.require(issueId);
+        if (cur.branch === null) {
+          store.putIssue({ ...cur, branch: cur.branches[0] ?? name, updatedAt: store.nowIso() });
+        }
+      });
+    }
+    return store.issues.require(issueId);
   }
 
   /** Set a card's board column by hand. */
-  async setStatus(taskId: string, status: string): Promise<Task> {
+  async setStatus(issueId: string, status: string): Promise<TrackedIssue> {
     const { store } = this.ctx;
-    const task = store.tasks.require(taskId);
-    const board = task.tracker?.board;
-    if (!task.tracker || !board)
-      throw new SwitchyardError("invalid_request", "This task has no board column");
-    const tracker = store.trackers.require(task.tracker.trackerId);
+    const issue = store.issues.require(issueId);
+    const board = issue.board;
+    if (!board) throw new SwitchyardError("invalid_request", "This issue has no board column");
+    const tracker = store.trackers.require(issue.trackerId);
     if (!tracker.writeBack || !tracker.board)
       throw new SwitchyardError("forbidden", "Write-back is off for this tracker");
     const option = board.options.find((o) => o.name.toLowerCase() === status.toLowerCase());
     if (!option) throw new SwitchyardError("invalid_request", "Unknown column");
-    const result = await this.requestMove(tracker, task, option.id);
+    const result = await this.requestMove(tracker, issue, option.id);
     if (result.status === "skipped") {
       const message =
         result.reason === "stale"
@@ -468,6 +512,6 @@ export class TrackerService {
             : `This card is no longer assigned to ${tracker.login ?? "the tracker's user"}`;
       throw new SwitchyardError("conflict", message);
     }
-    return this.applyMove(taskId, option) ?? store.tasks.require(taskId);
+    return this.applyMove(issueId, option) ?? store.issues.require(issueId);
   }
 }

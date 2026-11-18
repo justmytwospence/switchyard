@@ -19,6 +19,7 @@ import {
   View,
   Workspace,
 } from "./entities.js";
+import { TrackedIssue } from "./trackers.js";
 
 /** Durable event payloads by type. `data` is the full new entity unless noted. */
 export const EventDataSchemas = {
@@ -48,6 +49,8 @@ export const EventDataSchemas = {
   "occurrence.updated": Occurrence,
   "attention.updated": AttentionItem,
   "device.updated": Device,
+  "issue.updated": TrackedIssue,
+  "issue.deleted": z.object({ id: z.string() }),
   "settings.updated": z.object({ dispatchPaused: z.boolean() }),
 } as const;
 

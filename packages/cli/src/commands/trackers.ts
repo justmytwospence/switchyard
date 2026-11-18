@@ -1,4 +1,4 @@
-import type { Host, Task, Tracker } from "@switchyard/protocol";
+import type { Host, TrackedIssue, Tracker } from "@switchyard/protocol";
 import type { ApiClient } from "@switchyard/terminal";
 import { CliError, type ConnectionFlags } from "../config.js";
 import { type Ctx, connect, printList } from "../context.js";
@@ -157,9 +157,7 @@ export async function trackersSync(ctx: Ctx, ref: string, flags: TrackerFlags): 
   const { api } = connect(ctx, flags);
   const t = await resolveTracker(api, ref);
   const synced = await api.post<Tracker>(`/api/trackers/${encodeURIComponent(t.id)}/sync`, {});
-  const tasks = (await api.get<Task[]>("/api/tasks")).filter(
-    (task) => task.tracker?.trackerId === t.id,
-  );
+  const issues = (await api.get<TrackedIssue[]>("/api/issues")).filter((i) => i.trackerId === t.id);
   if (synced.lastError) ctx.err(`${synced.name}: ${synced.lastError}`);
-  ctx.out(`Synced ${synced.name}: ${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`);
+  ctx.out(`Synced ${synced.name}: ${issues.length} ${issues.length === 1 ? "issue" : "issues"}`);
 }

@@ -438,7 +438,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
 
   const trackers = program
     .command("trackers")
-    .description("Trackers: sync assigned GitHub issues into tasks and worktrees");
+    .description("GitHub trackers: sync assigned issues into branches and worktrees");
   const trackerFlags = (o: Record<string, any>) => ({
     ...connFlags(o),
     name: o.name,

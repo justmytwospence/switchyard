@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GitState, Project, Task, TrackerInput, View } from "../src/index.js";
+import { GitState, Project, Task, TrackedIssue, TrackerInput, View } from "../src/index.js";
 
 const T = "2026-11-02T10:00:00.000Z";
 
@@ -60,6 +60,27 @@ describe("tracker schemas", () => {
       GitState.safeParse({ dirty: false, changedFiles: 0, ahead: 0, behind: 0, unmerged: false })
         .success,
     ).toBe(true);
-    expect(Task.shape.tracker.safeParse(undefined).success).toBe(true);
+    expect("tracker" in Task.shape).toBe(false);
+  });
+
+  it("parses a tracked issue", () => {
+    const issue = {
+      id: "trk_1:I_1",
+      trackerId: "trk_1",
+      itemId: "I_1",
+      projectId: "prj_1",
+      repository: "acme/app",
+      number: 1,
+      title: "Fix it",
+      url: "https://github.com/acme/app/issues/1",
+      assignees: ["me"],
+      branches: [],
+      branch: null,
+      workspaceId: null,
+      pullRequest: null,
+      board: null,
+      updatedAt: T,
+    };
+    expect(TrackedIssue.parse(issue)).toEqual(issue);
   });
 });

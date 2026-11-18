@@ -359,7 +359,6 @@ export const UpdateTaskRequest = z.object({
   githubIssueUrl: z.never().optional(),
   githubIssue: z.never().optional(),
   launchPrompt: z.never().optional(),
-  tracker: z.never().optional(),
   title: z.string().min(1).max(300).optional(),
   objective: z.string().optional(),
   acceptanceCriteria: z.array(z.string()).optional(),

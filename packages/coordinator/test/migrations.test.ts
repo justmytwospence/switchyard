@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { type Db, MIGRATIONS, migrate, openDb } from "../src/db/index.js";
+import { type Db, LATEST_MIGRATION, MIGRATIONS, migrate, openDb } from "../src/db/index.js";
 
 /** A database migrated to `version`, as an older coordinator would have left it. */
 function dbAt(version: number): Db {
@@ -20,9 +20,37 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("015 adds tracked_issues and re-keys tracker settings", () => {
+    const db = dbAt(14);
+    db.prepare(
+      "INSERT INTO tasks (id, project_id, state, json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      "tsk_1",
+      "prj_1",
+      "backlog",
+      JSON.stringify({ id: "tsk_1", tracker: { trackerId: "trk_1", itemId: "I_1" } }),
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    const set = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
+    set.run("trackerMoved:tsk_1:In progress", '"2026"');
+    set.run("trackerBranchTried:tsk_1:12-x", '"2026"');
+    expect(migrate(db)).toBeGreaterThanOrEqual(15);
+    const keys = (
+      db.prepare("SELECT key FROM settings ORDER BY key").all() as { key: string }[]
+    ).map((r) => r.key);
+    expect(keys).toContain("issueMoved:trk_1:I_1:In progress");
+    expect(keys).toContain("issueBranchTried:trk_1:I_1:12-x");
+    expect(keys.some((k) => k.startsWith("tracker"))).toBe(false);
+    db.prepare(
+      "INSERT INTO tracked_issues (id, tracker_id, project_id, json, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run("trk_1:I_1", "trk_1", "prj_1", "{}", "2026-01-01T00:00:00.000Z");
+    db.close();
+  });
+
   it("014 adds the trackers table to a version 13 database", () => {
     const db = dbAt(13);
-    expect(migrate(db)).toBe(14);
+    expect(migrate(db)).toBeGreaterThanOrEqual(14);
     db.prepare("INSERT INTO trackers (id, name, json, created_at) VALUES (?, ?, ?, ?)").run(
       "trk_1",
       "fieldgoal",
@@ -81,7 +109,7 @@ describe("coordinator migrations", () => {
       const originals = db.prepare("SELECT * FROM workspaces ORDER BY id").all();
       const settings = db.prepare("SELECT * FROM settings ORDER BY key").all();
       const history = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
-      expect(migrate(db)).toBe(14);
+      expect(migrate(db)).toBe(LATEST_MIGRATION);
       expect(db.prepare("SELECT * FROM workspaces ORDER BY id").all()).toEqual(originals);
       expect(db.prepare("SELECT * FROM settings ORDER BY key").all()).toEqual(settings);
       expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual([]);
@@ -111,7 +139,7 @@ describe("coordinator migrations", () => {
           .all(),
       ).toContainEqual({ name: "github_merge_fences_target" });
       const applied = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
-      expect(migrate(db)).toBe(14);
+      expect(migrate(db)).toBe(LATEST_MIGRATION);
       expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(applied);
       expect(db.prepare("SELECT * FROM settings ORDER BY key").all()).toEqual(settings);
       expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual([]);

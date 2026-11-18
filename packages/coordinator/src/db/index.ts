@@ -13,6 +13,7 @@ import { sql as policies } from "./migrations/011_policies.js";
 import { sql as policyWaitLeases } from "./migrations/012_policy_wait_leases.js";
 import { sql as githubMergeFences } from "./migrations/013_github_merge_fences.js";
 import { sql as trackers } from "./migrations/014_trackers.js";
+import { sql as trackedIssues } from "./migrations/015_tracked_issues.js";
 
 export interface Migration {
   version: number;
@@ -36,6 +37,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 12, name: "012_policy_wait_leases", sql: policyWaitLeases },
   { version: 13, name: "013_github_merge_fences", sql: githubMergeFences },
   { version: 14, name: "014_trackers", sql: trackers },
+  { version: 15, name: "015_tracked_issues", sql: trackedIssues },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

@@ -105,6 +105,17 @@ describe("events", () => {
     expect(s.tasks.tsk_a).toBeUndefined();
   });
 
+  it("applies issue events and snapshots without issues", () => {
+    const snap = snapshot() as Partial<ReturnType<typeof snapshot>>;
+    delete snap.issues;
+    let s = applySnapshot(emptySyncData(), 0, snap as ReturnType<typeof snapshot>);
+    expect(s.issues).toEqual({});
+    s = applyEvent(s, ev("issue.updated", { id: "trk_1:I_1", trackerId: "trk_1" }, 1));
+    expect(s.issues["trk_1:I_1"]).toBeDefined();
+    s = applyEvent(s, ev("issue.deleted", { id: "trk_1:I_1" }, 2));
+    expect(s.issues["trk_1:I_1"]).toBeUndefined();
+  });
+
   it.each(["workspace.deleted", "workspace.removed"])("%s drops the workspace", (type) => {
     let s = applySnapshot(emptySyncData(), 0, snapshot());
     s = applyEvent(s, ev("workspace.updated", { id: "wsp_1", archivedAt: null }, 1));

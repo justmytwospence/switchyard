@@ -48,7 +48,10 @@ function setup() {
     "POST /api/trackers": (c) => ({ status: 201, body: { ...TRACKER, ...(c.body as object) } }),
     "PATCH /api/trackers/trk_1": (c) => ({ ...TRACKER, ...(c.body as object) }),
     "POST /api/trackers/trk_1/sync": () => TRACKER,
-    "GET /api/tasks": () => [{ id: "t1", tracker: { trackerId: "trk_1" } }, { id: "t2" }],
+    "GET /api/issues": () => [
+      { id: "trk_1:I_1", trackerId: "trk_1" },
+      { id: "trk_2:I_2", trackerId: "trk_2" },
+    ],
   });
 }
 
@@ -138,7 +141,7 @@ describe("trackers commands", () => {
     expect(ctx.lines[0]).toMatch(/^NAME\s+HOST\s+OWNER\s+REPOS\s+BOARD\s+WRITE-BACK/);
     expect(ctx.lines[1]).toMatch(/^vo\s+Mac\s+VO-Health\s+any\s+#3\s+on/);
     await trackersSync(ctx, "vo", conn);
-    expect(ctx.lines.at(-1)).toBe("Synced vo: 1 task");
+    expect(ctx.lines.at(-1)).toBe("Synced vo: 1 issue");
   });
 
   it("lists repositories of other owners", async () => {

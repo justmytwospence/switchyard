@@ -133,7 +133,7 @@ The coordinator needs neither the host home mount nor Docker socket.
 | Task           | Objective, acceptance criteria, project, dependencies, priority, state, policy |
 | Run            | Task/session, dispatch key, attempt, limits, control revision, outcome         |
 | Automation     | Trigger, filters, task template, grouping/overlap/missed-run policy            |
-| Tracker        | Host, GitHub owner, repositories, optional board, write-back; tasks link back  |
+| Tracker        | Host, GitHub owner, repositories, optional board, write-back; tracked issues link to branches |
 | Interaction    | Session, ID/revision, payload, allowed responses, resolution                   |
 | Attention item | Session/task, reason, severity, acknowledgment                                 |
 | Device         | Identity, credentials, presence, push subscription, revocation                 |

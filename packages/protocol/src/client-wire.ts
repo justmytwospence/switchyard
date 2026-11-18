@@ -17,6 +17,7 @@ import {
   Workspace,
 } from "./entities.js";
 import { EventEnvelope, StreamDelta } from "./events.js";
+import { TrackedIssue } from "./trackers.js";
 
 export const SyncState = z.object({
   hosts: z.array(Host),
@@ -33,6 +34,8 @@ export const SyncState = z.object({
   interactions: z.array(Interaction),
   panels: z.array(Panel),
   devices: z.array(Device),
+  /** Tracked issues; absent from older coordinators. */
+  issues: z.array(TrackedIssue).default([]),
   adapters: z.record(z.string(), z.array(AdapterInfo)),
   dispatchPaused: z.boolean(),
 });

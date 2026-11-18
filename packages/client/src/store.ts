@@ -15,6 +15,7 @@ import type {
   Session,
   SyncState,
   Task,
+  TrackedIssue,
   View,
   Workspace,
 } from "@switchyard/protocol";
@@ -50,6 +51,7 @@ export interface ClientState {
   interactions: ById<Interaction>;
   panels: ById<Panel>;
   devices: ById<Device>;
+  issues: ById<TrackedIssue>;
   dispatchPaused: boolean;
 }
 
@@ -72,6 +74,7 @@ export function emptyState(): ClientState {
     interactions: {},
     panels: {},
     devices: {},
+    issues: {},
     dispatchPaused: false,
   };
 }
@@ -125,6 +128,7 @@ export function applySnapshot(state: ClientState, seq: number, snap: SyncState):
     interactions: byId(snap.interactions),
     panels,
     devices: byId(snap.devices),
+    issues: byId(snap.issues ?? []),
     dispatchPaused: snap.dispatchPaused,
   };
 }
@@ -246,6 +250,14 @@ function reduceEvent<T extends EventType>(
         ...state,
         devices: d.revokedAt ? drop(state.devices, d.id) : put(state.devices, d.id, d),
       };
+    }
+    case "issue.updated": {
+      const d = data as EventData<"issue.updated">;
+      return { ...state, issues: put(state.issues, d.id, d) };
+    }
+    case "issue.deleted": {
+      const d = data as EventData<"issue.deleted">;
+      return { ...state, issues: drop(state.issues, d.id) };
     }
     case "settings.updated": {
       const d = data as EventData<"settings.updated">;

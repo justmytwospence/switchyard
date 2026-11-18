@@ -1,5 +1,6 @@
 import {
   newId,
+  OpenIssueRequest,
   SwitchyardError,
   type Tracker,
   TrackerInput,
@@ -74,11 +75,7 @@ export function registerTrackerRoutes(app: FastifyInstance, ctx: CoordinatorCont
     store.tx(() => {
       store.trackers.require(id);
       const now = store.nowIso();
-      for (const t of store.tasks.list()) {
-        if (t.tracker?.trackerId !== id) continue;
-        const { tracker: _tracker, ...rest } = t;
-        store.putTask({ ...rest, updatedAt: now });
-      }
+      for (const i of store.issues.list("tracker_id = ?", [id])) store.deleteIssue(i);
       for (const v of store.views.list()) {
         if (v.trackerId === id) store.putView({ ...v, trackerId: null, updatedAt: now });
       }
@@ -92,9 +89,14 @@ export function registerTrackerRoutes(app: FastifyInstance, ctx: CoordinatorCont
     return service().sync(idOf(req));
   });
 
-  app.post("/api/tasks/:id/tracker/start", async (req) => service().startIssue(idOf(req)));
+  app.get("/api/issues", async () => store.issues.list(undefined, [], "created_at, rowid"));
 
-  app.post("/api/tasks/:id/tracker/status", async (req) => {
+  app.post("/api/issues/:id/open", async (req) => {
+    parse(OpenIssueRequest, req.body ?? {});
+    return service().startIssue(idOf(req));
+  });
+
+  app.post("/api/issues/:id/status", async (req) => {
     const body = parse(TrackerStatusRequest, req.body);
     return service().setStatus(idOf(req), body.status);
   });

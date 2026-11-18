@@ -1,4 +1,4 @@
-import type { Project, Task, Tracker } from "@switchyard/protocol";
+import type { Project, TrackedIssue, Tracker } from "@switchyard/protocol";
 import { CircleDot, Pencil, Plus, RefreshCw, Trash } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -56,7 +56,7 @@ export function TrackersSection() {
   return (
     <SectionPage
       title="Trackers"
-      description="A tracker turns the GitHub issues assigned to you into Backlog tasks and worktrees, and is the source of a view of its projects."
+      description="A tracker follows the GitHub issues assigned to you, makes worktrees for their branches, and is the source of a view of its projects."
       testId="trackers-section"
       actions={
         <Button
@@ -99,7 +99,7 @@ export function TrackersSection() {
         open={deleting !== null}
         onClose={() => setDeleting(null)}
         title="Delete this tracker?"
-        description="Its tasks stay and stop updating. Its view stays, with its current projects as your own filter."
+        description="Its issues are removed. Its view stays, with its current projects as your own filter."
         confirmLabel="Delete tracker"
         danger
         busy={deleteBusy}
@@ -122,12 +122,12 @@ function TrackerCard({
   const hosts = useSyncStore((s) => s.hosts);
   const views = useSyncStore((s) => s.views);
   const projects = useSyncStore((s) => s.projects);
-  const tasks = useSyncStore((s) => s.tasks);
+  const issues = useSyncStore((s) => s.issues);
   const [, setSelectedView] = useSelectedView();
   const navigate = useNavigate();
   const [syncing, setSyncing] = useState(false);
   const view = Object.values(views).find((v) => v.trackerId === t.id) ?? null;
-  const taskCount = Object.values(tasks).filter((x: Task) => x.tracker?.trackerId === t.id).length;
+  const issueCount = Object.values(issues).filter((x: TrackedIssue) => x.trackerId === t.id).length;
   const viewProjects = useMemo(
     () =>
       (view?.projectIds ?? [])
@@ -189,7 +189,7 @@ function TrackerCard({
           items={[
             ...trackerFacts(t, hosts[t.hostId]?.name ?? t.hostId),
             ["Last sync", t.lastSyncedAt ? formatRelative(t.lastSyncedAt) : "Never"],
-            ["Tasks", String(taskCount)],
+            ["Issues", String(issueCount)],
             [
               "View",
               view ? (
@@ -283,7 +283,7 @@ function TrackerForm({
   onClose: () => void;
 }) {
   const hosts = useHosts();
-  const tasks = useSyncStore((s) => s.tasks);
+  const issues = useSyncStore((s) => s.issues);
   const defaultHost = (hosts.find((h) => h.connectivity === "connected") ?? hosts[0])?.id ?? "";
   const tracker = editing && editing !== "new" ? editing : null;
   const key = editing === null ? "closed" : (tracker?.id ?? "new");
@@ -301,11 +301,9 @@ function TrackerForm({
   }
   const columns = useMemo(() => {
     if (!tracker) return [];
-    const withBoard = Object.values(tasks).find(
-      (x) => x.tracker?.trackerId === tracker.id && x.tracker.board,
-    );
-    return withBoard?.tracker?.board?.options.map((o) => o.name) ?? [];
-  }, [tasks, tracker]);
+    const withBoard = Object.values(issues).find((x) => x.trackerId === tracker.id && x.board);
+    return withBoard?.board?.options.map((o) => o.name) ?? [];
+  }, [issues, tracker]);
   const set = <K extends keyof TrackerDraft>(k: K, v: TrackerDraft[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
   const hasBoard = draft.board.trim() !== "";
@@ -402,7 +400,7 @@ function TrackerForm({
         <Field
           label="Repositories of other owners"
           optional
-          hint="One owner/name per line. Their projects join this tracker's view, and issues assigned to you there become its tasks."
+          hint="One owner/name per line. Their projects join this tracker's view, and issues assigned to you there are tracked too."
           error={errors.extraRepositories}
         >
           {(p) => (

@@ -2,7 +2,6 @@ import { z } from "zod";
 import { ContributionDescriptor } from "./contributions.js";
 import { GitHubIssue, HostGitHub, WorkspaceGitHub } from "./github.js";
 import { CompletedUsageWatermark, PolicyPermission, PolicyPhase } from "./policies.js";
-import { TaskTracker } from "./trackers.js";
 import { UINodeSchema } from "./ui.js";
 
 const Iso = z.string();
@@ -463,8 +462,6 @@ export const Task = z.object({
   parentTaskId: Id.nullable().optional(),
   agentOrigin: z.object({ sessionId: Id, toolCallId: Id }).optional(),
   githubIssue: GitHubIssue.optional(),
-  /** Set while a tracker owns this task (server-owned). */
-  tracker: TaskTracker.optional(),
   currentRunId: Id.nullable(),
   sessionId: Id.nullable(),
   review: z.object({ feedback: z.array(z.string()), changesRequested: z.boolean() }),

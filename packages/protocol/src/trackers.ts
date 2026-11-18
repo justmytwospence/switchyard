@@ -3,7 +3,7 @@ import { GitHubIssueUrl, GitHubRepository } from "./github.js";
 
 /**
  * Trackers: a user's assigned GitHub issues in one owner (optionally some repositories, plus
- * repositories of other owners, optionally with a Projects board), synced into Backlog tasks and worktrees. See docs/trackers.md.
+ * repositories of other owners, optionally with a Projects board), synced into tracked issues that link to branches and worktrees. See docs/trackers.md.
  */
 
 const Iso = z.string();
@@ -116,19 +116,39 @@ export const TrackerSyncResult = z.object({
 });
 export type TrackerSyncResult = z.infer<typeof TrackerSyncResult>;
 
-/** A task's link to its tracker item (server-owned). */
-export const TaskTracker = z.object({
+/**
+ * One open assigned issue a tracker follows ("Issue" in the UI). It decorates the branch it is
+ * worked on, or waits as not started (coordinator-owned snapshot; GitHub is authoritative).
+ */
+export const TrackedIssue = z.object({
+  /** `${trackerId}:${itemId}` */
+  id: Id,
   trackerId: Id,
   itemId: z.string().min(1),
+  projectId: Id,
   repository: GitHubRepository,
   number: z.number().int().positive(),
+  title: z.string().min(1).max(300),
+  url: GitHubIssueUrl,
   assignees: z.array(z.string()).max(20),
+  /** Branches GitHub links to the issue. */
+  branches: z.array(z.string()).max(10),
+  /** The branch Switchyard works on. */
   branch: z.string().nullable(),
   workspaceId: Id.nullable(),
   pullRequest: TrackerPullRequest.nullable(),
   board: TrackerItemBoard.nullable(),
+  updatedAt: Iso,
 });
-export type TaskTracker = z.infer<typeof TaskTracker>;
+export type TrackedIssue = z.infer<typeof TrackedIssue>;
+
+export const trackedIssueId = (trackerId: string, itemId: string) => `${trackerId}:${itemId}`;
+
+export const OpenIssueRequest = z.object({
+  hostId: Id.optional(),
+  viewId: z.string().optional(),
+});
+export type OpenIssueRequest = z.infer<typeof OpenIssueRequest>;
 
 export const TrackerSetStatusResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("moved") }),

@@ -337,6 +337,8 @@ describe("stable client discriminants", () => {
       "occurrence.updated",
       "attention.updated",
       "device.updated",
+      "issue.updated",
+      "issue.deleted",
       "settings.updated",
     ];
     expect([...EVENT_TYPES].sort()).toEqual(expected.sort());

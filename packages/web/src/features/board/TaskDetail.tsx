@@ -38,15 +38,7 @@ import { errorMessage, isApiError } from "../../sync/api";
 import { countPendingInteractions } from "../../sync/selectors";
 import { runsForTask, useSyncStore } from "../../sync/store";
 import { CONTINUATION_BUDGET_HELP } from "../settings/policyLogic";
-import {
-  deleteTask,
-  fetchEligibility,
-  fetchRuns,
-  requestChanges,
-  setTrackerStatus,
-  startTrackerWork,
-  updateTask,
-} from "./api";
+import { deleteTask, fetchEligibility, fetchRuns, requestChanges, updateTask } from "./api";
 import {
   eligibilityText,
   isRunActive,
@@ -138,88 +130,6 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
       <dt className="text-muted">{label}</dt>
       <dd className="min-w-0 break-words">{children}</dd>
     </div>
-  );
-}
-
-/** The task's GitHub issue, branch, pull request and board column (tracker tasks only). */
-export function TrackerSection({ task }: { task: Task }) {
-  const tracker = task.tracker!;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const pr = tracker.pullRequest;
-  const board = tracker.board;
-  return (
-    <Section
-      title="Tracker"
-      action={
-        tracker.branch === null ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => void run(() => startTrackerWork(task.id))}
-          >
-            Start work
-          </Button>
-        ) : undefined
-      }
-    >
-      <dl className="flex flex-col gap-1">
-        <DetailRow label="Issue">
-          {task.githubIssue ? (
-            <TextLink href={task.githubIssue.url} external>
-              {tracker.repository} #{tracker.number}
-            </TextLink>
-          ) : (
-            `${tracker.repository} #${tracker.number}`
-          )}
-        </DetailRow>
-        <DetailRow label="Branch">{tracker.branch ?? "None yet"}</DetailRow>
-        <DetailRow label="Pull request">
-          {pr ? (
-            <TextLink href={pr.url} external>
-              #{pr.number} {pr.state.toLowerCase()}
-            </TextLink>
-          ) : (
-            "None"
-          )}
-        </DetailRow>
-        <DetailRow label="Assignees">{tracker.assignees.join(", ") || "None"}</DetailRow>
-        {board && (
-          <DetailRow label="Board column">
-            <Select
-              aria-label="Board column"
-              width="auto"
-              value={board.status ?? ""}
-              disabled={busy}
-              onChange={(e) => {
-                const status = e.target.value;
-                if (status) void run(() => setTrackerStatus(task.id, status));
-              }}
-            >
-              {board.status === null && <option value="">No column</option>}
-              {board.options.map((o) => (
-                <option key={o.id} value={o.name}>
-                  {o.name}
-                </option>
-              ))}
-            </Select>
-          </DetailRow>
-        )}
-      </dl>
-      {error !== null && <p className="text-sm text-danger">{errorMessage(error)}</p>}
-    </Section>
   );
 }
 
@@ -479,8 +389,6 @@ function TaskDetailContent({ task, onDeleted }: { task: Task; onDeleted?: () => 
           </>
         )}
       </Section>
-
-      {task.tracker && <TrackerSection task={task} />}
 
       <Section title="State">
         <div className="flex flex-wrap items-center gap-2">

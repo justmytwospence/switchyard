@@ -1,9 +1,17 @@
 // @module-tag slow
-import type { HostCommand, Tracker, TrackerItem } from "@switchyard/protocol";
+import type { HostCommand, Task, Tracker, TrackerItem } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/index.js";
 import { inScope, issueBranch, mergeSyncResults } from "../src/trackers.js";
-import { commandsOf, type Harness, ROOT, setupHarness } from "./task-helpers.js";
+import { enrollHost, FakeHost } from "./helpers.js";
+import {
+  commandsOf,
+  type Harness,
+  HostState,
+  ROOT,
+  setupHarness,
+  smartHandler,
+} from "./task-helpers.js";
 
 const REPO = "acme/app";
 
@@ -86,10 +94,7 @@ afterEach(async () => {
 
 const service = () => requireService(h.t.c.ctx, "trackers");
 const store = () => h.t.c.store;
-const tracked = (id: string) =>
-  store()
-    .tasks.list()
-    .filter((t) => t.tracker?.trackerId === id);
+const tracked = (id: string) => store().issues.list("tracker_id = ?", [id], "created_at, rowid");
 
 async function create(body: Record<string, unknown> = {}): Promise<Tracker> {
   const r = await h.t.admin("POST", "/api/trackers", {
@@ -104,19 +109,24 @@ async function create(body: Record<string, unknown> = {}): Promise<Tracker> {
 }
 
 describe("tracker sync", () => {
-  it("creates one Backlog task per assigned issue and is idempotent", async () => {
+  it("tracks one issue per assigned issue, creates no tasks and is idempotent", async () => {
     items = [item(1), item(2)];
     const t = await create();
     expect(t.login).toBe("me");
     expect(t.lastError).toBeNull();
-    const tasks = tracked(t.id);
-    expect(tasks).toHaveLength(2);
-    expect(tasks[0]).toMatchObject({
-      state: "backlog",
+    const issues = tracked(t.id);
+    expect(issues).toHaveLength(2);
+    expect(issues[0]).toMatchObject({
+      id: `${t.id}:I_1`,
       title: "Issue 1",
-      githubIssue: { url: `https://github.com/${REPO}/issues/1` },
-      tracker: { itemId: "I_1", number: 1, branch: null, workspaceId: null },
+      url: `https://github.com/${REPO}/issues/1`,
+      itemId: "I_1",
+      number: 1,
+      projectId: h.project.id,
+      branch: null,
+      workspaceId: null,
     });
+    expect(store().tasks.list()).toHaveLength(0);
     const events = () =>
       (store().db.prepare("SELECT COUNT(*) AS n FROM events").get() as { n: number }).n;
     const before = events();
@@ -124,28 +134,16 @@ describe("tracker sync", () => {
     expect(events()).toBe(before);
   });
 
-  it("adopts an existing task for the same issue", async () => {
-    const r = await h.t.admin("POST", "/api/tasks", {
-      projectId: h.project.id,
-      githubIssueUrl: `https://github.com/${REPO}/issues/1`,
-    });
-    items = [item(1)];
-    const t = await create();
-    expect(tracked(t.id).map((x) => x.id)).toEqual([r.body.id]);
-  });
-
-  it("drops vanished Backlog tasks but keeps ones with work", async () => {
+  it("drops vanished issues unless the result was truncated", async () => {
     items = [item(1), item(2)];
     const t = await create();
-    const two = tracked(t.id).find((x) => x.tracker!.number === 2)!;
-    store().putTask({ ...two, state: "in_progress" });
-    items = [];
+    items = [item(2)];
     truncated = true;
     await service().sync(t.id);
     expect(tracked(t.id)).toHaveLength(2);
     truncated = false;
     await service().sync(t.id);
-    expect(tracked(t.id).map((x) => x.tracker!.number)).toEqual([2]);
+    expect(tracked(t.id).map((x) => x.number)).toEqual([2]);
   });
 
   it("includes repositories of other owners", async () => {
@@ -226,10 +224,10 @@ describe("tracker sync", () => {
       expect.objectContaining({ checkoutPath: ROOT, branch: "feat/x" }),
     ]);
     expect(commandsOf(h.host, "workspace.create")).toHaveLength(1);
-    const [task] = tracked(t.id);
-    const ws = store().workspaces.require(task!.tracker!.workspaceId!);
+    const [issue] = tracked(t.id);
+    const ws = store().workspaces.require(issue!.workspaceId!);
     expect(ws).toMatchObject({ branch: "feat/x", path: `${ROOT}/.worktrees/feat-x` });
-    expect(task!.tracker!.branch).toBe("feat/x");
+    expect(issue!.branch).toBe("feat/x");
     await service().sync(t.id);
     expect(commandsOf(h.host, "workspace.create")).toHaveLength(1);
   });
@@ -245,8 +243,8 @@ describe("tracker sync", () => {
     const t = await create();
     expect(commandsOf(h.host, "tracker.prepareBranch")).toHaveLength(0);
     expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
-    const [task] = tracked(t.id);
-    expect(task!.tracker!.workspaceId).toBe(store().workspaceByPath(h.creds.hostId, wt)!.id);
+    const [issue] = tracked(t.id);
+    expect(issue!.workspaceId).toBe(store().workspaceByPath(h.creds.hostId, wt)!.id);
     expect(t.lastError).toBeNull();
   });
 
@@ -300,15 +298,11 @@ describe("tracker sync", () => {
     expect(view).toMatchObject({ name: "fieldgoal", mode: "all", projectIds: [h.project.id] });
   });
 
-  it("delete strips its tasks and releases its view", async () => {
+  it("delete removes its issues and releases its view", async () => {
     items = [item(1)];
     const t = await create();
     expect((await h.t.admin("DELETE", `/api/trackers/${t.id}`)).status).toBe(200);
-    expect(
-      store()
-        .tasks.list()
-        .every((x) => x.tracker === undefined),
-    ).toBe(true);
+    expect(store().issues.list()).toHaveLength(0);
     expect(
       store()
         .views.list()
@@ -335,12 +329,12 @@ describe("tracker sync", () => {
   });
 });
 
-describe("start work", () => {
-  it("creates the linked branch with gh, then syncs it into a worktree", async () => {
+describe("start", () => {
+  it("creates the linked branch with gh on the tracker's host", async () => {
     items = [item(4, { title: "Fix: the login page!" })];
     const t = await create();
-    const [task] = tracked(t.id);
-    const r = await h.t.admin("POST", `/api/tasks/${task!.id}/tracker/start`);
+    const [issue] = tracked(t.id);
+    const r = await h.t.admin("POST", `/api/issues/${encodeURIComponent(issue!.id)}/open`, {});
     expect(r.status).toBe(200);
     expect(commandsOf(h.host, "tracker.startIssue")[0]).toMatchObject({
       repository: REPO,
@@ -348,13 +342,73 @@ describe("start work", () => {
       branch: "4-fix-the-login-page",
       base: "main",
     });
-    expect(r.body.tracker.branch).toBe("4-fix-the-login-page");
-    expect((await h.t.admin("POST", `/api/tasks/${task!.id}/tracker/start`)).status).toBe(409);
+    expect(store().issues.require(issue!.id).branch).toBe("4-fix-the-login-page");
+  });
+
+  it("works without a checkout on the tracker's host", async () => {
+    items = [item(5, { title: "Local only" })];
+    const t = await create();
+    store().checkouts.delete(h.project.checkouts[0]!.id);
+    const [issue] = tracked(t.id);
+    const r = await h.t.admin("POST", `/api/issues/${encodeURIComponent(issue!.id)}/open`, {});
+    expect(r.status).toBe(200);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
+    expect(store().issues.require(issue!.id).branch).toBe(issueBranch(5, "Local only"));
   });
 
   it("names branches from the number and title", () => {
     expect(issueBranch(7, "  Add CSV export (v2)  ")).toBe("7-add-csv-export-v2");
     expect(issueBranch(8, "!!!")).toBe("8");
+  });
+});
+
+describe("work host", () => {
+  it("makes the worktree on the project's default host, not the tracker's", async () => {
+    const creds2 = await enrollHost(h.t, "second");
+    const host2 = await FakeHost.connect(
+      h.t,
+      creds2,
+      smartHandler(new HostState(), () => h.override),
+    );
+    const now = store().nowIso();
+    store().putCheckout({
+      id: "chk_second",
+      projectId: h.project.id,
+      hostId: creds2.hostId,
+      path: "/other/app",
+      commonDir: "/other/app/.git",
+      defaultBranch: "main",
+      createdAt: now,
+    });
+    store().putProject({
+      ...store().projects.require(h.project.id),
+      defaultHostId: creds2.hostId,
+    });
+    items = [item(1, { branches: ["feat/y"] })];
+    await create();
+    expect(commandsOf(host2, "workspace.create")).toHaveLength(1);
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
+    await host2.close();
+  });
+});
+
+describe("retiring tracker tasks", () => {
+  it("deletes untouched ones and detaches the rest, once", async () => {
+    const base = (await h.t.admin("POST", "/api/tasks", { projectId: h.project.id, title: "a" }))
+      .body as Task;
+    const legacy = { trackerId: "trk_x", itemId: "I_1" };
+    const untouched = { ...base, id: "tsk_untouched", tracker: legacy } as Task;
+    const worked = { ...base, id: "tsk_worked", sessionId: "ses_1", tracker: legacy } as Task;
+    store().tasks.upsert(untouched);
+    store().tasks.upsert(worked);
+    store().deleteSetting("trackerTasksRetired");
+    service().start();
+    service().stop();
+    expect(store().tasks.get("tsk_untouched")).toBeUndefined();
+    const kept = store().tasks.get("tsk_worked") as Task & { tracker?: unknown };
+    expect(kept).toBeDefined();
+    expect(kept.tracker).toBeUndefined();
+    expect(store().getSetting("trackerTasksRetired", false)).toBe(true);
   });
 });
 
@@ -375,7 +429,7 @@ describe("board write-back", () => {
       login: "me",
       allowShared: true,
     });
-    expect(tracked(t.id)[0]!.tracker!.board!.status).toBe("In progress");
+    expect(tracked(t.id)[0]!.board!.status).toBe("In progress");
     // A person moves it back on GitHub: Switchyard does not fight them.
     await service().sync(t.id);
     expect(commandsOf(h.host, "tracker.setStatus")).toHaveLength(1);
@@ -419,11 +473,11 @@ describe("board write-back", () => {
   it("sets a column by hand and maps skips to conflicts", async () => {
     items = [item(1, { board: board("Todo") })];
     const t = await create(withBoard);
-    const [task] = tracked(t.id);
-    const path = `/api/tasks/${task!.id}/tracker/status`;
+    const [issue] = tracked(t.id);
+    const path = `/api/issues/${encodeURIComponent(issue!.id)}/status`;
     const ok = await h.t.admin("POST", path, { status: "review" });
     expect(ok.status).toBe(200);
-    expect(ok.body.tracker.board.status).toBe("Review");
+    expect(ok.body.board.status).toBe("Review");
     expect((await h.t.admin("POST", path, { status: "Nope" })).status).toBe(400);
     moves = { status: "skipped", reason: "stale" };
     const stale = await h.t.admin("POST", path, { status: "Todo" });
