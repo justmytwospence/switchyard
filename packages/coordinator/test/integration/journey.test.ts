@@ -130,17 +130,30 @@ describe("acceptance journey", { timeout: 180_000 }, () => {
     expect(env.hostSettles(sid)).toBe(0);
     const cursor = clients.mobile.lastSeq;
     await env.stopCoordinator();
+    await waitFor(() => !env.agent!.link.connected, "link down", 10_000);
     await waitFor(() => env.hostSettles(sid) > 0, "settled while the coordinator was down");
+    expect(env.agent!.link.pending().length).toBeGreaterThan(0);
     await env.restartCoordinator();
     await env.waitHostConnected();
 
     // 5. The task reaches Review, once, from the single run.
     const reviewed = await env.waitTaskState(taskId, "review");
+    await waitFor(() => env.agent!.link.pending().length === 0, "outbox acked");
     expect(reviewed.currentRunId).toBe(run.id);
     expect(env.c.store.runs.list("task_id = ?", [taskId])).toHaveLength(1);
     expect(env.run(taskId)!.state).toBe("succeeded");
     expect(env.commandsOf("dispatch.start")).toHaveLength(1);
     expect(env.agent!.spawnedPiProcesses).toBe(1);
+    // One transition into Review (later task.updated events in Review are allowed, not re-entries).
+    const states = env.c.store
+      .eventsAfter(0, 100_000)
+      .filter((e) => e.type === "task.updated" && (e.data as { id: string }).id === taskId)
+      .map((e) => (e.data as { state: string }).state);
+    const entries = states.filter((s, i) => s === "review" && states[i - 1] !== "review");
+    expect(entries).toHaveLength(1);
+    expect(
+      env.c.store.attention.list("task_id = ? AND reason = 'ready_for_review'", [taskId]),
+    ).toHaveLength(1);
 
     // 6. The notification opens the result: attention deep link -> /tasks/<id>.
     const attention = (await env.ok("GET", `/api/attention?taskId=${taskId}`, {
@@ -173,5 +186,12 @@ describe("acceptance journey", { timeout: 180_000 }, () => {
         (e.data as Task).state === "review",
       "review replayed",
     );
+
+    // A second restart replays nothing new and changes nothing.
+    await env.restartCoordinator();
+    await env.waitHostConnected();
+    expect(env.task(taskId).state).toBe("review");
+    expect(env.c.store.runs.list("task_id = ?", [taskId])).toHaveLength(1);
+    expect(env.commandsOf("dispatch.start")).toHaveLength(1);
   });
 });

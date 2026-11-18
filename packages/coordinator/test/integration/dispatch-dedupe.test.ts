@@ -16,7 +16,7 @@ describe("dispatch dedupe after a lost receipt", { timeout: 180_000 }, () => {
     env = await Integration.create({
       coordinator: {
         // A lost receipt times out quickly (Pi starts well within this in tests).
-        dispatcher: { tickMs: 100, startTimeoutMs: 8000, reconcileEveryMs: 600_000 },
+        dispatcher: { tickMs: 100, startTimeoutMs: 4000, reconcileEveryMs: 600_000 },
       },
     });
     env.c.events.on("run.changed", (r) => {
