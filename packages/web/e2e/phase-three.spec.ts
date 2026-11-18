@@ -156,7 +156,7 @@ test.describe("phase three real-stack verification (only model and gh are fake)"
       title: `Parent ${suffix}`,
       priority: 0,
     });
-    await page.goto("/board");
+    await page.goto("/tasks");
     if (isMobile)
       await page
         .getByTestId("status-tabs")
@@ -475,7 +475,7 @@ test.describe("phase three real-stack verification (only model and gh are fake)"
   }) => {
     const { state } = isolated;
     const launchPrompt = `${ISSUE_URL}\n\nRead it with \`gh issue view ${ISSUE_URL}\`.`;
-    await page.goto("/board");
+    await page.goto("/tasks");
     await page.getByRole("button", { name: "New task", exact: true }).click();
     const form = page.getByTestId("new-task-form");
     await form.getByLabel("Project", { exact: true }).selectOption(state.projectId);

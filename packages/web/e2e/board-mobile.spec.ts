@@ -12,7 +12,7 @@ test.describe("mobile board", () => {
   });
 
   test("status tabs with counts and a List toggle", async ({ page }) => {
-    await page.goto("/board");
+    await page.goto("/tasks");
     const setLayout = async (name: "List" | "Columns") => {
       await page.getByRole("button", { name: /^Filters/ }).tap();
       const sheet = page.getByRole("dialog", { name: "Filter tasks" });
@@ -70,7 +70,7 @@ test.describe("mobile board", () => {
         createTask(api, state, { title: `Scroll card ${i} ${suffix}` }),
       ),
     );
-    await page.goto("/board");
+    await page.goto("/tasks");
     // Other specs mutate the shared board. Only this test's cards may affect its scroll geometry.
     await page.getByRole("button", { name: "Show search" }).tap();
     await page.getByPlaceholder("Search tasks").fill(suffix);
@@ -99,9 +99,9 @@ test.describe("mobile board", () => {
     // Full screen: the bottom nav is hidden.
     await expect(page.getByRole("navigation", { name: "Primary" })).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Back to board" }).tap();
+    await page.getByRole("button", { name: "Back to tasks" }).tap();
     await expect(page.getByTestId("status-tabs")).toBeVisible();
-    await expect(page).toHaveURL(/\/board$/);
+    await expect(page).toHaveURL(/\/tasks$/);
     await expect.poll(() => mainScrollTop(page)).toBe(before);
     await expect(
       page.getByRole("article", { name: label, exact: true }).locator("[data-card-open]"),
@@ -130,7 +130,7 @@ test.describe("mobile board", () => {
   });
 
   test("compact new-task form previews whether work starts", async ({ page, api }, info) => {
-    await page.goto("/board");
+    await page.goto("/tasks");
     await page.getByRole("button", { name: "New task" }).tap();
     const form = page.getByTestId("new-task-form");
     await expect(form).toBeVisible();
@@ -156,7 +156,7 @@ test.describe("mobile board", () => {
   });
 
   test("filters open a sheet and show removable chips", async ({ page }) => {
-    await page.goto("/board");
+    await page.goto("/tasks");
     await page
       .getByTestId("status-tabs")
       .getByRole("tab", { name: /^In progress/ })
@@ -184,7 +184,7 @@ test.describe("mobile board", () => {
   });
 
   test("compact sticky header", async ({ page }) => {
-    await page.goto("/board");
+    await page.goto("/tasks");
     const header = page.getByTestId("board-header");
     expect((await header.boundingBox())!.height).toBeLessThan(190);
     await expect(page.getByPlaceholder("Search tasks")).toHaveCount(0);

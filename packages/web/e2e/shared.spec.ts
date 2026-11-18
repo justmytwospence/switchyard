@@ -26,6 +26,7 @@ test.describe("shared behavior", () => {
       `/code/${state.sessions.question}`,
       `/code/${state.runningSessionId}`,
       "/board",
+      "/tasks",
       `/tasks/${state.tasks.review}`,
       `/tasks/${state.tasks.running}`,
       "/attention",
@@ -124,7 +125,7 @@ test.describe("shared behavior", () => {
     if (isMobile(info)) await page.getByRole("link", { name: "Back to sessions" }).click();
     const nav = page.getByRole("navigation", { name: "Primary" });
     await nav.getByRole("link", { name: "Board" }).click();
-    await expect(page.getByTestId("board")).toBeVisible();
+    await expect(page.getByTestId("workboard")).toBeVisible();
     await page.goBack();
     // Back replaced the session with the list, so reopen the session from it.
     if (isMobile(info)) {
@@ -221,7 +222,7 @@ test.describe("shared behavior", () => {
     state,
   }, info) => {
     await signIn();
-    await page.goto("/board");
+    await page.goto("/tasks");
     await expect(page.getByTestId("board")).toBeVisible();
 
     // Filters: a dialog on desktop, a bottom sheet on mobile.

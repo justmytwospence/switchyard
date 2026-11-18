@@ -325,13 +325,14 @@ Desktop global rail: 64 pixels wide, labeled on expansion.
 Destinations:
 
 - Sessions.
-- Board.
+- Board (branches).
 - Attention.
+- Tasks.
 - Queue.
 - Automations.
 - Settings.
 
-Mobile bottom navigation: Sessions, Board, Attention, More. More contains Queue, Automations, and Settings.
+Mobile bottom navigation: Sessions, Board, Attention, More. More contains Tasks, Queue, Automations, and Settings.
 
 Hide bottom navigation while composing with the keyboard; preserve access through Back/header controls.
 
@@ -341,6 +342,7 @@ Canonical routes:
 
 - `/code/:sessionId`
 - `/board`
+- `/tasks`
 - `/tasks/:taskId`
 - `/attention`
 - `/queue`
@@ -492,7 +494,18 @@ Same layouts as the desktop navigator; defaults to Recent. Status filters and se
 
 Start a new session from mobile using the same creation fields as desktop, presented as sequential sheets.
 
-## 13. Desktop kanban view
+## 12a. Board (branches)
+
+The Board lists branches as cards (see [model.md](model.md)), filtered by the selected view, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. Activating a card opens its primary session, or opens the branch (starting a session) when it has none.
+
+Columns:
+
+- **Stage** (default): Not started (assigned issues with no branch yet), Working, In review (an open pull request), Merged. Stages are facts; the only move is an issue from Not started to Working, which starts it: its branch, worktree and an idle session titled `#<number> <title>`.
+- **Tracker board** (a tracker's view whose issues have a GitHub Projects board): one column per board column, then No status and Not on the board. Moving a card sets its board column on GitHub, only with the tracker's write-back on.
+
+Invalid drops show the reason. Every move is also in the card's Move to… menu; mobile shows one column at a time as tabs.
+
+## 13. Desktop task board
 
 ### Layout
 
@@ -557,7 +570,7 @@ Moving to Done requires acceptance confirmation when criteria/checks are unresol
 
 Reject invalid transitions with a concrete reason. Provide equivalent menus and keyboard controls; dragging is never required.
 
-## 14. Mobile kanban view
+## 14. Mobile task board
 
 Default to one selected status column, with horizontally scrollable status tabs and counts.
 

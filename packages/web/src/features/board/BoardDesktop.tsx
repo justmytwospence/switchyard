@@ -116,7 +116,7 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
   const tasks = useSyncStore((s) => s.tasks);
   const mover = useTaskMover();
   const navigate = useNavigate();
-  const back = useBackTo(ROUTES.board);
+  const back = useBackTo(ROUTES.tasks);
   const colWidth = usePrefs((s) => s.paneSizes.boardColumn);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
@@ -198,7 +198,7 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
   return (
     <div data-testid="board" className="absolute inset-0 flex min-w-0 flex-col">
       <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
-        <h1 className="mr-2 text-lg font-semibold">Board</h1>
+        <h1 className="mr-2 text-lg font-semibold">Tasks</h1>
         <ViewSelect allLabel="All tasks" />
         <ProjectSelect board={board} />
         <SearchBox board={board} className="w-56 max-w-full" />
@@ -323,13 +323,13 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
           {drawerTask ? (
             <TaskDetailBody
               task={drawerTask}
-              onDeleted={() => navigate(ROUTES.board, { replace: true })}
+              onDeleted={() => navigate(ROUTES.tasks, { replace: true })}
             />
           ) : hydrated ? (
             <EmptyState
               title="Task not found"
               description="It may have been deleted, or this link is from another coordinator."
-              action={{ label: "Back to board", to: ROUTES.board }}
+              action={{ label: "Back to tasks", to: ROUTES.tasks }}
             />
           ) : (
             <LoadingState label="Loading task…" />

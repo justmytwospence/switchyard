@@ -207,7 +207,7 @@ test.describe("mobile coding view", () => {
 
   test("bottom nav hides while composing with the keyboard", async ({ page, state }) => {
     // Any text field: the visual viewport shrinking under focus hides the nav.
-    await page.goto("/board");
+    await page.goto("/tasks");
     await expect(bottomNav(page)).toBeVisible();
     await page.getByRole("button", { name: "Show search" }).tap();
     const search = page.getByPlaceholder("Search tasks");

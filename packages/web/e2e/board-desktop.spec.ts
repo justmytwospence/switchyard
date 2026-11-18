@@ -35,7 +35,7 @@ const taskState = async (api: Api, id: string) => (await api("GET", `/api/tasks/
 test.describe("desktop board", () => {
   test.beforeEach(async ({ signIn, page }) => {
     await signIn();
-    await page.goto("/board");
+    await page.goto("/tasks");
     await expect(page.getByTestId("board")).toBeVisible();
     await expect(column(page, "in_progress").getByRole("article").first()).toBeVisible();
   });
@@ -174,10 +174,10 @@ test.describe("desktop board", () => {
       });
     expect(await sameBoard()).toBe(true);
 
-    // Close returns to /board with the same board and focus on the card.
+    // Close returns to /tasks with the same board and focus on the card.
     await page.keyboard.press("Escape");
     await expect(drawer).toHaveCount(0);
-    await expect(page).toHaveURL(/\/board$/);
+    await expect(page).toHaveURL(/\/tasks$/);
     await expect(open).toBeFocused();
     expect(await sameBoard()).toBe(true);
 
@@ -206,7 +206,7 @@ test.describe("desktop board", () => {
   test("invalid columns are marked while dragging", async ({ page, api, state }, info) => {
     const t = await createTask(api, state, { title: `Drag hint ${uid(info)}`, priority: 0 });
     const c = card(page, t.title);
-    await page.goto("/board");
+    await page.goto("/tasks");
     await c.scrollIntoViewIfNeeded();
     const b = (await c.boundingBox())!;
     await page.mouse.move(b.x + b.width / 2, b.y + 20);

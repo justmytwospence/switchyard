@@ -90,6 +90,7 @@ describe("navigation shortcut matching", () => {
       ["c", "goCode"],
       ["b", "goBoard"],
       ["a", "goAttention"],
+      ["t", "goTasks"],
       ["q", "goQueue"],
       ["o", "goAutomations"],
       ["s", "goSettings"],

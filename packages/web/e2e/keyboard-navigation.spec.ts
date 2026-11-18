@@ -6,7 +6,7 @@ test.describe("Vim-style app navigation", () => {
     signIn,
   }) => {
     await signIn();
-    await page.goto("/board");
+    await page.goto("/tasks");
     await expect(page.locator("[data-keyboard-default]:visible").first()).toBeVisible();
     await page.locator("main").focus();
     await page.keyboard.press("?");
@@ -18,7 +18,7 @@ test.describe("Vim-style app navigation", () => {
     await expect(guide).toHaveCount(0);
     await page.keyboard.press("g");
     await page.keyboard.press("c");
-    await expect(page).toHaveURL(/\/board$/);
+    await expect(page).toHaveURL(/\/tasks$/);
     await page.keyboard.press("ControlOrMeta+k");
     const palette = page.getByRole("dialog", { name: "Command palette" });
     await expect(palette).toBeVisible();
@@ -34,7 +34,7 @@ test.describe("Vim-style app navigation", () => {
     state,
   }, info) => {
     await signIn();
-    await page.goto("/board");
+    await page.goto("/tasks");
     await expect(page.locator("[data-keyboard-default]:visible").first()).toBeVisible();
     await page.locator("main").focus();
     await page.keyboard.press("g");
@@ -54,7 +54,11 @@ test.describe("Vim-style app navigation", () => {
     await page.keyboard.press("g");
     await page.keyboard.press("b");
     await expect(page).toHaveURL(/\/board$/);
-    await page.goto("/board");
+    await page.locator("main").focus();
+    await page.keyboard.press("g");
+    await page.keyboard.press("t");
+    await expect(page).toHaveURL(/\/tasks$/);
+    await page.goto("/tasks");
     if (!isMobile(info))
       await expect(page.locator("[data-keyboard-search]:visible").first()).toBeVisible();
     await page.locator("main").focus();
@@ -73,7 +77,7 @@ test.describe("Vim-style app navigation", () => {
   }, info) => {
     test.skip(isMobile(info), "Desktop Board has column scope markers");
     await signIn();
-    await page.goto("/board");
+    await page.goto("/tasks");
     const primary = page.locator(`[data-card-open="${state.tasks.backlog}"]`);
     await expect(primary).toBeVisible();
     await page.locator("main").focus();

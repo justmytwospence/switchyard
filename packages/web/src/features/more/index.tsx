@@ -1,9 +1,10 @@
-import { ChevronRight, type LucideIcon, Settings, Timer, Workflow } from "lucide-react";
+import { ChevronRight, ListChecks, type LucideIcon, Settings, Timer, Workflow } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { usePalette } from "../palette/registry";
 
 const ITEMS: { to: string; label: string; description: string; icon: LucideIcon }[] = [
+  { to: "/tasks", label: "Tasks", description: "Automation tasks and review", icon: ListChecks },
   { to: "/queue", label: "Queue", description: "Running and queued runs", icon: Timer },
   {
     to: "/automations",
@@ -19,7 +20,7 @@ const ITEMS: { to: string; label: string; description: string; icon: LucideIcon 
   },
 ];
 
-/** Mobile "More": Queue, Automations and Settings (spec 10). */
+/** Mobile "More": Tasks, Queue, Automations and Settings (spec 10). */
 export default function MoreView() {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 pb-4 safe-pt-4">

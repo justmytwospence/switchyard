@@ -133,7 +133,7 @@ export default function QueueView() {
           icon={<Timer className="size-8" />}
           title="Nothing running or queued"
           description="Move a task to Ready on the board and the dispatcher starts it when it is eligible."
-          action={{ label: "Go to Board", to: ROUTES.board }}
+          action={{ label: "Go to Tasks", to: ROUTES.tasks }}
         />
       ) : (
         <section

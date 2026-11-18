@@ -4,7 +4,7 @@ import { createTask, expect, poll, test, uid } from "./support";
 const card = (page: Page, id: string) => page.locator(`[data-task-id="${id}"]`);
 
 async function backlog(page: Page, isMobile: boolean) {
-  await page.goto("/board");
+  await page.goto("/tasks");
   if (isMobile)
     await page
       .getByTestId("status-tabs")

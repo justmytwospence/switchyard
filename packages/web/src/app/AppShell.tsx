@@ -2,6 +2,7 @@ import {
   Bell,
   Ellipsis,
   Keyboard,
+  ListChecks,
   type LucideIcon,
   MessagesSquare,
   PanelLeftClose,
@@ -49,7 +50,13 @@ const BOARD: Destination = {
   to: "/board",
   label: "Board",
   icon: SquareKanban,
-  match: ["/board", "/tasks"],
+  match: ["/board"],
+};
+const TASKS: Destination = {
+  to: "/tasks",
+  label: "Tasks",
+  icon: ListChecks,
+  match: ["/tasks"],
 };
 const ATTENTION: Destination = {
   to: "/attention",
@@ -75,12 +82,12 @@ const MORE: Destination = {
   to: "/more",
   label: "More",
   icon: Ellipsis,
-  match: ["/more", "/queue", "/automations", "/settings"],
+  match: ["/more", "/tasks", "/queue", "/automations", "/settings"],
 };
 
 /** Desktop and compact rail destinations (spec 10). */
-export const RAIL_DESTINATIONS = [CODE, BOARD, ATTENTION, QUEUE, AUTOMATIONS, SETTINGS];
-/** Mobile bottom navigation; More holds Queue, Automations and Settings. */
+export const RAIL_DESTINATIONS = [CODE, BOARD, ATTENTION, TASKS, QUEUE, AUTOMATIONS, SETTINGS];
+/** Mobile bottom navigation; More holds Tasks, Queue, Automations and Settings. */
 export const BOTTOM_DESTINATIONS = [CODE, BOARD, ATTENTION, MORE];
 
 function isActive(d: Destination, pathname: string): boolean {

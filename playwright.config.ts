@@ -50,6 +50,7 @@ export default defineConfig({
         "phase-three.spec.ts",
         "keyboard-layers.spec.ts",
         "keyboard-navigation.spec.ts",
+        "workboard.spec.ts",
       ],
       use: {
         viewport: { width: 390, height: 844 },

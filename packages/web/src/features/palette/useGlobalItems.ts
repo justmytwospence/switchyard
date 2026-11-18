@@ -72,6 +72,7 @@ export function useGlobalItems(): PaletteItem[] {
     action("code", "Go to Code", go("/code"), "goCode");
     action("board", "Go to Board", go("/board"), "goBoard");
     action("attention", "Go to Attention", go("/attention"), "goAttention");
+    action("tasks", "Go to Tasks", go("/tasks"));
     action("queue", "Go to Queue", go("/queue"));
     action("automations", "Go to Automations", go("/automations"));
     action("settings", "Go to Settings", go("/settings"), "goSettings");

@@ -12,7 +12,7 @@ Press **?** outside a text field or terminal to open the **Keyboard shortcuts** 
 | `Ctrl+d` / `Ctrl+u` | Scroll the focused transcript down / up half a page |
 | `/` | Focus this view's search, or open the command palette if no search is visible |
 | `i` | Focus the visible Code composer |
-| `g c` / `g b` / `g a` | Go to Code / Board / Attention |
+| `g c` / `g b` / `g a` / `g t` | Go to Code / Board / Attention / Tasks |
 | `g q` / `g o` / `g s` | Go to Queue / Automations / Settings |
 | `?` | Show the keyboard guide |
 | `Esc` | Dismiss the topmost popup/dialog, or leave a text field without clearing it |

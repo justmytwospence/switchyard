@@ -131,7 +131,7 @@ export function BoardMobile() {
         className="sticky top-0 z-20 flex min-w-0 flex-col border-b border-border bg-bg safe-pt"
       >
         <div className="flex h-14 min-w-0 items-center gap-1 px-3">
-          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">Board</h1>
+          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">Tasks</h1>
           <IconButton
             label={searchShown ? "Hide search" : "Show search"}
             aria-expanded={searchShown}
@@ -319,7 +319,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const hydrated = useSyncStore((s) => s.hydrated);
   const [moveOpen, setMoveOpen] = useState(false);
   const { eligibility } = useEligibility(task);
-  const back = useBackTo(ROUTES.board);
+  const back = useBackTo(ROUTES.tasks);
 
   useLayoutEffect(() => {
     const el = mainEl();
@@ -329,7 +329,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   return (
     <div className="flex min-w-0 flex-col" data-testid="task-page">
       <header className="sticky top-0 z-20 flex min-w-0 items-center gap-1 border-b border-border bg-surface px-1 pb-1 safe-pt-1">
-        <IconButton label="Back to board" icon={<ArrowLeft className="size-5" />} onClick={back} />
+        <IconButton label="Back to tasks" icon={<ArrowLeft className="size-5" />} onClick={back} />
         <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{task?.title ?? "Task"}</h1>
         {task && (
           <Button
@@ -346,7 +346,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
           <EmptyState
             title="Task not found"
             description="It may have been deleted."
-            action={{ label: "Back to board", to: ROUTES.board }}
+            action={{ label: "Back to tasks", to: ROUTES.tasks }}
           />
         ) : (
           <LoadingState label="Loading task…" />

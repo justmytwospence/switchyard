@@ -13,6 +13,7 @@ export type NavigationAction =
   | "goCode"
   | "goBoard"
   | "goAttention"
+  | "goTasks"
   | "goQueue"
   | "goAutomations"
   | "goSettings";
@@ -28,6 +29,7 @@ export const NAVIGATION_SHORTCUTS: readonly {
   { action: "goCode", label: "Go to Code", keys: "g c", context: "Global" },
   { action: "goBoard", label: "Go to Board", keys: "g b", context: "Global" },
   { action: "goAttention", label: "Go to Attention", keys: "g a", context: "Global" },
+  { action: "goTasks", label: "Go to Tasks", keys: "g t", context: "Global" },
   { action: "goQueue", label: "Go to Queue", keys: "g q", context: "Global" },
   { action: "goAutomations", label: "Go to Automations", keys: "g o", context: "Global" },
   { action: "goSettings", label: "Go to Settings", keys: "g s", context: "Global" },
@@ -51,6 +53,7 @@ const GO_KEYS: Record<string, NavigationAction> = {
   c: "goCode",
   b: "goBoard",
   a: "goAttention",
+  t: "goTasks",
   q: "goQueue",
   o: "goAutomations",
   s: "goSettings",

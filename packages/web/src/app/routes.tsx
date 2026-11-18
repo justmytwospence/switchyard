@@ -8,6 +8,7 @@ import { lazyWithReload } from "./lazyWithReload";
 
 const CodeView = lazyWithReload(() => import("../features/code"));
 const BoardView = lazyWithReload(() => import("../features/board"));
+const WorkBoardView = lazyWithReload(() => import("../features/workboard"));
 const AttentionView = lazyWithReload(() => import("../features/attention"));
 const QueueView = lazyWithReload(() => import("../features/queue"));
 const AutomationsView = lazyWithReload(() => import("../features/automations"));
@@ -24,6 +25,7 @@ export const ROUTES = {
   interaction: (sessionId: string, interactionId: string) =>
     `/code/${encodeURIComponent(sessionId)}?interaction=${encodeURIComponent(interactionId)}`,
   board: "/board",
+  tasks: "/tasks",
   task: (id: string) => `/tasks/${encodeURIComponent(id)}`,
   attention: "/attention",
   queue: "/queue",
@@ -36,7 +38,7 @@ export const ROUTES = {
 } as const;
 
 /** Top-level path segments that share one view (and one error boundary) with another. */
-const SECTION_ALIASES: Record<string, string> = { tasks: "board" };
+const SECTION_ALIASES: Record<string, string> = {};
 
 function Page({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
@@ -103,7 +105,15 @@ export function AppRoutes() {
               </Page>
             }
           />
-          {/* One layout for /board and /tasks/:taskId so the board stays mounted under the drawer. */}
+          <Route
+            path="board"
+            element={
+              <Page>
+                <WorkBoardView />
+              </Page>
+            }
+          />
+          {/* One layout for /tasks and /tasks/:taskId so the task board stays mounted under the drawer. */}
           <Route
             element={
               <Page>
@@ -111,7 +121,7 @@ export function AppRoutes() {
               </Page>
             }
           >
-            <Route path="board" element={null} />
+            <Route path="tasks" element={null} />
             <Route path="tasks/:taskId" element={null} />
           </Route>
           <Route

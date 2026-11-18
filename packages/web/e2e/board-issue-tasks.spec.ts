@@ -7,7 +7,7 @@ const draftKey = "sy:new-task-draft";
 test.describe("issue task creation", () => {
   test.beforeEach(async ({ signIn, page }) => {
     await signIn();
-    await page.goto("/board");
+    await page.goto("/tasks");
   });
 
   test("switches modes without losing ordinary instructions, limits or review choices, including draft restoration", async ({
@@ -181,7 +181,7 @@ test.describe("issue task creation", () => {
         expect(created).not.toHaveProperty("githubIssue");
         expect(created.objective).toBe(issueUrl);
       }
-      await page.goto("/board");
+      await page.goto("/tasks");
     }
   });
 });

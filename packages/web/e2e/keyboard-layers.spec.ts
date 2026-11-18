@@ -38,7 +38,7 @@ test.describe("keyboard layers", () => {
   }, info) => {
     test.skip(isMobile(info), "Board task drawer is desktop-only");
     await signIn();
-    await page.goto("/board");
+    await page.goto("/tasks");
     const opener = page.locator(`[data-card-open="${state.tasks.backlog}"]`);
     await opener.click();
     const drawer = page.getByRole("dialog", { name: "Plan the onboarding flow" });
@@ -93,7 +93,7 @@ test.describe("keyboard layers", () => {
   }, info) => {
     test.skip(isMobile(info), "Board task drawer is desktop-only");
     await signIn();
-    await page.goto("/board");
+    await page.goto("/tasks");
     await page.locator(`[data-card-open="${state.tasks.backlog}"]`).click();
     const drawer = page.getByRole("dialog", { name: "Plan the onboarding flow" });
     await expect(drawer).toBeVisible();

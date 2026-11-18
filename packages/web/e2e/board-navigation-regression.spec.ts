@@ -60,7 +60,7 @@ test("mobile parent link restores board scroll and source focus", async ({
     parentTaskId: parent.id,
     priority: 3,
   });
-  await page.goto("/board");
+  await page.goto("/tasks");
   // Wait for a private, fixed-size board so parallel task creation cannot move the source link.
   await page.getByRole("button", { name: "Show search" }).click();
   await page.getByPlaceholder("Search tasks").fill(suffix);
@@ -98,11 +98,11 @@ test("mobile parent link restores board scroll and source focus", async ({
     }, options);
     expect(prevented).toBe(false);
   }
-  await expect(page).toHaveURL(/\/board$/);
+  await expect(page).toHaveURL(/\/tasks$/);
   await link.click();
   await expect(page).toHaveURL(new RegExp(`/tasks/${parent.id}$`));
-  await page.getByRole("button", { name: "Back to board" }).click();
-  await expect(page).toHaveURL(/\/board$/);
+  await page.getByRole("button", { name: "Back to tasks" }).click();
+  await expect(page).toHaveURL(/\/tasks$/);
   await expect.poll(() => main.evaluate((el) => Math.round(el.scrollTop))).toBe(before);
   await expect(card.locator("[data-card-open]")).toBeFocused();
 });

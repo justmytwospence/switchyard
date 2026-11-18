@@ -111,6 +111,7 @@ export function useGlobalShortcuts(): void {
         goCode: "/code",
         goBoard: "/board",
         goAttention: "/attention",
+        goTasks: "/tasks",
         goQueue: "/queue",
         goAutomations: "/automations",
         goSettings: "/settings",

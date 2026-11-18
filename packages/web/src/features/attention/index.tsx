@@ -141,7 +141,7 @@ export default function AttentionView() {
               secondaryAction={
                 dismissedCount > 0
                   ? { label: "Go to Sessions", to: ROUTES.code }
-                  : { label: "Go to Board", to: ROUTES.board }
+                  : { label: "Go to Tasks", to: ROUTES.tasks }
               }
             />
           )
