@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { realpath } from "node:fs/promises";
 import {
   GitHubCheck,
@@ -1396,8 +1397,21 @@ export class GitHubService {
     }
     const children = [...this.children];
     for (const child of children) signalGroup(child, "SIGTERM");
-    if (children.length || this.kills.size)
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (children.length) {
+      // Wait for every child to exit, at most 3 s, then SIGKILL what is left.
+      let grace: NodeJS.Timeout | undefined;
+      await Promise.race([
+        Promise.all(
+          children.map((child) =>
+            child.exitCode !== null || child.signalCode !== null ? undefined : once(child, "exit"),
+          ),
+        ),
+        new Promise((resolve) => {
+          grace = setTimeout(resolve, 3000);
+        }),
+      ]);
+      clearTimeout(grace);
+    }
     for (const child of children) signalGroup(child, "SIGKILL");
     for (const timer of this.kills) clearTimeout(timer);
     this.kills.clear();

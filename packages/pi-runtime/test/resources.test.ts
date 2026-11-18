@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { piBin, requirePi, skipRealPi } from "@switchyard/test-fixtures";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resourceSnapshot } from "../src/bridge/resource-snapshot.js";
 import { resolveInstalledPiResources } from "../src/resources.js";
 
@@ -120,7 +120,9 @@ describe("resource snapshot", () => {
 });
 
 describe.skipIf(skipRealPi)("installed Pi read-only resolution", () => {
-  beforeEach(() => requirePi());
+  beforeAll(() => {
+    requirePi();
+  });
   it("uses installed npm, git and local resources with filters and provenance, without loading code or writing settings", async () => {
     const npm = join(agentDir, "npm/node_modules/fixture-npm");
     const git = join(agentDir, "git/github.com/fixture/plugin");

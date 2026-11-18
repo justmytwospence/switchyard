@@ -1,5 +1,5 @@
 // @module-tag slow
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -18,6 +18,8 @@ import { holderScriptPath, sweepHolders, terminalSupport } from "../src/terminal
 
 const dirs: string[] = [];
 const sockets: Socket[] = [];
+/** Holders still running after a failed test would keep the worker (and CI) alive. */
+const holders: ChildProcess[] = [];
 
 function startHolder(
   script: string,
@@ -47,6 +49,7 @@ function startHolder(
     stdio: ["ignore", "ignore", "inherit"],
     env: { ...process.env, SWITCHYARD_HOLDER_CONFIG: JSON.stringify(cfg) },
   });
+  holders.push(child);
   const done = new Promise<number | null>((resolve) => child.once("exit", (c) => resolve(c)));
   return { socketPath, pid: child.pid!, done };
 }
@@ -97,6 +100,8 @@ const decoded = (lines: any[]) =>
     .join("");
 
 afterEach(() => {
+  for (const child of holders.splice(0))
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
   for (const s of sockets.splice(0)) s.destroy();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });

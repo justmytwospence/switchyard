@@ -18,6 +18,9 @@ import {
 } from "../src/bridge-wire.js";
 import { JsonlReader } from "../src/jsonl.js";
 
+/** vi.waitFor polls every 50 ms by default; these conditions settle in a few milliseconds. */
+const fastWaitFor = <T>(fn: () => T | Promise<T>) => vi.waitFor(fn, { interval: 5 });
+
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   try {
@@ -104,7 +107,7 @@ async function fixture(mode: "rpc" | "terminal") {
   vi.stubEnv(mode === "rpc" ? "SWITCHYARD_BRIDGE_SOCKET" : "SWITCHYARD_CONTROL_SOCKET", path);
   (mode === "rpc" ? rpcBridge : terminalBridge)(pi);
   emit("session_start");
-  await vi.waitFor(() =>
+  await fastWaitFor(() =>
     expect(records.some((record) => record.type === "agent.hello")).toBe(true),
   );
   const hello = BridgeHello.parse(records.find((record) => record.type === "agent.hello"));
@@ -121,7 +124,7 @@ async function fixture(mode: "rpc" | "terminal") {
       args,
     });
     peer!.write(`${JSON.stringify(frame)}\n`);
-    await vi.waitFor(() =>
+    await fastWaitFor(() =>
       expect(
         records.some(
           (record) => record.type === "bridge.receipt" && record.requestId === requestId,
@@ -388,7 +391,7 @@ describe("terminal-only draft and dialog guards", () => {
       void pending.then(() => {
         resolved = true;
       });
-      await vi.waitFor(() =>
+      await fastWaitFor(() =>
         expect(f.records.some((r) => r.type === "extension_ui_request" && r.method === kind)).toBe(
           true,
         ),

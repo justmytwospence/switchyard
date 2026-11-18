@@ -18,9 +18,12 @@ export function realPiSkipReason(): string | null {
 /** True when real-Pi tests should be skipped (for `describe.skipIf`). */
 export const skipRealPi: boolean = realPiSkipReason() !== null;
 
-/** Returns the installed Pi version or throws a clear error so real-Pi tests fail instead of passing. */
+let cached: { bin: string; version: string } | undefined;
+
+/** Returns the installed Pi version (cached per process; failures are not) or throws a clear error so real-Pi tests fail instead of passing. */
 export function requirePi(): string {
   const bin = piBin();
+  if (cached?.bin === bin) return cached.version;
   try {
     const out = execFileSync(bin, ["--version"], {
       encoding: "utf8",
@@ -29,6 +32,7 @@ export function requirePi(): string {
     });
     const match = out.match(/\d+\.\d+\.\d+(?:[-+][\w.]+)?/);
     if (!match) throw new Error(`unexpected output: ${out.trim()}`);
+    cached = { bin, version: match[0] };
     return match[0];
   } catch (err) {
     throw new Error(
