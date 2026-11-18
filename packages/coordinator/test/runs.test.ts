@@ -933,6 +933,35 @@ describe("runs", () => {
     expect(sent.map((c) => c.commandId)).toEqual([`chk_${run.id}_1_0_1`]);
   });
 
+  it("fails the run when checks never answer within the checks timeout", async () => {
+    h = await setupHarness({ checks: ["npm test"], coordinator: { checksTimeoutMs: 200 } });
+    h.override = (cmd) => (cmd.type === "checks.run" ? new Promise(() => {}) : undefined);
+    const { task: tk, run } = await startRun(h);
+    await settle(h, run.sessionId!, "Fixed it.\nSWITCHYARD: DONE");
+    await until(() => runOf(h!, tk.id).state === "failed");
+    expect(commandsOf(h.host, "checks.run")).toHaveLength(1);
+    expect(runOf(h, tk.id).outcome).toMatchObject({ kind: "failed" });
+    expect((runOf(h, tk.id).outcome as { summary: string }).summary).toMatch(
+      /^Checks could not run:/,
+    );
+    expect(task(h, tk.id).blocked).toMatchObject({
+      reason: expect.stringMatching(/^Checks could not run:/),
+    });
+  });
+
+  it("returns a human-controlled run to running when its checks time out", async () => {
+    h = await setupHarness({ checks: ["npm test"], coordinator: { checksTimeoutMs: 1000 } });
+    h.override = (cmd) => (cmd.type === "checks.run" ? new Promise(() => {}) : undefined);
+    const { task: tk, run } = await startRun(h);
+    await settle(h, run.sessionId!, "Fixed it.\nSWITCHYARD: DONE");
+    await until(() => commandsOf(h!.host, "checks.run").length === 1);
+    // The human takes over while the checks are still out.
+    const store = h.t.c.store;
+    store.putRun({ ...store.runs.require(run.id), controlMode: "human", controlRevision: 2 });
+    await until(() => runOf(h!, tk.id).state === "running", 5000);
+    expect(task(h, tk.id).blocked).toBeFalsy();
+  });
+
   it("recovery: an unacknowledged continuation is re-sent with the same command id and text", async () => {
     h = await setupHarness();
     const { run } = await startRun(h, { policy: continuation() });

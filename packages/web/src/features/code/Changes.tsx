@@ -116,8 +116,11 @@ export function useWorkspaceDiff(
   return { result, parsed, loading, error, fetchedAt, outdated, refresh, scope };
 }
 
-/** The workspace's commits; refetches when `refreshKey` changes. `unsupported` when the host agent is too old. */
-function useWorkspaceCommits(
+/**
+ * The workspace's commits; refetches when `refreshKey` changes. `unsupported` when the host agent
+ * is too old. Exported for tests.
+ */
+export function useWorkspaceCommits(
   ctx: SessionContext,
   refreshKey: string | null,
 ): { log: LogResult | null; unsupported: boolean; error: unknown } {
@@ -153,8 +156,11 @@ function useWorkspaceCommits(
   return { log, unsupported, error };
 }
 
-/** The Changes tab's scope: the scoped diff to show, and the commit list to pick it from. */
-function useChangesScope(ctx: SessionContext, diff: WorkspaceDiff) {
+/**
+ * The Changes tab's scope: the scoped diff to show, and the commit list to pick it from. Exported
+ * for tests.
+ */
+export function useChangesScope(ctx: SessionContext, diff: WorkspaceDiff) {
   const [scope, setScope] = useState<DiffScope>("all");
   const commits = useWorkspaceCommits(ctx, diff.fetchedAt);
   const scoped = useWorkspaceDiff(ctx, scope, scope !== "all");
