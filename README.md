@@ -4,7 +4,7 @@
 
 A coding agent has to run where your repositories, toolchains and logins are: your laptop, a workstation, a home server. You, on the other hand, are not always sitting in front of that machine. Switchyard keeps the agents where the work is and lets you follow along from anywhere: start a session from your phone, answer the question it asks while you are on your laptop, take over from a terminal, and get a notification when the result is ready for review. Every client looks at the same live session, and closing one never stops the work.
 
-On top of interactive sessions it adds tasks, a board, scheduled automations and a review flow, so an agent can work through a backlog while you are away and hand everything back for you to accept. Switchyard aims to preserve continuity with your evolving Pi setup: plugins own their workflows and optional adapters translate supported interactions, not arbitrary custom terminal UIs. See [plugin ownership](docs/plugin-boundaries.md).
+Switchyard tracks what you are working on as branches: each has a worktree and one agent session, wherever it runs, and the issues, pull requests and board columns that go with it. On top of that it adds GitHub trackers, scheduled automations and a review flow, so an agent can work through a backlog while you are away and hand everything back for you to accept. Switchyard aims to preserve continuity with your evolving Pi setup: plugins own their workflows and optional adapters translate supported interactions, not arbitrary custom terminal UIs. See [plugin ownership](docs/plugin-boundaries.md).
 
 ## How it fits together
 
@@ -37,11 +37,13 @@ There are three kinds of parts:
 
 - **The coordinator** is the one always-on service. It keeps tasks, schedules, notifications, devices and the shared view of every session, and it decides what runs where. It never runs an agent and never holds your provider credentials, so it can live anywhere: a container, a small server, or your laptop.
 - **Hosts** are your machines. A host agent runs Pi as your OS user, with your repositories, worktrees, Pi packages and model logins, and connects *outbound* to the coordinator. A host needs no open ports, and a laptop can come and go: its sessions keep running while the coordinator is down, and the events catch up when it returns.
-- **Clients** are views. The web app works on desktop and as an installed app on a phone; in a terminal you get Pi's own TUI for any session (`switchyard tui`, or a whole herdr session mirroring Switchyard), and the scriptable CLI works over the same API. Any client can watch, answer and steer a session; none of them owns it.
+- **Clients** show views: a view is a saved filter over branches, and a terminal mirror (herdr, tmux) is a surface bound to one view. The web app works on desktop and as an installed app on a phone; in a terminal you get Pi's own TUI for any session (`switchyard tui`, or a whole herdr session mirroring Switchyard), and the scriptable CLI works over the same API. Any client can watch, answer and steer a session; none of them owns it.
 
 For a single machine, `switchyard up` runs the coordinator and a host in one process. For more, run the coordinator as a server and enroll each machine as a host. The protocol is the same either way.
 
 ## A piece of work, start to finish
+
+Switchyard tracks your work as **branches**: a repository on a branch, with its worktree and one agent session, wherever it runs. See [the model](docs/model.md).
 
 ```mermaid
 sequenceDiagram
@@ -51,34 +53,38 @@ sequenceDiagram
   participant Coord as Coordinator
   participant Host as Host (Pi)
 
-  You->>Phone: Create a task, make it ready
-  Phone->>Coord: Task: Ready
-  Coord->>Host: Dispatch (once, even across restarts)
-  Host->>Host: Create a git worktree, start Pi
+  Coord->>Coord: A tracker finds an issue assigned to you (Not started)
+  You->>Phone: Start it on the Board
+  Phone->>Coord: Open its branch
+  Coord->>Host: Create the worktree, start Pi
   Host-->>Coord: A plugin asks a question
   Coord-->>Phone: Notification: needs input
   You->>Laptop: Answer
   Laptop->>Coord: Answer
   Coord->>Host: Deliver the answer to Pi
-  Host-->>Coord: Turn finished, checks pass
-  Coord-->>Phone: Ready for review
-  You->>Phone: Review the diff, accept
+  Host-->>Coord: Pull request opened (In review)
+  Host-->>Coord: Pull request merged (Merged)
+  Coord->>Host: Archive the sessions, remove the worktree
 ```
 
-1. **You describe the work.** A task has an objective, acceptance criteria, dependencies and a priority. Moving it to Ready lets Switchyard start it.
-2. **Switchyard starts it on a host.** The coordinator picks an eligible host, the host creates a git worktree for the task inside the repository (`<repo>/.worktrees/<branch>` by default), and Pi starts there with your normal extensions. A launch is recorded before it is sent, so a lost connection or a coordinator restart never starts it twice.
-3. **The agent asks, you answer anywhere.** Questions and approvals from Pi and its plugins appear as cards in every client and as a notification on the device you are most likely to see. Answer once; every client shows the result.
-4. **You can step in.** Join from any client to watch and send messages, steer the current turn or queue a follow-up. *Take over* pauses automation (no automatic continuations or retries) until you *return it*. *Stop* aborts the run. Detaching never stops anything. Interrupting a turn in Pi does not pause automation.
-5. **It ends in Review, not in Done.** When the agent finishes, your configured checks run (tests, linters). If they pass, the task waits in Review with its diff; you can comment line by line, send all comments as one follow-up, request changes or accept. Accepting never merges or pushes for you.
-6. **Background work uses the same path.** An automation can open a task on a schedule, from a webhook or when another task finishes, then continue it, append to it, or report only when something changed.
+1. **Work arrives or you start it.** A [tracker](docs/trackers.md) lists the GitHub issues assigned to you in the Board's Not started column. Starting one, or opening any branch from New session, makes its git worktree inside the repository (`<repo>/.worktrees/<branch>` by default) and its primary session. A branch that already has a session opens that session instead.
+2. **The agent asks, you answer anywhere.** Questions and approvals from Pi and its plugins appear as cards in every client and as a notification on the device you are most likely to see. Answer once; every client shows the result.
+3. **You can step in.** Join from any client to watch and send messages, steer the current turn or queue a follow-up, or open Pi's own terminal for the session. A second session on the same branch is possible when you ask for it; it nests under the first.
+4. **The branch moves with its pull request.** Working, In review when the pull request opens, Merged when it merges. With write-back on, the tracker moves the issue's card on your GitHub Projects board too.
+5. **Cleanup follows the merge.** With "Remove merged worktrees" on, a merged, clean, idle worktree is removed and its sessions archived.
+
+**Automations use tasks.** A task has an objective, acceptance criteria, dependencies and a priority; an automation (a schedule, a webhook, another task finishing) or the task board makes it ready, and Switchyard dispatches it once to a host, where it gets its own worktree and session, runs your checks, and waits in Review with its diff for you to accept. See [the specification](docs/spec.md).
 
 ## Features
 
 | Area | What you get |
 |---|---|
+| **Branches** | One row per branch with its primary session; extra sessions and subagents nested under it; open a new or existing branch in one step; the same branch on two hosts is one row |
+| **Board** | Branches by stage (Not started, Working, In review, Merged), or by a GitHub Projects board's columns for a tracker's view |
+| **Trackers** | The GitHub issues assigned to you, worktrees for their branches, and card moves on your Projects board ([trackers.md](docs/trackers.md)) |
 | **Sessions** | Persistent Pi conversations on any host; the same live session in every client; steer or queue follow-ups; take over and return to automation; resume after crashes with the same conversation (never a silent new one); import existing Pi sessions; switch model and effort, see context use and compact, a slash-command picker |
-| **Workspaces** | A git worktree per task or session inside the repository, discovery of worktrees you made yourself, setup commands, `.worktreeinclude` to copy ignored files such as `.env` into new worktrees, removal that refuses to lose uncommitted or unmerged work, and project folders per host whose repositories are added automatically |
-| **Tasks and board** | Backlog, Ready, In progress, Review, Done; dependencies with cycle detection; priorities; per-project concurrency limits; a Queue view explaining why queued work waits |
+| **Workspaces** | A git worktree per branch inside the repository, discovery of worktrees you made yourself, setup commands, `.worktreeinclude` to copy ignored files such as `.env` into new worktrees, removal that refuses to lose uncommitted or unmerged work, and project folders per host whose repositories are added automatically |
+| **Tasks and automations** | A task board (Backlog, Ready, In progress, Review, Done) for dispatched work; dependencies with cycle detection; priorities; per-project concurrency limits; a Queue view explaining why queued work waits |
 | **Review** | Changed files and diffs on desktop and phone, line comments sent as one follow-up, request changes, accept |
 | **Bounded continuation** | Optional: keep the agent working toward an objective, within a maximum number of continuations, a time limit and token or cost caps, ending in your checks and your review |
 | **Automations** | Cron (time-zone aware), one-time, webhook and dependency triggers; fresh, continue or watch modes; skip, queue or append when work overlaps; skip or catch up missed runs; a preview of the resulting task |
@@ -93,11 +99,17 @@ sequenceDiagram
 |---|---|
 | **Host** | A machine that runs Pi for Switchyard, through its host agent |
 | **Project** | A repository Switchyard knows about; a project can have a checkout on several hosts |
-| **Workspace** | A working directory for a project: the main checkout or a git worktree |
-| **Session** | One persistent Pi conversation in a workspace on a host |
-| **Task** | A unit of work on the board, with an objective and acceptance criteria |
-| **Run** | One attempt at a task, carried out in a session |
+| **Branch** | A project on a branch: the unit of work, listed on Sessions and the Board. Derived from its workspaces and sessions |
+| **Workspace** | A branch's checkout on one host: the main checkout or a git worktree |
+| **Session** | One persistent Pi conversation in a workspace. Each branch has a **primary** session; others are **extras**; **subagents** belong to the session that started them |
+| **Tracker** | The GitHub issues assigned to you in one owner, optionally with a Projects board |
+| **Issue** | One issue a tracker follows, attached to the branch it is worked on |
+| **Stage** | Where a branch is: Not started, Working, In review, Merged |
+| **View** | A saved filter over branches: projects, hosts, pins, and an optional source |
 | **Device** | A signed-in client: a browser, an installed web app or a terminal |
+| **Surface** | A herdr or tmux session showing a view, under the device it is signed in with |
+| **Task** | A unit of dispatched work, with an objective and acceptance criteria, on the task board |
+| **Run** | One attempt at a task, carried out in a session |
 | **Adapter** | Code that renders a specific Pi plugin's questions and state as structured UI |
 
 A seeded **Vanilla** profile runs stock Pi (no extensions, skills or prompt templates).
@@ -154,6 +166,8 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.6.0`
 
 | Guide | Covers |
 |---|---|
+| [Model](docs/model.md) | Branches, sessions, trackers, views, devices and surfaces, and how they fit together |
+| [Trackers](docs/trackers.md) | GitHub issues, worktrees for their branches, Projects board write-back |
 | [Deployment](docs/deployment.md) | Single machine, server, reverse proxies, VPNs, hosts, environment reference, privilege model |
 | [Sign-in and devices](docs/auth.md) | The owner model, single sign-on, passkeys, terminal approval, single sign-on, host enrollment, revocation |
 | [CLI](docs/cli.md) | Every `switchyard` command and credentials |

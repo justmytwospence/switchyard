@@ -45,10 +45,12 @@ For the core, plugin and adapter boundary and feature checklist, see [plugin own
 
 | Area | Owner |
 |---|---|
-| Tasks, automations, dispatch decisions, devices, notifications | Coordinator |
+| Tasks, automations, dispatch decisions, devices, surfaces, notifications | Coordinator |
+| Which session is a branch's primary, subagent parents, where a session was started | Coordinator |
+| Branches and their stages | Nobody: derived from workspaces, sessions and tracked issues ([model.md](model.md)) |
 | Pi processes, interactions, filesystem and git state | Host |
 | Native conversation history (Pi's session files) | Pi |
-| Issues, assignees, board columns | GitHub (a snapshot on the task; see [trackers.md](trackers.md)) |
+| Issues, assignees, board columns | GitHub (a tracked-issue snapshot in the coordinator; see [trackers.md](trackers.md)) |
 | Transcript items for display | Coordinator (a cache built from host events) |
 
 ## Reliability rules

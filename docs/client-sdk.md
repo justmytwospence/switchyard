@@ -51,4 +51,4 @@ const unsubscribe = client.events.subscribe((notice) => {
 // unsubscribe() on shutdown; client.close() also closes every subscription.
 ```
 
-Imported historical custom messages retain portable text but do not rerun adapter hooks. The SDK does not fetch an entire transcript automatically or retry failed writes.
+The synced state also carries `issues` (tracked issues) and `surfaces` (herdr and tmux sessions bound to views); both are empty against older coordinators. Imported historical custom messages retain portable text but do not rerun adapter hooks. The SDK does not fetch an entire transcript automatically or retry failed writes.

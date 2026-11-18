@@ -134,9 +134,13 @@ The coordinator needs neither the host home mount nor Docker socket.
 | Run            | Task/session, dispatch key, attempt, limits, control revision, outcome         |
 | Automation     | Trigger, filters, task template, grouping/overlap/missed-run policy            |
 | Tracker        | Host, GitHub owner, repositories, optional board, write-back; tracked issues link to branches |
+| Tracked issue  | Tracker, issue, project, linked branches, branch and workspace worked on, pull request, board column |
 | Interaction    | Session, ID/revision, payload, allowed responses, resolution                   |
 | Attention item | Session/task, reason, severity, acknowledgment                                 |
 | Device         | Identity, credentials, presence, push subscription, revocation                 |
+| Surface        | herdr/tmux session id, device, optional host, bound view, last report          |
+
+A branch (project + branch name) is derived from workspaces, sessions and tracked issues and never stored; a session may be its branch's chosen primary ([model.md](model.md)).
 
 Coordinator owns task/automation decisions. Host owns process state and filesystem truth. Pi owns native conversation history. Coordinator caches presentation history.
 
