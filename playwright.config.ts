@@ -24,9 +24,33 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop-1440x900", use: { viewport: { width: 1440, height: 900 } } },
-    { name: "compact-1024x768", use: { viewport: { width: 1024, height: 768 } } },
+    // Each spec runs at desktop; only layout-dependent specs repeat at the other sizes.
+    {
+      name: "compact-1024x768",
+      testMatch: [
+        "code-desktop.spec.ts",
+        "board-desktop.spec.ts",
+        "shared.spec.ts",
+        "keyboard-layers.spec.ts",
+        "keyboard-navigation.spec.ts",
+      ],
+      use: { viewport: { width: 1024, height: 768 } },
+    },
     {
       name: "mobile-390x844",
+      testMatch: [
+        "board-mobile.spec.ts",
+        "code-mobile.spec.ts",
+        "board-hierarchy.spec.ts",
+        "board-navigation-regression.spec.ts",
+        "shared.spec.ts",
+        "adapter-development.spec.ts",
+        "adapter-slots.spec.ts",
+        "github-pr.spec.ts",
+        "phase-three.spec.ts",
+        "keyboard-layers.spec.ts",
+        "keyboard-navigation.spec.ts",
+      ],
       use: {
         viewport: { width: 390, height: 844 },
         isMobile: true,
@@ -36,6 +60,7 @@ export default defineConfig({
     },
     {
       name: "mobile-360x740",
+      testMatch: ["shared.spec.ts"],
       use: {
         viewport: { width: 360, height: 740 },
         isMobile: true,

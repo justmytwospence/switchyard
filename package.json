@@ -16,6 +16,7 @@
     "test:tiers": "node scripts/check-test-tiers.mjs",
     "test:plugins": "node scripts/check-plugin-compat.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test --grep @smoke --project=desktop-1440x900 --project=mobile-390x844",
     "adapter:preview": "node scripts/preview-adapter.mjs",
     "lint": "biome check .",
     "format": "biome format --write .",

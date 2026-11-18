@@ -40,7 +40,7 @@ test.describe("desktop board", () => {
     await expect(column(page, "in_progress").getByRole("article").first()).toBeVisible();
   });
 
-  test("five columns, 288-360 px wide", async ({ page }) => {
+  test("five columns, 288-360 px wide", { tag: "@smoke" }, async ({ page }) => {
     for (const s of STATES) {
       const box = (await column(page, s).boundingBox())!;
       expect(box.width).toBeGreaterThanOrEqual(288);

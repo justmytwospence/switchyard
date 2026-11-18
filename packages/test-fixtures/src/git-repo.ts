@@ -37,7 +37,8 @@ export function makeRepo(opts: { remote?: string } = {}): TempRepo {
   return {
     path,
     cleanup() {
-      rmSync(path, { recursive: true, force: true });
+      // A host agent may still be writing into the repo while it is removed.
+      rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     },
   };
 }

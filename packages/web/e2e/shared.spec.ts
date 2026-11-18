@@ -18,7 +18,7 @@ async function settled(page: Page) {
 }
 
 test.describe("shared behavior", () => {
-  test("no page scrolls horizontally", async ({ page, signIn, state }, info) => {
+  test("no page scrolls horizontally", { tag: "@smoke" }, async ({ page, signIn, state }, info) => {
     await signIn();
     const paths = [
       "/code",

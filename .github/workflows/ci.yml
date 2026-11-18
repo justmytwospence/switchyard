@@ -53,6 +53,27 @@ jobs:
       # hanging-process names whatever keeps a worker alive if the run does not exit.
       - run: pnpm exec vitest run --shard=${{ matrix.shard }}/5 --reporter=default --reporter=hanging-process
 
+  # A browser smoke test against the real stack; gates promote.sh with the rest of the run.
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: npm install -g @earendil-works/pi-coding-agent@1.5.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e:smoke
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-results
+          path: test-results
+          retention-days: 7
+
   plugin-compat:
     runs-on: ubuntu-latest
     timeout-minutes: 10

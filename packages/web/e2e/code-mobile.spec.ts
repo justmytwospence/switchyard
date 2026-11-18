@@ -24,7 +24,10 @@ test.describe("mobile coding view", () => {
     await signIn();
   });
 
-  test("one surface at a time: Chat, Changes and Details", async ({ page, state }) => {
+  test("one surface at a time: Chat, Changes and Details", { tag: "@smoke" }, async ({
+    page,
+    state,
+  }) => {
     await page.goto(`/code/${state.sessions.long}`);
     const tabs = page.getByTestId("mobile-tabs");
     await expect(tabs).toBeVisible();

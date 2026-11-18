@@ -103,9 +103,9 @@ test.describe("owner sign-in", () => {
     test.skip(info.project.name !== "desktop-1440x900", "desktop project only");
   });
 
-  test("without single sign-on or a passkey, the page points to switchyard pair", async ({
-    page,
-  }) => {
+  test("without single sign-on or a passkey, the page points to switchyard pair", {
+    tag: "@smoke",
+  }, async ({ page }) => {
     const server = await startLocal();
     try {
       await page.goto(`${server.url}/`);

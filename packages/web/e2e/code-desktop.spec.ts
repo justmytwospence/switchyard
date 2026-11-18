@@ -271,28 +271,32 @@ test.describe("desktop coding view", () => {
     expect(box.height).toBeLessThan(28);
   });
 
-  test("Enter sends, Shift+Enter adds a newline", async ({ page, state, api }, info) => {
-    const id = await createSession(api, state, `Enter ${uid(info)}`, "hello there");
-    const prompts = promptRequests(page, id);
-    await page.goto(`/code/${id}`);
-    const box = page.getByLabel("Message to Pi");
-    await box.click();
-    await page.keyboard.type("first line");
-    await page.keyboard.press("Shift+Enter");
-    await page.keyboard.type("second line");
-    await expect(box).toHaveValue("first line\nsecond line");
-    expect(prompts).toHaveLength(0);
+  test(
+    "Enter sends, Shift+Enter adds a newline",
+    { tag: "@smoke" },
+    async ({ page, state, api }, info) => {
+      const id = await createSession(api, state, `Enter ${uid(info)}`, "hello there");
+      const prompts = promptRequests(page, id);
+      await page.goto(`/code/${id}`);
+      const box = page.getByLabel("Message to Pi");
+      await box.click();
+      await page.keyboard.type("first line");
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("second line");
+      await expect(box).toHaveValue("first line\nsecond line");
+      expect(prompts).toHaveLength(0);
 
-    const sent = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/prompt`),
-    );
-    await page.keyboard.press("Enter");
-    const req = await sent;
-    expect(req.postDataJSON().text).toBe("first line\nsecond line");
-    await expect(box).toHaveValue("");
-    await expect(page.getByTestId("transcript").getByText("Received: first line")).toBeVisible();
-    expect(prompts).toHaveLength(1);
-  });
+      const sent = page.waitForRequest(
+        (r) => r.method() === "POST" && r.url().endsWith(`/api/sessions/${id}/prompt`),
+      );
+      await page.keyboard.press("Enter");
+      const req = await sent;
+      expect(req.postDataJSON().text).toBe("first line\nsecond line");
+      await expect(box).toHaveValue("");
+      await expect(page.getByTestId("transcript").getByText("Received: first line")).toBeVisible();
+      expect(prompts).toHaveLength(1);
+    },
+  );
 
   test("model popover and slash picker list every command", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
@@ -379,37 +383,41 @@ test.describe("desktop coding view", () => {
     await expect(composer.getByRole("button", { name: "Effort: high" })).toBeVisible();
   });
 
-  test("Files: tree, highlighted preview and markdown", async ({ page, state }, info) => {
-    test.skip(viewportOf(info) !== "desktop", "Desktop only");
-    await page.goto(`/code/${state.sessions.long}`);
-    const inspector = page.getByTestId("inspector");
-    await inspector.getByRole("tab", { name: /Files/ }).click();
-    const tree = inspector.getByRole("tree", { name: "Workspace files" });
-    const src = tree.getByRole("treeitem", { name: /^src/ });
-    await expect(src.getByTitle("Contains changes")).toBeVisible();
-    await src.click();
-    const wide = tree.getByRole("treeitem", { name: /wide\.ts/ });
-    await expect(wide.getByTitle(/Added|Modified|Untracked/)).toBeVisible();
-    await wide.click();
-    await expect(inspector.getByRole("heading", { name: "wide.ts" })).toBeVisible();
-    const code = inspector.getByRole("region", { name: "File contents" });
-    await expect(code).toBeVisible();
-    await expect(code).toContainText("export const short = 1;");
-    await expect
-      .poll(() => code.locator(".sy-code span[style], span[style]").count())
-      .toBeGreaterThan(0);
-    await inspector.getByRole("button", { name: "Wrap lines" }).click();
-    await expect(inspector.getByRole("button", { name: "Don't wrap lines" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await inspector.getByRole("button", { name: "Back to files" }).click();
-    await tree.getByRole("treeitem", { name: /^docs/ }).click();
-    await tree.getByRole("treeitem", { name: /guide\.md/ }).click();
-    await expect(inspector.getByRole("heading", { name: "Guide" })).toBeVisible();
-    await inspector.getByRole("radio", { name: "Source" }).click();
-    await expect(inspector.getByRole("region", { name: "File contents" })).toBeVisible();
-  });
+  test(
+    "Files: tree, highlighted preview and markdown",
+    { tag: "@smoke" },
+    async ({ page, state }, info) => {
+      test.skip(viewportOf(info) !== "desktop", "Desktop only");
+      await page.goto(`/code/${state.sessions.long}`);
+      const inspector = page.getByTestId("inspector");
+      await inspector.getByRole("tab", { name: /Files/ }).click();
+      const tree = inspector.getByRole("tree", { name: "Workspace files" });
+      const src = tree.getByRole("treeitem", { name: /^src/ });
+      await expect(src.getByTitle("Contains changes")).toBeVisible();
+      await src.click();
+      const wide = tree.getByRole("treeitem", { name: /wide\.ts/ });
+      await expect(wide.getByTitle(/Added|Modified|Untracked/)).toBeVisible();
+      await wide.click();
+      await expect(inspector.getByRole("heading", { name: "wide.ts" })).toBeVisible();
+      const code = inspector.getByRole("region", { name: "File contents" });
+      await expect(code).toBeVisible();
+      await expect(code).toContainText("export const short = 1;");
+      await expect
+        .poll(() => code.locator(".sy-code span[style], span[style]").count())
+        .toBeGreaterThan(0);
+      await inspector.getByRole("button", { name: "Wrap lines" }).click();
+      await expect(inspector.getByRole("button", { name: "Don't wrap lines" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await inspector.getByRole("button", { name: "Back to files" }).click();
+      await tree.getByRole("treeitem", { name: /^docs/ }).click();
+      await tree.getByRole("treeitem", { name: /guide\.md/ }).click();
+      await expect(inspector.getByRole("heading", { name: "Guide", exact: true })).toBeVisible();
+      await inspector.getByRole("radio", { name: "Source" }).click();
+      await expect(inspector.getByRole("region", { name: "File contents" })).toBeVisible();
+    },
+  );
 
   test("inspector tabs keep their state and share one diff", async ({ page, state }, info) => {
     test.skip(viewportOf(info) !== "desktop", "Desktop only");
@@ -433,30 +441,34 @@ test.describe("desktop coding view", () => {
     expect(diffs).toHaveLength(1);
   });
 
-  test("the Changes tab lists commits and narrows the diff", async ({ page, state }, info) => {
-    test.skip(viewportOf(info) !== "desktop", "Desktop only");
-    await page.goto(`/code/${state.sessions.long}`);
-    const inspector = page.getByTestId("inspector");
-    await inspector.getByRole("tab", { name: /Changes/ }).click();
-    const list = inspector.getByRole("list", { name: "Commits" });
-    const all = list.getByRole("button", { name: /^All changes/ });
-    await expect(all).toHaveAttribute("aria-current", "true");
-    const divider = inspector.getByRole("separator", { name: "Resize commit list" });
-    const before = Number(await divider.getAttribute("aria-valuenow"));
-    await divider.focus();
-    await page.keyboard.press("ArrowDown");
-    await expect(divider).toHaveAttribute("aria-valuenow", String(before + 16));
-    await divider.press("Enter");
-    const rows = list.getByRole("button");
-    const first = rows.filter({ hasNotText: /^(All changes|Uncommitted)/ }).first();
-    await expect(first).toBeVisible();
-    await first.click();
-    await expect(first).toHaveAttribute("aria-current", "true");
-    await expect(inspector.getByText(/^Commit [0-9a-f]{7}/)).toBeVisible();
-    await all.click();
-    await expect(inspector.getByText(/^Against .+ · updated /)).toBeVisible();
-    await expect(inspector.getByText(/^Commit [0-9a-f]{7}/)).toHaveCount(0);
-  });
+  test(
+    "the Changes tab lists commits and narrows the diff",
+    { tag: "@smoke" },
+    async ({ page, state }, info) => {
+      test.skip(viewportOf(info) !== "desktop", "Desktop only");
+      await page.goto(`/code/${state.sessions.long}`);
+      const inspector = page.getByTestId("inspector");
+      await inspector.getByRole("tab", { name: /Changes/ }).click();
+      const list = inspector.getByRole("list", { name: "Commits" });
+      const all = list.getByRole("button", { name: /^All changes/ });
+      await expect(all).toHaveAttribute("aria-current", "true");
+      const divider = inspector.getByRole("separator", { name: "Resize commit list" });
+      const before = Number(await divider.getAttribute("aria-valuenow"));
+      await divider.focus();
+      await page.keyboard.press("ArrowDown");
+      await expect(divider).toHaveAttribute("aria-valuenow", String(before + 16));
+      await divider.press("Enter");
+      const rows = list.getByRole("button");
+      const first = rows.filter({ hasNotText: /^(All changes|Uncommitted)/ }).first();
+      await expect(first).toBeVisible();
+      await first.click();
+      await expect(first).toHaveAttribute("aria-current", "true");
+      await expect(inspector.getByText(/^Commit [0-9a-f]{7}/)).toBeVisible();
+      await all.click();
+      await expect(inspector.getByText(/^Against .+ · updated /)).toBeVisible();
+      await expect(inspector.getByText(/^Commit [0-9a-f]{7}/)).toHaveCount(0);
+    },
+  );
 
   test("review comments are batched into one follow-up", async ({ page, state, api }, info) => {
     const id = await createSession(api, state, `Review ${uid(info)}`, "hello review");

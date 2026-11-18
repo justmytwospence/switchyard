@@ -8,7 +8,8 @@ pnpm build      # tsc -b for every TypeScript package, then the web bundle
 pnpm lint       # Biome
 pnpm test       # Vitest, all packages
 pnpm test:fast  # Vitest without slow files (no coordinator, Pi or processes), seconds
-pnpm test:e2e   # Playwright, the web app at four viewport sizes
+pnpm test:e2e   # Playwright: every spec on desktop, layout specs at compact and phone sizes
+pnpm test:e2e:smoke  # the @smoke subset CI runs
 ```
 
 Register the pre-push check once per clone (worktrees share it): `git config hook.switchyard-check.command scripts/pre-push.sh && git config hook.switchyard-check.event pre-push`. It runs Biome, `tsc -b` and `pnpm test:fast`.
