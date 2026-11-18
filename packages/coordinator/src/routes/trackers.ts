@@ -91,9 +91,10 @@ export function registerTrackerRoutes(app: FastifyInstance, ctx: CoordinatorCont
 
   app.get("/api/issues", async () => store.issues.list(undefined, [], "created_at, rowid"));
 
-  app.post("/api/issues/:id/open", async (req) => {
-    parse(OpenIssueRequest, req.body ?? {});
-    return service().startIssue(idOf(req));
+  app.post("/api/issues/:id/open", async (req, reply) => {
+    const body = parse(OpenIssueRequest, req.body ?? {});
+    const result = await service().openIssue(idOf(req), body);
+    return reply.code(result.created ? 202 : 200).send(result);
   });
 
   app.post("/api/issues/:id/status", async (req) => {

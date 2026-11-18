@@ -24,9 +24,9 @@ import {
   SessionModelsResult,
   SessionTreeResult,
   SetModelRequest,
+  SetPrimaryRequest,
   SetThinkingRequest,
   SwitchyardError,
-  sessionInView,
   TranscriptItem,
 } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
@@ -38,6 +38,7 @@ import { archiveSession, returnToAutomation, stopSession, takeover } from "../se
 import {
   createSession,
   LIVE_RUNTIMES,
+  pinIfOutsideView,
   requireConnected,
   requireUsableHost,
   resetTranscript,
@@ -256,21 +257,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     // Validate the view first so nothing is created on error.
     const view = body.viewId ? ctx.store.views.require(body.viewId) : null;
     const { session } = createSession(ctx, body);
-    if (view) {
-      ctx.store.tx(() => {
-        const cur = ctx.store.views.require(view.id);
-        const workspaces = Object.fromEntries(ctx.store.workspaces.list().map((w) => [w.id, w]));
-        const fresh = ctx.store.sessions.get(session.id) ?? session;
-        if (cur.sessionIds.includes(fresh.id)) return;
-        if (cur.mode === "pinned" || !sessionInView(cur, fresh, workspaces)) {
-          ctx.store.putView({
-            ...cur,
-            sessionIds: [...cur.sessionIds, fresh.id],
-            updatedAt: ctx.store.nowIso(),
-          });
-        }
-      });
-    }
+    if (view) pinIfOutsideView(ctx, view.id, session.id);
     return reply.code(202).send(session);
   });
 
@@ -629,6 +616,28 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
    * offline if its Pi process may still be live (nothing could stop it or confirm it is gone).
    */
   app.post("/api/sessions/:id/archive", async (req) => archiveSession(ctx, idOf(req)));
+
+  app.post("/api/sessions/:id/primary", async (req) => {
+    const body = parse(SetPrimaryRequest, req.body);
+    return ctx.store.tx(() => {
+      const cur = get(idOf(req));
+      if (cur.provenance === "subagent")
+        throw new SwitchyardError("invalid_request", "Subagent sessions cannot be primary");
+      if (cur.archivedAt) throw new SwitchyardError("conflict", "Unarchive the session first");
+      if (body.primary) {
+        const peers = cur.workspaceId
+          ? ctx.store.sessions.list("workspace_id = ? AND archived_at IS NULL", [cur.workspaceId])
+          : ctx.store.sessions
+              .list("host_id = ? AND archived_at IS NULL", [cur.hostId])
+              .filter((s) => s.workspaceId === null && s.cwd === cur.cwd);
+        for (const s of peers) {
+          if (s.id !== cur.id && s.primary) ctx.store.putSession({ ...s, primary: false });
+        }
+      }
+      if ((cur.primary ?? false) === body.primary) return cur;
+      return ctx.store.putSession({ ...cur, primary: body.primary });
+    });
+  });
 
   app.post("/api/sessions/:id/unarchive", async (req) =>
     ctx.store.tx(() => {

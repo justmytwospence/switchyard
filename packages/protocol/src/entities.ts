@@ -351,6 +351,12 @@ export const Session = z.object({
     .object({ client: z.string().min(1).max(200).nullable() })
     .nullable()
     .optional(),
+  /** The session this subagent was started by (coordinator-owned). */
+  parentSessionId: Id.nullable().optional(),
+  /** Chosen as its branch's primary session (coordinator-owned); without one the primary is derived. */
+  primary: z.boolean().optional(),
+  /** The surface this Pi was started in, e.g. `herdr:default@mac` (coordinator-owned, set once). */
+  startedIn: z.string().min(1).max(200).nullable().optional(),
   /** Set when the session finished or failed with nobody viewing it; cleared when viewed (coordinator-owned). */
   unreadSince: Iso.nullable().optional(),
   /** Identity of the adapter presentation currently installed on the host. */

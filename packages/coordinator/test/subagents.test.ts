@@ -77,6 +77,7 @@ describe("subagent sessions", () => {
     const sub = h.t.c.store.sessions.require(linkedId!);
     expect(sub).toMatchObject({
       provenance: "subagent",
+      parentSessionId: parent.id,
       readOnly: true,
       runtime: "stopped",
       hostId: parent.hostId,
@@ -134,5 +135,22 @@ describe("subagent sessions", () => {
     const offline = await h.t.admin("GET", `/api/sessions/${sub.id}/transcript`);
     expect(offline.status).toBe(200);
     expect(offline.body.items).toHaveLength(2);
+  });
+
+  it("heals a subagent session without a parent on the next item", async () => {
+    h = await setupHarness();
+    const { run } = await startRun(h);
+    const parent = h.t.c.store.sessions.require(run.sessionId!);
+    await h.host.event("transcript.item", subagentItem(parent.id, "running"), {
+      sessionId: parent.id,
+    });
+    const store = h.t.c.store;
+    const sub = store.sessions.list().find((x) => x.provenance === "subagent")!;
+    const { parentSessionId: _p, ...legacy } = sub;
+    store.putSession(legacy);
+    await h.host.event("transcript.item", subagentItem(parent.id, "running"), {
+      sessionId: parent.id,
+    });
+    expect(store.sessions.require(sub.id).parentSessionId).toBe(parent.id);
   });
 });

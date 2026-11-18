@@ -20,6 +20,39 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("016 backfills subagent parents and startedIn", () => {
+    const db = dbAt(15);
+    const put = db.prepare(
+      "INSERT INTO sessions (id, host_id, runtime, last_activity_at, json) VALUES (?, ?, ?, ?, ?)",
+    );
+    put.run("ses_parent", "hst_1", "idle", "2026", JSON.stringify({ id: "ses_parent" }));
+    put.run("ses_sub", "hst_1", "stopped", "2026", JSON.stringify({ id: "ses_sub" }));
+    put.run(
+      "ses_ext",
+      "hst_1",
+      "idle",
+      "2026",
+      JSON.stringify({ id: "ses_ext", external: { client: "herdr:default@mac" } }),
+    );
+    db.prepare(
+      "INSERT INTO session_items (session_id, item_id, ord, json) VALUES (?, ?, ?, ?)",
+    ).run(
+      "ses_parent",
+      "itm_1",
+      1,
+      JSON.stringify({ kind: "subagent", data: { linkedSessionId: "ses_sub" } }),
+    );
+    migrate(db);
+    const json = (id: string) =>
+      JSON.parse(
+        (db.prepare("SELECT json FROM sessions WHERE id = ?").get(id) as { json: string }).json,
+      );
+    expect(json("ses_sub").parentSessionId).toBe("ses_parent");
+    expect(json("ses_parent").parentSessionId).toBeUndefined();
+    expect(json("ses_ext").startedIn).toBe("herdr:default@mac");
+    db.close();
+  });
+
   it("015 adds tracked_issues and re-keys tracker settings", () => {
     const db = dbAt(14);
     db.prepare(

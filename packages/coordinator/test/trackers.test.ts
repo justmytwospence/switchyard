@@ -3,7 +3,7 @@ import type { HostCommand, Task, Tracker, TrackerItem } from "@switchyard/protoc
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/index.js";
 import { inScope, issueBranch, mergeSyncResults } from "../src/trackers.js";
-import { enrollHost, FakeHost } from "./helpers.js";
+import { enrollHost, FakeHost, until } from "./helpers.js";
 import {
   commandsOf,
   type Harness,
@@ -329,31 +329,76 @@ describe("tracker sync", () => {
   });
 });
 
-describe("start", () => {
-  it("creates the linked branch with gh on the tracker's host", async () => {
+async function secondHost(opts: { defaultHost: boolean }) {
+  const creds2 = await enrollHost(h.t, "second");
+  const host2 = await FakeHost.connect(
+    h.t,
+    creds2,
+    smartHandler(new HostState(), () => h.override),
+  );
+  store().putCheckout({
+    id: "chk_second",
+    projectId: h.project.id,
+    hostId: creds2.hostId,
+    path: "/other/app",
+    commonDir: "/other/app/.git",
+    defaultBranch: "main",
+    createdAt: store().nowIso(),
+  });
+  if (opts.defaultHost) {
+    store().putProject({
+      ...store().projects.require(h.project.id),
+      defaultHostId: creds2.hostId,
+    });
+  }
+  return host2;
+}
+
+describe("open", () => {
+  it("creates the linked branch with gh, then opens a session in its worktree", async () => {
     items = [item(4, { title: "Fix: the login page!" })];
     const t = await create();
     const [issue] = tracked(t.id);
     const r = await h.t.admin("POST", `/api/issues/${encodeURIComponent(issue!.id)}/open`, {});
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(202);
     expect(commandsOf(h.host, "tracker.startIssue")[0]).toMatchObject({
       repository: REPO,
       number: 4,
       branch: "4-fix-the-login-page",
       base: "main",
     });
+    expect(r.body).toMatchObject({ created: true, session: { title: "#4 Fix: the login page!" } });
+    expect(commandsOf(h.host, "workspace.create")).toEqual([
+      expect.objectContaining({ branch: "4-fix-the-login-page" }),
+    ]);
     expect(store().issues.require(issue!.id).branch).toBe("4-fix-the-login-page");
+  });
+
+  it("returns the existing primary session the second time", async () => {
+    items = [item(6, { title: "Again" })];
+    const t = await create();
+    const [issue] = tracked(t.id);
+    const path = `/api/issues/${encodeURIComponent(issue!.id)}/open`;
+    const first = await h.t.admin("POST", path, {});
+    await until(() => store().sessions.require(first.body.session.id).workspaceId !== null);
+    const second = await h.t.admin("POST", path, {});
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ created: false, session: { id: first.body.session.id } });
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(1);
   });
 
   it("works without a checkout on the tracker's host", async () => {
     items = [item(5, { title: "Local only" })];
     const t = await create();
+    const host2 = await secondHost({ defaultHost: true });
     store().checkouts.delete(h.project.checkouts[0]!.id);
     const [issue] = tracked(t.id);
     const r = await h.t.admin("POST", `/api/issues/${encodeURIComponent(issue!.id)}/open`, {});
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(202);
     expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
     expect(store().issues.require(issue!.id).branch).toBe(issueBranch(5, "Local only"));
+    await until(() => commandsOf(host2, "workspace.create").length === 1);
+    await host2.close();
   });
 
   it("names branches from the number and title", () => {
@@ -364,26 +409,7 @@ describe("start", () => {
 
 describe("work host", () => {
   it("makes the worktree on the project's default host, not the tracker's", async () => {
-    const creds2 = await enrollHost(h.t, "second");
-    const host2 = await FakeHost.connect(
-      h.t,
-      creds2,
-      smartHandler(new HostState(), () => h.override),
-    );
-    const now = store().nowIso();
-    store().putCheckout({
-      id: "chk_second",
-      projectId: h.project.id,
-      hostId: creds2.hostId,
-      path: "/other/app",
-      commonDir: "/other/app/.git",
-      defaultBranch: "main",
-      createdAt: now,
-    });
-    store().putProject({
-      ...store().projects.require(h.project.id),
-      defaultHostId: creds2.hostId,
-    });
+    const host2 = await secondHost({ defaultHost: true });
     items = [item(1, { branches: ["feat/y"] })];
     await create();
     expect(commandsOf(host2, "workspace.create")).toHaveLength(1);

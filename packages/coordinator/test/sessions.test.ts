@@ -380,6 +380,27 @@ describe("sessions", () => {
     expect(s.nativeHandle?.sessionFile).toBe(`/s/n-${r.body.id}.jsonl`);
   });
 
+  it("sets and clears the primary session, one per workspace", async () => {
+    const { project } = await setup();
+    const main = project.workspaces.find((w: { provenance: string }) => w.provenance === "main");
+    const make = async () =>
+      (
+        await t!.admin("POST", "/api/sessions", {
+          projectId: project.id,
+          workspace: { existingId: main.id },
+          prompt: "",
+        })
+      ).body.id as string;
+    const a = await make();
+    const b = await make();
+    const set = (id: string, primary: boolean) =>
+      t!.admin("POST", `/api/sessions/${id}/primary`, { primary });
+    expect((await set(a, true)).body.primary).toBe(true);
+    expect((await set(b, true)).body.primary).toBe(true);
+    expect(t!.c.store.sessions.require(a).primary).toBe(false);
+    expect((await set(b, false)).body.primary).toBe(false);
+  });
+
   it("marks the session failed with an error item when the host refuses", async () => {
     const { project } = await setup();
     host!.handler = (cmd) =>

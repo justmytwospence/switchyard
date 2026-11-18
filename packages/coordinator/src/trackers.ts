@@ -1,6 +1,7 @@
 import {
   newId,
   type Project,
+  type Session,
   SwitchyardError,
   type Task,
   type TrackedIssue,
@@ -11,6 +12,7 @@ import {
   trackedIssueId,
   type View,
 } from "@switchyard/protocol";
+import { openBranch } from "./branches.js";
 import type { CoordinatorContext } from "./context.js";
 import { createWorkspace } from "./sessions/service.js";
 import { refreshCheckoutWorkspaces } from "./workspaces.js";
@@ -457,7 +459,7 @@ export class TrackerService {
    * Give an issue a branch: its linked branch, else create one named `<number>-<title>` (as a
    * linked branch on GitHub when the tracker's host has a checkout, else only locally).
    */
-  async startIssue(issueId: string): Promise<TrackedIssue> {
+  private async startIssue(issueId: string): Promise<TrackedIssue> {
     const { store, hostHub } = this.ctx;
     const issue = store.issues.require(issueId);
     const tracker = store.trackers.require(issue.trackerId);
@@ -489,6 +491,41 @@ export class TrackerService {
       });
     }
     return store.issues.require(issueId);
+  }
+
+  /**
+   * Start or open an issue: give it a branch, then open that branch (its primary session, or a
+   * new idle session titled after the issue, making the worktree when needed).
+   */
+  async openIssue(
+    issueId: string,
+    opts: { hostId?: string | undefined; viewId?: string | undefined } = {},
+  ): Promise<{ session: Session; created: boolean }> {
+    const { store } = this.ctx;
+    const issue = await this.startIssue(issueId);
+    const branch = issue.branch ?? issue.branches[0];
+    if (!branch) throw new SwitchyardError("conflict", "This issue has no branch");
+    const result = await openBranch(this.ctx, {
+      projectId: issue.projectId,
+      branch,
+      hostId: opts.hostId,
+      viewId: opts.viewId,
+      prompt: "",
+      title: `#${issue.number} ${issue.title}`.slice(0, 120),
+    });
+    const wsId = result.session.workspaceId;
+    store.tx(() => {
+      const cur = store.issues.get(issueId);
+      if (!cur) return;
+      if (cur.branch === branch && (wsId === null || cur.workspaceId === wsId)) return;
+      store.putIssue({
+        ...cur,
+        branch,
+        ...(wsId ? { workspaceId: wsId } : {}),
+        updatedAt: store.nowIso(),
+      });
+    });
+    return result;
   }
 
   /** Set a card's board column by hand. */

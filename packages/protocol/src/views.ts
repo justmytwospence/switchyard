@@ -3,7 +3,7 @@ import type { Session, Task, View, ViewClient, Workspace } from "./entities.js";
 /** A client counts as open in a view while its last report is younger than this. */
 export const CLIENT_OPEN_MS = 10 * 60_000;
 
-type WorkspaceLookup =
+export type WorkspaceLookup =
   | Record<string, Pick<Workspace, "projectId">>
   | Map<string, Pick<Workspace, "projectId">>;
 

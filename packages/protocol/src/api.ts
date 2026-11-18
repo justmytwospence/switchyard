@@ -148,6 +148,24 @@ export const CreateSessionRequest = z.object({
   viewId: z.string().optional(),
 });
 
+/** Open a project's branch: its primary session, else a new session (and worktree if needed). */
+export const OpenBranchRequest = z.object({
+  projectId: z.string(),
+  branch: z.string().min(1),
+  hostId: z.string().optional(),
+  base: z.string().nullable().optional(),
+  prompt: z.string().default(""),
+  profileId: z.string().nullable().optional(),
+  title: z.string().optional(),
+  viewId: z.string().optional(),
+  /** Start another session even when the branch has one. */
+  another: z.boolean().default(false),
+});
+export type OpenBranchRequest = z.input<typeof OpenBranchRequest>;
+export const OpenBranchResult = z.object({ session: Session, created: z.boolean() });
+export type OpenBranchResult = z.infer<typeof OpenBranchResult>;
+export const SetPrimaryRequest = z.object({ primary: z.boolean() });
+
 export const PromptRequest = z.object({
   text: z.string().min(1),
   mode: z.enum(["prompt", "steer", "followUp"]).default("prompt"),

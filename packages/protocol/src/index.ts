@@ -3,6 +3,7 @@ export * from "./adapters.js";
 export * from "./agent-wire.js";
 export * from "./api.js";
 export * from "./backoff.js";
+export * from "./branches.js";
 export * from "./client-wire.js";
 export * from "./contributions.js";
 export * from "./entities.js";

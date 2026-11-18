@@ -23,6 +23,7 @@ import { Passkeys } from "./passkeys.js";
 import { AUTH_RATE_LIMIT, HOSTS_RATE_LIMIT, RateLimiter } from "./rate-limit.js";
 import { registerAttentionRoutes } from "./routes/attention.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerBranchRoutes } from "./routes/branches.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerGitHubRoutes } from "./routes/github.js";
 import { registerHostRoutes } from "./routes/hosts.js";
@@ -325,6 +326,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
   registerHostRoutes(app, ctx);
   registerProjectRoutes(app, ctx);
   registerWorkspaceRoutes(app, ctx);
+  registerBranchRoutes(app, ctx);
   registerGitHubRoutes(app, ctx);
   registerProfileRoutes(app, ctx);
   registerViewRoutes(app, ctx);

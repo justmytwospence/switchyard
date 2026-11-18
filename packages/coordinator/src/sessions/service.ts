@@ -7,6 +7,7 @@ import {
   type Project,
   type Session,
   SwitchyardError,
+  sessionInView,
   type TranscriptItem,
   titleFrom,
   type Workspace,
@@ -195,6 +196,24 @@ export async function startOnHost(
 export type WorkspaceChoice =
   | { existingId: string }
   | { checkoutId: string; newBranch: string; base?: string | null };
+
+/** Pin a session to a view when the view would not show it otherwise. */
+export function pinIfOutsideView(ctx: CoordinatorContext, viewId: string, sessionId: string): void {
+  const { store } = ctx;
+  store.tx(() => {
+    const cur = store.views.get(viewId);
+    const fresh = store.sessions.get(sessionId);
+    if (!cur || !fresh || cur.sessionIds.includes(fresh.id)) return;
+    const workspaces = Object.fromEntries(store.workspaces.list().map((w) => [w.id, w]));
+    if (cur.mode === "pinned" || !sessionInView(cur, fresh, workspaces)) {
+      store.putView({
+        ...cur,
+        sessionIds: [...cur.sessionIds, fresh.id],
+        updatedAt: store.nowIso(),
+      });
+    }
+  });
+}
 
 /** Create a workspace through the host and record it. */
 export async function createWorkspace(

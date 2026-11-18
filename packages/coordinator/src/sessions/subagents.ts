@@ -40,6 +40,7 @@ export function linkSubagentItem(
       runId: null,
       taskId: null,
       provenance: "subagent",
+      parentSessionId: parent.id,
       readOnly: true,
       lastActivityAt: now,
       archivedAt: null,
@@ -48,8 +49,17 @@ export function linkSubagentItem(
       lastAssistantText: null,
       createdAt: now,
     });
-  } else if (sub.provenance === "subagent" && sub.subtitle !== item.data.status) {
-    sub = store.putSession({ ...sub, subtitle: item.data.status, lastActivityAt: now });
+  } else if (
+    sub.provenance === "subagent" &&
+    (sub.subtitle !== item.data.status || sub.parentSessionId !== parent.id)
+  ) {
+    const changed = sub.subtitle !== item.data.status;
+    sub = store.putSession({
+      ...sub,
+      subtitle: item.data.status,
+      parentSessionId: parent.id,
+      ...(changed ? { lastActivityAt: now } : {}),
+    });
   }
   if (item.data.linkedSessionId === sub.id) return item;
   return { ...item, data: { ...item.data, linkedSessionId: sub.id } };
