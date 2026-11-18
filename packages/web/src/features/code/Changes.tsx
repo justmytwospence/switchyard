@@ -759,11 +759,9 @@ export function ChangesTab({ ctx, diff: full }: { ctx: SessionContext; diff: Wor
         onScope={pick}
         base={full.result?.base ?? null}
       />
-      <RefreshRow
-        diff={diff}
-        label={scopeLabel(scope, diff.result?.base ?? null)}
-        onRefresh={refresh}
-      />
+      {diff.result && (
+        <RefreshRow diff={diff} label={scopeLabel(scope, diff.result.base)} onRefresh={refresh} />
+      )}
       {diff.error !== null && !diff.result ? (
         <ErrorState
           compact
@@ -876,11 +874,13 @@ export function MobileChanges({ ctx }: { ctx: SessionContext }) {
             base={full.result?.base ?? null}
             large
           />
-          <RefreshRow
-            diff={diff}
-            label={scopeLabel(scope, diff.result?.base ?? null)}
-            onRefresh={refresh}
-          />
+          {diff.result && (
+            <RefreshRow
+              diff={diff}
+              label={scopeLabel(scope, diff.result.base)}
+              onRefresh={refresh}
+            />
+          )}
           {diff.error !== null && !diff.result ? (
             <ErrorState title="Could not load changes" error={diff.error} onRetry={diff.refresh} />
           ) : !diff.result ? (
