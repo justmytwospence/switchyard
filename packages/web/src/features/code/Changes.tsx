@@ -18,6 +18,7 @@ import { type DiffFile, parseUnifiedDiff } from "../../components/intent/diff";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
+import { Splitter } from "../../components/ui/Splitter";
 import {
   EmptyState,
   ErrorState,
@@ -29,6 +30,7 @@ import { TextArea } from "../../components/ui/TextArea";
 import { formatReviewFollowUp, type ReviewComment, useReviewComments } from "../../drafts";
 import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
+import { useFilter } from "../../prefs";
 import { errorMessage, isApiError } from "../../sync/api";
 import { codeApi } from "./api";
 import {
@@ -205,6 +207,9 @@ function ScopeRow({
   );
 }
 
+/** Height limits of the desktop commit list (px). */
+const COMMITS_HEIGHT = { min: 72, default: 224, max: 640 };
+
 /** The branch's commits as a picker: all changes, uncommitted work, or one commit. */
 function ScopePicker({
   log,
@@ -213,6 +218,7 @@ function ScopePicker({
   onScope,
   base,
   large,
+  resizable,
 }: {
   log: LogResult | null;
   unsupported: boolean;
@@ -220,7 +226,10 @@ function ScopePicker({
   onScope: (s: DiffScope) => void;
   base: string | null;
   large?: boolean;
+  /** Desktop: a fixed-height list with a divider below it to resize it. */
+  resizable?: boolean;
 }) {
+  const [height, setHeight] = useFilter<number>("changesCommitsHeight", COMMITS_HEIGHT.default);
   if (unsupported) {
     return <p className="text-xs text-muted">Update this host's agent to see commits.</p>;
   }
@@ -229,7 +238,11 @@ function ScopePicker({
   return (
     <section className="flex min-w-0 flex-col gap-1">
       <h3 className="text-xs font-semibold text-muted">{commitsHeading(log)}</h3>
-      <ul aria-label="Commits" className="flex max-h-56 min-w-0 flex-col overflow-y-auto">
+      <ul
+        aria-label="Commits"
+        className={cn("flex min-w-0 flex-col overflow-y-auto", !resizable && "max-h-56")}
+        style={resizable ? { maxHeight: height } : undefined}
+      >
         <ScopeRow
           title="All changes"
           detail={`Against ${base ?? log.base}`}
@@ -259,6 +272,18 @@ function ScopePicker({
       </ul>
       {log.truncated && (
         <p className="text-xs text-muted">Showing the latest {log.commits.length} commits.</p>
+      )}
+      {resizable && (
+        <Splitter
+          orientation="horizontal"
+          label="Resize commit list"
+          value={height}
+          min={COMMITS_HEIGHT.min}
+          max={COMMITS_HEIGHT.max}
+          onChange={setHeight}
+          onReset={() => setHeight(COMMITS_HEIGHT.default)}
+          className="my-1"
+        />
       )}
     </section>
   );
@@ -758,6 +783,7 @@ export function ChangesTab({ ctx, diff: full }: { ctx: SessionContext; diff: Wor
         scope={scope}
         onScope={pick}
         base={full.result?.base ?? null}
+        resizable
       />
       {diff.result && (
         <RefreshRow diff={diff} label={scopeLabel(scope, diff.result.base)} onRefresh={refresh} />

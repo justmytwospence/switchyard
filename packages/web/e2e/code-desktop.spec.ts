@@ -441,6 +441,12 @@ test.describe("desktop coding view", () => {
     const list = inspector.getByRole("list", { name: "Commits" });
     const all = list.getByRole("button", { name: /^All changes/ });
     await expect(all).toHaveAttribute("aria-current", "true");
+    const divider = inspector.getByRole("separator", { name: "Resize commit list" });
+    const before = Number(await divider.getAttribute("aria-valuenow"));
+    await divider.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(divider).toHaveAttribute("aria-valuenow", String(before + 16));
+    await divider.press("Enter");
     const rows = list.getByRole("button");
     const first = rows.filter({ hasNotText: /^(All changes|Uncommitted)/ }).first();
     await expect(first).toBeVisible();

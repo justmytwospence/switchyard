@@ -18,10 +18,15 @@ export interface SplitterProps {
   step?: number;
   /** Called on double-click / Enter to reset. */
   onReset?: () => void;
+  /**
+   * "vertical" (default): a column divider between side-by-side panes, dragged left and right.
+   * "horizontal": a row divider between stacked panes, dragged up and down ("before" is above).
+   */
+  orientation?: "vertical" | "horizontal";
   className?: string;
 }
 
-/** Vertical resize handle with clamping, pointer drag and keyboard arrows (role=separator). */
+/** Resize handle with clamping, pointer drag and keyboard arrows (role=separator). */
 export function Splitter({
   value,
   min,
@@ -31,34 +36,40 @@ export function Splitter({
   pane = "before",
   step = 16,
   onReset,
+  orientation = "vertical",
   className,
 }: SplitterProps) {
   const start = useRef<{ x: number; value: number } | null>(null);
   const clamp = (v: number) => Math.round(Math.min(max, Math.max(min, v)));
   const sign = pane === "before" ? 1 : -1;
+  const row = orientation === "horizontal";
+  const grow = row ? "ArrowDown" : "ArrowRight";
+  const shrink = row ? "ArrowUp" : "ArrowLeft";
   return (
     // biome-ignore lint/a11y/useSemanticElements: an interactive separator needs role="separator" with focus
     <div
       role="separator"
-      aria-orientation="vertical"
+      aria-orientation={orientation}
       aria-label={label}
       aria-valuenow={Math.round(value)}
       aria-valuemin={min}
       aria-valuemax={max}
       tabIndex={0}
       className={cn(
-        "group relative z-10 w-1.5 shrink-0 cursor-col-resize touch-none select-none",
+        "group relative z-10 shrink-0 touch-none select-none",
+        row ? "h-1.5 w-full cursor-row-resize" : "w-1.5 cursor-col-resize",
         "focus-visible:outline-none",
         className,
       )}
       onPointerDown={(e) => {
         e.preventDefault();
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        start.current = { x: e.clientX, value };
+        start.current = { x: row ? e.clientY : e.clientX, value };
       }}
       onPointerMove={(e) => {
         if (!start.current) return;
-        onChange(clamp(start.current.value + sign * (e.clientX - start.current.x)));
+        const at = row ? e.clientY : e.clientX;
+        onChange(clamp(start.current.value + sign * (at - start.current.x)));
       }}
       onPointerUp={(e) => {
         start.current = null;
@@ -70,8 +81,8 @@ export function Splitter({
       onDoubleClick={onReset}
       onKeyDown={(e) => {
         const s = e.shiftKey ? step * 4 : step;
-        if (e.key === "ArrowRight") onChange(clamp(value + sign * s));
-        else if (e.key === "ArrowLeft") onChange(clamp(value - sign * s));
+        if (e.key === grow) onChange(clamp(value + sign * s));
+        else if (e.key === shrink) onChange(clamp(value - sign * s));
         else if (e.key === "Home") onChange(min);
         else if (e.key === "End") onChange(max);
         else if (e.key === "Enter" && onReset) onReset();
@@ -81,7 +92,12 @@ export function Splitter({
     >
       <div
         aria-hidden
-        className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border group-hover:w-0.5 group-hover:bg-accent group-focus-visible:w-0.5 group-focus-visible:bg-accent"
+        className={cn(
+          "absolute bg-border group-hover:bg-accent group-focus-visible:bg-accent",
+          row
+            ? "inset-x-0 top-1/2 h-px -translate-y-1/2 group-hover:h-0.5 group-focus-visible:h-0.5"
+            : "inset-y-0 left-1/2 w-px -translate-x-1/2 group-hover:w-0.5 group-focus-visible:w-0.5",
+        )}
       />
     </div>
   );
