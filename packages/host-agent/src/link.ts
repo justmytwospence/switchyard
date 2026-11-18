@@ -7,6 +7,7 @@ import {
   type AgentRequestFrame,
   type AgentResultFrame,
   CoordinatorToHost,
+  GIT_LOG_FEATURE,
   HostAgentRequestFrame,
   type HostCommand,
   type HostEvent,
@@ -32,7 +33,7 @@ export const OUTBOX_RETENTION_MS = 24 * 60 * 60 * 1000;
 const ACKED_META = "outbox.ackedHostSeq";
 const AGENT_FEATURES = ["agentRequests.v1", "policies.v1"] as const;
 /** Host features the coordinator gates commands on; not negotiated in `welcome`. */
-const HOST_FEATURES: readonly string[] = [TRACKERS_FEATURE];
+const HOST_FEATURES: readonly string[] = [TRACKERS_FEATURE, GIT_LOG_FEATURE];
 
 export interface AgentRequestOptions {
   toolCallId?: string;

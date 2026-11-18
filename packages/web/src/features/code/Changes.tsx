@@ -1,4 +1,4 @@
-import type { DiffFile as ChangedFile, DiffResult } from "@switchyard/protocol";
+import type { DiffFile as ChangedFile, DiffResult, LogResult } from "@switchyard/protocol";
 import {
   ArrowLeft,
   Check,
@@ -31,6 +31,14 @@ import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
 import { errorMessage, isApiError } from "../../sync/api";
 import { codeApi } from "./api";
+import {
+  commitMeta,
+  commitsHeading,
+  type DiffScope,
+  emptyScopeText,
+  scopeLabel,
+  scopeRev,
+} from "./commits";
 import { useCodeContext } from "./context";
 import type { SessionContext } from "./hooks";
 import { useMutation } from "./hooks";
@@ -49,10 +57,16 @@ export interface WorkspaceDiff {
   /** The workspace changed (git state event) after the last fetch. */
   outdated: boolean;
   refresh: () => void;
+  /** What this diff covers. */
+  scope: DiffScope;
 }
 
 /** Changed files and the patch of a workspace; refetches on demand. */
-export function useWorkspaceDiff(ctx: SessionContext): WorkspaceDiff {
+export function useWorkspaceDiff(
+  ctx: SessionContext,
+  scope: DiffScope = "all",
+  enabled = true,
+): WorkspaceDiff {
   const ws = ctx.workspace;
   const connected = ctx.link === "connected";
   const [result, setResult] = useState<DiffResult | null>(null);
@@ -64,12 +78,12 @@ export function useWorkspaceDiff(ctx: SessionContext): WorkspaceDiff {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: nonce triggers a refetch
   useEffect(() => {
-    if (!wsId || !connected) return;
+    if (!wsId || !connected || !enabled) return;
     const ac = new AbortController();
     setLoading(true);
     setError(null);
     codeApi
-      .diff(wsId, undefined, ac.signal)
+      .diff(wsId, undefined, ac.signal, scopeRev(scope))
       .then((r) => {
         setResult(r);
         setFetchedAt(new Date().toISOString());
@@ -81,13 +95,13 @@ export function useWorkspaceDiff(ctx: SessionContext): WorkspaceDiff {
         if (!ac.signal.aborted) setLoading(false);
       });
     return () => ac.abort();
-  }, [wsId, connected, nonce]);
+  }, [wsId, connected, nonce, scope, enabled]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: clear when the workspace changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clear when the workspace or scope changes
   useEffect(() => {
     setResult(null);
     setFetchedAt(null);
-  }, [wsId]);
+  }, [wsId, scope]);
 
   const parsed = useMemo(() => {
     const m = new Map<string, DiffFile>();
@@ -97,7 +111,157 @@ export function useWorkspaceDiff(ctx: SessionContext): WorkspaceDiff {
 
   const outdated = !!ws && !!fetchedAt && ws.updatedAt > fetchedAt;
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
-  return { result, parsed, loading, error, fetchedAt, outdated, refresh };
+  return { result, parsed, loading, error, fetchedAt, outdated, refresh, scope };
+}
+
+/** The workspace's commits; refetches when `refreshKey` changes. `unsupported` when the host agent is too old. */
+function useWorkspaceCommits(
+  ctx: SessionContext,
+  refreshKey: string | null,
+): { log: LogResult | null; unsupported: boolean; error: unknown } {
+  const wsId = ctx.workspace?.id ?? null;
+  const connected = ctx.link === "connected";
+  const [log, setLog] = useState<LogResult | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey triggers a refetch
+  useEffect(() => {
+    if (!wsId || !connected) return;
+    const ac = new AbortController();
+    codeApi
+      .commits(wsId, ac.signal)
+      .then((r) => {
+        setLog(r);
+        setUnsupported(false);
+        setError(null);
+      })
+      .catch((e) => {
+        if (ac.signal.aborted) return;
+        if (isApiError(e, "unsupported_capability")) setUnsupported(true);
+        else setError(e);
+      });
+    return () => ac.abort();
+  }, [wsId, connected, refreshKey]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clear when the workspace changes
+  useEffect(() => {
+    setLog(null);
+    setUnsupported(false);
+    setError(null);
+  }, [wsId]);
+  return { log, unsupported, error };
+}
+
+/** The Changes tab's scope: the scoped diff to show, and the commit list to pick it from. */
+function useChangesScope(ctx: SessionContext, diff: WorkspaceDiff) {
+  const [scope, setScope] = useState<DiffScope>("all");
+  const commits = useWorkspaceCommits(ctx, diff.fetchedAt);
+  const scoped = useWorkspaceDiff(ctx, scope, scope !== "all");
+  const wsId = ctx.workspace?.id ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the workspace changes
+  useEffect(() => setScope("all"), [wsId]);
+  useEffect(() => {
+    if (scope === "all" || scope === "uncommitted" || !commits.log) return;
+    if (!commits.log.commits.some((c) => c.sha === scope)) setScope("all");
+  }, [scope, commits.log]);
+  const shown = scope === "all" ? diff : scoped;
+  const refresh = () => {
+    diff.refresh();
+    if (scope !== "all") scoped.refresh();
+  };
+  return { scope, setScope, commits, shown, refresh };
+}
+
+function ScopeRow({
+  title,
+  detail,
+  current,
+  onClick,
+  large,
+}: {
+  title: string;
+  detail: string;
+  current: boolean;
+  onClick: () => void;
+  large?: boolean;
+}) {
+  return (
+    <li className="min-w-0">
+      <button
+        type="button"
+        aria-current={current ? "true" : undefined}
+        onClick={onClick}
+        className={cn(
+          "tap flex w-full min-w-0 flex-col rounded-md px-2 text-left text-sm hover:bg-surface-2",
+          large ? "min-h-12 py-2" : "py-1.5",
+          current && "bg-accent-soft",
+        )}
+      >
+        <span className="block truncate" title={title}>
+          {title}
+        </span>
+        <span className="block truncate text-xs text-muted">{detail}</span>
+      </button>
+    </li>
+  );
+}
+
+/** The branch's commits as a picker: all changes, uncommitted work, or one commit. */
+function ScopePicker({
+  log,
+  unsupported,
+  scope,
+  onScope,
+  base,
+  large,
+}: {
+  log: LogResult | null;
+  unsupported: boolean;
+  scope: DiffScope;
+  onScope: (s: DiffScope) => void;
+  base: string | null;
+  large?: boolean;
+}) {
+  if (unsupported) {
+    return <p className="text-xs text-muted">Update this host's agent to see commits.</p>;
+  }
+  if (!log) return null;
+  const n = log.uncommitted;
+  return (
+    <section className="flex min-w-0 flex-col gap-1">
+      <h3 className="text-xs font-semibold text-muted">{commitsHeading(log)}</h3>
+      <ul aria-label="Commits" className="flex max-h-56 min-w-0 flex-col overflow-y-auto">
+        <ScopeRow
+          title="All changes"
+          detail={`Against ${base ?? log.base}`}
+          current={scope === "all"}
+          onClick={() => onScope("all")}
+          large={large}
+        />
+        {n > 0 && (
+          <ScopeRow
+            title="Uncommitted"
+            detail={`${n} ${n === 1 ? "file" : "files"}`}
+            current={scope === "uncommitted"}
+            onClick={() => onScope("uncommitted")}
+            large={large}
+          />
+        )}
+        {log.commits.map((c) => (
+          <ScopeRow
+            key={c.sha}
+            title={c.subject}
+            detail={commitMeta(c)}
+            current={scope === c.sha}
+            onClick={() => onScope(c.sha)}
+            large={large}
+          />
+        ))}
+      </ul>
+      {log.truncated && (
+        <p className="text-xs text-muted">Showing the latest {log.commits.length} commits.</p>
+      )}
+    </section>
+  );
 }
 
 /** Parsed diff of one file: from the full patch, else fetched with `?file=`. */
@@ -113,7 +277,7 @@ function useFileDiff(ctx: SessionContext, diff: WorkspaceDiff, path: string | nu
     const ac = new AbortController();
     setError(null);
     codeApi
-      .diff(wsId, path, ac.signal)
+      .diff(wsId, path, ac.signal, scopeRev(diff.scope))
       .then((r) => {
         const files = r.patch ? parseUnifiedDiff(r.patch) : [];
         setFetched({ path, file: files.find((f) => f.path === path) ?? files[0] ?? null });
@@ -122,7 +286,7 @@ function useFileDiff(ctx: SessionContext, diff: WorkspaceDiff, path: string | nu
         if (!ac.signal.aborted) setError(e);
       });
     return () => ac.abort();
-  }, [path, fromPatch, wsId, ctx.link, nonce, diff.fetchedAt]);
+  }, [path, fromPatch, wsId, ctx.link, nonce, diff.fetchedAt, diff.scope]);
   if (!path) return { file: null, loading: false, error: null, retry: () => {} };
   if (fromPatch) return { file: fromPatch, loading: false, error: null, retry: () => {} };
   const mine = fetched?.path === path ? fetched : null;
@@ -531,11 +695,19 @@ function ChangesUnavailable({ ctx }: { ctx: SessionContext }) {
   );
 }
 
-function RefreshRow({ diff }: { diff: WorkspaceDiff }) {
+function RefreshRow({
+  diff,
+  label,
+  onRefresh,
+}: {
+  diff: WorkspaceDiff;
+  label: string;
+  onRefresh: () => void;
+}) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted">
       <span className="min-w-0 flex-1">
-        {diff.result ? `Against ${diff.result.base}` : ""}
+        {label}
         {diff.fetchedAt && ` · updated ${formatTime(diff.fetchedAt)}`}
         {diff.outdated && " · workspace changed since"}
       </span>
@@ -544,7 +716,7 @@ function RefreshRow({ diff }: { diff: WorkspaceDiff }) {
         variant={diff.outdated ? "secondary" : "ghost"}
         icon={<RefreshCw className="size-3.5" />}
         busy={diff.loading}
-        onClick={diff.refresh}
+        onClick={onRefresh}
       >
         {diff.loading ? "Refreshing…" : "Refresh"}
       </Button>
@@ -556,12 +728,17 @@ function RefreshRow({ diff }: { diff: WorkspaceDiff }) {
 /* Desktop inspector tab                                               */
 /* ------------------------------------------------------------------ */
 
-export function ChangesTab({ ctx, diff }: { ctx: SessionContext; diff: WorkspaceDiff }) {
+export function ChangesTab({ ctx, diff: full }: { ctx: SessionContext; diff: WorkspaceDiff }) {
   const review = useReviewComments(ctx.session.id);
   const counts = useCommentCounts(review.comments);
   const [selected, setSelected] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState<CommentDraft | null>(null);
+  const { scope, setScope, commits, shown: diff, refresh } = useChangesScope(ctx, full);
   const files = diff.result?.files ?? [];
+  const pick = (s: DiffScope) => {
+    setScope(s);
+    setSelected(null);
+  };
 
   if (!ctx.workspace || ctx.link !== "connected") {
     return (
@@ -575,7 +752,18 @@ export function ChangesTab({ ctx, diff }: { ctx: SessionContext; diff: Workspace
   }
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <RefreshRow diff={diff} />
+      <ScopePicker
+        log={commits.log}
+        unsupported={commits.unsupported}
+        scope={scope}
+        onScope={pick}
+        base={full.result?.base ?? null}
+      />
+      <RefreshRow
+        diff={diff}
+        label={scopeLabel(scope, diff.result?.base ?? null)}
+        onRefresh={refresh}
+      />
       {diff.error !== null && !diff.result ? (
         <ErrorState
           compact
@@ -588,8 +776,7 @@ export function ChangesTab({ ctx, diff }: { ctx: SessionContext; diff: Workspace
       ) : files.length === 0 ? (
         <EmptyState
           icon={<FileDiff className="size-8" />}
-          title="No changes yet"
-          description={`Nothing differs from ${diff.result.base} in this workspace.`}
+          {...emptyScopeText(scope, diff.result.base)}
           className="py-6"
         />
       ) : (
@@ -640,10 +827,15 @@ export function ChangesTab({ ctx, diff }: { ctx: SessionContext; diff: Workspace
 /* ------------------------------------------------------------------ */
 
 export function MobileChanges({ ctx }: { ctx: SessionContext }) {
-  const diff = useWorkspaceDiff(ctx);
+  const full = useWorkspaceDiff(ctx);
+  const { scope, setScope, commits, shown: diff, refresh } = useChangesScope(ctx, full);
   const review = useReviewComments(ctx.session.id);
   const counts = useCommentCounts(review.comments);
   const [open, setOpen] = useState<string | null>(null);
+  const pick = (s: DiffScope) => {
+    setScope(s);
+    setOpen(null);
+  };
   const [commentDraft, setCommentDraft] = useState<CommentDraft | null>(null);
   const files = diff.result?.files ?? [];
   const idx = open ? files.findIndex((f) => f.path === open) : -1;
@@ -676,7 +868,19 @@ export function MobileChanges({ ctx }: { ctx: SessionContext }) {
         <ChangesUnavailable ctx={ctx} />
       ) : (
         <>
-          <RefreshRow diff={diff} />
+          <ScopePicker
+            log={commits.log}
+            unsupported={commits.unsupported}
+            scope={scope}
+            onScope={pick}
+            base={full.result?.base ?? null}
+            large
+          />
+          <RefreshRow
+            diff={diff}
+            label={scopeLabel(scope, diff.result?.base ?? null)}
+            onRefresh={refresh}
+          />
           {diff.error !== null && !diff.result ? (
             <ErrorState title="Could not load changes" error={diff.error} onRetry={diff.refresh} />
           ) : !diff.result ? (
@@ -684,8 +888,7 @@ export function MobileChanges({ ctx }: { ctx: SessionContext }) {
           ) : files.length === 0 ? (
             <EmptyState
               icon={<FileDiff className="size-8" />}
-              title="No changes yet"
-              description={`Nothing differs from ${diff.result.base} in this workspace.`}
+              {...emptyScopeText(scope, diff.result.base)}
             />
           ) : (
             <ChangedFileList

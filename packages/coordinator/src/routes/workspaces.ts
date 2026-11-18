@@ -1,4 +1,4 @@
-import { CreateWorkspaceRequest, RemoveWorkspaceRequest } from "@switchyard/protocol";
+import { CreateWorkspaceRequest, DiffRev, RemoveWorkspaceRequest } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { CoordinatorContext } from "../context.js";
@@ -10,7 +10,8 @@ const ListQuery = z.object({
   projectId: z.string().optional(),
   includeArchived: z.enum(["true", "false"]).optional(),
 });
-const DiffQuery = z.object({ file: z.string().optional() });
+const DiffQuery = z.object({ file: z.string().optional(), rev: DiffRev.optional() });
+const CommitsQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) });
 const FilesQuery = z.object({ dir: z.string().default("") });
 const FileQuery = z.object({ path: z.string().min(1) });
 
@@ -62,6 +63,19 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: CoordinatorCo
       path: ws.path,
       base: baseFor(ctx, ws),
       file: q.file ?? null,
+      ...(q.rev ? { rev: q.rev } : {}),
+    });
+  });
+
+  app.get("/api/workspaces/:id/commits", async (req) => {
+    const ws = ctx.store.workspaces.require((req.params as { id: string }).id);
+    const q = parse(CommitsQuery, req.query, "query");
+    requireConnected(ctx, ws.hostId);
+    return ctx.hostHub.request(ws.hostId, {
+      type: "workspace.log",
+      path: ws.path,
+      base: baseFor(ctx, ws),
+      limit: q.limit,
     });
   });
 

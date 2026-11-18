@@ -6,6 +6,7 @@ import type {
   GitHubMergeResult,
   GitHubViewResponse,
   ImportableSession,
+  LogResult,
   ModelStateResult,
   NavigateResult,
   Run,
@@ -118,8 +119,14 @@ export const codeApi = {
       ...(generation !== undefined ? { generation } : {}),
     }),
 
-  diff: (workspaceId: string, file?: string, signal?: AbortSignal) =>
-    apiGet<DiffResult>(`${w(workspaceId)}/diff`, file ? { file } : undefined, signal),
+  diff: (workspaceId: string, file?: string, signal?: AbortSignal, rev?: string) =>
+    apiGet<DiffResult>(
+      `${w(workspaceId)}/diff`,
+      file || rev ? { ...(file ? { file } : {}), ...(rev ? { rev } : {}) } : undefined,
+      signal,
+    ),
+  commits: (workspaceId: string, signal?: AbortSignal) =>
+    apiGet<LogResult>(`${w(workspaceId)}/commits`, undefined, signal),
   files: async (workspaceId: string, dir: string, signal?: AbortSignal) =>
     normalizeEntries(await apiGet<unknown>(`${w(workspaceId)}/files`, { dir }, signal)),
   file: async (workspaceId: string, path: string, signal?: AbortSignal) =>

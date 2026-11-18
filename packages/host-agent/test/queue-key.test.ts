@@ -89,6 +89,7 @@ describe("read-only and checkout lanes", () => {
         expectedHeadOid: "a".repeat(40),
       },
       { type: "workspace.diff", path: "/r", base: null, file: null },
+      { type: "workspace.log", path: "/r", base: null, limit: 50 },
       { type: "workspace.files", path: "/r", dir: "" },
       { type: "workspace.readFile", path: "/r", file: "a" },
       { type: "dispatch.reconcile", dispatchKey: "k" },

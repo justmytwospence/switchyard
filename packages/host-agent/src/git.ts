@@ -9,8 +9,11 @@ import {
   DEFAULT_WORKTREE_DIR,
   type DiffFile,
   type DiffResult,
+  type DiffRev,
   type DiscoveredWorktree,
+  type GitCommit,
   type GitState,
+  type LogResult,
   SwitchyardError,
   WorktreeDir,
 } from "@switchyard/protocol";
@@ -608,32 +611,63 @@ async function describeUntracked(top: string, rel: string): Promise<UntrackedFil
   return { path: rel, lines, patch };
 }
 
-/**
- * Changes of the worktree at `path` against its merge base with `base`: committed and uncommitted
- * changes plus untracked files. `file` limits the patch to one path and reads only that file: the
- * list still names every change, but other untracked files report `added: 0`.
- */
-export async function diffWorkspace(
+/** The worktree root, its base branch and the commit the branch left it at (`HEAD` or the empty tree when unknown). */
+async function branchPoint(
   path: string,
   base: string | null,
-  file: string | null,
-): Promise<DiffResult> {
+): Promise<{ top: string; baseRef: string; mergeBase: string }> {
   const top = await realpathOr(
     (await runGit(path, ["rev-parse", "--show-toplevel"])).stdout.trim(),
   );
   const baseRef = base ?? (await inspectCheckout(top)).defaultBranch;
-
   let mergeBase: string;
   const mb = (await refResolves(top, baseRef))
     ? await runGit(top, ["merge-base", baseRef, "HEAD"], { allowFail: true })
     : null;
   if (mb && mb.code === 0 && mb.stdout.trim() !== "") mergeBase = mb.stdout.trim();
   else mergeBase = (await refResolves(top, "HEAD")) ? "HEAD" : EMPTY_TREE;
+  return { top, baseRef, mergeBase };
+}
+
+/**
+ * Changes of the worktree at `path` against its merge base with `base`: committed and uncommitted
+ * changes plus untracked files. `file` limits the patch to one path and reads only that file: the
+ * list still names every change, but other untracked files report `added: 0`. `rev` narrows it to
+ * uncommitted work (against HEAD) or to one commit of the branch (against its first parent).
+ */
+export async function diffWorkspace(
+  path: string,
+  base: string | null,
+  file: string | null,
+  rev: DiffRev | null = null,
+): Promise<DiffResult> {
+  const { top, baseRef, mergeBase } = await branchPoint(path, base);
+  let range: string[] = [mergeBase];
+  let label = baseRef;
+  let withUntracked = true;
+  if (rev === "uncommitted") {
+    range = [(await refResolves(top, "HEAD")) ? "HEAD" : EMPTY_TREE];
+    label = "HEAD";
+  } else if (rev !== null) {
+    const exists = await runGit(top, ["cat-file", "-e", `${rev}^{commit}`], { allowFail: true });
+    const onBranch =
+      exists.code === 0
+        ? await runGit(top, ["merge-base", "--is-ancestor", rev, "HEAD"], { allowFail: true })
+        : null;
+    if (onBranch?.code !== 0) {
+      throw new SwitchyardError("not_found", "That commit is not on this branch");
+    }
+    range = [(await refResolves(top, `${rev}^`)) ? `${rev}^` : EMPTY_TREE, rev];
+    label = `${rev.slice(0, 7)}^`;
+    withUntracked = false;
+  }
 
   const [numstatOut, nameStatusOut, untrackedOut] = await Promise.all([
-    runGit(top, ["diff", "--no-color", "-M", "--numstat", "-z", mergeBase, "--"]),
-    runGit(top, ["diff", "--no-color", "-M", "--name-status", "-z", mergeBase, "--"]),
-    runGit(top, ["ls-files", "--others", "--exclude-standard", "-z"]),
+    runGit(top, ["diff", "--no-color", "-M", "--numstat", "-z", ...range, "--"]),
+    runGit(top, ["diff", "--no-color", "-M", "--name-status", "-z", ...range, "--"]),
+    withUntracked
+      ? runGit(top, ["ls-files", "--others", "--exclude-standard", "-z"])
+      : Promise.resolve({ stdout: "", stderr: "", code: 0 }),
   ]);
   const numstat = parseNumstat(numstatOut.stdout);
   const nameStatus = parseNameStatus(nameStatusOut.stdout);
@@ -666,12 +700,77 @@ export async function diffWorkspace(
     });
   }
 
-  const diffArgs = ["--literal-pathspecs", "diff", "--no-color", "-M", mergeBase, "--"];
+  const diffArgs = ["--literal-pathspecs", "diff", "--no-color", "-M", ...range, "--"];
   if (file !== null) diffArgs.push(file);
   let patch = (await runGit(top, diffArgs)).stdout;
   for (const p of wanted) patch += untracked.get(p)!.patch;
   const limitPatch = file === null && Buffer.byteLength(patch, "utf8") > MAX_PATCH_BYTES;
-  return { base: baseRef, files, patch: limitPatch ? null : patch };
+  return { base: label, files, patch: limitPatch ? null : patch };
+}
+
+/** Commits of the worktree's branch since its base, newest first; HEAD's latest when it has none of its own. */
+export async function logWorkspace(
+  path: string,
+  base: string | null,
+  limit: number,
+): Promise<LogResult> {
+  const { top, baseRef, mergeBase } = await branchPoint(path, base);
+  const uncommitted = (await worktreeStatus(top, baseRef)).changedFiles;
+  if (!(await refResolves(top, "HEAD"))) {
+    return { base: baseRef, scope: "branch", commits: [], truncated: false, uncommitted };
+  }
+  const own =
+    mergeBase !== "HEAD" && mergeBase !== EMPTY_TREE
+      ? Number((await runGit(top, ["rev-list", "--count", `${mergeBase}..HEAD`])).stdout.trim())
+      : 0;
+  const range = own > 0 ? `${mergeBase}..HEAD` : "HEAD";
+  const out = await runGit(top, [
+    "log",
+    "-z",
+    "--no-color",
+    "--format=%H%x1f%an%x1f%aI%x1f%s",
+    "-n",
+    String(limit + 1),
+    range,
+  ]);
+  const rows = out.stdout
+    .split("\0")
+    .map((r) => r.replace(/^\n+/, ""))
+    .filter((r) => r !== "")
+    .map((r) => r.split("\x1f"));
+  const truncated = rows.length > limit;
+
+  let upstream: string | null = null;
+  const up = await runGit(top, ["rev-parse", "--verify", "--quiet", "@{u}"], { allowFail: true });
+  if (up.code === 0 && up.stdout.trim() !== "") upstream = up.stdout.trim();
+  else {
+    const br = await runGit(top, ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+      allowFail: true,
+    });
+    const name = br.code === 0 ? br.stdout.trim() : "";
+    if (name && (await refResolves(top, `refs/remotes/origin/${name}`))) {
+      upstream = `refs/remotes/origin/${name}`;
+    }
+  }
+  const unpushed = upstream
+    ? new Set(
+        (await runGit(top, ["rev-list", `${upstream}..HEAD`])).stdout
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean),
+      )
+    : null;
+
+  const commits: GitCommit[] = rows
+    .slice(0, limit)
+    .map(([sha = "", author = "", at = "", subject = ""]) => ({
+      sha,
+      subject: subject.slice(0, 300),
+      author: author.slice(0, 200),
+      authoredAt: at,
+      pushed: unpushed ? !unpushed.has(sha) : false,
+    }));
+  return { base: baseRef, scope: own > 0 ? "branch" : "recent", commits, truncated, uncommitted };
 }
 
 /**

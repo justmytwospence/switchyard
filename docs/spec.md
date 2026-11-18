@@ -416,7 +416,7 @@ Show takeover state clearly.
 
 Tabs:
 
-- Changes.
+- Changes: the diff against the base branch, with the branch's commits; pick one commit or only uncommitted work to narrow it.
 - Files.
 - Task.
 - Extensions.

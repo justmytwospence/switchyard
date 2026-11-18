@@ -15,6 +15,7 @@ import {
   diffWorkspace,
   discoverWorktrees,
   inspectCheckout,
+  logWorkspace,
   prepareTrackingBranch,
   worktreeStatus,
 } from "./git.js";
@@ -78,6 +79,7 @@ export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostComm
   "workspace.discover",
   "workspace.status",
   "workspace.diff",
+  "workspace.log",
   "workspace.files",
   "workspace.readFile",
   "workspace.prView",
@@ -116,6 +118,7 @@ const RERUNNABLE = new Set<HostCommand["type"]>([
   "workspace.discover",
   "workspace.status",
   "workspace.diff",
+  "workspace.log",
   "workspace.files",
   "workspace.readFile",
   "workspace.prView",
@@ -537,7 +540,9 @@ export class CommandRouter {
       case "workspace.remove":
         return workspaces.remove(c.path, c.checkoutPath, c.base, c.force, c.deleteBranch === true);
       case "workspace.diff":
-        return diffWorkspace(c.path, c.base, c.file);
+        return diffWorkspace(c.path, c.base, c.file, c.rev ?? null);
+      case "workspace.log":
+        return logWorkspace(c.path, c.base, c.limit);
       case "workspace.files":
         return listDir(c.path, c.dir);
       case "workspace.readFile":

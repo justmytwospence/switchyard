@@ -433,6 +433,25 @@ test.describe("desktop coding view", () => {
     expect(diffs).toHaveLength(1);
   });
 
+  test("the Changes tab lists commits and narrows the diff", async ({ page, state }, info) => {
+    test.skip(viewportOf(info) !== "desktop", "Desktop only");
+    await page.goto(`/code/${state.sessions.long}`);
+    const inspector = page.getByTestId("inspector");
+    await inspector.getByRole("tab", { name: /Changes/ }).click();
+    const list = inspector.getByRole("list", { name: "Commits" });
+    const all = list.getByRole("button", { name: /^All changes/ });
+    await expect(all).toHaveAttribute("aria-current", "true");
+    const rows = list.getByRole("button");
+    const first = rows.filter({ hasNotText: /^(All changes|Uncommitted)/ }).first();
+    await expect(first).toBeVisible();
+    await first.click();
+    await expect(first).toHaveAttribute("aria-current", "true");
+    await expect(inspector.getByText(/^Commit [0-9a-f]{7}/)).toBeVisible();
+    await all.click();
+    await expect(inspector.getByText(/^Against .+ · updated /)).toBeVisible();
+    await expect(inspector.getByText(/^Commit [0-9a-f]{7}/)).toHaveCount(0);
+  });
+
   test("review comments are batched into one follow-up", async ({ page, state, api }, info) => {
     const id = await createSession(api, state, `Review ${uid(info)}`, "hello review");
     const prompts = promptRequests(page, id);

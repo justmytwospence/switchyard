@@ -35,6 +35,12 @@ import { InteractionResponseSchema } from "./ui.js";
 
 const Origin = z.enum(["human", "automation"]);
 
+/** Host feature: the host answers `workspace.log` and `workspace.diff` with `rev`. */
+export const GIT_LOG_FEATURE = "gitLog.v1";
+/** A narrower diff: only uncommitted work, or one commit (full SHA) against its first parent. */
+export const DiffRev = z.string().regex(/^(uncommitted|[0-9a-f]{40})$/);
+export type DiffRev = z.infer<typeof DiffRev>;
+
 export const HostCommand = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("session.start"),
@@ -178,6 +184,14 @@ export const HostCommand = z.discriminatedUnion("type", [
     path: z.string(),
     base: z.string().nullable(),
     file: z.string().nullable(),
+    /** Hosts without gitLog.v1 never receive it. */
+    rev: DiffRev.optional(),
+  }),
+  z.object({
+    type: z.literal("workspace.log"),
+    path: z.string(),
+    base: z.string().nullable(),
+    limit: z.number().int().min(1).max(200),
   }),
   z.object({ type: z.literal("workspace.files"), path: z.string(), dir: z.string() }),
   z.object({ type: z.literal("workspace.readFile"), path: z.string(), file: z.string() }),
@@ -279,6 +293,27 @@ export type ProjectSuggestion = z.infer<typeof ProjectSuggestion>;
 
 export const ProjectSuggestions = z.object({ suggestions: z.array(ProjectSuggestion) });
 export type ProjectSuggestions = z.infer<typeof ProjectSuggestions>;
+
+export const GitCommit = z.object({
+  sha: z.string().regex(/^[0-9a-f]{40}$/),
+  subject: z.string().max(300),
+  author: z.string().max(200),
+  authoredAt: z.string(),
+  pushed: z.boolean(),
+});
+export type GitCommit = z.infer<typeof GitCommit>;
+
+export const LogResult = z.object({
+  /** The base branch the commits are counted from. */
+  base: z.string(),
+  /** `branch`: commits since the merge base; `recent`: HEAD's latest commits (no commits of its own). */
+  scope: z.enum(["branch", "recent"]),
+  commits: z.array(GitCommit).max(200),
+  truncated: z.boolean(),
+  /** Changed and untracked files not committed yet. */
+  uncommitted: z.number().int().min(0),
+});
+export type LogResult = z.infer<typeof LogResult>;
 
 export const DiffFile = z.object({
   path: z.string(),

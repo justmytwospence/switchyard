@@ -18,6 +18,7 @@ import {
   diffWorkspace,
   discoverWorktrees,
   inspectCheckout,
+  logWorkspace,
   managedWorktreePath,
   normalizeRemote,
   parseWorktreePorcelain,
@@ -464,6 +465,86 @@ describe("worktrees", () => {
     const diff = await diffWorkspace(path, null, null);
     expect(diff.patch).toBeNull();
     expect(diff.files[0]).toMatchObject({ path: "big.txt", added: 25_000 });
+  });
+
+  it("lists the branch's commits since its base", async () => {
+    const { path } = await createWorktree(r.path, "feat/x", "main");
+    for (const n of ["one", "two"]) {
+      writeFileSync(join(path, `${n}.txt`), `${n}\n`);
+      git(path, ["add", `${n}.txt`]);
+      git(path, ["commit", "-q", "-m", `test: add ${n}`]);
+    }
+    writeFileSync(join(r.path, "main-only.txt"), "main\n");
+    git(r.path, ["add", "main-only.txt"]);
+    git(r.path, ["commit", "-q", "-m", "test: main only"]);
+    const log = await logWorkspace(path, null, 50);
+    expect(log).toMatchObject({ base: "main", scope: "branch", truncated: false, uncommitted: 0 });
+    expect(log.commits.map((c) => c.subject)).toEqual(["test: add two", "test: add one"]);
+    expect(log.commits.every((c) => !c.pushed && /^[0-9a-f]{40}$/.test(c.sha))).toBe(true);
+  });
+
+  it("lists recent commits on the base branch", async () => {
+    const log = await logWorkspace(r.path, null, 50);
+    expect(log.scope).toBe("recent");
+    expect(log.commits.length).toBeGreaterThan(0);
+  });
+
+  it("truncates and counts uncommitted files", async () => {
+    const { path } = await createWorktree(r.path, "feat/x", "main");
+    for (const n of ["a", "b", "c"]) {
+      writeFileSync(join(path, `${n}.txt`), `${n}\n`);
+      git(path, ["add", `${n}.txt`]);
+      git(path, ["commit", "-q", "-m", `test: add ${n}`]);
+    }
+    writeFileSync(join(path, "a.txt"), "changed\n");
+    writeFileSync(join(path, "new.txt"), "new\n");
+    const log = await logWorkspace(path, null, 2);
+    expect(log.commits.map((c) => c.subject)).toEqual(["test: add c", "test: add b"]);
+    expect(log.truncated).toBe(true);
+    expect(log.uncommitted).toBe(2);
+  });
+
+  it("marks pushed commits", async () => {
+    const remote = tempDir();
+    git(remote, ["init", "-q", "--bare", "-b", "main"]);
+    git(r.path, ["remote", "add", "origin", remote]);
+    const { path } = await createWorktree(r.path, "feat/x", "main");
+    writeFileSync(join(path, "p.txt"), "p\n");
+    git(path, ["add", "p.txt"]);
+    git(path, ["commit", "-q", "-m", "test: pushed"]);
+    git(path, ["push", "-q", "-u", "origin", "feat/x"]);
+    writeFileSync(join(path, "l.txt"), "l\n");
+    git(path, ["add", "l.txt"]);
+    git(path, ["commit", "-q", "-m", "test: local"]);
+    const log = await logWorkspace(path, null, 50);
+    expect(log.commits.map((c) => [c.subject, c.pushed])).toEqual([
+      ["test: local", false],
+      ["test: pushed", true],
+    ]);
+  });
+
+  it("diffs one commit and only uncommitted work", async () => {
+    const { path } = await createWorktree(r.path, "feat/x", "main");
+    writeFileSync(join(path, "committed.txt"), "one\n");
+    git(path, ["add", "committed.txt"]);
+    git(path, ["commit", "-q", "-m", "test: add committed file"]);
+    const sha = git(path, ["rev-parse", "HEAD"]).trim();
+    writeFileSync(join(path, "README.md"), "# test repo\nmore\n");
+    writeFileSync(join(path, "untracked.txt"), "u\n");
+
+    const one = await diffWorkspace(path, null, null, sha);
+    expect(one.files.map((f) => f.path)).toEqual(["committed.txt"]);
+    expect(one.base).toBe(`${sha.slice(0, 7)}^`);
+
+    const open = await diffWorkspace(path, null, null, "uncommitted");
+    expect(open.files.map((f) => f.path).sort()).toEqual(["README.md", "untracked.txt"]);
+    expect(open.base).toBe("HEAD");
+
+    writeFileSync(join(r.path, "main-only.txt"), "main\n");
+    git(r.path, ["add", "main-only.txt"]);
+    git(r.path, ["commit", "-q", "-m", "test: main only"]);
+    const other = git(r.path, ["rev-parse", "HEAD"]).trim();
+    await expectCode(diffWorkspace(path, null, null, other), "not_found");
   });
 
   it("prepares a local tracking branch for a remote-only branch", async () => {
