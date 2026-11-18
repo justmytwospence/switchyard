@@ -69,7 +69,7 @@ Coordinators and hosts are upgraded independently, so the coordinator must keep 
 
 Pushing a `v*` tag runs `.github/workflows/release.yml` (only after promotion and explicit release approval):
 
-- **image:** builds the container for linux/amd64 and linux/arm64 and publishes it to GHCR;
+- **image:** builds the container on native linux/amd64 and linux/arm64 runners and publishes one multi-platform tag to GHCR;
 - **npm:** builds and smoke-tests both the CLI and `@spencerboucher/switchyard-client` SDK, then publishes each with npm trusted publishing (GitHub OIDC, with provenance), skipping an exact version that is already on npm. First publication of the SDK may require configuring its trusted publisher in npm; do not substitute a long-lived npm token. See [client-sdk.md](client-sdk.md).
 
 Every package shares the version in its `package.json`.

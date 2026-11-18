@@ -9,6 +9,7 @@ jobs:
   # Production moves only from main (scripts/promote.sh fast-forwards it to a green dev).
   on-main:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -18,10 +19,55 @@ jobs:
             echo "::error::v* tags must point at a commit on main (scripts/promote.sh first)"; exit 1; }
   image:
     needs: on-main
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04, cache: buildkit }
+          - { arch: arm64, runner: ubuntu-24.04-arm, cache: arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/justmytwospence/switchyard
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=ghcr.io/justmytwospence/switchyard,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.cache }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache }}
+      - run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+  # One multi-platform tag (version and latest) from the two digests.
+  image-merge:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -35,18 +81,18 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - working-directory: ${{ runner.temp }}/digests
+        run: |
+          # word splitting builds the argument lists
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/justmytwospence/switchyard@sha256:%s ' *)
+          docker buildx imagetools inspect "ghcr.io/justmytwospence/switchyard:${{ steps.meta.outputs.version }}"
   npm:
     needs: on-main
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
