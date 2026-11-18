@@ -12,6 +12,7 @@ import {
   Project,
   Run,
   Session,
+  Surface,
   Task,
   View,
   Workspace,
@@ -36,6 +37,8 @@ export const SyncState = z.object({
   devices: z.array(Device),
   /** Tracked issues; absent from older coordinators. */
   issues: z.array(TrackedIssue).default([]),
+  /** Terminal surfaces; absent from older coordinators. */
+  surfaces: z.array(Surface).default([]),
   adapters: z.record(z.string(), z.array(AdapterInfo)),
   dispatchPaused: z.boolean(),
 });

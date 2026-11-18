@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  CLIENT_OPEN_MS,
   findView,
-  openClients,
+  openSurfaces,
+  SURFACE_OPEN_MS,
   sessionInView,
   taskInView,
   type View,
@@ -55,6 +55,13 @@ describe("sessionInView", () => {
   it("filters by host", () => {
     expect(sessionInView(view({ hostIds: ["hst_2"] }), s(), {})).toBe(false);
   });
+  it("a session started in the view's source surface is in it, also in pinned mode", () => {
+    const src = "herdr:default@mac";
+    const started = s({ startedIn: src });
+    expect(sessionInView(view({ mode: "pinned", clientId: src }), started, {})).toBe(true);
+    expect(sessionInView(view({ hostIds: ["hst_2"], clientId: src }), started, {})).toBe(true);
+    expect(sessionInView(view({ mode: "pinned", clientId: src }), s(), {})).toBe(false);
+  });
   it("a pin beats the filters", () => {
     expect(
       sessionInView(
@@ -77,24 +84,33 @@ describe("findView", () => {
   });
 });
 
-describe("openClients", () => {
-  it("drops clients older than ten minutes and sorts by kind then name", () => {
+describe("openSurfaces", () => {
+  it("keeps this view's recent surfaces, sorted by kind then name", () => {
     const at = (ms: number) => new Date(NOW - ms).toISOString();
-    const c = (id: string, kind: "herdr" | "tmux", name: string, lastSeenAt: string) => ({
+    const c = (
+      id: string,
+      kind: "herdr" | "tmux",
+      name: string,
+      lastSeenAt: string,
+      viewId = "viw_1",
+    ) => ({
       id,
       kind,
       name,
       machine: "m",
+      deviceId: "dev_1",
+      hostId: null,
+      viewId,
       lastSeenAt,
+      createdAt: at(SURFACE_OPEN_MS * 2),
     });
-    const v = view({
-      clients: [
-        c("1", "tmux", "a", at(1000)),
-        c("2", "herdr", "z", at(1000)),
-        c("3", "herdr", "old", at(CLIENT_OPEN_MS + 1)),
-      ],
-    });
-    expect(openClients(v, NOW).map((x) => x.id)).toEqual(["2", "1"]);
+    const surfaces = [
+      c("1", "tmux", "a", at(1000)),
+      c("2", "herdr", "z", at(1000)),
+      c("3", "herdr", "old", at(SURFACE_OPEN_MS + 1)),
+      c("4", "herdr", "elsewhere", at(1000), "viw_2"),
+    ];
+    expect(openSurfaces(surfaces, "viw_1", NOW).map((x) => x.id)).toEqual(["2", "1"]);
   });
 });
 

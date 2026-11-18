@@ -9,10 +9,8 @@ import {
 } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import type { CoordinatorContext } from "../context.js";
-import { parse } from "../http.js";
-
-/** A client that reported less than this ago is not rewritten (keeps the event log quiet). */
-const CLIENT_REWRITE_MS = 5 * 60_000;
+import { deviceOf, parse } from "../http.js";
+import { reportSurface } from "./surfaces.js";
 
 function stripUndefined<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
@@ -72,6 +70,9 @@ export function registerViewRoutes(app: FastifyInstance, ctx: CoordinatorContext
   app.delete("/api/views/:id", async (req) =>
     store.tx(() => {
       const v = store.views.require(idOf(req));
+      for (const x of store.surfaces.list("view_id = ?", [v.id])) {
+        store.putSurface({ ...x, viewId: null });
+      }
       store.deleteView(v.id);
       return { ok: true, id: v.id };
     }),
@@ -104,26 +105,18 @@ export function registerViewRoutes(app: FastifyInstance, ctx: CoordinatorContext
     }),
   );
 
+  // Legacy (CLI 0.17 mirrors): a client report is a surface report bound to this view.
   app.post("/api/views/:id/clients", async (req) => {
     const body = parse(ViewClientReport, req.body);
     return store.tx((): View => {
       const v = store.views.require(idOf(req));
-      const now = store.now();
-      const cur = v.clients.find((c) => c.id === body.id);
-      if (
-        cur &&
-        now.getTime() - Date.parse(cur.lastSeenAt) < CLIENT_REWRITE_MS &&
-        cur.kind === body.kind &&
-        cur.name === body.name &&
-        cur.machine === body.machine
-      ) {
-        return v;
-      }
-      const entry = { ...body, lastSeenAt: now.toISOString() };
-      const clients = cur
-        ? v.clients.map((c) => (c.id === body.id ? entry : c))
-        : [...v.clients, entry];
-      return store.putView({ ...v, clients, updatedAt: now.toISOString() });
+      reportSurface(
+        ctx,
+        body.id,
+        { kind: body.kind, name: body.name, machine: body.machine, viewId: v.id },
+        deviceOf(req).id,
+      );
+      return v;
     });
   });
 
@@ -131,12 +124,8 @@ export function registerViewRoutes(app: FastifyInstance, ctx: CoordinatorContext
     store.tx(() => {
       const { clientId } = req.params as { clientId: string };
       const v = store.views.require(idOf(req));
-      if (!v.clients.some((c) => c.id === clientId)) return v;
-      return store.putView({
-        ...v,
-        clients: v.clients.filter((c) => c.id !== clientId),
-        updatedAt: store.nowIso(),
-      });
+      if (store.surfaces.get(clientId)?.viewId === v.id) store.deleteSurface(clientId);
+      return v;
     }),
   );
 }

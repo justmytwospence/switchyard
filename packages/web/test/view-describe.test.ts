@@ -1,4 +1,4 @@
-import type { Tracker, View } from "@switchyard/protocol";
+import type { Surface, Tracker, View } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
   clientLabel,
@@ -126,20 +126,39 @@ describe("view descriptions", () => {
   it("lists the terminals a view is shown in", () => {
     const now = Date.parse(T);
     const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
-    expect(shownIn(view(), now)).toBeNull();
-    const stale = { id: "herdr:vo@mac", kind: "herdr", name: "vo", machine: "mac" } as const;
-    expect(shownIn(view({ clients: [{ ...stale, lastSeenAt: at(11) }] }), now)).toBeNull();
+    const v = view();
+    const surface = (over: Partial<Surface>): Surface => ({
+      id: "herdr:vo@mac",
+      kind: "herdr",
+      name: "vo",
+      machine: "mac",
+      deviceId: "dev_1",
+      hostId: null,
+      viewId: v.id,
+      lastSeenAt: at(1),
+      createdAt: at(30),
+      ...over,
+    });
+    expect(shownIn(v, [], {}, now)).toBeNull();
+    expect(shownIn(v, [surface({ lastSeenAt: at(11) })], {}, now)).toBeNull();
+    expect(shownIn(v, [surface({ viewId: "viw_other" })], {}, now)).toBeNull();
     expect(
       shownIn(
-        view({
-          clients: [
-            { id: "tmux:main@nuc", kind: "tmux", name: "main", machine: "nuc", lastSeenAt: at(1) },
-            { ...stale, lastSeenAt: at(2) },
-          ],
-        }),
+        v,
+        [
+          surface({
+            id: "tmux:main@nuc",
+            kind: "tmux",
+            name: "main",
+            machine: "nuc",
+            hostId: "h1",
+          }),
+          surface({ lastSeenAt: at(2) }),
+        ],
+        { h1: { name: "NUC" } },
         now,
       ),
-    ).toBe("herdr vo on mac, tmux main on nuc");
+    ).toBe("herdr vo on mac, tmux main on NUC");
   });
 
   it("explains an empty view by its source", () => {
@@ -153,7 +172,7 @@ describe("view descriptions", () => {
     expect(emptyViewState(view(), opts).title).toBe("No sessions in work");
     const term = view({ mode: "pinned", clientId: "herdr:default@mac-pro" });
     expect(emptyViewState(term, opts).description).toBe(
-      "A Pi you start in herdr default on mac-pro joins this view once it enrols with a host agent connected to dev.example. Sessions that started before the view existed are not added; pin them from the session menu.",
+      "A Pi you start in herdr default on mac-pro joins this view once it enrols with a host agent connected to dev.example.",
     );
     expect(
       emptyViewState({ ...term, sessionIds: ["s"] }, { ...opts, source: "Pi you start in x" })

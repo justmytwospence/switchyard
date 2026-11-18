@@ -20,6 +20,7 @@ import {
   type Project,
   type Run,
   type Session,
+  type Surface,
   SwitchyardError,
   type SyncState,
   type Task,
@@ -187,6 +188,7 @@ export class Store {
   /** Trackers are REST resources: no events; their per-item data rides on tasks. */
   readonly trackers: JsonRepo<Tracker>;
   readonly issues: JsonRepo<TrackedIssue>;
+  readonly surfaces: JsonRepo<Surface>;
   readonly sessions: JsonRepo<Session>;
   readonly interactions: JsonRepo<Interaction>;
   readonly tasks: JsonRepo<Task>;
@@ -268,6 +270,17 @@ export class Store {
       "Tracker",
       { name: (t) => t.name },
       { created_at: () => now() },
+    );
+    this.surfaces = new JsonRepo<Surface>(
+      st,
+      "surfaces",
+      "Surface",
+      {
+        device_id: (x) => x.deviceId,
+        view_id: (x) => x.viewId,
+        last_seen_at: (x) => x.lastSeenAt,
+      },
+      { created_at: (x) => x.createdAt },
     );
     this.issues = new JsonRepo<TrackedIssue>(
       st,
@@ -594,6 +607,21 @@ export class Store {
     this.tx(() => {
       this.views.delete(id);
       this.appendEvent("view.deleted", {}, { id });
+    });
+  }
+
+  putSurface(x: Surface): Surface {
+    return this.tx(() => {
+      this.surfaces.upsert(x);
+      this.appendEvent("surface.updated", {}, x);
+      return x;
+    });
+  }
+
+  deleteSurface(id: string): void {
+    this.tx(() => {
+      if (!this.surfaces.delete(id)) return;
+      this.appendEvent("surface.deleted", {}, { id });
     });
   }
 
@@ -1264,6 +1292,7 @@ export class Store {
       panels: this.listPanels(),
       devices: this.devices.list("is_admin = 0", [], "created_at"),
       issues: this.issues.list(undefined, [], "created_at, rowid"),
+      surfaces: this.surfaces.list(undefined, [], "created_at, rowid"),
       adapters: this.adaptersByHost(),
       dispatchPaused: this.dispatchPaused,
     };

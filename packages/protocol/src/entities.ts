@@ -246,7 +246,7 @@ export const Profile = z.object({
 });
 export type Profile = z.infer<typeof Profile>;
 
-/** A TUI client (herdr or tmux session) bound to a view. */
+/** Deprecated: a TUI client bound to a view, replaced by `Surface`. */
 export const ViewClient = z.object({
   /** `${kind}:${name}@${machine}` */
   id: z.string().min(1),
@@ -257,7 +257,7 @@ export const ViewClient = z.object({
 });
 export type ViewClient = z.infer<typeof ViewClient>;
 
-/** A named filter over sessions, plus pins. TUI clients bind to one. */
+/** A saved filter over branches and sessions, plus pins. Surfaces bind to one. */
 export const View = z.object({
   id: Id,
   name: z.string().min(1).max(60),
@@ -265,18 +265,40 @@ export const View = z.object({
   projectIds: z.array(z.string()).nullable(),
   hostIds: z.array(z.string()).nullable(),
   sessionIds: z.array(z.string()),
-  clients: z.array(ViewClient),
+  /** Deprecated: always empty; see Surface. */
+  clients: z.array(ViewClient).default([]),
   /** A tracker keeps this view's projects (see docs/trackers.md). */
   trackerId: z.string().nullable().optional(),
   /**
-   * A client as membership authority: sessions enrolled from this client (`ViewClient` id,
-   * `herdr:<session>@<machine>`) are pinned here when they first appear.
+   * The source surface (`herdr:<session>@<machine>`): sessions started in it
+   * (`Session.startedIn`) belong to this view.
    */
   clientId: z.string().min(1).max(200).nullable().optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
 export type View = z.infer<typeof View>;
+
+export const SurfaceKind = z.enum(["herdr", "tmux"]);
+export type SurfaceKind = z.infer<typeof SurfaceKind>;
+
+/**
+ * A terminal multiplexer session (herdr, tmux) that shows a view: owned by the signed-in device
+ * that reports it, optionally on a host (coordinator-owned).
+ */
+export const Surface = z.object({
+  /** `${kind}:${name}@${machine}` */
+  id: z.string().min(1).max(200),
+  kind: SurfaceKind,
+  name: z.string().min(1),
+  machine: z.string().min(1),
+  deviceId: Id,
+  hostId: Id.nullable(),
+  viewId: Id.nullable(),
+  lastSeenAt: Iso,
+  createdAt: Iso,
+});
+export type Surface = z.infer<typeof Surface>;
 
 export const RuntimeState = z.enum([
   "starting",

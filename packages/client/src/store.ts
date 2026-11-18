@@ -13,6 +13,7 @@ import type {
   Project,
   Run,
   Session,
+  Surface,
   SyncState,
   Task,
   TrackedIssue,
@@ -51,6 +52,7 @@ export interface ClientState {
   interactions: ById<Interaction>;
   panels: ById<Panel>;
   devices: ById<Device>;
+  surfaces: ById<Surface>;
   issues: ById<TrackedIssue>;
   dispatchPaused: boolean;
 }
@@ -74,6 +76,7 @@ export function emptyState(): ClientState {
     interactions: {},
     panels: {},
     devices: {},
+    surfaces: {},
     issues: {},
     dispatchPaused: false,
   };
@@ -128,6 +131,7 @@ export function applySnapshot(state: ClientState, seq: number, snap: SyncState):
     interactions: byId(snap.interactions),
     panels,
     devices: byId(snap.devices),
+    surfaces: byId(snap.surfaces ?? []),
     issues: byId(snap.issues ?? []),
     dispatchPaused: snap.dispatchPaused,
   };
@@ -258,6 +262,14 @@ function reduceEvent<T extends EventType>(
     case "issue.deleted": {
       const d = data as EventData<"issue.deleted">;
       return { ...state, issues: drop(state.issues, d.id) };
+    }
+    case "surface.updated": {
+      const d = data as EventData<"surface.updated">;
+      return { ...state, surfaces: put(state.surfaces, d.id, d) };
+    }
+    case "surface.deleted": {
+      const d = data as EventData<"surface.deleted">;
+      return { ...state, surfaces: drop(state.surfaces, d.id) };
     }
     case "settings.updated": {
       const d = data as EventData<"settings.updated">;

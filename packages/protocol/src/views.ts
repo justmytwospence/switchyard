@@ -1,7 +1,7 @@
-import type { Session, Task, View, ViewClient, Workspace } from "./entities.js";
+import type { Session, Surface, Task, View, Workspace } from "./entities.js";
 
-/** A client counts as open in a view while its last report is younger than this. */
-export const CLIENT_OPEN_MS = 10 * 60_000;
+/** A surface counts as open while its last report is younger than this. */
+export const SURFACE_OPEN_MS = 10 * 60_000;
 
 export type WorkspaceLookup =
   | Record<string, Pick<Workspace, "projectId">>
@@ -14,11 +14,12 @@ function workspaceOf(ws: WorkspaceLookup, id: string) {
 /** Is a session in a view? Archived sessions never are. */
 export function sessionInView(
   view: View,
-  s: Pick<Session, "id" | "projectId" | "workspaceId" | "hostId" | "archivedAt">,
+  s: Pick<Session, "id" | "projectId" | "workspaceId" | "hostId" | "archivedAt" | "startedIn">,
   workspaces: WorkspaceLookup,
 ): boolean {
   if (s.archivedAt !== null) return false;
   if (view.sessionIds.includes(s.id)) return true;
+  if (view.clientId && s.startedIn === view.clientId) return true;
   if (view.mode === "pinned") return false;
   const projectId =
     s.projectId ??
@@ -31,10 +32,10 @@ export function sessionInView(
   return true;
 }
 
-/** Clients that reported recently, sorted by kind then name. */
-export function openClients(view: View, now = Date.now()): ViewClient[] {
-  return view.clients
-    .filter((c) => now - Date.parse(c.lastSeenAt) < CLIENT_OPEN_MS)
+/** Surfaces showing a view that reported recently, sorted by kind then name. */
+export function openSurfaces(surfaces: Surface[], viewId: string, now = Date.now()): Surface[] {
+  return surfaces
+    .filter((c) => c.viewId === viewId && now - Date.parse(c.lastSeenAt) < SURFACE_OPEN_MS)
     .sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
 }
 

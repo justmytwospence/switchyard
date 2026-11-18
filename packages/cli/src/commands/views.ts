@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
-import type { Host, Project, View } from "@switchyard/protocol";
-import { findView, openClients } from "@switchyard/protocol";
+import type { Host, Project, Surface, View } from "@switchyard/protocol";
+import { findView, openSurfaces } from "@switchyard/protocol";
 import type { ApiClient } from "@switchyard/terminal";
 import { CliError, type ConnectionFlags } from "../config.js";
 import { type Ctx, connect, printList } from "../context.js";
@@ -23,7 +23,9 @@ export interface ViewFlags extends ConnectionFlags {
 export function clientRef(raw: string, machine: string = hostname()): string {
   const v = raw.trim();
   if (!/^(herdr|tmux):[^@\s]+(@\S+)?$/.test(v))
-    throw new CliError('--client must look like "herdr:<session>" or "herdr:<session>@<machine>"');
+    throw new CliError(
+      "--client must look like herdr:<session> or tmux:<session>, optionally with @<machine>",
+    );
   return v.includes("@") ? v : `${v}@${machine}`;
 }
 
@@ -43,10 +45,11 @@ function checkMode(mode: string | undefined): void {
 
 export async function viewsList(ctx: Ctx, flags: ViewFlags): Promise<void> {
   const { api } = connect(ctx, flags);
-  const [views, projects, hosts] = await Promise.all([
+  const [views, projects, hosts, surfaces] = await Promise.all([
     api.get<View[]>("/api/views"),
     api.get<Project[]>("/api/projects"),
     api.get<Host[]>("/api/hosts"),
+    api.get<Surface[]>("/api/surfaces").catch(() => [] as Surface[]),
   ]);
   const names = (ids: string[] | null, all: { id: string; name: string }[]) =>
     ids === null ? "any" : ids.map((i) => all.find((x) => x.id === i)?.name ?? i).join(", ") || "-";
@@ -54,7 +57,7 @@ export async function viewsList(ctx: Ctx, flags: ViewFlags): Promise<void> {
     ctx,
     flags.json,
     views,
-    ["NAME", "MODE", "PROJECTS", "HOSTS", "PINNED", "CLIENT", "OPEN IN"],
+    ["NAME", "MODE", "PROJECTS", "HOSTS", "PINNED", "SOURCE", "OPEN IN"],
     views.map((v) => [
       v.name,
       v.mode,
@@ -62,7 +65,7 @@ export async function viewsList(ctx: Ctx, flags: ViewFlags): Promise<void> {
       names(v.hostIds, hosts),
       String(v.sessionIds.length),
       v.clientId ?? "-",
-      openClients(v)
+      openSurfaces(surfaces, v.id)
         .map((c) => `${c.kind} ${c.name} (${c.machine})`)
         .join(", ") || "-",
     ]),

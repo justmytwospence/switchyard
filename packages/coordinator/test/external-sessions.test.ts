@@ -1,5 +1,5 @@
 // @module-tag slow
-import type { HostCommand } from "@switchyard/protocol";
+import { type HostCommand, sessionInView } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hostSession, until } from "./helpers.js";
 import { commandsOf, type Harness, ROOT, setupHarness } from "./task-helpers.js";
@@ -34,7 +34,7 @@ afterEach(async () => {
 });
 
 describe("sessions a host announces from your terminal", () => {
-  it("map to the workspace containing their cwd and are pinned to their client's view", async () => {
+  it("map to the workspace containing their cwd and belong to their surface's view", async () => {
     const client = "herdr:daily@mac";
     const view = await h.t.admin("POST", "/api/views", {
       name: "daily",
@@ -57,8 +57,11 @@ describe("sessions a host announces from your terminal", () => {
     const s = h.t.c.store.sessions.require("ses_ext");
     const ws = h.t.c.store.workspaceByPath(h.creds.hostId, ROOT)!;
     expect(s).toMatchObject({ workspaceId: ws.id, projectId: h.project.id, external: { client } });
-    await until(() => h.t.c.store.views.require(view.body.id).sessionIds.includes("ses_ext"));
-    expect(h.t.c.store.views.require(other.body.id).sessionIds).toEqual([]);
+    expect(s.startedIn).toBe(client);
+    const workspaces = Object.fromEntries(h.t.c.store.workspaces.list().map((w) => [w.id, w]));
+    expect(sessionInView(h.t.c.store.views.require(view.body.id), s, workspaces)).toBe(true);
+    expect(sessionInView(h.t.c.store.views.require(other.body.id), s, workspaces)).toBe(false);
+    expect(h.t.c.store.views.require(view.body.id).sessionIds).toEqual([]);
   });
 
   it("leave a cwd outside every workspace without a project", async () => {

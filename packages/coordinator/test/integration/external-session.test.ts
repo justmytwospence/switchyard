@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Session } from "@switchyard/protocol";
+import { type Session, sessionInView } from "@switchyard/protocol";
 import { piBin, skipRealPi } from "@switchyard/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import { Integration, steps, waitFor } from "./harness.js";
@@ -32,7 +32,7 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
     await env?.dispose();
   });
 
-  it("enrols, is pinned to its client's view, answers prompts and stops on quit", async () => {
+  it("enrols, belongs to its surface's view, answers prompts and stops on quit", async () => {
     env = await Integration.create({ terminalSessions: true });
     const { terminal } = env.devices!;
     const client = `herdr:daily@${hostname()}`;
@@ -68,10 +68,9 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
     expect(s.projectId).toBe(env.project.id);
     expect(s.workspaceId).not.toBeNull();
     expect(s.external).toEqual({ client });
-    await waitFor(
-      () => env.c.store.views.require(view.id).sessionIds.includes(s.id),
-      "pinned to the daily view",
-    );
+    expect(s.startedIn).toBe(client);
+    const workspaces = Object.fromEntries(env.c.store.workspaces.list().map((w) => [w.id, w]));
+    expect(sessionInView(env.c.store.views.require(view.id), s, workspaces)).toBe(true);
 
     await env.ok("POST", `/api/sessions/${s.id}/prompt`, {
       as: terminal,

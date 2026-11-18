@@ -3,7 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { Session } from "@switchyard/protocol";
-import { CliError, type ConnectionFlags, resolveConnection } from "../config.js";
+import { CliError, type ConnectionFlags, localHostId, resolveConnection } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
 import {
   type HerdrCall,
@@ -151,7 +151,13 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
       return v === "missing" ? null : v;
     },
     subscribe: (fn) => client.store.subscribe(fn),
-    client: { id: `herdr:${name}@${machine}`, kind: "herdr", name, machine },
+    surface: {
+      id: `herdr:${name}@${machine}`,
+      kind: "herdr",
+      name,
+      machine,
+      hostId: localHostId(env, client.api.baseUrl),
+    },
     log,
   });
   const leave = () => void presence.stop().finally(() => process.exit(0));

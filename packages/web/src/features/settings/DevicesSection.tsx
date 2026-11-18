@@ -46,6 +46,8 @@ function KindIcon({ kind }: { kind: Device["kind"] }) {
 export function DevicesSection() {
   const hydrated = useHydrated();
   const devicesById = useSyncStore((s) => s.devices);
+  const surfaces = useSyncStore((s) => s.surfaces);
+  const views = useSyncStore((s) => s.views);
   useAuth((s) => s.me); // re-render when the current device becomes known
   const thisId = currentDeviceId();
   const devices = useMemo(
@@ -158,6 +160,19 @@ export function DevicesSection() {
                       {PERMISSION_LABEL[d.push.permission]}
                     </span>
                   </div>
+                  {Object.values(surfaces).some((x) => x.deviceId === d.id) && (
+                    <ul data-testid="device-surfaces" className="flex flex-col text-sm text-muted">
+                      {Object.values(surfaces)
+                        .filter((x) => x.deviceId === d.id)
+                        .sort((a, b) => a.id.localeCompare(b.id))
+                        .map((x) => (
+                          <li key={x.id}>
+                            {x.kind} {x.name} · view {(x.viewId && views[x.viewId]?.name) || "none"}{" "}
+                            · seen {formatRelative(x.lastSeenAt)}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {!d.preferredMobile && (

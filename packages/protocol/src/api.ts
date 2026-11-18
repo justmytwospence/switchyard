@@ -13,6 +13,7 @@ import {
   Session,
   SessionModel,
   SlashCommand,
+  Surface,
   Task,
   TaskState,
   TaskTemplate,
@@ -592,6 +593,14 @@ export const MeResponse = z.object({
   publicUrl: z.string(),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
+
+export const SurfaceReport = Surface.pick({
+  kind: true,
+  name: true,
+  machine: true,
+  viewId: true,
+}).extend({ hostId: z.string().nullable().optional() });
+export type SurfaceReport = z.infer<typeof SurfaceReport>;
 
 export const ViewInput = View.pick({
   name: true,

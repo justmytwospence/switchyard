@@ -20,6 +20,25 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("017 adds surfaces and empties view clients", () => {
+    const db = dbAt(16);
+    db.prepare("INSERT INTO views (id, name, json, created_at) VALUES (?, ?, ?, ?)").run(
+      "viw_1",
+      "work",
+      JSON.stringify({ id: "viw_1", clients: [{ id: "herdr:a@m" }] }),
+      "2026",
+    );
+    migrate(db);
+    const json = JSON.parse(
+      (db.prepare("SELECT json FROM views WHERE id = 'viw_1'").get() as { json: string }).json,
+    );
+    expect(json.clients).toEqual([]);
+    db.prepare(
+      "INSERT INTO surfaces (id, device_id, view_id, last_seen_at, json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("herdr:a@m", "dev_1", null, "2026", "{}", "2026");
+    db.close();
+  });
+
   it("016 backfills subagent parents and startedIn", () => {
     const db = dbAt(15);
     const put = db.prepare(

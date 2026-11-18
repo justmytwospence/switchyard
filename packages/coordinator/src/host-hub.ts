@@ -1149,10 +1149,9 @@ export class HostHub {
     if ((finished || failed) && !next.unreadSince && !this.beingViewed(id)) {
       next.unreadSince = this.store.nowIso();
     }
+    if (next.external?.client && !next.startedIn) next.startedIn = next.external.client;
     if (existing && JSON.stringify(existing) === JSON.stringify(next)) return;
     this.store.putSession(next);
-    const client = next.external?.client;
-    if (client && existing?.external?.client !== client) this.pinToClientViews(next.id, client);
     if (partial.bridge !== undefined) {
       // Recheck the current guard only after the bridge projection is durable.
       this.store.afterCommit(() => this.retryDeferred(hostId));
@@ -1169,18 +1168,6 @@ export class HostHub {
       // an unevaluated settle (see RunsService.recover).
       if (next.runId) this.store.noteRunSettle(next.runId);
       this.store.afterCommit(() => this.hub.emit("session.settled", payload));
-    }
-  }
-
-  /** A client is the membership authority of these views: pin a session enrolled from it. */
-  private pinToClientViews(sessionId: string, client: string): void {
-    for (const v of this.store.views.list()) {
-      if (v.clientId !== client || v.sessionIds.includes(sessionId)) continue;
-      this.store.putView({
-        ...v,
-        sessionIds: [...v.sessionIds, sessionId],
-        updatedAt: this.store.nowIso(),
-      });
     }
   }
 

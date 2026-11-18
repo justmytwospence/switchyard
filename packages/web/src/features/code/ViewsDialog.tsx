@@ -10,7 +10,7 @@ import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { TextLink } from "../../components/ui/TextLink";
 import { apiDelete, apiPatch, apiPost, errorMessage, isApiError } from "../../sync/api";
-import { useHosts, useProjects } from "../../sync/store";
+import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { shownIn, viewSource } from "../views/describe";
 import { useViewDescriber } from "../views/ViewSelect";
 
@@ -25,7 +25,9 @@ function ViewAbout({
   onNavigate: () => void;
 }) {
   const source = viewSource(view);
-  const shown = shownIn(view);
+  const surfaces = useSyncStore((s) => s.surfaces);
+  const hosts = useSyncStore((s) => s.hosts);
+  const shown = shownIn(view, Object.values(surfaces), hosts);
   const session = view.name.trim().replace(/\s+/g, "-");
   return (
     <dl

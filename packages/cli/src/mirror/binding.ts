@@ -1,8 +1,8 @@
-import type { View, ViewClient } from "@switchyard/protocol";
+import type { View } from "@switchyard/protocol";
 import { findView } from "@switchyard/protocol";
 import type { ApiClient } from "@switchyard/terminal";
 import type { Env } from "../paths.js";
-import { startPresence } from "./presence.js";
+import { type SurfaceInfo, startPresence } from "./presence.js";
 import type { MirrorState } from "./state.js";
 
 /** The view a multiplexer session mirrors: `SWITCHYARD_VIEW` if set, else the session's name. */
@@ -27,7 +27,7 @@ export function trackPresence(opts: {
   api: ApiClient;
   getView: () => View | null;
   subscribe: (fn: () => void) => () => void;
-  client: Omit<ViewClient, "lastSeenAt">;
+  surface: SurfaceInfo;
   log: (line: string) => void;
 }): { stop(): Promise<void> } {
   let current: { id: string; stop(): Promise<void> } | null = null;
@@ -38,7 +38,7 @@ export function trackPresence(opts: {
     current = null;
     if (old) void old.stop();
     if (v) {
-      const p = startPresence(opts.api, v, opts.client, opts.log);
+      const p = startPresence(opts.api, opts.surface, v.id, opts.log);
       current = { id: v.id, stop: p.stop };
     }
   };

@@ -27,7 +27,7 @@ Sessions started anywhere else (the web app, herdr, your phone) appear here with
 
 ## Views
 
-`SWITCHYARD_VIEW` binds the session to a view (`switchyard views create`). Several tmux and herdr sessions can share one view: a close in one archives the session everywhere. Without a view, every session is mirrored.
+`SWITCHYARD_VIEW` binds the session to a view (`switchyard views create`); it is then a surface of that view. Several tmux and herdr sessions can share one view: a close in one archives the session everywhere. Without a view, every session is mirrored.
 
 ## Files
 

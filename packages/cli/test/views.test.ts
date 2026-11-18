@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientRef, viewsCreate, viewsEdit } from "../src/commands/views.js";
+import { clientRef, viewsCreate, viewsEdit, viewsList } from "../src/commands/views.js";
 import { stubFetch, testCtx } from "./helpers.js";
 
 const conn = { coordinator: "http://coord", credential: "cred" };
@@ -38,5 +38,33 @@ describe("views --client", () => {
     });
     await viewsEdit(ctx, "daily", { ...conn, noClient: true });
     expect(calls.find((c) => c.method === "PATCH")!.body).toEqual({ clientId: null });
+  });
+});
+
+describe("views list", () => {
+  it("shows the surfaces a view is open in", async () => {
+    const seen = new Date().toISOString();
+    const { fetch } = stubFetch({
+      "GET /api/views": () => [{ ...VIEW, clientId: "herdr:default@mac" }],
+      "GET /api/projects": () => [],
+      "GET /api/hosts": () => [],
+      "GET /api/surfaces": () => [
+        {
+          id: "herdr:default@mac",
+          kind: "herdr",
+          name: "default",
+          machine: "mac",
+          deviceId: "dev_1",
+          hostId: null,
+          viewId: "viw_1",
+          lastSeenAt: seen,
+          createdAt: seen,
+        },
+      ],
+    });
+    const ctx = testCtx(fetch);
+    await viewsList(ctx, conn);
+    expect(ctx.lines[0]).toContain("SOURCE");
+    expect(ctx.lines[1]).toContain("herdr default (mac)");
   });
 });

@@ -1,12 +1,13 @@
 import {
   type Host,
-  openClients,
+  openSurfaces,
   type Project,
+  type Surface,
   type Tracker,
   type View,
 } from "@switchyard/protocol";
 
-/** What decides a view's members: a GitHub tracker, a terminal client, or the view's own filter. */
+/** What decides a view's members: a GitHub tracker, a source surface, or the view's own filter. */
 export type ViewSource = "tracker" | "client" | "manual";
 
 export function viewSource(v: View): ViewSource {
@@ -66,10 +67,17 @@ export function describeView(v: View, ctx: DescribeContext): string {
 }
 
 /** Terminals showing this view now, as "herdr vo on mac-pro, tmux main on nuc"; null when none. */
-export function shownIn(v: View, now = Date.now()): string | null {
-  const open = openClients(v, now);
+export function shownIn(
+  v: View,
+  surfaces: Surface[],
+  hosts: Record<string, Pick<Host, "name">> = {},
+  now = Date.now(),
+): string | null {
+  const open = openSurfaces(surfaces, v.id, now);
   if (open.length === 0) return null;
-  return open.map((c) => `${c.kind} ${c.name} on ${c.machine}`).join(", ");
+  return open
+    .map((c) => `${c.kind} ${c.name} on ${(c.hostId && hosts[c.hostId]?.name) || c.machine}`)
+    .join(", ");
 }
 
 export type ViewEmptyFilter = "active" | "attention" | "all";
@@ -91,7 +99,7 @@ export function emptyViewState(
   const source = viewSource(v);
   let description: string;
   if (source === "client" && v.sessionIds.length === 0) {
-    description = `A Pi you start in ${clientLabel(v.clientId ?? "")} joins this view once it enrols with a host agent connected to ${opts.origin}. Sessions that started before the view existed are not added; pin them from the session menu.`;
+    description = `A Pi you start in ${clientLabel(v.clientId ?? "")} joins this view once it enrols with a host agent connected to ${opts.origin}.`;
   } else if (source === "manual" && v.mode === "pinned") {
     description = `This view holds only sessions you pin. Pin one from its menu: Pin to ${v.name}.`;
   } else {

@@ -3,7 +3,7 @@ import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "no
 import { hostname } from "node:os";
 import { join } from "node:path";
 import type { Session } from "@switchyard/protocol";
-import { CliError, type ConnectionFlags } from "../config.js";
+import { CliError, type ConnectionFlags, localHostId } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
 import { bindingRef, trackPresence, viewOrMissing } from "../mirror/binding.js";
 import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
@@ -149,7 +149,13 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
       return v === "missing" ? null : v;
     },
     subscribe: (fn) => client.store.subscribe(fn),
-    client: { id: `tmux:${name0}@${machine}`, kind: "tmux", name: name0, machine },
+    surface: {
+      id: `tmux:${name0}@${machine}`,
+      kind: "tmux",
+      name: name0,
+      machine,
+      hostId: localHostId(ctx.env, client.api.baseUrl),
+    },
     log,
   });
   const leave = () => void presence.stop().finally(() => process.exit(0));

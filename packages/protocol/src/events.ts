@@ -14,6 +14,7 @@ import {
   Project,
   Run,
   Session,
+  Surface,
   Task,
   TranscriptItem,
   View,
@@ -51,6 +52,8 @@ export const EventDataSchemas = {
   "device.updated": Device,
   "issue.updated": TrackedIssue,
   "issue.deleted": z.object({ id: z.string() }),
+  "surface.updated": Surface,
+  "surface.deleted": z.object({ id: z.string() }),
   "settings.updated": z.object({ dispatchPaused: z.boolean() }),
 } as const;
 

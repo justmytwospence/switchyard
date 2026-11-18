@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { defaultConfigPath } from "@switchyard/host-agent";
 import { clientConfigPath, defaultDataDir, type Env } from "./paths.js";
 
 export interface ClientConfig {
@@ -166,4 +167,22 @@ export function resolveConnection(
 
 export function trimUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
+}
+
+/**
+ * The host id of this machine's host agent when it is enrolled with `coordinatorUrl` (from its
+ * host.json), else null.
+ */
+export function localHostId(env: Env, coordinatorUrl: string): string | null {
+  try {
+    const raw = JSON.parse(readFileSync(defaultConfigPath(env), "utf8")) as {
+      coordinatorUrl?: unknown;
+      hostId?: unknown;
+    };
+    const norm = (u: string) => u.trim().replace(/\/+$/, "");
+    if (typeof raw.coordinatorUrl !== "string" || typeof raw.hostId !== "string") return null;
+    return norm(raw.coordinatorUrl) === norm(coordinatorUrl) ? raw.hostId : null;
+  } catch {
+    return null;
+  }
 }

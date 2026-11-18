@@ -106,6 +106,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const [selectedViewId, setSelectedViewId] = useSelectedView();
   const [editingView, setEditingView] = useState<string | "new" | null>(null);
   const view = (selectedViewId ? views[selectedViewId] : null) ?? null;
+  const surfaces = useSyncStore((s) => s.surfaces);
+  const shownText = view ? shownIn(view, Object.values(surfaces), hostsMap) : null;
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
   const hosts = useHosts();
@@ -401,9 +403,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             </Button>
           </div>
           {view && <p className="truncate text-subtle text-xs">{describeView(view)}</p>}
-          {view && shownIn(view) && (
-            <p className="truncate text-subtle text-xs">Shown in: {shownIn(view)}</p>
-          )}
+          {shownText && <p className="truncate text-subtle text-xs">Shown in: {shownText}</p>}
         </div>
         <ViewsDialog
           editing={editingView}
