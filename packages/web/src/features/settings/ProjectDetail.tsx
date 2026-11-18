@@ -278,7 +278,7 @@ function ProjectForm({
               [
                 "single_writer",
                 "Single writer",
-                "Only one run or session writes in a workspace at a time; others wait. Safest.",
+                "Automation runs wait while another session is live in the workspace. Safest.",
               ],
               [
                 "shared",

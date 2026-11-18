@@ -55,7 +55,7 @@ export function describeView(v: View, ctx: DescribeContext): string {
     const x = t.extraRepositories ?? [];
     const also =
       x.length === 1 ? ` and ${x[0]}` : x.length > 1 ? ` and ${x.length} other repositories` : "";
-    return `GitHub issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}`;
+    return `Branches and issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}`;
   }
   if (source === "client") return `Pi you start in ${clientLabel(v.clientId ?? "")}`;
   if (v.mode === "pinned") return "Only sessions you pin";

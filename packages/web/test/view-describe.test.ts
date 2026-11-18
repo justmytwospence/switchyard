@@ -72,7 +72,7 @@ describe("view descriptions", () => {
 
   it("describes tracker views", () => {
     const v = view({ trackerId: "trk_1" });
-    expect(describeView(v, ctx)).toBe("GitHub issues assigned to me in VO-Health");
+    expect(describeView(v, ctx)).toBe("Branches and issues assigned to me in VO-Health");
     expect(
       describeView(v, {
         ...ctx,
@@ -83,11 +83,11 @@ describe("view descriptions", () => {
           }),
         ],
       }),
-    ).toBe("GitHub issues assigned to you in VO-Health (board #1)");
+    ).toBe("Branches and issues assigned to you in VO-Health (board #1)");
     expect(describeView(v, { ...ctx, trackers: null })).toBe("Kept by a GitHub tracker");
     expect(
       describeView(v, { ...ctx, trackers: [tracker({ extraRepositories: ["other/lib"] })] }),
-    ).toBe("GitHub issues assigned to me in VO-Health and other/lib");
+    ).toBe("Branches and issues assigned to me in VO-Health and other/lib");
     expect(
       describeView(v, {
         ...ctx,
@@ -98,7 +98,7 @@ describe("view descriptions", () => {
           }),
         ],
       }),
-    ).toBe("GitHub issues assigned to me in VO-Health and 2 other repositories (board #1)");
+    ).toBe("Branches and issues assigned to me in VO-Health and 2 other repositories (board #1)");
   });
 
   it("describes client and pinned views", () => {

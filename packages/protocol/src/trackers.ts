@@ -159,7 +159,7 @@ export const TrackerSetStatusResult = z.discriminatedUnion("status", [
 ]);
 export type TrackerSetStatusResult = z.infer<typeof TrackerSetStatusResult>;
 
-/** POST /api/tasks/:id/tracker/status */
+/** POST /api/issues/:id/status */
 export const TrackerStatusRequest = z.object({ status: z.string().min(1).max(200) });
 
 /** Host command bodies (without `type`). */
