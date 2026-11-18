@@ -1,8 +1,37 @@
 name: ci
-on: [push, pull_request]
+# main and v* tags only ever point at commits that already passed here on dev (scripts/promote.sh),
+# so pushes to main and tags do not run CI again.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  build:
+  # Fast feedback: compile, lint and the client SDK tarball (no Pi needed).
+  check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm build:client-npm
+      - run: pnpm test:client-npm
+
+  test:
+    name: test (${{ matrix.shard }}/5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -13,13 +42,18 @@ jobs:
       - run: pi --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm lint
-      - run: pnpm test
-      - run: pnpm build:client-npm
-      - run: pnpm test:client-npm
+      # Past durations let Vitest start each shard's slowest files first.
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.vite/vitest
+          key: vitest-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: vitest-${{ matrix.shard }}-
+      # hanging-process names whatever keeps a worker alive if the run does not exit.
+      - run: pnpm exec vitest run --shard=${{ matrix.shard }}/5 --reporter=default --reporter=hanging-process
 
   plugin-compat:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -51,15 +85,16 @@ jobs:
       - run: node --test scripts/check-plugin-compat.test.mjs
       - run: pnpm test:plugins
 
-  # Every green push to a branch other than main publishes the coordinator image: dev as :dev
-  # (dev.switchyard, scripts/deploy-dev.sh), any other branch as :br-<slug> (scripts/preview-slug.sh,
-  # for scripts/preview.sh), each also as :sha-<short>. main moves only by fast-forward to a green
-  # dev (scripts/promote.sh); production images and the npm package come only from v* tags on
-  # main (release.yml).
+  # Every push to a branch publishes the coordinator image as soon as it builds, in parallel with
+  # the tests: dev as :dev (dev.switchyard, scripts/deploy-dev.sh), any other branch as
+  # :br-<slug> (scripts/preview-slug.sh, for scripts/preview.sh), each also as :sha-<short>.
+  # These are review deployments; production is gated on the whole run: main moves only by
+  # fast-forward to a dev whose CI run (tests included) is green (scripts/promote.sh), and
+  # production images and the npm package come only from v* tags on main (release.yml).
   image:
-    needs: [build, plugin-compat]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write

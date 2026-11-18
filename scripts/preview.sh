@@ -41,7 +41,12 @@ pair_link() { ssh -t "$NUC" "docker exec $NAME switchyard pair"; }
 up() {
   refuse_trunk
   require_pushed "$BRANCH"
-  wait_for_ci "$SHA" "$BRANCH"
+  [ -d node_modules ] || pnpm install --frozen-lockfile
+  local build_log build_pid
+  build_log=$(mktemp)
+  pnpm build >"$build_log" 2>&1 &
+  build_pid=$!
+  wait_for_image "$SHA" "$BRANCH"
 
   step "Starting $NAME on $NUC"
   ssh "$NUC" "mkdir -p $DIR/data && NAME=$NAME IMAGE=$IMAGE HOST=$HOST DIR=$DIR \
@@ -51,8 +56,7 @@ up() {
   echo "$NAME runs $REV"
 
   step "Host agent on this Mac ($LABEL)"
-  [ -d node_modules ] || pnpm install --frozen-lockfile
-  pnpm build >/dev/null
+  wait "$build_pid" || { echo "pnpm build failed:" >&2; cat "$build_log" >&2; exit 1; }
   if [ ! -f "$CFG/host.json" ]; then
     local token
     token=$(ssh "$NUC" "docker exec $NAME switchyard pair host --json" | jq -r .token)
@@ -68,6 +72,7 @@ up() {
 
   step "Preview ready"
   echo "$URL  (revision ${SHA:0:7})"
+  report_tests
   pair_link
 }
 

@@ -17,8 +17,8 @@ Build, test and release details are in [docs/development.md](docs/development.md
 
 Spencer reviews and tries changes on a deployment, never on a local `up --dev` or Vite server:
 
-- **dev**: https://dev.switchyard.spencerboucher.com (coordinator on `:dev`, with the NUC and this Mac as hosts). Commit on `dev`, push, and run `scripts/deploy-dev.sh` from the main checkout. It waits for CI and the `:dev` image, redeploys the dev coordinator on the NUC and checks its revision, then rebuilds this checkout and restarts the Mac's dev host agent.
-- **a branch**: https://<slug>.switchyard-dev.spencerboucher.com (`scripts/preview-slug.sh <branch>` gives the slug). Push the branch and run `scripts/preview.sh up` from its worktree. It waits for CI and the `:br-<slug>` image, starts a throwaway coordinator on the NUC with its own data and pairing-only sign-in, installs a host agent on this Mac running the worktree's build, and prints a single-use sign-in link (`scripts/preview.sh pair` prints a new one).
+- **dev**: https://dev.switchyard.spencerboucher.com (coordinator on `:dev`, with the NUC and this Mac as hosts). Commit on `dev`, push, and run `scripts/deploy-dev.sh` from the main checkout. It waits for the `:dev` image (CI's tests keep running and gate `promote.sh`), redeploys the dev coordinator on the NUC and checks its revision, then rebuilds this checkout and restarts the Mac's dev host agent.
+- **a branch**: https://<slug>.switchyard-dev.spencerboucher.com (`scripts/preview-slug.sh <branch>` gives the slug). Push the branch and run `scripts/preview.sh up` from its worktree. It waits for the `:br-<slug>` image, starts a throwaway coordinator on the NUC with its own data and pairing-only sign-in, installs a host agent on this Mac running the worktree's build, and prints a single-use sign-in link (`scripts/preview.sh pair` prints a new one).
 
 Then:
 

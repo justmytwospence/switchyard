@@ -11,7 +11,7 @@ SHA=$(git rev-parse HEAD)
 [ "$SHA" = "$(git rev-parse origin/dev)" ] || { echo "HEAD is not origin/dev; push first" >&2; exit 1; }
 CONC=$(gh run list -R "$REPO" --workflow ci --commit "$SHA" --json conclusion,event \
   --jq '[.[] | select(.event == "push")][0].conclusion // empty')
-[ "$CONC" = success ] || { echo "CI on ${SHA:0:7} is '${CONC:-missing}'; wait for it or fix it" >&2; exit 1; }
+[ "$CONC" = success ] || { echo "CI on ${SHA:0:7} is '${CONC:-still running or missing}'; wait for it or fix it" >&2; exit 1; }
 git merge-base --is-ancestor origin/main "$SHA" || {
   echo "main has commits dev lacks; merge origin/main into dev first" >&2; exit 1; }
 git push origin "$SHA:refs/heads/main"
