@@ -35,12 +35,16 @@ describe("tracker form", () => {
       hostId: "hst_1",
       owner: "VO-Health",
       repositories: ["VO-Health/datasync"],
+      extraRepositories: [],
       board: { projectNumber: 1, statusField: "Status", onStart: "In Progress", onReview: null },
       writeBack: true,
       moveShared: true,
       enabled: true,
     });
     expect(draftOf(null, "hst_x")).toMatchObject({ hostId: "hst_x", statusField: "Status" });
+    expect(bodyOf(draftOf(null, "h")).extraRepositories).toEqual([]);
+    const extra = tracker({ extraRepositories: ["other/lib", "other/app"] });
+    expect(bodyOf(draftOf(extra, "h")).extraRepositories).toEqual(["other/lib", "other/app"]);
   });
 
   it("drops the board and write-back without a board number", () => {
@@ -60,6 +64,13 @@ describe("tracker form", () => {
     expect(validateDraft({ ...ok, repositories: "nope" }).repositories).toBe(
       "Use owner/name, one per line.",
     );
+    expect(validateDraft({ ...ok, extraRepositories: "nope" }).extraRepositories).toBe(
+      "Use owner/name, one per line.",
+    );
+    const many = Array.from({ length: 21 }, (_, i) => `o/r${i}`).join("\n");
+    expect(validateDraft({ ...ok, extraRepositories: many }).extraRepositories).toBe(
+      "Use 20 repositories or fewer.",
+    );
     expect(validateDraft({ ...ok, board: "0" }).board).toBe(
       "Enter the board's number, as in its URL.",
     );
@@ -77,6 +88,9 @@ describe("tracker form", () => {
       tracker({ repositories: null, board: null, writeBack: false, login: null }),
       "Mac",
     );
+    expect(
+      trackerFacts(tracker({ repositories: null, extraRepositories: ["other/lib"] }), "Mac")[0],
+    ).toEqual(["GitHub", "VO-Health (all repositories), plus other/lib"]);
     expect(plain).toEqual([
       ["GitHub", "VO-Health (all repositories)"],
       ["Signed in as", "Not synced yet"],

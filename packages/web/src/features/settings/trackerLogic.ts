@@ -12,6 +12,8 @@ export interface TrackerDraft {
   owner: string;
   /** One owner/name per line; empty: every repository of the owner. */
   repositories: string;
+  /** One owner/name per line: repositories of other owners. */
+  extraRepositories: string;
   /** A Projects board number; empty: none. */
   board: string;
   statusField: string;
@@ -23,7 +25,7 @@ export interface TrackerDraft {
 }
 
 export type TrackerDraftErrors = Partial<
-  Record<"name" | "hostId" | "owner" | "repositories" | "board", string>
+  Record<"name" | "hostId" | "owner" | "repositories" | "extraRepositories" | "board", string>
 >;
 
 const lines = (text: string) =>
@@ -39,6 +41,7 @@ export function draftOf(t: Tracker | null, defaultHostId: string): TrackerDraft 
       hostId: defaultHostId,
       owner: "",
       repositories: "",
+      extraRepositories: "",
       board: "",
       statusField: "Status",
       onStart: "",
@@ -52,6 +55,7 @@ export function draftOf(t: Tracker | null, defaultHostId: string): TrackerDraft 
     hostId: t.hostId,
     owner: t.owner,
     repositories: (t.repositories ?? []).join("\n"),
+    extraRepositories: (t.extraRepositories ?? []).join("\n"),
     board: t.board ? String(t.board.projectNumber) : "",
     statusField: t.board?.statusField ?? "Status",
     onStart: t.board?.onStart ?? "",
@@ -72,6 +76,10 @@ export function validateDraft(d: TrackerDraft): TrackerDraftErrors {
     e.owner = "Enter a GitHub organization or user name.";
   if (lines(d.repositories).some((r) => !GitHubRepository.safeParse(r).success))
     e.repositories = "Use owner/name, one per line.";
+  const extra = lines(d.extraRepositories);
+  if (extra.some((r) => !GitHubRepository.safeParse(r).success))
+    e.extraRepositories = "Use owner/name, one per line.";
+  else if (extra.length > 20) e.extraRepositories = "Use 20 repositories or fewer.";
   const board = d.board.trim();
   if (board && !/^[1-9][0-9]*$/.test(board)) e.board = "Enter the board's number, as in its URL.";
   return e;
@@ -86,6 +94,7 @@ export function bodyOf(d: TrackerDraft): TrackerInput {
     hostId: d.hostId,
     owner: d.owner.trim(),
     repositories: repos.length ? repos : null,
+    extraRepositories: lines(d.extraRepositories),
     board: board
       ? {
           projectNumber: Number(board),
@@ -116,7 +125,9 @@ export function trackerFacts(t: Tracker, hostName: string): [string, string][] {
   return [
     [
       "GitHub",
-      `${t.owner}${t.repositories ? `: ${t.repositories.join(", ")}` : " (all repositories)"}`,
+      `${t.owner}${t.repositories ? `: ${t.repositories.join(", ")}` : " (all repositories)"}${
+        t.extraRepositories?.length ? `, plus ${t.extraRepositories.join(", ")}` : ""
+      }`,
     ],
     ["Signed in as", t.login ?? "Not synced yet"],
     ["Host", hostName],

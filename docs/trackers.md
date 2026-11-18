@@ -12,7 +12,7 @@ Trackers and clients never talk to each other; both meet at the core objects. A 
 
 | Concept | What it is | Who owns the truth |
 |---|---|---|
-| Tracker | The host user's open assigned issues in one GitHub owner (optionally some repositories), optionally with a Projects board | GitHub owns issues, assignees and board columns; Switchyard keeps a snapshot on each task |
+| Tracker | The host user's open assigned issues in one GitHub owner (optionally some repositories), plus repositories of other owners you add, optionally with a Projects board | GitHub owns issues, assignees and board columns; Switchyard keeps a snapshot on each task |
 | Keep a session in every worktree (project setting) | Every non-main worktree gets one session when it first appears | Switchyard |
 | Remove merged worktrees (project setting) | When a worktree's pull request has merged, archive its sessions and remove the worktree and its local branch | GitHub (PR state) and host git |
 
@@ -38,14 +38,14 @@ Trackers use the host's `gh` login, like the rest of the [GitHub integration](gi
      --board 3 --on-start "In progress" --on-review "In review" --write-back
    ```
 
-   `--repo owner/name` (repeatable) limits it to some repositories. `--status-field` names the board's status field (default `Status`).
+   `--repo owner/name` (repeatable) limits it to some repositories. `--status-field` names the board's status field (default `Status`). `--also owner/name` (repeatable) adds a repository of another owner, for work that lives outside the organization: its project joins the tracker's view and your assigned issues there become its tasks. An issue belongs to one tracker, so do not cover the same repository with two.
 3. `switchyard trackers sync <name>` syncs now; otherwise every tracker syncs every two minutes. `switchyard trackers list` shows the last sync and error.
 
 ### In the web app
 
-Settings > Trackers shows each tracker as a card: its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, its task count, and links that open its view on Sessions or the Board. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** and **Delete** change or remove it (its tasks stay and stop updating, its view stays as an ordinary view). The view selector on Sessions and the Board names each view's source, such as `fieldgoal · GitHub`.
+Settings > Trackers shows each tracker as a card: its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, its task count, and links that open its view on Sessions or the Board. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** and **Delete** change or remove it (its tasks stay and stop updating, its view stays as an ordinary view). The view selector on Sessions and the Board names each view's source, such as `fieldgoal · GitHub`. Edit has "Repositories of other owners", the same as `--also`.
 
-A tracker keeps a view of its own name pointed at the projects in its owner (an existing view of that name is adopted). Its project list is the tracker's; hosts and pins stay editable. Bind a herdr session to it with `switchyard herdr pair --session <name> --view <name>`.
+A tracker keeps a view of its own name pointed at the projects in its owner and its other repositories (an existing view of that name is adopted). Its project list is the tracker's; hosts and pins stay editable. Bind a herdr session to it with `switchyard herdr pair --session <name> --view <name>`.
 
 ## Board write-back
 

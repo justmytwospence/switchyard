@@ -11,6 +11,10 @@ export interface TrackerFlags extends ConnectionFlags {
   owner?: string;
   repo?: string[];
   allRepos?: boolean;
+  /** Repositories of other owners (`--also`). */
+  also?: string[];
+  /** commander's `--no-also`: true when given. */
+  noAlso?: boolean;
   board?: string;
   /** commander's `--no-board`: false when given. */
   noBoard?: boolean;
@@ -66,7 +70,8 @@ export async function trackersList(ctx: Ctx, flags: TrackerFlags): Promise<void>
       t.name,
       hosts.find((h) => h.id === t.hostId)?.name ?? t.hostId,
       t.owner,
-      t.repositories ? t.repositories.join(", ") : "any",
+      (t.repositories ? t.repositories.join(", ") : "any") +
+        (t.extraRepositories?.length ? ` + ${t.extraRepositories.join(", ")}` : ""),
       t.board ? `#${t.board.projectNumber}` : "-",
       t.writeBack ? "on" : "off",
       t.lastSyncedAt ?? "never",
@@ -89,6 +94,7 @@ export async function trackersCreate(ctx: Ctx, name: string, flags: TrackerFlags
     hostId: host.id,
     owner: flags.owner,
     ...(flags.repo?.length ? { repositories: flags.repo } : {}),
+    ...(flags.also?.length ? { extraRepositories: flags.also } : {}),
     ...(flags.board ? { board: { projectNumber: boardNumber(flags.board), ...fields } } : {}),
     ...(flags.writeBack ? { writeBack: true } : {}),
     ...(flags.moveShared === false ? { moveShared: false } : {}),
@@ -103,6 +109,8 @@ export async function trackersEdit(ctx: Ctx, ref: string, flags: TrackerFlags): 
   if (flags.allRepos && flags.repo?.length)
     throw new CliError("--all-repos cannot be combined with --repo");
   if (flags.enable && flags.disable) throw new CliError("--enable and --disable conflict");
+  if (flags.noAlso && flags.also?.length)
+    throw new CliError("--no-also cannot be combined with --also");
   const { api } = connect(ctx, flags);
   const t = await resolveTracker(api, ref);
   let board: Tracker["board"] | undefined;
@@ -123,6 +131,11 @@ export async function trackersEdit(ctx: Ctx, ref: string, flags: TrackerFlags): 
       ? { repositories: null }
       : flags.repo?.length
         ? { repositories: flags.repo }
+        : {}),
+    ...(flags.noAlso
+      ? { extraRepositories: [] }
+      : flags.also?.length
+        ? { extraRepositories: flags.also }
         : {}),
     ...(board !== undefined ? { board } : {}),
     ...(flags.writeBack !== undefined ? { writeBack: flags.writeBack } : {}),

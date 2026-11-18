@@ -89,6 +89,25 @@ describe("trackers commands", () => {
     expect(ctx.lines).toEqual(["Created tracker vo (trk_1)"]);
   });
 
+  it("adds and clears repositories of other owners", async () => {
+    const { fetch, calls } = setup();
+    const ctx = testCtx(fetch);
+    await trackersCreate(ctx, "fg", {
+      ...conn,
+      host: "Mac",
+      owner: "fieldgoalco",
+      also: ["vcomedia/uplft"],
+    });
+    expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({
+      extraRepositories: ["vcomedia/uplft"],
+    });
+    await trackersEdit(ctx, "vo", { ...conn, noAlso: true });
+    expect(calls.find((c) => c.method === "PATCH")!.body).toEqual({ extraRepositories: [] });
+    await expect(trackersEdit(ctx, "vo", { ...conn, noAlso: true, also: ["a/b"] })).rejects.toThrow(
+      "--no-also cannot be combined with --also",
+    );
+  });
+
   it("edits a tracker", async () => {
     const { fetch, calls } = setup();
     const ctx = testCtx(fetch);
@@ -119,5 +138,15 @@ describe("trackers commands", () => {
     expect(ctx.lines[1]).toMatch(/^vo\s+Mac\s+VO-Health\s+any\s+#3\s+on/);
     await trackersSync(ctx, "vo", conn);
     expect(ctx.lines.at(-1)).toBe("Synced vo: 1 task");
+  });
+
+  it("lists repositories of other owners", async () => {
+    const { fetch } = stubFetch({
+      "GET /api/hosts": () => [HOST],
+      "GET /api/trackers": () => [{ ...TRACKER, extraRepositories: ["vcomedia/uplft"] }],
+    });
+    const ctx = testCtx(fetch);
+    await trackersList(ctx, conn);
+    expect(ctx.lines[1]).toMatch(/^vo\s+Mac\s+VO-Health\s+any \+ vcomedia\/uplft\s+#3/);
   });
 });

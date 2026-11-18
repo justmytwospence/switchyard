@@ -216,7 +216,10 @@ function TrackerCard({
           <h3 className="text-sm font-semibold">Projects</h3>
           {viewProjects.length === 0 ? (
             <p className="text-sm text-muted">
-              No projects from {t.owner} here yet. Add its repositories in Settings › Projects.
+              {t.extraRepositories?.length
+                ? "No projects for this tracker here yet."
+                : `No projects from ${t.owner} here yet.`}{" "}
+              Add its repositories in Settings › Projects.
             </p>
           ) : (
             <ul className="flex flex-col divide-y divide-border">
@@ -393,6 +396,22 @@ function TrackerForm({
               value={draft.repositories}
               spellCheck={false}
               onChange={(e) => set("repositories", e.target.value)}
+            />
+          )}
+        </Field>
+        <Field
+          label="Repositories of other owners"
+          optional
+          hint="One owner/name per line. Their projects join this tracker's view, and issues assigned to you there become its tasks."
+          error={errors.extraRepositories}
+        >
+          {(p) => (
+            <TextArea
+              {...p}
+              rows={2}
+              value={draft.extraRepositories}
+              spellCheck={false}
+              onChange={(e) => set("extraRepositories", e.target.value)}
             />
           )}
         </Field>

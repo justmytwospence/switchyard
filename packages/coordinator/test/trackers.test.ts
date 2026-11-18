@@ -1,7 +1,7 @@
 import type { HostCommand, Tracker, TrackerItem } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/index.js";
-import { issueBranch } from "../src/trackers.js";
+import { inScope, issueBranch, mergeSyncResults } from "../src/trackers.js";
 import { commandsOf, type Harness, ROOT, setupHarness } from "./task-helpers.js";
 
 const REPO = "acme/app";
@@ -145,6 +145,70 @@ describe("tracker sync", () => {
     truncated = false;
     await service().sync(t.id);
     expect(tracked(t.id).map((x) => x.tracker!.number)).toEqual([2]);
+  });
+
+  it("includes repositories of other owners", async () => {
+    store().putProject({
+      ...store().projects.require(h.project.id),
+      id: "prj_lib",
+      name: "Lib",
+      repoIdentity: "https://github.com/other/lib",
+    });
+    const base = h.override!;
+    const lib = item(9, {
+      itemId: "I_9",
+      repository: "other/lib",
+      url: "https://github.com/other/lib/issues/9",
+    });
+    h.override = (cmd, id) =>
+      cmd.type === "tracker.sync" && cmd.repositories?.[0] === "other/lib"
+        ? { login: "me", items: [lib], truncated: false }
+        : base(cmd, id);
+    items = [item(1)];
+    const t = await create({ extraRepositories: ["other/lib"] });
+    const syncs = commandsOf(h.host, "tracker.sync");
+    expect(syncs).toHaveLength(2);
+    expect(syncs[1]).toMatchObject({ owner: "acme", repositories: ["other/lib"] });
+    expect(
+      tracked(t.id)
+        .map((x) => x.projectId)
+        .sort(),
+    ).toEqual([h.project.id, "prj_lib"].sort());
+    const view = store()
+      .views.list()
+      .find((v) => v.trackerId === t.id)!;
+    expect([...(view.projectIds ?? [])].sort()).toEqual([h.project.id, "prj_lib"].sort());
+  });
+
+  it("fails the sync when the extra request fails", async () => {
+    items = [item(1)];
+    const t = await create();
+    expect(tracked(t.id)).toHaveLength(1);
+    const base = h.override!;
+    h.override = (cmd, id) =>
+      cmd.type === "tracker.sync" && cmd.repositories?.[0] === "other/lib"
+        ? { __error: { code: "internal", message: "boom" } }
+        : base(cmd, id);
+    items = [];
+    await h.t.admin("PATCH", `/api/trackers/${t.id}`, { extraRepositories: ["other/lib"] });
+    const after = await service().sync(t.id);
+    expect(after.lastError).toContain("boom");
+    expect(tracked(t.id)).toHaveLength(1);
+  });
+
+  it("merges sync results and scopes extra repositories", () => {
+    const a = item(1);
+    const merged = mergeSyncResults([
+      { login: "me", items: [a], truncated: false },
+      { login: "other", items: [a, item(2)], truncated: true },
+    ]);
+    expect(merged.login).toBe("me");
+    expect(merged.items.map((i) => i.number)).toEqual([1, 2]);
+    expect(merged.truncated).toBe(true);
+    const project = store().projects.require(h.project.id);
+    const t = { owner: "acme", repositories: null, extraRepositories: ["Other/Lib"] };
+    expect(inScope(t, { ...project, repoIdentity: "https://github.com/other/lib" })).toBe(true);
+    expect(inScope(t, { ...project, repoIdentity: "https://github.com/other/x" })).toBe(false);
   });
 
   it("reports issues in repositories without a project", async () => {

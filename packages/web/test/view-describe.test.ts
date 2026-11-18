@@ -85,6 +85,20 @@ describe("view descriptions", () => {
       }),
     ).toBe("GitHub issues assigned to you in VO-Health (board #1)");
     expect(describeView(v, { ...ctx, trackers: null })).toBe("Kept by a GitHub tracker");
+    expect(
+      describeView(v, { ...ctx, trackers: [tracker({ extraRepositories: ["other/lib"] })] }),
+    ).toBe("GitHub issues assigned to me in VO-Health and other/lib");
+    expect(
+      describeView(v, {
+        ...ctx,
+        trackers: [
+          tracker({
+            extraRepositories: ["other/lib", "other/app"],
+            board: { projectNumber: 1, statusField: "Status", onStart: null, onReview: null },
+          }),
+        ],
+      }),
+    ).toBe("GitHub issues assigned to me in VO-Health and 2 other repositories (board #1)");
   });
 
   it("describes client and pinned views", () => {

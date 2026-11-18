@@ -18,9 +18,11 @@ test.describe("settings trackers", () => {
 
     await card.getByRole("button", { name: "Edit" }).click();
     await form.getByLabel("Name", { exact: true }).fill(`${name}-x`);
+    await form.getByLabel(/^Repositories of other owners/).fill("other/lib");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     const renamed = section.getByRole("region", { name: `${name}-x` });
     await expect(renamed).toBeVisible();
+    await expect(renamed).toContainText("plus other/lib");
 
     await renamed.getByRole("button", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete tracker" }).click();

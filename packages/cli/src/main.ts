@@ -446,6 +446,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     owner: o.owner,
     repo: o.repo,
     allRepos: o.allRepos,
+    also: Array.isArray(o.also) ? o.also : undefined,
+    noAlso: o.also === false,
     board: typeof o.board === "string" ? o.board : undefined,
     noBoard: o.board === false,
     statusField: o.statusField,
@@ -463,6 +465,11 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--host <host>", "host whose gh login is used (required)")
     .option("--owner <login>", "GitHub organization or user (required)")
     .option("--repo <owner/name>", "limit to a repository (repeatable)", collect)
+    .option(
+      "--also <owner/name>",
+      "also include a repository of another owner (repeatable)",
+      collect,
+    )
     .option("--board <number>", "GitHub Projects board number in the owner")
     .option("--status-field <name>", "board status field (default Status)")
     .option("--on-start <column>", "column once the worktree exists (write-back)")
@@ -476,6 +483,12 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--owner <login>", "GitHub organization or user")
     .option("--repo <owner/name>", "limit to a repository (repeatable)", collect)
     .option("--all-repos", "remove the repository limit")
+    .option(
+      "--also <owner/name>",
+      "also include a repository of another owner (repeatable)",
+      collect,
+    )
+    .option("--no-also", "remove the repositories of other owners")
     .option("--board <number>", "GitHub Projects board number")
     .option("--no-board", "stop using a board")
     .option("--status-field <name>", "board status field")

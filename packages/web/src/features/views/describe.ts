@@ -51,7 +51,10 @@ export function describeView(v: View, ctx: DescribeContext): string {
     const t = ctx.trackers?.find((x) => x.id === v.trackerId);
     if (!t) return "Kept by a GitHub tracker";
     const board = t.board ? ` (board #${t.board.projectNumber})` : "";
-    return `GitHub issues assigned to ${t.login ?? "you"} in ${t.owner}${board}`;
+    const x = t.extraRepositories ?? [];
+    const also =
+      x.length === 1 ? ` and ${x[0]}` : x.length > 1 ? ` and ${x.length} other repositories` : "";
+    return `GitHub issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}`;
   }
   if (source === "client") return `Pi you start in ${clientLabel(v.clientId ?? "")}`;
   if (v.mode === "pinned") return "Only sessions you pin";

@@ -2,8 +2,8 @@ import { z } from "zod";
 import { GitHubIssueUrl, GitHubRepository } from "./github.js";
 
 /**
- * Trackers: a user's assigned GitHub issues in one owner (optionally some repositories, optionally
- * with a Projects board), synced into Backlog tasks and worktrees. See docs/trackers.md.
+ * Trackers: a user's assigned GitHub issues in one owner (optionally some repositories, plus
+ * repositories of other owners, optionally with a Projects board), synced into Backlog tasks and worktrees. See docs/trackers.md.
  */
 
 const Iso = z.string();
@@ -37,6 +37,8 @@ export const Tracker = z.object({
   hostId: Id,
   owner: GitHubLogin,
   repositories: z.array(GitHubRepository).min(1).max(50).nullable(),
+  /** Repositories outside `owner` that belong to this tracker too (never limited by `repositories`). */
+  extraRepositories: z.array(GitHubRepository).max(20).optional(),
   board: TrackerBoard.nullable(),
   writeBack: z.boolean(),
   moveShared: z.boolean(),
@@ -55,6 +57,7 @@ export const TrackerInput = z.object({
   hostId: Id,
   owner: GitHubLogin,
   repositories: Tracker.shape.repositories.default(null),
+  extraRepositories: z.array(GitHubRepository).max(20).default([]),
   board: TrackerBoard.nullable().default(null),
   writeBack: z.boolean().default(false),
   moveShared: z.boolean().default(true),
@@ -67,6 +70,7 @@ export const TrackerPatch = z.object({
   hostId: Id.optional(),
   owner: GitHubLogin.optional(),
   repositories: Tracker.shape.repositories.optional(),
+  extraRepositories: z.array(GitHubRepository).max(20).optional(),
   board: TrackerBoard.nullable().optional(),
   writeBack: z.boolean().optional(),
   moveShared: z.boolean().optional(),

@@ -24,15 +24,39 @@ export function projectForRepository(projects: Project[], repository: string): P
   return projects.find((p) => p.repoIdentity.toLowerCase() === want);
 }
 
-/** Whether a project belongs to a tracker's owner (and repository list, when it has one). */
+/**
+ * Whether a project belongs to a tracker's owner (and repository list, when it has one), or is
+ * one of its extra repositories.
+ */
 export function inScope(
-  tracker: Pick<Tracker, "owner" | "repositories">,
+  tracker: Pick<Tracker, "owner" | "repositories" | "extraRepositories">,
   project: Project,
 ): boolean {
   const identity = project.repoIdentity.toLowerCase();
+  if ((tracker.extraRepositories ?? []).some((r) => identity === `${GITHUB}${r}`.toLowerCase())) {
+    return true;
+  }
   if (!identity.startsWith(`${GITHUB}${tracker.owner.toLowerCase()}/`)) return false;
   if (!tracker.repositories) return true;
   return tracker.repositories.some((r) => identity === `${GITHUB}${r}`.toLowerCase());
+}
+
+/** One result from several host syncs: items once each (by `itemId`), at most 200. */
+export function mergeSyncResults(parts: TrackerSyncResult[]): TrackerSyncResult {
+  const seen = new Set<string>();
+  const items: TrackerItem[] = [];
+  for (const p of parts) {
+    for (const i of p.items) {
+      if (seen.has(i.itemId)) continue;
+      seen.add(i.itemId);
+      items.push(i);
+    }
+  }
+  return {
+    login: parts[0]?.login ?? "",
+    items: items.slice(0, 200),
+    truncated: parts.some((p) => p.truncated) || items.length > 200,
+  };
 }
 
 /** Branch name for "Start work": `<number>-<slug of the title>`. */
@@ -122,21 +146,23 @@ export class TrackerService {
         lastError: `Host ${this.hostName(tracker.hostId)} is offline`,
       });
     }
+    const board = tracker.board
+      ? { projectNumber: tracker.board.projectNumber, statusField: tracker.board.statusField }
+      : null;
+    const extra = tracker.extraRepositories ?? [];
+    const scopes = [tracker.repositories, ...(extra.length ? [extra] : [])];
     let result: TrackerSyncResult;
     try {
-      const raw = await hostHub.request(
-        tracker.hostId,
-        {
-          type: "tracker.sync",
-          owner: tracker.owner,
-          repositories: tracker.repositories,
-          board: tracker.board
-            ? { projectNumber: tracker.board.projectNumber, statusField: tracker.board.statusField }
-            : null,
-        },
-        { timeoutMs: SYNC_TIMEOUT_MS },
-      );
-      result = TrackerSyncResult.parse(raw);
+      const parts: TrackerSyncResult[] = [];
+      for (const repositories of scopes) {
+        const raw = await hostHub.request(
+          tracker.hostId,
+          { type: "tracker.sync", owner: tracker.owner, repositories, board },
+          { timeoutMs: SYNC_TIMEOUT_MS },
+        );
+        parts.push(TrackerSyncResult.parse(raw));
+      }
+      result = mergeSyncResults(parts);
     } catch (err) {
       return this.save(trackerId, { lastError: this.hostError(tracker, err) });
     }

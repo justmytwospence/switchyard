@@ -10,6 +10,7 @@ describe("tracker schemas", () => {
       hostId: "hst_1",
       owner: "fieldgoalco",
       repositories: null,
+      extraRepositories: [],
       board: null,
       writeBack: false,
       moveShared: true,
