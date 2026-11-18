@@ -27,9 +27,11 @@ import {
 } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
+import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
+import { errorMessage } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
 import { usePalette } from "../palette/registry";
@@ -37,11 +39,13 @@ import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import { emptyViewState, shownIn } from "../views/describe";
 import { useViewDescriber, ViewSelect } from "../views/ViewSelect";
 import { AdapterSlot } from "./AdapterSlots";
+import { codeApi } from "./api";
 import {
   buildNavTree,
   DEFAULT_SORT,
   NAV_LAYOUTS,
   NAV_SORTS,
+  type NavEmptyBranch,
   type NavFilter,
   type NavGroup,
   type NavLayout,
@@ -49,6 +53,7 @@ import {
   type NavSort,
   navGroupKeys,
   navTreeIsEmpty,
+  normalizeLayout,
   projectIdOfGroup,
   STATUS_BUCKETS,
   sessionsNeedingAttention,
@@ -66,6 +71,8 @@ interface NavPrefs {
   showSubagents: boolean;
   sorts: Partial<Record<NavLayout, NavSort>>;
   needsInputFirst: boolean;
+  /** Branch rows showing their other sessions. */
+  expanded: string[];
 }
 
 /** The phone session list defaults to Recent; the desktop navigator to Projects. */
@@ -78,6 +85,7 @@ function defaultPrefs(screen: boolean): NavPrefs {
     showSubagents: false,
     sorts: {},
     needsInputFirst: true,
+    expanded: [],
   };
 }
 
@@ -95,7 +103,12 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const screen = variant === "screen";
   const defaults = defaultPrefs(screen);
   const [stored, setPrefs] = useFilter<NavPrefs>(screen ? "sessionList" : "navigator", defaults);
-  const prefs = { ...defaults, ...stored };
+  const prefs = {
+    ...defaults,
+    ...stored,
+    layout: normalizeLayout(stored?.layout, defaults.layout),
+    expanded: stored?.expanded ?? [],
+  };
   const hydrated = useSyncStore((s) => s.hydrated);
   const projects = useSyncStore((s) => s.projects);
   const workspaces = useSyncStore((s) => s.workspaces);
@@ -157,9 +170,18 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     else next.add(key);
     setPrefs({ ...prefs, collapsed: [...next] });
   };
+  const expansion: RowExpansion = {
+    expanded: new Set(prefs.expanded),
+    toggleRow: (key) => {
+      const next = new Set(prefs.expanded);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      setPrefs({ ...prefs, expanded: [...next] });
+    },
+  };
   const allKeys = navGroupKeys(tree);
   const viewItems: (MenuItem | MenuHeading | "separator")[] = [
-    { id: "layout-heading", heading: "Group sessions" },
+    { id: "layout-heading", heading: "Group branches" },
     ...NAV_LAYOUTS.map(
       (l): MenuItem => ({
         id: `layout-${l.value}`,
@@ -193,6 +215,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     {
       id: "subagents",
       label: "Show subagents",
+      hint: "Nested under the session that started them",
       kind: "checkbox",
       checked: prefs.showSubagents,
       onSelect: () => setPrefs({ ...prefs, showSubagents: !prefs.showSubagents }),
@@ -286,11 +309,12 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       <ul aria-label="Recent sessions" className="flex min-w-0 flex-col gap-0.5 pb-4">
         {tree.rows.map((row) => (
           <SessionRow
-            key={row.session.id}
+            key={row.key}
             row={row}
             indent={0}
-            selected={row.session.id === selectedId}
+            selectedId={selectedId}
             screen={screen}
+            expansion={expansion}
           />
         ))}
       </ul>
@@ -313,6 +337,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             selectedId={selectedId}
             screen={screen}
             onNewSession={onNewSession}
+            expansion={expansion}
           />
         ))}
       </ul>
@@ -472,23 +497,7 @@ function GroupHeader({ group, depth, open }: { group: NavGroup; depth: number; o
         )}
         <span className="shrink-0 text-xs font-normal text-muted">
           {group.sessionCount}
-          <span className="sr-only"> sessions</span>
-        </span>
-      </>
-    );
-  }
-  if (group.kind === "workspace") {
-    return (
-      <>
-        <Chevron aria-hidden className="size-3.5 shrink-0 text-muted" />
-        <GitBranch aria-hidden className="size-3.5 shrink-0 text-muted" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-mono text-xs" title={group.path ?? undefined}>
-            {group.label}
-          </span>
-          {group.detail && (
-            <span className="block truncate text-xs text-muted">{group.detail}</span>
-          )}
+          <span className="sr-only"> branches</span>
         </span>
       </>
     );
@@ -502,6 +511,12 @@ function GroupHeader({ group, depth, open }: { group: NavGroup; depth: number; o
   );
 }
 
+/** Which rows show their other sessions (stored, or forced open). */
+interface RowExpansion {
+  expanded: Set<string>;
+  toggleRow: (key: string) => void;
+}
+
 function GroupNode({
   group,
   depth,
@@ -510,6 +525,7 @@ function GroupNode({
   selectedId,
   screen,
   onNewSession,
+  expansion,
 }: {
   group: NavGroup;
   depth: number;
@@ -518,6 +534,7 @@ function GroupNode({
   selectedId: string | null;
   screen: boolean;
   onNewSession: (projectId?: string) => void;
+  expansion: RowExpansion;
 }) {
   const open = !collapsed.has(group.key);
   const pid = group.kind === "project" ? projectIdOfGroup(group.key) : null;
@@ -547,8 +564,8 @@ function GroupNode({
       </div>
       {open && (
         <ul className={cn("flex min-w-0 flex-col", depth > 0 && "gap-0.5 py-0.5")}>
-          {group.rows.length === 0 && group.groups.length === 0 && (
-            <li className="px-7 py-1 text-xs text-muted">No sessions yet.</li>
+          {group.rows.length === 0 && group.groups.length === 0 && group.empty.length === 0 && (
+            <li className="px-7 py-1 text-xs text-muted">No branches yet.</li>
           )}
           {group.groups.map((g) => (
             <GroupNode
@@ -560,72 +577,171 @@ function GroupNode({
               selectedId={selectedId}
               screen={screen}
               onNewSession={onNewSession}
+              expansion={expansion}
             />
           ))}
           {group.rows.map((row) => (
             <SessionRow
-              key={row.session.id}
+              key={row.key}
               row={row}
               indent={depth === 0 ? 1 : 2}
-              selected={row.session.id === selectedId}
+              selectedId={selectedId}
               screen={screen}
+              expansion={expansion}
             />
           ))}
+          {pid &&
+            group.empty.map((b) => (
+              <EmptyBranchRow key={b.workspaceId} projectId={pid} branch={b} screen={screen} />
+            ))}
         </ul>
       )}
     </li>
   );
 }
 
-const INDENT = ["pl-2", "pl-7", "pl-9"] as const;
+/** A worktree with no session: one click opens a session in it. */
+function EmptyBranchRow({
+  projectId,
+  branch,
+  screen,
+}: {
+  projectId: string;
+  branch: NavEmptyBranch;
+  screen: boolean;
+}) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const workspace = useSyncStore((s) => s.workspaces[branch.workspaceId]);
+  const open = async () => {
+    if (!workspace?.branch) return;
+    setBusy(true);
+    try {
+      const r = await codeApi.openBranch({
+        projectId,
+        branch: workspace.branch,
+        hostId: workspace.hostId,
+      });
+      useSyncStore.getState().upsertSessionIfMissing(r.session);
+      navigate(`/code/${encodeURIComponent(r.session.id)}`, { state: BACK_STATE });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <li
+      data-testid="empty-branch"
+      className={cn("flex min-w-0 items-center gap-1.5 py-1 pr-2 pl-7", screen && "py-2")}
+    >
+      <GitBranch aria-hidden className="size-3.5 shrink-0 text-subtle" />
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-mono text-xs text-muted">{branch.label}</span>
+        <span className="ml-1.5 text-xs text-subtle">
+          No session{branch.host ? ` · ${branch.host}` : ""}
+        </span>
+      </span>
+      {workspace?.branch && (
+        <Button size="sm" variant="ghost" busy={busy} onClick={() => void open()}>
+          Open
+        </Button>
+      )}
+    </li>
+  );
+}
+
+const INDENT = ["pl-2", "pl-7", "pl-9", "pl-11"] as const;
 
 function SessionRow({
   row,
   indent,
-  selected,
+  selectedId,
   screen,
+  expansion,
+  nested = false,
 }: {
   row: NavRow;
-  indent: 0 | 1 | 2;
-  selected: boolean;
+  indent: 0 | 1 | 2 | 3;
+  selectedId: string | null;
   screen: boolean;
+  expansion?: RowExpansion;
+  nested?: boolean;
 }) {
   const { session, attention } = row;
+  const selected = session.id === selectedId;
   const context = [formatRelative(session.lastActivityAt), row.project, row.host, row.branch]
     .filter(Boolean)
     .join(" · ");
+  const count = row.others.length;
+  const open =
+    count > 0 &&
+    (!!expansion?.expanded.has(row.key) ||
+      row.othersNeedInput ||
+      row.others.some((o) => o.session.id === selectedId));
+  const needsInput = attention || (!nested && row.othersNeedInput);
   return (
     <li className="min-w-0">
-      <Link
-        data-testid="session-row"
-        data-keyboard-item
-        to={`/code/${encodeURIComponent(session.id)}`}
-        state={BACK_STATE}
-        aria-current={selected ? "page" : undefined}
-        className={cn(
-          "tap flex min-w-0 flex-col gap-0.5 rounded-md py-1.5 pr-2 hover:bg-surface-2",
-          INDENT[indent],
-          screen && "py-2.5",
-          selected && "bg-accent-soft hover:bg-accent-soft",
+      <div className="flex min-w-0 items-center">
+        <Link
+          data-testid={nested ? "session-subrow" : "session-row"}
+          data-keyboard-item
+          to={`/code/${encodeURIComponent(session.id)}`}
+          state={BACK_STATE}
+          aria-current={selected ? "page" : undefined}
+          className={cn(
+            "tap flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1.5 pr-2 hover:bg-surface-2",
+            INDENT[indent],
+            screen && "py-2.5",
+            selected && "bg-accent-soft hover:bg-accent-soft",
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
+            {needsInput && session.runtime !== "waiting_input" && (
+              <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
+                <MessageCircleQuestion aria-hidden className="size-3.5" />
+                Needs input
+              </span>
+            )}
+          </span>
+          <span className="flex min-w-0 items-center gap-x-1.5">
+            <StatusChip kind="custom" status={rowStatusFor(row)} size="sm" />
+            {nested && (
+              <span className="shrink-0 text-xs text-muted">
+                {row.role === "subagent" ? "Subagent" : "Extra"}
+              </span>
+            )}
+            <span className="min-w-0 truncate text-xs text-muted">{context}</span>
+          </span>
+        </Link>
+        {count > 0 && (
+          <button
+            type="button"
+            data-testid="row-others"
+            aria-expanded={open}
+            aria-label={`${count} more ${count === 1 ? "session" : "sessions"} in this branch`}
+            onClick={() => expansion?.toggleRow(row.key)}
+            className="tap shrink-0 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2"
+          >
+            +{count}
+          </button>
         )}
-      >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
-          {attention && session.runtime !== "waiting_input" && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
-              <MessageCircleQuestion aria-hidden className="size-3.5" />
-              Needs input
-            </span>
-          )}
-        </span>
-        <span className="flex min-w-0 items-center gap-x-1.5">
-          <StatusChip kind="custom" status={rowStatusFor(row)} size="sm" />
-          {session.provenance === "subagent" && (
-            <span className="shrink-0 text-xs text-muted">Subagent</span>
-          )}
-          <span className="min-w-0 truncate text-xs text-muted">{context}</span>
-        </span>
-      </Link>
+      </div>
+      {open && (
+        <ul className="flex min-w-0 flex-col gap-0.5">
+          {row.others.map((o) => (
+            <SessionRow
+              key={o.session.id}
+              row={o}
+              indent={Math.min(indent + 1, 3) as 0 | 1 | 2 | 3}
+              selectedId={selectedId}
+              screen={screen}
+              nested
+            />
+          ))}
+        </ul>
+      )}
     </li>
   );
 }

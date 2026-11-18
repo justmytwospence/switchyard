@@ -362,20 +362,20 @@ At compact widths, inspector overlays or replaces conversation temporarily; do n
 
 ### Navigator
 
-Layouts, chosen from View options (persisted per device):
+Every row is a branch (a project on a branch, see [model.md](model.md)) and shows its primary session. The branch's other sessions nest under it behind a "+N" toggle, which opens on its own when one of them needs input or is selected; the same branch on two hosts is one row. Layouts, chosen from View options (persisted per device):
 
-- **Projects** (default on desktop): project → sessions. Each row shows host (or the project header does, when all its sessions share one) and branch unless it is the main checkout.
-- **Worktrees**: project → workspace → sessions. A project whose only workspace is the main checkout is shown without the workspace level.
-- **Recent**: one list, sessions needing input first, then by last activity, with project, host and branch on each row.
-- **Hosts**: host (with connection state) → project → sessions.
+- **Projects** (default on desktop): project → branches. Each row shows host (or the project header does, when all its branches share one) and branch unless it is the main checkout. With the All filter, worktrees without a session are listed under their project with an Open action.
+- **Recent**: one list, branches needing input first, then by last activity, with project, host and branch on each row.
+- **Hosts**: host (with connection state) → project → branches (one row per host).
+- **Status**: grouped by what needs you.
 
-Subagent sessions are hidden unless "Show subagents" is on. View options also choose a sort per layout (Recent activity, Newest, Name, Status; defaults: Projects and Hosts by name, Worktrees and Recent by activity), applied to groups and sessions, with sessions needing input first unless turned off. Session rows show title, textual status, last activity, and attention indicator.
+Subagent sessions are nested under the session that started them and hidden unless "Show subagents" is on. View options also choose a sort per layout (Recent activity, Newest, Name, Status; defaults: Projects and Hosts by name, Recent and Status by activity), applied to groups and rows, with rows needing input first unless turned off. Rows show title, textual status, last activity, and attention indicator.
 
 Provide search, active/all filter, view options, collapse controls, and New session.
 
 Empty state: "Add a project" and "Connect a host," based on what is missing.
 
-New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. Show the resulting branch/path above Create; Cmd/Ctrl+Enter creates. Do not require a task.
+New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. Show the resulting branch/path above Create; Cmd/Ctrl+Enter creates. When the chosen workspace already has a session, the primary action is Open session: no new session starts, and a typed prompt waits in that session's composer. "Start another session in this branch" is an explicit checkbox. Do not require a task.
 
 ### Conversation header
 
@@ -386,7 +386,7 @@ Actions:
 - Open linked task.
 - Take over / Return to automation.
 - Stop, when running.
-- Session menu: rename, archive, native-session information.
+- Session menu: rename, archive, primary session of this branch, new session in this branch, native-session information.
 
 Attach is navigation to this view, not an action that creates a process.
 

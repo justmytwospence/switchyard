@@ -10,6 +10,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Pencil,
+  Plus,
   Server,
   Square,
   SquareKanban,
@@ -84,6 +85,27 @@ export function sessionMenuItems(
           disabled: !!a.archiveBlocked,
           hint: a.archiveBlocked ?? undefined,
         },
+    ...(ctx.session.provenance !== "subagent" && !ctx.session.archivedAt
+      ? [
+          {
+            id: "primary",
+            label: "Primary session of this branch",
+            kind: "checkbox" as const,
+            checked: a.isPrimary,
+            onSelect: () => a.setPrimary(!a.isPrimary),
+          },
+        ]
+      : []),
+    ...(a.newInBranch
+      ? [
+          {
+            id: "another",
+            label: "New session in this branch",
+            icon: <Plus className="size-4" />,
+            onSelect: a.newInBranch,
+          },
+        ]
+      : []),
     ...views.map(
       (v): MenuItem => ({
         id: `view-${v.id}`,

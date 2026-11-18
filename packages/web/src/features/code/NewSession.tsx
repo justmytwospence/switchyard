@@ -1,11 +1,14 @@
+import { primarySession, type Session } from "@switchyard/protocol";
 import { ChevronDown, ChevronRight, GitBranch, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
+import { loadDraft, setDraftNow } from "../../drafts";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
 import { useProjects, useSyncStore } from "../../sync/store";
@@ -29,6 +32,7 @@ const NEW = "__new";
 function useNewSessionForm(open: boolean, initialProjectId: string | null) {
   const projects = useProjects();
   const workspaces = useSyncStore((s) => s.workspaces);
+  const sessions = useSyncStore((s) => s.sessions);
   const checkouts = useSyncStore((s) => s.checkouts);
   const profilesMap = useSyncStore((s) => s.profiles);
   const hosts = useSyncStore((s) => s.hosts);
@@ -51,6 +55,7 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null) {
   const [prompt, setPrompt] = useState("");
   const [title, setTitle] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [another, setAnother] = useState(false);
 
   // Defaults when the flow opens.
   // biome-ignore lint/correctness/useExhaustiveDependencies: initialize once per opening
@@ -114,6 +119,26 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null) {
   );
   const mode = workspaceId === NEW ? "new" : "existing";
   const workspace = mode === "existing" ? workspaces[workspaceId] : undefined;
+  /** The branch's primary session per workspace (only workspaces that have one). */
+  const occupants = useMemo(() => {
+    const by = new Map<string, Session[]>();
+    for (const x of Object.values(sessions)) {
+      if (x.archivedAt !== null || x.provenance === "subagent" || !x.workspaceId) continue;
+      const list = by.get(x.workspaceId);
+      if (list) list.push(x);
+      else by.set(x.workspaceId, [x]);
+    }
+    const out = new Map<string, Session>();
+    for (const [id, list] of by) {
+      const p = primarySession(list);
+      if (p) out.set(id, p);
+    }
+    return out;
+  }, [sessions]);
+  const occupant = workspace ? (occupants.get(workspace.id) ?? null) : null;
+  // A new choice of workspace starts from opening its session again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the workspace changes
+  useEffect(() => setAnother(false), [workspaceId]);
   const checkout = checkouts[checkoutId] ?? hostCheckouts[0];
   const host = hosts[hostId];
   const suggested = useMemo(
@@ -168,6 +193,10 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null) {
     setCheckoutId,
     mode,
     workspace,
+    occupants,
+    occupant,
+    another,
+    setAnother,
     checkout,
     host,
     branch,
@@ -233,8 +262,17 @@ export function NewSessionFlow({
     }
   }, [open]);
 
+  const reuse = !!f.occupant && !f.another;
   const create = async () => {
     if (f.problem || submitting) return;
+    if (reuse && f.occupant) {
+      // The prompt waits in the existing session's composer instead of starting a new one.
+      if (f.prompt.trim() && !loadDraft(f.occupant.id).trim()) setDraftNow(f.occupant.id, f.prompt);
+      const id = f.occupant.id;
+      f.reset();
+      onCreated(id);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -329,6 +367,7 @@ export function NewSessionFlow({
               <option key={w.id} value={w.id}>
                 {workspaceLabel(w)}
                 {w.provenance === "main" ? " (main checkout)" : ""}
+                {f.occupants.has(w.id) ? " · has a session" : ""}
               </option>
             ))}
             <option value={NEW} disabled={f.hostCheckouts.length === 0}>
@@ -363,6 +402,7 @@ export function NewSessionFlow({
               <select
                 id={`${id}-profile`}
                 className={CHIP_SELECT}
+                disabled={reuse}
                 value={f.profileId}
                 onChange={(e) => f.setProfileId(e.target.value)}
               >
@@ -380,6 +420,20 @@ export function NewSessionFlow({
             </>
           )}
         </div>
+        {f.occupant && (
+          <div className="flex min-w-0 flex-col gap-1 text-sm">
+            <p className="text-muted">
+              This branch already has a session:{" "}
+              <span className="text-text">{f.occupant.title}</span>.
+            </p>
+            <Checkbox
+              data-testid="another-session"
+              label="Start another session in this branch"
+              checked={f.another}
+              onChange={f.setAnother}
+            />
+          </div>
+        )}
         {f.mode === "new" && (
           <div className="grid min-w-0 gap-3 sm:grid-cols-2">
             <Field
@@ -458,6 +512,7 @@ export function NewSessionFlow({
               <Field label="Session title" optional id={`${id}-title`}>
                 <TextInput
                   id={`${id}-title`}
+                  disabled={reuse}
                   value={f.title}
                   placeholder="Named from the prompt"
                   onChange={(e) => f.setTitle(e.target.value)}
@@ -509,7 +564,9 @@ export function NewSessionFlow({
           {f.problem}
         </p>
       ) : !mobile ? (
-        <span className="mr-auto text-xs text-subtle">{shortcut} to create</span>
+        <span className="mr-auto text-xs text-subtle">
+          {shortcut} to {reuse ? "open" : "create"}
+        </span>
       ) : null}
       <Button onClick={onClose}>Cancel</Button>
       <Button
@@ -518,7 +575,7 @@ export function NewSessionFlow({
         disabled={!!f.problem}
         onClick={() => void create()}
       >
-        Create session
+        {reuse ? "Open session" : "Create session"}
       </Button>
     </>
   );

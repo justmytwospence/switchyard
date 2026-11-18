@@ -1,3 +1,4 @@
+import { primarySession } from "@switchyard/protocol";
 import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
@@ -7,11 +8,13 @@ import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { apiDelete, apiPost, errorMessage } from "../../sync/api";
+import { useSyncStore } from "../../sync/store";
 import { codeApi } from "./api";
 import type { SessionContext } from "./hooks";
 import { useMutation } from "./hooks";
 import { isBusy, isLive } from "./model";
 import { SessionInfoDialog } from "./SessionInfoDialog";
+import { useSelectedView } from "./views";
 
 export interface SessionActions {
   canTakeover: boolean;
@@ -31,6 +34,11 @@ export interface SessionActions {
   unarchive: () => void;
   /** Pin the session to a view, or unpin it. */
   setPinned: (viewId: string, pinned: boolean) => void;
+  /** This session is its branch's primary session. */
+  isPrimary: boolean;
+  setPrimary: (primary: boolean) => void;
+  /** Start another session in this session's workspace, or null when it has none. */
+  newInBranch: (() => void) | null;
   busy: { takeover: boolean; ret: boolean; stop: boolean; resume: boolean; unarchive: boolean };
   /** Confirmation and form dialogs; render once in the view. */
   dialogs: ReactNode;
@@ -42,6 +50,20 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
   const navigate = useNavigate();
   const [dialog, setDialog] = useState<null | "stop" | "rename" | "archive" | "info">(null);
   const [title, setTitle] = useState(session.title);
+  const [selectedView] = useSelectedView();
+  const views = useSyncStore((st) => st.views);
+  const isPrimary = useSyncStore((st) => {
+    if (session.provenance === "subagent" || session.archivedAt) return false;
+    const peers = Object.values(st.sessions).filter(
+      (x) =>
+        x.archivedAt === null &&
+        x.provenance !== "subagent" &&
+        (session.workspaceId
+          ? x.workspaceId === session.workspaceId
+          : x.workspaceId === null && x.hostId === session.hostId && x.cwd === session.cwd),
+    );
+    return primarySession(peers)?.id === session.id;
+  });
 
   const takeover = useMutation(() => codeApi.takeover(session.id), {
     success: "You have control. Automatic continuations are paused.",
@@ -197,6 +219,27 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
       const path = `/api/views/${encodeURIComponent(viewId)}/sessions/${encodeURIComponent(session.id)}`;
       void (pinned ? apiPost(path) : apiDelete(path)).catch((e) => toast.error(errorMessage(e)));
     },
+    isPrimary,
+    setPrimary: (primary) => {
+      void codeApi.setPrimary(session.id, primary).catch((e) => toast.error(errorMessage(e)));
+    },
+    newInBranch:
+      session.projectId && session.workspaceId
+        ? () => {
+            void codeApi
+              .createSession({
+                projectId: session.projectId!,
+                workspace: { existingId: session.workspaceId! },
+                prompt: "",
+                ...(selectedView && views[selectedView] ? { viewId: selectedView } : {}),
+              })
+              .then((s) => {
+                useSyncStore.getState().upsertSessionIfMissing(s);
+                navigate(`/code/${encodeURIComponent(s.id)}`);
+              })
+              .catch((e) => toast.error(errorMessage(e)));
+          }
+        : null,
     busy: {
       takeover: takeover.busy,
       ret: ret.busy,

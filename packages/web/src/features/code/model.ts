@@ -16,7 +16,13 @@ import type {
   View,
   Workspace,
 } from "@switchyard/protocol";
-import { DEFAULT_WORKTREE_DIR, sessionInView, ThinkingLevel } from "@switchyard/protocol";
+import {
+  branchKeyOf,
+  DEFAULT_WORKTREE_DIR,
+  primarySession,
+  sessionInView,
+  ThinkingLevel,
+} from "@switchyard/protocol";
 import { formatDuration } from "../../lib/time";
 import { PANE_LIMITS } from "../../prefs";
 import { isBusyRuntime, isLiveRuntime, sessionsNeedingAttention } from "../../sync/selectors";
@@ -148,15 +154,19 @@ export function newSessionDefaults(
 
 export type NavFilter = "active" | "attention" | "all";
 
-export type NavLayout = "projects" | "worktrees" | "recent" | "hosts" | "status";
+export type NavLayout = "projects" | "recent" | "hosts" | "status";
 
 export const NAV_LAYOUTS: { value: NavLayout; label: string; hint: string }[] = [
-  { value: "projects", label: "Projects", hint: "Sessions under each project" },
-  { value: "worktrees", label: "Worktrees", hint: "Project, then branch or worktree" },
-  { value: "recent", label: "Recent", hint: "One list of every session" },
+  { value: "projects", label: "Projects", hint: "Branches under each project" },
+  { value: "recent", label: "Recent", hint: "One list of every branch" },
   { value: "hosts", label: "Hosts", hint: "Host, then project" },
   { value: "status", label: "Status", hint: "Grouped by what needs you" },
 ];
+
+/** A stored layout, or `fallback` when it is unknown (the retired Worktrees layout). */
+export function normalizeLayout(l: string | undefined, fallback: NavLayout): NavLayout {
+  return NAV_LAYOUTS.some((x) => x.value === l) ? (l as NavLayout) : fallback;
+}
 
 export type NavSort = "activity" | "created" | "name" | "status";
 
@@ -169,7 +179,6 @@ export const NAV_SORTS: { value: NavSort; label: string; hint: string }[] = [
 
 export const DEFAULT_SORT: Record<NavLayout, NavSort> = {
   projects: "name",
-  worktrees: "activity",
   recent: "activity",
   hosts: "name",
   status: "activity",
@@ -225,6 +234,7 @@ export function statusSummary(
   return out.map(({ at: _at, ...r }) => r);
 }
 
+/** A branch's row: its primary session, with the branch's other sessions nested. */
 export interface NavRow {
   session: Session;
   attention: boolean;
@@ -233,25 +243,39 @@ export interface NavRow {
   project: string | null;
   host: string | null;
   branch: string | null;
+  /** The branch key (see `branchKeyOf`). */
+  key: string;
+  /** Extra sessions in sort order, then subagents; always empty on nested rows. */
+  others: NavRow[];
+  /** One of `others` needs input. */
+  othersNeedInput: boolean;
+  role: "primary" | "extra" | "subagent";
+}
+
+/** A branch without a session, offered under its project (Projects layout, All filter). */
+export interface NavEmptyBranch {
+  workspaceId: string;
+  label: string;
+  host: string | null;
 }
 
 export interface NavGroup {
   /**
-   * Collapse key: "p:<projectId|__none>", "w:<workspaceId>" or "w:<projectKey>:cwd:<hostId>:<cwd>",
-   * "h:<hostId>", or "h:<hostId>/p:<projectId|__none>".
+   * Collapse key: "p:<projectId|__none>", "h:<hostId>", "h:<hostId>/p:<projectId|__none>" or
+   * "s:<bucket>".
    */
   key: string;
-  kind: "project" | "workspace" | "host" | "status";
+  kind: "project" | "host" | "status";
   label: string;
-  /** Muted text beside the label: the shared host on project/workspace headers. */
+  /** Muted text beside the label: the shared host on project headers. */
   detail: string | null;
-  /** Workspace path (tooltip), workspace groups only. */
-  path: string | null;
   /** Host connection state, host groups only ("unreachable" when revoked). */
   hostState: Connectivity | null;
   groups: NavGroup[];
   rows: NavRow[];
-  /** Sessions in this group and its child groups. */
+  /** Branches without a session (Projects layout with the All filter). */
+  empty: NavEmptyBranch[];
+  /** Branches in this group and its child groups. */
   sessionCount: number;
 }
 
@@ -308,6 +332,15 @@ interface NavEntry {
   hostName: string;
 }
 
+/** One branch: its entries in sort order, the row's entry, and the rest. */
+interface NavUnit {
+  key: string;
+  head: NavEntry;
+  others: { entry: NavEntry; role: "extra" | "subagent" }[];
+  /** Best bucket rank among all entries. */
+  rank: number;
+}
+
 function emptyGroup(
   key: string,
   kind: NavGroup["kind"],
@@ -319,10 +352,10 @@ function emptyGroup(
     kind,
     label,
     detail: null,
-    path: null,
     hostState: null,
     groups: [],
     rows: [],
+    empty: [],
     sessionCount: 0,
     ...patch,
   };
@@ -338,9 +371,18 @@ function branchFor(e: NavEntry): string | null {
   return e.projectId === null ? lastSegment(e.session.cwd) : null;
 }
 
+function rowActivity(r: NavRow): string {
+  let best = r.session.lastActivityAt;
+  for (const o of r.others) if (o.session.lastActivityAt > best) best = o.session.lastActivityAt;
+  return best;
+}
+
 function latest(g: NavGroup): string {
   let best = "";
-  for (const r of g.rows) if (r.session.lastActivityAt > best) best = r.session.lastActivityAt;
+  for (const r of g.rows) {
+    const a = rowActivity(r);
+    if (a > best) best = a;
+  }
   for (const c of g.groups) {
     const l = latest(c);
     if (l > best) best = l;
@@ -374,11 +416,11 @@ function countSessions(g: NavGroup): number {
 }
 
 /**
- * The navigator tree for a layout. `active` keeps live sessions and those
- * needing attention; `attention` only the latter; `all` includes stopped
- * sessions; projects without sessions are hidden (Worktrees still lists empty
- * workspaces of projects that have sessions). Archived sessions are never listed; subagents only on request.
- * Rows needing attention come first, then by last activity.
+ * The navigator tree for a layout: one row per branch, showing its primary session, with the
+ * branch's extra sessions (and subagents, when shown) nested under it. `active` keeps live
+ * sessions and those needing attention; `attention` only the latter; `all` includes stopped
+ * sessions and, in the Projects layout, branches without a session. Archived sessions are never
+ * listed. Rows needing attention come first, then by the layout's sort.
  */
 export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   const layout = opts.layout ?? "projects";
@@ -391,7 +433,11 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   for (const s of Object.values(input.sessions)) {
     if (s.archivedAt !== null) continue;
     if (s.provenance === "subagent" && !opts.showSubagents) continue;
-    if (opts.view && !sessionInView(opts.view, s, input.workspaces)) continue;
+    const parent =
+      s.provenance === "subagent" && s.parentSessionId
+        ? input.sessions[s.parentSessionId]
+        : undefined;
+    if (opts.view && !sessionInView(opts.view, parent ?? s, input.workspaces)) continue;
     const needs = attn.has(s.id);
     if (opts.filter === "active" && !isLive(s) && !needs) continue;
     if (opts.filter === "attention" && !needs) continue;
@@ -440,24 +486,94 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
     }
   });
 
-  const row = (e: NavEntry, ctx: Omit<NavRow, "session" | "attention" | "bucket">): NavRow => ({
-    session: e.session,
-    attention: e.attention,
-    bucket: e.bucket,
+  // Collapse entries into branches, keeping the order of each branch's first entry.
+  const perHost = layout === "hosts";
+  const keyOf = new Map<string, string>();
+  for (const e of entries) {
+    if (e.session.provenance !== "subagent") {
+      keyOf.set(e.session.id, branchKeyOf(e.session, e.ws, perHost));
+    }
+  }
+  const groupsByKey = new Map<string, NavEntry[]>();
+  for (const e of entries) {
+    const parentKey =
+      e.session.provenance === "subagent" && e.session.parentSessionId
+        ? keyOf.get(e.session.parentSessionId)
+        : undefined;
+    const key = parentKey ?? keyOf.get(e.session.id) ?? branchKeyOf(e.session, e.ws, perHost);
+    const list = groupsByKey.get(key);
+    if (list) list.push(e);
+    else groupsByKey.set(key, [e]);
+  }
+  const units: NavUnit[] = [];
+  for (const [key, list] of groupsByKey) {
+    const rank = Math.min(...list.map((e) => BUCKET_RANK[e.bucket]));
+    const tops = list.filter((e) => e.session.provenance !== "subagent");
+    if (tops.length === 0) {
+      for (const e of list) {
+        units.push({
+          key: `${key}#${e.session.id}`,
+          head: e,
+          others: [],
+          rank: BUCKET_RANK[e.bucket],
+        });
+      }
+      continue;
+    }
+    const primary = primarySession(tops.map((e) => e.session));
+    const head = tops.find((e) => e.session === primary) ?? tops[0]!;
+    units.push({
+      key,
+      head,
+      others: [
+        ...tops.filter((e) => e !== head).map((entry) => ({ entry, role: "extra" as const })),
+        ...list
+          .filter((e) => e.session.provenance === "subagent")
+          .map((entry) => ({ entry, role: "subagent" as const })),
+      ],
+      rank,
+    });
+  }
+
+  const row = (
+    u: NavUnit,
+    ctx: Omit<
+      NavRow,
+      "session" | "attention" | "bucket" | "key" | "others" | "othersNeedInput" | "role"
+    >,
+  ): NavRow => ({
+    session: u.head.session,
+    attention: u.head.attention,
+    bucket: u.head.bucket,
     ...ctx,
+    key: u.key,
+    others: u.others.map(({ entry, role }) => ({
+      session: entry.session,
+      attention: entry.attention,
+      bucket: entry.bucket,
+      project: null,
+      host: null,
+      branch: null,
+      key: u.key,
+      others: [],
+      othersNeedInput: false,
+      role,
+    })),
+    othersNeedInput: u.others.some((o) => o.entry.attention),
+    role: "primary",
   });
 
   if (layout === "status") {
     const groups: NavGroup[] = [];
     for (const b of STATUS_BUCKETS) {
       const g = emptyGroup(`s:${b.value}`, "status", b.label);
-      for (const e of entries) {
-        if (e.bucket !== b.value) continue;
+      for (const u of units) {
+        if (u.rank !== BUCKET_RANK[b.value]) continue;
         g.rows.push(
-          row(e, {
-            project: projectLabel(e.projectId, e.project),
-            host: e.hostName,
-            branch: branchFor(e),
+          row(u, {
+            project: projectLabel(u.head.projectId, u.head.project),
+            host: u.head.hostName,
+            branch: branchFor(u.head),
           }),
         );
       }
@@ -472,11 +588,11 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   if (layout === "recent") {
     return {
       groups: [],
-      rows: entries.map((e) =>
-        row(e, {
-          project: projectLabel(e.projectId, e.project),
-          host: e.hostName,
-          branch: branchFor(e),
+      rows: units.map((u) =>
+        row(u, {
+          project: projectLabel(u.head.projectId, u.head.project),
+          host: u.head.hostName,
+          branch: branchFor(u.head),
         }),
       ),
     };
@@ -484,7 +600,8 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
 
   if (layout === "hosts") {
     const hosts = new Map<string, NavGroup>();
-    for (const e of entries) {
+    for (const u of units) {
+      const e = u.head;
       let hg = hosts.get(e.hostId);
       if (!hg) {
         const host = input.hosts[e.hostId];
@@ -499,7 +616,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
         pg = emptyGroup(key, "project", projectLabel(e.projectId, e.project));
         hg.groups.push(pg);
       }
-      pg.rows.push(row(e, { project: null, host: null, branch: branchFor(e) }));
+      pg.rows.push(row(u, { project: null, host: null, branch: branchFor(e) }));
     }
     const groups = sortGroups([...hosts.values()], sort);
     for (const g of groups) {
@@ -509,6 +626,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
     return { groups, rows: [] };
   }
 
+  // Projects: project -> branches.
   const projects = new Map<string, NavGroup>();
   const projectGroup = (projectId: string | null): NavGroup => {
     const key = `p:${projectId ?? "__none"}`;
@@ -520,95 +638,66 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
     }
     return g;
   };
-
-  if (layout === "projects") {
-    const hostIds = new Map<NavGroup, Set<string>>();
-    for (const e of entries) {
-      const pg = projectGroup(e.projectId);
-      pg.rows.push(row(e, { project: null, host: e.hostName, branch: branchFor(e) }));
-      const ids = hostIds.get(pg) ?? new Set<string>();
-      ids.add(e.hostId);
-      hostIds.set(pg, ids);
-    }
-    for (const [pg, ids] of hostIds) {
-      if (ids.size !== 1) continue;
-      pg.detail = pg.rows[0]!.host;
-      for (const r of pg.rows) r.host = null;
-    }
-    const groups = sortGroups([...projects.values()], sort);
-    for (const g of groups) countSessions(g);
-    return { groups, rows: [] };
+  const hostIds = new Map<NavGroup, Set<string>>();
+  for (const u of units) {
+    const e = u.head;
+    const pg = projectGroup(e.projectId);
+    pg.rows.push(row(u, { project: null, host: e.hostName, branch: branchFor(e) }));
+    const ids = hostIds.get(pg) ?? new Set<string>();
+    ids.add(e.hostId);
+    hostIds.set(pg, ids);
   }
-
-  // Worktrees: project -> workspace -> sessions.
-  const wsGroups = new Map<string, NavGroup>();
-  const wsOf = new Map<NavGroup, Workspace | null>();
-  const wsGroup = (pg: NavGroup, ws: Workspace | null, hostId: string, cwd: string): NavGroup => {
-    const key = ws ? `w:${ws.id}` : `w:${pg.key}:cwd:${hostId}:${cwd}`;
-    let g = wsGroups.get(key);
-    if (!g) {
-      g = emptyGroup(key, "workspace", workspaceLabel(ws, cwd), {
-        detail: input.hosts[hostId]?.name ?? "Unknown host",
-        path: ws?.path ?? null,
-      });
-      wsGroups.set(key, g);
-      wsOf.set(g, ws);
-      pg.groups.push(g);
-    }
-    return g;
-  };
-
-  for (const e of entries) {
-    const wg = wsGroup(projectGroup(e.projectId), e.ws, e.hostId, e.session.cwd);
-    wg.rows.push(row(e, { project: null, host: null, branch: null }));
+  for (const [pg, ids] of hostIds) {
+    if (ids.size !== 1) continue;
+    pg.detail = pg.rows[0]!.host;
+    for (const r of pg.rows) r.host = null;
   }
-
   if (opts.filter === "all") {
-    // Empty workspaces still appear under projects that have sessions, so a new session can start there.
-    const withSessions = new Set(entries.map((e) => e.projectId));
-    for (const ws of Object.values(input.workspaces)) {
-      if (ws.archivedAt || !withSessions.has(ws.projectId)) continue;
-      const project = input.projects[ws.projectId] ?? null;
-      if (
-        q &&
-        ![ws.branch ?? "", project?.name ?? "", ws.path].join("\n").toLowerCase().includes(q)
-      )
-        continue;
-      wsGroup(projectGroup(ws.projectId), ws, ws.hostId, ws.path);
-    }
-  }
-
-  const groups = sortGroups([...projects.values()], sort);
-  for (const g of groups) {
-    g.groups.sort((a, b) => {
-      if (sort === "activity" || sort === "created") {
-        const la = sort === "activity" ? latest(a) : newest(a);
-        const lb = sort === "activity" ? latest(b) : newest(b);
-        if (la !== lb) return lb.localeCompare(la);
+    const occupied = new Set<string>();
+    for (const s of Object.values(input.sessions)) {
+      if (s.archivedAt === null && s.provenance !== "subagent" && s.workspaceId) {
+        occupied.add(s.workspaceId);
       }
-      // The main checkout first, then by branch.
-      const ma = wsOf.get(a)?.provenance === "main" ? 0 : 1;
-      const mb = wsOf.get(b)?.provenance === "main" ? 0 : 1;
-      return ma - mb || a.label.localeCompare(b.label);
-    });
-    // A project with only its main checkout (or one plain folder) needs no workspace level.
-    const only = g.groups.length === 1 ? g.groups[0]! : null;
-    if (only && (only.path === null || wsOf.get(only)?.provenance === "main")) {
-      g.rows = only.rows;
-      g.detail = only.detail;
-      g.groups = [];
     }
-    countSessions(g);
+    const multiHost = (projectId: string) =>
+      new Set(
+        Object.values(input.workspaces)
+          .filter((w) => w.projectId === projectId && !w.archivedAt)
+          .map((w) => w.hostId),
+      ).size > 1;
+    for (const pg of projects.values()) {
+      const projectId = projectIdOfGroup(pg.key);
+      if (!projectId) continue;
+      const project = input.projects[projectId] ?? null;
+      const many = multiHost(projectId);
+      pg.empty = Object.values(input.workspaces)
+        .filter(
+          (w) =>
+            w.projectId === projectId &&
+            !w.archivedAt &&
+            w.provenance !== "main" &&
+            !occupied.has(w.id) &&
+            (!q ||
+              [w.branch ?? "", project?.name ?? "", w.path].join("\n").toLowerCase().includes(q)),
+        )
+        .map((w) => ({
+          workspaceId: w.id,
+          label: workspaceLabel(w),
+          host: many ? (input.hosts[w.hostId]?.name ?? "Unknown host") : null,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
   }
+  const groups = sortGroups([...projects.values()], sort);
+  for (const g of groups) countSessions(g);
   return { groups, rows: [] };
 }
 
-/** True when the tree has no sessions and nothing to expand. */
+/** True when the tree has no rows and nothing to expand. */
 export function navTreeIsEmpty(tree: NavTree): boolean {
-  return (
-    tree.rows.length === 0 &&
-    tree.groups.every((g) => g.sessionCount === 0 && g.groups.length === 0)
-  );
+  const empty = (g: NavGroup): boolean =>
+    g.rows.length === 0 && g.empty.length === 0 && g.groups.every(empty);
+  return tree.rows.length === 0 && tree.groups.every(empty);
 }
 
 /** Every group key, depth-first (for Collapse all). */

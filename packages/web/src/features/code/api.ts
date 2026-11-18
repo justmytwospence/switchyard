@@ -9,6 +9,7 @@ import type {
   LogResult,
   ModelStateResult,
   NavigateResult,
+  OpenBranchRequest,
   Run,
   Session,
   SessionAdaptersResult,
@@ -50,6 +51,10 @@ export interface PromptResult {
 export const codeApi = {
   get: (id: string, signal?: AbortSignal) => apiGet<Session>(s(id), undefined, signal),
   createSession: (body: CreateSessionBody) => apiPost<Session>("/api/sessions", body),
+  /** A project's branch: its primary session, or a new one (and its worktree when needed). */
+  openBranch: (body: OpenBranchRequest) =>
+    apiPost<{ session: Session; created: boolean }>("/api/branches/open", body),
+  setPrimary: (id: string, primary: boolean) => apiPost<Session>(`${s(id)}/primary`, { primary }),
   prompt: (
     id: string,
     body: {

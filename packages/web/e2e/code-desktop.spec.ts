@@ -1,5 +1,5 @@
 import type { Page, Request } from "@playwright/test";
-import { createSession, expect, test, uid, viewportOf } from "./support";
+import { createSession, expect, poll, test, uid, viewportOf } from "./support";
 
 test.skip(({ isMobile }) => isMobile, "Desktop and compact coding view only");
 
@@ -626,8 +626,11 @@ test.describe("desktop coding view", () => {
     await page.getByTestId("new-session").click();
     const dialog = page.getByRole("dialog", { name: "New session" });
     const prompt = dialog.getByLabel("What should Pi do?");
-    await expect(prompt).toBeFocused();
     await expect(dialog.getByLabel("Workspace")).toHaveValue(state.workspaceId);
+    await expect(prompt).toBeFocused();
+    // The main checkout already has a session: ask for another one explicitly.
+    await dialog.getByTestId("another-session").check();
+    await prompt.focus();
     await expect(dialog.getByTestId("new-session-summary")).toContainText("e2e-host");
     const text = `Say hello ${uid(info)}`;
     await prompt.fill(text);
@@ -642,6 +645,52 @@ test.describe("desktop coding view", () => {
     await expect(page.getByTestId("transcript").getByText(`Received: ${text}`)).toBeVisible({
       timeout: 30_000,
     });
+  });
+
+  test("New session opens the branch's existing session", async ({ page, state }) => {
+    await page.goto("/code");
+    await page.getByTestId("new-session").click();
+    const dialog = page.getByRole("dialog", { name: "New session" });
+    await expect(dialog.getByLabel("Workspace")).toHaveValue(state.workspaceId);
+    await expect(dialog.getByText("This branch already has a session")).toBeVisible();
+    let created = false;
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().endsWith("/api/sessions")) created = true;
+    });
+    await dialog.getByRole("button", { name: "Open session" }).click();
+    await expect(page).toHaveURL(/\/code\/ses_/);
+    expect(created).toBe(false);
+  });
+
+  test("a second session in a branch nests under the first", async ({ page, api, state }, info) => {
+    const branch = `nest-${uid(info)}`;
+    const first = await api("POST", "/api/branches/open", {
+      projectId: state.projectId,
+      branch,
+      title: `First ${branch}`,
+    });
+    // The second session joins the worktree the first one created.
+    await poll("the first session's worktree", async () => {
+      const s = await api("GET", `/api/sessions/${first.session.id}`);
+      return s.workspaceId && s.runtime === "idle";
+    });
+    await api("POST", "/api/branches/open", {
+      projectId: state.projectId,
+      branch,
+      title: `Second ${branch}`,
+      another: true,
+    });
+    await page.goto(`/code/${first.session.id}`);
+    const nav = page.getByTestId("navigator");
+    const row = nav.getByTestId("session-row").filter({ hasText: `First ${branch}` });
+    await expect(row).toBeVisible();
+    await expect(
+      nav.getByTestId("session-row").filter({ hasText: `Second ${branch}` }),
+    ).toHaveCount(0);
+    await row.locator("xpath=..").getByTestId("row-others").click();
+    await expect(
+      nav.getByTestId("session-subrow").filter({ hasText: `Second ${branch}` }),
+    ).toBeVisible();
   });
 
   test("New worktree suggests a branch from the prompt", async ({ page }) => {
