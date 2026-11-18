@@ -159,6 +159,8 @@ async function answer(id: string, confirmed = true) {
 
 beforeEach(async () => {
   t = await startCoordinator({
+    // The shutdown case asserts the coordinator closes its own evaluator, so no shared pool here.
+    policyEvaluator: undefined,
     schedulerTickMs: 0,
     projectScanIntervalMs: 0,
     cacheAlertTickMs: 0,

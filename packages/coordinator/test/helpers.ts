@@ -15,6 +15,13 @@ import {
   createCoordinator,
   createLogger,
 } from "../src/index.js";
+import { evaluateRules, validateRule } from "../src/policies/evaluator.js";
+
+/**
+ * One worker pool per test file: starting two policy workers per coordinator dominated setup. No
+ * close: a coordinator must not terminate it, and idle workers are unref'd.
+ */
+export const sharedPolicyEvaluator = { validateRule, evaluateRules };
 
 export interface TestCoordinator {
   c: Coordinator;
@@ -59,6 +66,7 @@ export async function startCoordinator(
     logger: createLogger({ level: process.env.SY_LOG ?? "silent" }),
     clock: () => new Date(clock.now),
     setupHint: false,
+    policyEvaluator: sharedPolicyEvaluator,
     ...over,
   });
   await c.start();

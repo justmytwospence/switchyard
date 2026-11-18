@@ -49,6 +49,7 @@ import {
   createLogger,
   type PushTarget,
 } from "../../src/index.js";
+import { sharedPolicyEvaluator } from "../helpers.js";
 
 // ---- small utilities --------------------------------------------------------------------------
 
@@ -436,6 +437,7 @@ export class Integration {
       schedulerTickMs: 0,
       workspaceLifecycleTickMs: 0,
       trackerTickMs: 0,
+      policyEvaluator: sharedPolicyEvaluator,
       pushSender: async (sub: PushTarget, payload: PushPayload) => {
         pushes.push({ endpoint: sub.endpoint, payload });
       },

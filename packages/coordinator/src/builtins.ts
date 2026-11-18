@@ -16,7 +16,7 @@ import type { CoordinatorContext } from "./context.js";
 import { GitHubService } from "./github.js";
 import { parse } from "./http.js";
 import type { PolicyOwner } from "./policies/contracts.js";
-import { PolicyService } from "./policies/service.js";
+import { PolicyService, type PolicyServiceOptions } from "./policies/service.js";
 import { PROJECT_SCAN_INTERVAL_MS, ProjectFolderService } from "./project-folders.js";
 import { type PushSender, PushService } from "./push.js";
 import { registerAutomationRoutes } from "./routes/automations.js";
@@ -53,6 +53,8 @@ export interface BuiltinOptions {
   workspaceLifecycleTickMs?: number;
   /** Tracker sync tick (default 2 min; 0 disables the timer). */
   trackerTickMs?: number;
+  /** Policy rule evaluator (default: a new two-worker pool owned by this coordinator). Tests share one. */
+  policyEvaluator?: PolicyServiceOptions["evaluator"];
 }
 
 /**
@@ -69,6 +71,7 @@ export function installBuiltins(
   const lifetime = new AbortController();
   const policies = new PolicyService({
     store: ctx.store,
+    evaluator: opts.policyEvaluator,
     get publicUrl() {
       return ctx.config.publicUrl;
     },
