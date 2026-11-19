@@ -375,6 +375,50 @@ describe("views and ownership", () => {
   });
 });
 
+describe("tracker views keep the focused tab", () => {
+  const view = {
+    id: "viw_t",
+    name: "personal",
+    mode: "all",
+    projectIds: ["prj_sy"],
+    hostIds: null,
+    sessionIds: [],
+    clients: [],
+    trackerId: "trk_1",
+    createdAt: "",
+    updatedAt: "",
+  } as const;
+  const h = (focusedTabId: string) =>
+    herdr({
+      workspaces: [{ workspace_id: "w1", label: "switchyard", number: 1 }],
+      tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "old" }],
+      panes: [
+        { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", agent_session: claim("ses_old") },
+      ],
+      focusedTabId,
+    });
+  const mem = () => {
+    const m = emptyMemory();
+    m.spaces.w1 = { key: "wsp_main", label: "switchyard" };
+    return m;
+  };
+
+  it("keeps the focused tab of a session that stopped out of a tracker's view", () => {
+    const st = state({ sessions: [session("ses_old", { runtime: "stopped" })], issues: [] });
+    expect(planMirror(st, h("w1:t1"), mem(), NOW, view as any).closeTabs).toEqual([]);
+    expect(planMirror(st, h("w1:t9"), mem(), NOW, view as any).closeTabs).toEqual([
+      { tabId: "w1:t1", sessionId: "ses_old" },
+    ]);
+    const archived = state({
+      sessions: [session("ses_old", { runtime: "stopped", archivedAt: "2026-11-02T00:00:00Z" })],
+      issues: [],
+    });
+    expect(planMirror(archived, h("w1:t1"), mem(), NOW, view as any).closeTabs).toEqual([
+      { tabId: "w1:t1", sessionId: "ses_old" },
+    ]);
+  });
+});
+
 describe("claims", () => {
   it("reads the session token, and gives new sessions time to be claimed", () => {
     const st = state({

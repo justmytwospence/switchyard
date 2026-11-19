@@ -5,6 +5,7 @@ import {
   type AgentState,
   agentState,
   LIVE_RUNTIMES,
+  lingeringSessions,
   type MirrorState,
   mirroredSessions,
   NEW_SESSION_GRACE_MS,
@@ -48,6 +49,8 @@ export interface HerdrSnapshot {
   workspaces: HerdrWorkspace[];
   tabs: HerdrTab[];
   panes: HerdrPane[];
+  /** The tab herdr has focused. */
+  focusedTabId?: string | null;
 }
 
 export interface SpaceRecord {
@@ -170,6 +173,7 @@ export function planMirror(
     spaces: {},
   };
   const M = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
+  const linger = lingeringSessions(st, view);
   const workspaces = [...h.workspaces].sort((a, b) => a.number - b.number);
   const present = new Set(workspaces.map((w) => w.workspace_id));
   const tabsPresent = new Set(h.tabs.map((t) => t.tab_id));
@@ -216,7 +220,10 @@ export function planMirror(
     const owners = new Set(panes.map(claimedSession));
     if (owners.size !== 1) continue;
     const sid = [...owners][0];
-    if (sid && !M.has(sid)) plan.closeTabs.push({ tabId: t.tab_id, sessionId: sid });
+    if (!sid || M.has(sid)) continue;
+    // A session that stopped out of a tracker's view keeps the tab you are in until you leave it.
+    if (t.tab_id === h.focusedTabId && linger.has(sid)) continue;
+    plan.closeTabs.push({ tabId: t.tab_id, sessionId: sid });
   }
 
   // 4. Panes in the wrong space.

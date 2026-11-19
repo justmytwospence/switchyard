@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import type { Session, View } from "@switchyard/protocol";
 import {
+  lingeringSessions,
   type MirrorState,
   NEW_SESSION_GRACE_MS,
   PENDING_MS,
@@ -18,6 +19,8 @@ export interface TmuxWindow {
   paneId: string;
   paneDead: boolean;
   paneCommand: string;
+  /** The tmux session's current window. */
+  active?: boolean;
 }
 
 export interface TmuxMemory {
@@ -82,12 +85,15 @@ export function planTmux(
     offers: [],
   };
   const M = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
+  const linger = lingeringSessions(st, view);
   const claimed = new Set<string>();
   for (const w of windows) {
     if (!w.sessionId) continue;
     claimed.add(w.sessionId);
     const s = M.get(w.sessionId);
     if (!s) {
+      // A session that stopped out of a tracker's view keeps the window you are in until you leave it.
+      if (w.active && linger.has(w.sessionId)) continue;
       plan.closeWindows.push({ windowId: w.windowId, sessionId: w.sessionId });
       continue;
     }

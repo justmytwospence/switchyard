@@ -101,6 +101,19 @@ export function viewedSessions(st: MirrorState, view: View | null): Session[] {
   return all.filter((s) => sessionInView(view, s, workspaces, scope));
 }
 
+/** Sessions that left a tracker's view only by stopping: a focused tab or window of theirs stays until focus moves. */
+export function lingeringSessions(st: MirrorState, view: View | null): Set<string> {
+  const out = new Set<string>();
+  if (!view?.trackerId) return out;
+  const workspaces = Object.fromEntries(st.workspaces.map((w) => [w.id, w]));
+  const scope = trackerScope(view, st.issues ?? []);
+  for (const s of mirroredSessions(st)) {
+    if (sessionInView(view, s, workspaces, scope)) continue;
+    if (sessionInView(view, { ...s, runtime: "idle" }, workspaces, scope)) out.add(s.id);
+  }
+  return out;
+}
+
 /** The view a client is bound to by name or id; unbound mirrors everything. */
 export function resolveBoundView(
   st: Pick<MirrorState, "views">,

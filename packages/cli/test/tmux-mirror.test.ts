@@ -68,6 +68,32 @@ describe("planTmux", () => {
     ]);
   });
 
+  it("keeps the active window of a session that stopped out of a tracker's view", () => {
+    const st = state({
+      sessions: [session("ses_1", { runtime: "stopped", projectId: "prj_sy" })],
+      issues: [],
+    });
+    const view = {
+      id: "viw_t",
+      name: "personal",
+      mode: "all",
+      projectIds: ["prj_sy"],
+      hostIds: null,
+      sessionIds: [],
+      clients: [],
+      trackerId: "trk_1",
+      createdAt: "",
+      updatedAt: "",
+    } as View;
+    const name = windowName(st.sessions[0]!, st);
+    const active = win("@1", { sessionId: "ses_1", name, active: true });
+    expect(planTmux(st, view, [active], emptyTmuxMemory(), NOW).closeWindows).toEqual([]);
+    const other = win("@1", { sessionId: "ses_1", name, active: false });
+    expect(planTmux(st, view, [other], emptyTmuxMemory(), NOW).closeWindows).toEqual([
+      { windowId: "@1", sessionId: "ses_1" },
+    ]);
+  });
+
   it("respawns dead claimed panes and renames to project · title", () => {
     const st = state({ sessions: [session("ses_1")] });
     const w = win("@1", { sessionId: "ses_1", paneDead: true, name: "old" });

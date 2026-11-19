@@ -169,7 +169,12 @@ export class MirrorDaemon {
   private async snapshot(): Promise<HerdrSnapshot> {
     const r = await this.deps.call("session.snapshot", {});
     const s = r?.snapshot ?? {};
-    return { workspaces: s.workspaces ?? [], tabs: s.tabs ?? [], panes: s.panes ?? [] };
+    return {
+      workspaces: s.workspaces ?? [],
+      tabs: s.tabs ?? [],
+      panes: s.panes ?? [],
+      focusedTabId: s.focused_tab_id ?? null,
+    };
   }
 
   private remember(h: HerdrSnapshot): void {
@@ -235,7 +240,7 @@ export class MirrorDaemon {
       this.closingByUs.set(c.tabId, this.now());
       await call("tab.close", { tab_id: c.tabId });
       delete this.mem.ownTabs[c.tabId];
-      note(`closed the tab of ${c.sessionId} (archived)`);
+      note(`closed the tab of ${c.sessionId}`);
     }
     for (const m of plan.moves) {
       const destination = m.toWorkspaceId

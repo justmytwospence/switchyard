@@ -165,13 +165,14 @@ export class TmuxDaemon {
       "#{pane_id}",
       "#{pane_dead}",
       "#{pane_current_command}",
+      "#{window_active}",
     ].join("\t");
     const out = await this.deps.run(["list-windows", "-t", this.target, "-F", fmt]);
     const seen = new Set<string>();
     const windows: TmuxWindow[] = [];
     for (const line of out.split("\n")) {
       if (!line) continue;
-      const [windowId, name, sid, paneId, dead, cmd] = line.split("\t");
+      const [windowId, name, sid, paneId, dead, cmd, active] = line.split("\t");
       if (!windowId || seen.has(windowId)) continue; // first pane only
       seen.add(windowId);
       windows.push({
@@ -181,6 +182,7 @@ export class TmuxDaemon {
         paneId: paneId ?? "",
         paneDead: dead === "1",
         paneCommand: cmd ?? "",
+        active: active === "1",
       });
     }
     return windows;
