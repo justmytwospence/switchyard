@@ -4,6 +4,8 @@ import {
   branchKeyOf,
   buildBranches,
   issueInView,
+  issueLookup,
+  issueUnstarted,
   primarySession,
   type Session,
   type TrackedIssue,
@@ -286,5 +288,28 @@ describe("branchInView and issueInView", () => {
     const v = view({ trackerId: "trk_1", projectIds: ["prj_b"] });
     expect(issueInView(v, issue("i"))).toBe(true);
     expect(issueInView(v, issue("i", { trackerId: "trk_2" }))).toBe(false);
+  });
+});
+
+describe("issueLookup and issueUnstarted", () => {
+  it("finds by workspace id before branch name, and by linked branch names", () => {
+    const byWs = issue("i1", { workspaceId: "wsp_1" });
+    const byName = issue("i2", { branch: "feat/x" });
+    const linked = issue("i3", { branches: ["feat/y"] });
+    const find = issueLookup([byName, byWs, linked]);
+    expect(find(ws("wsp_1"))?.id).toBe("i1");
+    expect(find(ws("wsp_2"))?.id).toBe("i2");
+    expect(find(ws("wsp_3", { branch: "feat/y" }))?.id).toBe("i3");
+    expect(find(ws("wsp_4", { branch: "feat/y", projectId: "prj_b" }))).toBeNull();
+    expect(find(ws("wsp_5", { branch: null }))).toBeNull();
+    expect(find(null)).toBeNull();
+  });
+
+  it("unstarted means no branch, no linked branch, no worktree and not merged", () => {
+    expect(issueUnstarted(issue("i"))).toBe(true);
+    expect(issueUnstarted(issue("i", { branch: "x" }))).toBe(false);
+    expect(issueUnstarted(issue("i", { branches: ["x"] }))).toBe(false);
+    expect(issueUnstarted(issue("i", { workspaceId: "wsp_1" }))).toBe(false);
+    expect(issueUnstarted(issue("i", { pullRequest: pr("MERGED") }))).toBe(false);
   });
 });

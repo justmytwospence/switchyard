@@ -221,6 +221,42 @@ export function buildBranches(
   return { branches, unstarted };
 }
 
+/** The issue a workspace's branch is worked for: by linked worktree, else by branch name. First match wins. */
+export function issueLookup(
+  issues: Iterable<TrackedIssue>,
+): (ws: Pick<Workspace, "id" | "projectId" | "branch"> | null | undefined) => TrackedIssue | null {
+  const byWs = new Map<string, TrackedIssue>();
+  const byBranch = new Map<string, TrackedIssue>();
+  const add = (m: Map<string, TrackedIssue>, k: string, i: TrackedIssue) => {
+    if (!m.has(k)) m.set(k, i);
+  };
+  for (const i of issues) {
+    if (i.workspaceId) add(byWs, i.workspaceId, i);
+    if (i.branch) add(byBranch, `${i.projectId}\n${i.branch}`, i);
+    for (const b of i.branches) add(byBranch, `${i.projectId}\n${b}`, i);
+  }
+  return (ws) => {
+    if (!ws) return null;
+    return (
+      byWs.get(ws.id) ??
+      (ws.branch ? byBranch.get(`${ws.projectId}\n${ws.branch}`) : undefined) ??
+      null
+    );
+  };
+}
+
+/** An issue nothing is worked on yet: no branch, no linked branches, no worktree, not merged. */
+export function issueUnstarted(
+  i: Pick<TrackedIssue, "branch" | "branches" | "workspaceId" | "pullRequest">,
+): boolean {
+  return (
+    i.branch === null &&
+    i.branches.length === 0 &&
+    i.workspaceId === null &&
+    i.pullRequest?.state !== "MERGED"
+  );
+}
+
 /** Is a branch in a view? By its sessions, else (unless pinned-only) by project and host. */
 export function branchInView(
   view: View,

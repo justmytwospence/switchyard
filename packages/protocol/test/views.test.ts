@@ -4,7 +4,9 @@ import {
   openSurfaces,
   type Session,
   SURFACE_OPEN_MS,
+  scopeHasWorkspace,
   sessionInView,
+  sessionViewReason,
   taskInView,
   trackerScope,
   type View,
@@ -125,6 +127,34 @@ describe("tracker views", () => {
   it("a pin still wins", () => {
     const scope = trackerScope(v, []);
     expect(sessionInView({ ...v, sessionIds: ["ses_1"] }, s(stopped), ws, scope)).toBe(true);
+  });
+  it("sessionViewReason names pin, issue, live and filter", () => {
+    const scope = trackerScope(v, [issue({ workspaceId: "wsp_1" })]);
+    expect(sessionViewReason({ ...v, sessionIds: ["ses_1"] }, s(stopped), ws, scope)).toBe(
+      "pinned",
+    );
+    expect(sessionViewReason(v, s(stopped), ws, scope)).toBe("issue");
+    expect(sessionViewReason(v, s(), ws, scope)).toBe("issue");
+    expect(sessionViewReason(v, s({ workspaceId: "wsp_2" }), ws, scope)).toBe("live");
+    expect(sessionViewReason(v, s({ ...stopped, workspaceId: "wsp_2" }), ws, scope)).toBeNull();
+    expect(sessionViewReason(view(), s(stopped), ws)).toBe("filter");
+    expect(
+      sessionViewReason(
+        view({ mode: "pinned", clientId: "herdr:x" }),
+        s({ startedIn: "herdr:x" }),
+        ws,
+      ),
+    ).toBe("client");
+  });
+  it("scopeHasWorkspace matches by id or branch", () => {
+    const scope = trackerScope(v, [issue({ workspaceId: "wsp_9", branches: ["feat/x"] })])!;
+    expect(scopeHasWorkspace(scope, { id: "wsp_9", projectId: "prj_z" })).toBe(true);
+    expect(scopeHasWorkspace(scope, { id: "wsp_1", projectId: "prj_a", branch: "feat/x" })).toBe(
+      true,
+    );
+    expect(scopeHasWorkspace(scope, { id: "wsp_2", projectId: "prj_a", branch: "other" })).toBe(
+      false,
+    );
   });
 });
 

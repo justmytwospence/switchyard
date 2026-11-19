@@ -43,8 +43,57 @@ export function trackerScope(
   return scope;
 }
 
+/** Is this workspace one of the tracker's issue branches (by worktree or branch name)? */
+export function scopeHasWorkspace(
+  scope: TrackerScope,
+  ws: { id: string; projectId: string; branch?: string | null },
+): boolean {
+  return (
+    scope.workspaceIds.has(ws.id) ||
+    (!!ws.branch && scope.branches.has(`${ws.projectId}\n${ws.branch}`))
+  );
+}
+
 function workspaceOf(ws: WorkspaceLookup, id: string) {
   return ws instanceof Map ? ws.get(id) : ws[id];
+}
+
+/** Why a session is in a view: pinned, started in its source, on a tracker's issue, live, or by the filters. */
+export type ViewReason = "pinned" | "client" | "issue" | "live" | "filter";
+
+type ViewSession = Pick<
+  Session,
+  "id" | "projectId" | "workspaceId" | "hostId" | "archivedAt" | "startedIn" | "runtime"
+>;
+
+/** Why a session is in a view; null when it is not. See `sessionInView`. */
+export function sessionViewReason(
+  view: View,
+  s: ViewSession,
+  workspaces: WorkspaceLookup,
+  scope?: TrackerScope | null,
+): ViewReason | null {
+  if (s.archivedAt !== null) return null;
+  if (view.sessionIds.includes(s.id)) return "pinned";
+  if (view.clientId && s.startedIn === view.clientId) return "client";
+  if (view.mode === "pinned") return null;
+  const projectId =
+    s.projectId ??
+    (s.workspaceId ? workspaceOf(workspaces, s.workspaceId)?.projectId : null) ??
+    null;
+  if (view.projectIds !== null && (projectId === null || !view.projectIds.includes(projectId))) {
+    return null;
+  }
+  if (view.hostIds !== null && !view.hostIds.includes(s.hostId)) return null;
+  if (view.trackerId && scope) {
+    if (s.workspaceId) {
+      if (scope.workspaceIds.has(s.workspaceId)) return "issue";
+      const ws = workspaceOf(workspaces, s.workspaceId);
+      if (ws?.branch && scope.branches.has(`${ws.projectId}\n${ws.branch}`)) return "issue";
+    }
+    return isLiveRuntime(s.runtime) ? "live" : null;
+  }
+  return "filter";
 }
 
 /**
@@ -53,33 +102,11 @@ function workspaceOf(ws: WorkspaceLookup, id: string) {
  */
 export function sessionInView(
   view: View,
-  s: Pick<
-    Session,
-    "id" | "projectId" | "workspaceId" | "hostId" | "archivedAt" | "startedIn" | "runtime"
-  >,
+  s: ViewSession,
   workspaces: WorkspaceLookup,
   scope?: TrackerScope | null,
 ): boolean {
-  if (s.archivedAt !== null) return false;
-  if (view.sessionIds.includes(s.id)) return true;
-  if (view.clientId && s.startedIn === view.clientId) return true;
-  if (view.mode === "pinned") return false;
-  const projectId =
-    s.projectId ??
-    (s.workspaceId ? workspaceOf(workspaces, s.workspaceId)?.projectId : null) ??
-    null;
-  if (view.projectIds !== null && (projectId === null || !view.projectIds.includes(projectId))) {
-    return false;
-  }
-  if (view.hostIds !== null && !view.hostIds.includes(s.hostId)) return false;
-  if (view.trackerId && scope) {
-    if (isLiveRuntime(s.runtime)) return true;
-    if (!s.workspaceId) return false;
-    if (scope.workspaceIds.has(s.workspaceId)) return true;
-    const ws = workspaceOf(workspaces, s.workspaceId);
-    return !!ws?.branch && scope.branches.has(`${ws.projectId}\n${ws.branch}`);
-  }
-  return true;
+  return sessionViewReason(view, s, workspaces, scope) !== null;
 }
 
 /** Surfaces showing a view that reported recently, sorted by kind then name. */
