@@ -125,7 +125,7 @@ export function WorkCard({
             icon={<Play className="size-3.5" />}
             onClick={() => void board.activate(card)}
           >
-            Start
+            Start session
           </Button>
         )}
         {card.branch && !card.sessionId && (

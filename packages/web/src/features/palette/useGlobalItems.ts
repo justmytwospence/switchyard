@@ -89,7 +89,7 @@ export function useGlobalItems(): PaletteItem[] {
       shortcut?: PaletteItem["shortcut"],
     ) => items.push({ id: `action:${id}`, title, group: "Actions", run, shortcut });
     action("new", "New session", go("/code", { newSession: true }), "newSession");
-    action("code", "Go to Code", go("/code"), "goCode");
+    action("code", "Go to Sessions", go("/code"), "goCode");
     action("board", "Go to Board", go("/board"), "goBoard");
     action("attention", "Go to Attention", go("/attention"), "goAttention");
     action("tasks", "Go to Tasks", go("/tasks"));

@@ -1,4 +1,12 @@
-import { primarySession, type Session } from "@switchyard/protocol";
+import {
+  issueLookup,
+  issueUnstarted,
+  primarySession,
+  type Session,
+  scopeHasWorkspace,
+  trackerScope,
+  type View,
+} from "@switchyard/protocol";
 import { ChevronDown, ChevronRight, GitBranch, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
@@ -12,6 +20,7 @@ import { loadDraft, setDraftNow } from "../../drafts";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
 import { useProjects, useSyncStore } from "../../sync/store";
+import { openIssue } from "../workboard/api";
 import { codeApi } from "./api";
 import {
   branchFromPrompt,
@@ -19,6 +28,8 @@ import {
   compareWorkspaces,
   hostOnline,
   newSessionDefaults,
+  newSessionProject,
+  orderProjectsForView,
   uniqueBranch,
   workspaceLabel,
   worktreePath,
@@ -28,15 +39,22 @@ import { rememberInitialPrompt } from "./startingPrompts";
 import { useSelectedView } from "./views";
 
 const NEW = "__new";
+/** Workspace option prefix: start this issue (its branch, worktree and session). */
+const ISSUE = "issue:";
 
-function useNewSessionForm(open: boolean, initialProjectId: string | null) {
-  const projects = useProjects();
+function useNewSessionForm(open: boolean, initialProjectId: string | null, view: View | null) {
+  const allProjects = useProjects();
+  const viewProjectIds = view && view.mode === "all" ? view.projectIds : null;
+  const projects = useMemo(
+    () => orderProjectsForView(allProjects, viewProjectIds),
+    [allProjects, viewProjectIds],
+  );
+  const issues = useSyncStore((s) => s.issues);
   const workspaces = useSyncStore((s) => s.workspaces);
   const sessions = useSyncStore((s) => s.sessions);
   const checkouts = useSyncStore((s) => s.checkouts);
   const profilesMap = useSyncStore((s) => s.profiles);
   const hosts = useSyncStore((s) => s.hosts);
-  const projectsById = useSyncStore((s) => s.projects);
   const selectedProject = usePrefs((s) => s.selectedProjectId);
   const lastProject = usePrefs((s) => s.lastNewSessionProjectId);
   const profiles = useMemo(
@@ -61,10 +79,15 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: initialize once per opening
   useEffect(() => {
     if (!open) return;
-    const pick = [initialProjectId, lastProject, selectedProject].find(
-      (id) => !!id && !!projectsById[id],
+    setProjectId(
+      newSessionProject({
+        initial: initialProjectId,
+        last: lastProject,
+        selected: selectedProject,
+        ordered: projects,
+        viewProjectIds,
+      }),
     );
-    setProjectId(pick ?? projects[0]?.id ?? "");
   }, [open, initialProjectId]);
 
   const project = projects.find((p) => p.id === projectId);
@@ -117,8 +140,18 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null) {
     () => projectCheckouts.filter((c) => c.hostId === hostId),
     [projectCheckouts, hostId],
   );
-  const mode = workspaceId === NEW ? "new" : "existing";
+  const mode: "new" | "existing" | "issue" =
+    workspaceId === NEW ? "new" : workspaceId.startsWith(ISSUE) ? "issue" : "existing";
   const workspace = mode === "existing" ? workspaces[workspaceId] : undefined;
+  const issue = mode === "issue" ? issues[workspaceId.slice(ISSUE.length)] : undefined;
+  const issueOf = useMemo(() => issueLookup(Object.values(issues)), [issues]);
+  const startable = useMemo(
+    () =>
+      Object.values(issues)
+        .filter((i) => i.projectId === projectId && issueUnstarted(i))
+        .sort((a, b) => a.number - b.number),
+    [issues, projectId],
+  );
   /** The branch's primary session per workspace (only workspaces that have one). */
   const occupants = useMemo(() => {
     const by = new Map<string, Session[]>();
@@ -160,7 +193,9 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null) {
   else if (!host.piCompatible) {
     problem = `Pi ${host.piVersion ?? "(not found)"} on ${host.name} is outside the tested range.`;
   } else if (mode === "existing" && !workspace) problem = "Choose a workspace.";
-  else if (mode === "new" && !checkout) problem = `No checkout of ${project.name} on ${host.name}.`;
+  else if (mode === "issue" && !issue) problem = "Choose a workspace.";
+  else if (mode !== "existing" && !checkout)
+    problem = `No checkout of ${project.name} on ${host.name}.`;
   else if (mode === "new") problem = branchProblem(effectiveBranch);
 
   let summary: { text: string; path: string } | null = null;
@@ -168,6 +203,11 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null) {
     summary = {
       text: `${workspaceLabel(workspace)} on ${host?.name ?? "unknown host"}`,
       path: workspace.path,
+    };
+  } else if (mode === "issue" && issue) {
+    summary = {
+      text: `Issue #${issue.number} in a new worktree on ${host?.name ?? "unknown host"}`,
+      path: `${issue.repository}#${issue.number}`,
     };
   } else if (mode === "new" && checkout) {
     summary = {
@@ -193,6 +233,9 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null) {
     setCheckoutId,
     mode,
     workspace,
+    issue,
+    issueOf,
+    startable,
     occupants,
     occupant,
     another,
@@ -248,10 +291,12 @@ export function NewSessionFlow({
   projectId?: string | null;
 }) {
   const id = useId();
-  const f = useNewSessionForm(open, projectId);
   const [selectedView] = useSelectedView();
   const knownViews = useSyncStore((st) => st.views);
-  const viewId = selectedView && knownViews[selectedView] ? selectedView : null;
+  const issues = useSyncStore((st) => st.issues);
+  const view = (selectedView ? knownViews[selectedView] : null) ?? null;
+  const viewId = view?.id ?? null;
+  const f = useNewSessionForm(open, projectId, view);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -263,6 +308,19 @@ export function NewSessionFlow({
   }, [open]);
 
   const reuse = !!f.occupant && !f.another;
+  const scope = useMemo(
+    () => (view ? trackerScope(view, Object.values(issues)) : null),
+    [view, issues],
+  );
+  const linked =
+    f.mode === "issue" ||
+    (f.mode === "existing" && !!f.workspace && !!scope && scopeHasWorkspace(scope, f.workspace));
+  const leaves =
+    !!scope &&
+    !!view &&
+    !reuse &&
+    !linked &&
+    (view.projectIds === null || view.projectIds.includes(f.projectId));
   const create = async () => {
     if (f.problem || submitting) return;
     if (reuse && f.occupant) {
@@ -276,6 +334,21 @@ export function NewSessionFlow({
     setSubmitting(true);
     setError(null);
     try {
+      if (f.mode === "issue" && f.issue) {
+        const r = await openIssue(f.issue.id, {
+          hostId: f.hostId,
+          prompt: f.prompt,
+          ...(f.profileId ? { profileId: f.profileId } : {}),
+          ...(viewId ? { viewId } : {}),
+        });
+        if (r.created) rememberInitialPrompt(r.session.id, f.prompt);
+        else if (f.prompt.trim() && !loadDraft(r.session.id).trim())
+          setDraftNow(r.session.id, f.prompt);
+        usePrefs.getState().set("lastNewSessionProjectId", f.projectId);
+        f.reset();
+        onCreated(r.session.id);
+        return;
+      }
       const s = await codeApi.createSession({
         projectId: f.projectId,
         workspace:
@@ -368,11 +441,24 @@ export function NewSessionFlow({
                 {workspaceLabel(w)}
                 {w.provenance === "main" ? " (main checkout)" : ""}
                 {f.occupants.has(w.id) ? " · has a session" : ""}
+                {(() => {
+                  const i = f.issueOf(w);
+                  return i ? ` · #${i.number}` : "";
+                })()}
               </option>
             ))}
             <option value={NEW} disabled={f.hostCheckouts.length === 0}>
               New worktree…
             </option>
+            {f.startable.length > 0 && (
+              <optgroup label="Start an issue">
+                {f.startable.map((i) => (
+                  <option key={i.id} value={`${ISSUE}${i.id}`}>
+                    #{i.number} {i.title.slice(0, 60)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           {f.hostIds.length > 1 && (
             <>
@@ -512,9 +598,11 @@ export function NewSessionFlow({
               <Field label="Session title" optional id={`${id}-title`}>
                 <TextInput
                   id={`${id}-title`}
-                  disabled={reuse}
+                  disabled={reuse || f.mode === "issue"}
                   value={f.title}
-                  placeholder="Named from the prompt"
+                  placeholder={
+                    f.mode === "issue" ? "Named after the issue" : "Named from the prompt"
+                  }
                   onChange={(e) => f.setTitle(e.target.value)}
                 />
               </Field>
@@ -536,6 +624,14 @@ export function NewSessionFlow({
             </div>
           )}
         </div>
+        {leaves && view && (
+          <p data-testid="new-session-leaves" className="text-xs text-muted">
+            This session has no issue: it leaves {view.name} when it stops.{" "}
+            {f.startable.length > 0
+              ? "To keep it, choose an issue under Workspace."
+              : "Pin it from its menu to keep it."}
+          </p>
+        )}
         {f.summary && (
           <p
             data-testid="new-session-summary"
@@ -565,7 +661,7 @@ export function NewSessionFlow({
         </p>
       ) : !mobile ? (
         <span className="mr-auto text-xs text-subtle">
-          {shortcut} to {reuse ? "open" : "create"}
+          {shortcut} to {reuse ? "open" : "start"}
         </span>
       ) : null}
       <Button onClick={onClose}>Cancel</Button>
@@ -575,7 +671,7 @@ export function NewSessionFlow({
         disabled={!!f.problem}
         onClick={() => void create()}
       >
-        {reuse ? "Open session" : "Create session"}
+        {reuse ? "Open session" : "Start session"}
       </Button>
     </>
   );

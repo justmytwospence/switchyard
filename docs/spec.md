@@ -381,7 +381,7 @@ Provide search, active/all filter, view options, collapse controls, and New sess
 
 Empty state: "Add a project" and "Connect a host," based on what is missing.
 
-New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. Show the resulting branch/path above Create; Cmd/Ctrl+Enter creates. When the chosen workspace already has a session, the primary action is Open session: no new session starts, and a typed prompt waits in that session's composer. "Start another session in this branch" is an explicit checkbox. Do not require a task.
+New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt; it also lists the project's not-started issues under "Start an issue", and choosing one starts the issue: its branch, worktree and session), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. The selected view's projects come first. In a tracker's view, a session that will not stay says so. Show the resulting branch/path above Start session; Cmd/Ctrl+Enter starts. When the chosen workspace already has a session, the primary action is Open session: no new session starts, and a typed prompt waits in that session's composer. "Start another session in this branch" is an explicit checkbox. Do not require a task.
 
 ### Conversation header
 

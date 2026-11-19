@@ -129,6 +129,33 @@ export interface NewSessionDefaults {
   checkoutId: string | null;
 }
 
+/** The view's projects first (in their existing order), then the rest. */
+export function orderProjectsForView<T extends { id: string }>(
+  projects: T[],
+  viewProjectIds: string[] | null,
+): T[] {
+  if (!viewProjectIds) return projects;
+  const inView = projects.filter((p) => viewProjectIds.includes(p.id));
+  return [...inView, ...projects.filter((p) => !viewProjectIds.includes(p.id))];
+}
+
+/** The project New session starts on: the asked one, else the last used or selected one when the view covers it, else the first listed. */
+export function newSessionProject(input: {
+  initial: string | null;
+  last: string | null;
+  selected: string | null;
+  ordered: { id: string }[];
+  viewProjectIds: string[] | null;
+}): string {
+  const listed = (id: string | null): id is string =>
+    !!id && input.ordered.some((p) => p.id === id);
+  if (listed(input.initial)) return input.initial;
+  const pick = [input.last, input.selected].find(
+    (id) => listed(id) && (!input.viewProjectIds || input.viewProjectIds.includes(id)),
+  );
+  return pick ?? input.ordered[0]?.id ?? "";
+}
+
 /** Host: the requested one, else the project default if online, else the first online host with a checkout. */
 export function newSessionDefaults(
   project: Project,

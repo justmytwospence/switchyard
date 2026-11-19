@@ -27,7 +27,7 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 
 ## How they work together
 
-- **Opening work is one action: open a branch.** Switchyard finds or creates the worktree, finds or starts its primary session, and shows it. It is the same action for a new branch, an existing branch with no session, and a branch with a running agent (`POST /api/branches/open`; New session in the web app; Start on an issue).
+- **Opening work is one action: open a branch.** Switchyard finds or creates the worktree, finds or starts its primary session, and shows it. It is the same action for a new branch, an existing branch with no session, and a branch with a running agent (`POST /api/branches/open`; New session in the web app; Start session on an issue, or an issue chosen in New session).
 - **A second session on a branch is allowed but out of the way.** You ask for it explicitly ("Start another session in this branch", or "New session in this branch" in the session menu). It nests under the primary behind a "+N" count and never becomes its own row. Choose another primary from the session menu.
 - **The same branch on two hosts is one branch.** Each host keeps its own workspace with its own git state; the branch shows the host where its primary session runs. The Hosts layout splits it per host.
 - **Trackers decorate branches.** An issue with a branch shows its issue, pull request and board column on that branch. An issue with no branch waits in the Board's Not started column; starting it makes the branch, its worktree on the project's default host, and an idle session.
@@ -36,13 +36,15 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 - **Where a session was started is a fact on the session.** A view whose source is a terminal (`--client herdr:<session>`) holds every Pi started there, including ones that started before the view existed.
 - **Cleanup follows the branch.** When the pull request merges and the worktree is clean and idle, its sessions are archived and the worktree removed (with "Remove merged worktrees" on).
 
-## Planned, active, dormant
+## Where work shows
 
-| State of a piece of work | Where it shows |
+| Work | Where it shows |
 |---|---|
-| Planned: an assigned issue with no branch, or a worktree with no session | Board only (Not started, or Working with Start session) |
+| Not started: an assigned issue with no branch, or a worktree with no session | Board only (Not started, or Working with Start session) |
 | Active: its session is live (starting, idle, running, waiting for input) | Sessions and Board |
-| Dormant: its session exists but is stopped, failed or interrupted | Sessions under All, and Board. In a tracker's view, only when its branch is linked to one of the tracker's issues |
+| Stopped: its session is stopped, failed or interrupted | Sessions under All, and Board. In a tracker's view, only when its branch is linked to one of the tracker's issues or the session is pinned |
+
+Create is always **Start session**; **Open** goes to a session that exists; **Resume** restarts a stopped one.
 
 ## Stages
 

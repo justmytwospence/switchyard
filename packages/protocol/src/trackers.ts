@@ -147,6 +147,9 @@ export const trackedIssueId = (trackerId: string, itemId: string) => `${trackerI
 export const OpenIssueRequest = z.object({
   hostId: Id.optional(),
   viewId: z.string().optional(),
+  /** The first prompt of a new session. */
+  prompt: z.string().optional(),
+  profileId: z.string().nullable().optional(),
 });
 export type OpenIssueRequest = z.infer<typeof OpenIssueRequest>;
 

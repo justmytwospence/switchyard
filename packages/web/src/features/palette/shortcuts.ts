@@ -26,7 +26,7 @@ export const NAVIGATION_SHORTCUTS: readonly {
 }[] = [
   { action: "help", label: "Keyboard shortcuts", keys: "?", context: "Global" },
   { action: "search", label: "Search this view", keys: "/", context: "Global" },
-  { action: "goCode", label: "Go to Code", keys: "g c", context: "Global" },
+  { action: "goCode", label: "Go to Sessions", keys: "g c", context: "Global" },
   { action: "goBoard", label: "Go to Board", keys: "g b", context: "Global" },
   { action: "goAttention", label: "Go to Attention", keys: "g a", context: "Global" },
   { action: "goTasks", label: "Go to Tasks", keys: "g t", context: "Global" },
@@ -141,7 +141,7 @@ export type ShortcutId =
 export const SHORTCUTS: Record<ShortcutId, { label: string; keys: string[] }> = {
   palette: { label: "Command palette", keys: ["Mod+KeyK", "Alt+KeyK"] },
   newSession: { label: "New session", keys: ["Alt+KeyN"] },
-  goCode: { label: "Go to Code", keys: ["Alt+Digit1"] },
+  goCode: { label: "Go to Sessions", keys: ["Alt+Digit1"] },
   goBoard: { label: "Go to Board", keys: ["Alt+Digit2"] },
   goAttention: { label: "Go to Attention", keys: ["Alt+Digit3"] },
   goSettings: { label: "Go to Settings", keys: ["Alt+Comma"] },

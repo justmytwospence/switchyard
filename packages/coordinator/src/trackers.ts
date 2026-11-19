@@ -501,7 +501,12 @@ export class TrackerService {
    */
   async openIssue(
     issueId: string,
-    opts: { hostId?: string | undefined; viewId?: string | undefined } = {},
+    opts: {
+      hostId?: string | undefined;
+      viewId?: string | undefined;
+      prompt?: string | undefined;
+      profileId?: string | null | undefined;
+    } = {},
   ): Promise<{ session: Session; created: boolean }> {
     const { store } = this.ctx;
     const issue = await this.startIssue(issueId);
@@ -512,7 +517,8 @@ export class TrackerService {
       branch,
       hostId: opts.hostId,
       viewId: opts.viewId,
-      prompt: "",
+      prompt: opts.prompt ?? "",
+      profileId: opts.profileId,
       title: `#${issue.number} ${issue.title}`.slice(0, 120),
     });
     const wsId = result.session.workspaceId;

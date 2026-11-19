@@ -359,7 +359,7 @@ test.describe("mobile coding view", () => {
     const text = `Mobile hello ${uid(info)}`;
     await sheet.getByLabel("What should Pi do?").fill(text);
     await sheet.getByTestId("another-session").check();
-    await sheet.getByRole("button", { name: "Create session" }).tap();
+    await sheet.getByRole("button", { name: "Start session" }).tap();
     await expect(page).toHaveURL(/\/code\/ses_/);
   });
 });

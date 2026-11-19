@@ -92,7 +92,8 @@ export function useWorkBoard(): WorkBoard {
   const activate = async (card: BoardCard) => {
     try {
       if (card.sessionId) return go(card.sessionId);
-      if (!card.branch && card.issue) return go((await openIssue(card.issue.id, viewArg)).id);
+      if (!card.branch && card.issue)
+        return go((await openIssue(card.issue.id, viewArg)).session.id);
       const b = card.branch;
       if (b?.projectId && b.branch) {
         const r = await codeApi.openBranch({
@@ -113,7 +114,7 @@ export function useWorkBoard(): WorkBoard {
     if (!canDrop(card, column, mode, tracker).ok) return;
     try {
       if (mode === "stage") {
-        if (card.issue) go((await openIssue(card.issue.id, viewArg)).id);
+        if (card.issue) go((await openIssue(card.issue.id, viewArg)).session.id);
         return;
       }
       if (card.issue && card.issue.board?.statusOptionId !== column.id) {

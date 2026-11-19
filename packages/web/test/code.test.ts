@@ -40,7 +40,9 @@ import {
   navOutsideRow,
   navTreeIsEmpty,
   newSessionDefaults,
+  newSessionProject,
   normalizeLayout,
+  orderProjectsForView,
   outputPreview,
   parseClientCommand,
   parseDataUrl,
@@ -1043,6 +1045,22 @@ describe("session status bar", () => {
 });
 
 describe("new session helpers", () => {
+  it("lists the view's projects first", () => {
+    const ps = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    expect(orderProjectsForView(ps, ["c", "a"]).map((p) => p.id)).toEqual(["a", "c", "b"]);
+    expect(orderProjectsForView(ps, null)).toBe(ps);
+  });
+
+  it("defaults to the last project only when the view covers it", () => {
+    const ordered = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const base = { initial: null, last: "b", selected: null, ordered };
+    expect(newSessionProject({ ...base, viewProjectIds: null })).toBe("b");
+    expect(newSessionProject({ ...base, viewProjectIds: ["a"] })).toBe("a");
+    expect(newSessionProject({ ...base, selected: "c", viewProjectIds: ["a", "c"] })).toBe("c");
+    expect(newSessionProject({ ...base, initial: "c", viewProjectIds: ["a"] })).toBe("c");
+    expect(newSessionProject({ ...base, last: "zz", ordered: [], viewProjectIds: null })).toBe("");
+  });
+
   it("suggests a kebab-case branch from the prompt", () => {
     expect(branchFromPrompt("Fix the login retry bug now please")).toBe("fix-the-login-retry-bug");
     expect(branchFromPrompt("  Réparer l'écran: d'accueil!! ")).toBe("reparer-l-ecran-d-accueil");

@@ -706,9 +706,9 @@ test.describe("desktop coding view", () => {
     );
     await branch.fill("bad branch");
     await expect(dialog.getByRole("status")).toContainText("Branch names cannot contain spaces.");
-    await expect(dialog.getByRole("button", { name: "Create session" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Start session" })).toBeDisabled();
     await dialog.getByRole("button", { name: "Use suggested name" }).click();
-    await expect(dialog.getByRole("button", { name: "Create session" })).toBeEnabled();
+    await expect(dialog.getByRole("button", { name: "Start session" })).toBeEnabled();
     await page.keyboard.press("Escape");
   });
 

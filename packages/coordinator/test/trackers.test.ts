@@ -401,6 +401,19 @@ describe("open", () => {
     await host2.close();
   });
 
+  it("passes the prompt to the new session", async () => {
+    items = [item(8, { title: "Prompted" })];
+    const t = await create();
+    const [issue] = tracked(t.id);
+    const r = await h.t.admin("POST", `/api/issues/${encodeURIComponent(issue!.id)}/open`, {
+      prompt: "Do the thing",
+    });
+    expect(r.status).toBe(202);
+    await until(() =>
+      commandsOf(h.host, "session.start").some((c) => c.initialPrompt === "Do the thing"),
+    );
+  });
+
   it("names branches from the number and title", () => {
     expect(issueBranch(7, "  Add CSV export (v2)  ")).toBe("7-add-csv-export-v2");
     expect(issueBranch(8, "!!!")).toBe("8");

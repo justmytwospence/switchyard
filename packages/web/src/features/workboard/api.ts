@@ -4,14 +4,14 @@ import { useSyncStore } from "../../sync/store";
 
 const issue = (id: string) => `/api/issues/${encodeURIComponent(id)}`;
 
-/** Start or open an issue's branch; returns the session to show. */
+/** Start or open an issue's branch; returns the session to show and whether it is new. */
 export async function openIssue(
   id: string,
-  body: { hostId?: string; viewId?: string } = {},
-): Promise<Session> {
+  body: { hostId?: string; viewId?: string; prompt?: string; profileId?: string } = {},
+): Promise<{ session: Session; created: boolean }> {
   const r = await apiPost<{ session: Session; created: boolean }>(`${issue(id)}/open`, body);
   useSyncStore.getState().upsertSessionIfMissing(r.session);
-  return r.session;
+  return r;
 }
 
 /** Move an issue's card to another column of its GitHub Projects board. */
