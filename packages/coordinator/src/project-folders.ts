@@ -145,7 +145,22 @@ export async function scanHostProjectFolders(
             hostId,
             repo.root,
           ])[0];
-          if (known) return null;
+          if (known) {
+            // A project added before its repository had a remote takes the remote's identity.
+            const p = ctx.store.projects.get(known.projectId);
+            if (
+              p?.repoIdentity.startsWith("local:") &&
+              !repo.repoIdentity.startsWith("local:") &&
+              ctx.store.projects.list("repo_identity = ?", [repo.repoIdentity]).length === 0
+            ) {
+              ctx.store.putProject({
+                ...p,
+                repoIdentity: repo.repoIdentity,
+                updatedAt: ctx.store.nowIso(),
+              });
+            }
+            return null;
+          }
           const now = ctx.store.nowIso();
           let project = ctx.store.projects.list("repo_identity = ?", [repo.repoIdentity])[0];
           let created = false;

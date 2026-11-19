@@ -141,6 +141,44 @@ describe("project folders", () => {
     expect(await projects()).toHaveLength(4);
   });
 
+  async function scanWith(repos: ReturnType<typeof repo>[]) {
+    const h: CommandHandler = (cmd: HostCommand) => {
+      if (cmd.type === "checkout.inspect") return repo("app", "/repos/app", "local:abc");
+      if (cmd.type === "workspace.discover") return [];
+      if (cmd.type === "projects.scan") return { folder: "/r", repositories: repos };
+      return null;
+    };
+    const { creds } = await setup(h);
+    await host!.close();
+    await t!.admin("PATCH", `/api/hosts/${creds.hostId}`, { projectFolders: ["/r"] });
+    host = await FakeHost.connect(t!, creds, h);
+    await poll(async () => (await scanState(creds.hostId))?.state === "done");
+    return {
+      scan: await scanState(creds.hostId),
+      all: (await t!.admin("GET", "/api/projects")).body as {
+        name: string;
+        repoIdentity: string;
+      }[],
+    };
+  }
+
+  it("adopts the remote identity of a project added without one", async () => {
+    const { scan, all } = await scanWith([
+      repo("app", "/repos/app", "https://github.com/me/app"),
+      repo("lib", "/r/lib", "https://github.com/me/lib"),
+    ]);
+    expect(all.find((p) => p.name === "App")?.repoIdentity).toBe("https://github.com/me/app");
+    expect(scan).toMatchObject({ checkoutsAdded: 1, projectsCreated: 1 });
+  });
+
+  it("keeps a local identity when another project has the remote", async () => {
+    const { all } = await scanWith([
+      repo("lib", "/r/lib", "https://github.com/me/app"),
+      repo("app", "/repos/app", "https://github.com/me/app"),
+    ]);
+    expect(all.find((p) => p.name === "App")?.repoIdentity).toBe("local:abc");
+  });
+
   it("reports hosts too old to scan and offline hosts", async () => {
     const { creds } = await setup((cmd) =>
       cmd.type === "projects.scan"

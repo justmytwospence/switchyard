@@ -656,7 +656,7 @@ Provide history separate from development-board tasks.
 
 Hosts, devices, projects, Pi profiles, adapters, notifications, backups, diagnostics.
 
-Host detail shows capabilities, connectivity, project folders, checkout mappings, and version compatibility. Every Git repository directly inside a host's project folders becomes a project (or another checkout of the project with the same remote): scanned when the folders change, when the host connects, every 10 minutes and on demand; nothing is removed automatically.
+Host detail shows capabilities, connectivity, project folders, checkout mappings, and version compatibility. Every Git repository directly inside a host's project folders becomes a project (or another checkout of the project with the same remote): scanned when the folders change, when the host connects, every 10 minutes and on demand; nothing is removed automatically. A project added before its repository had a remote takes the remote's identity at the next scan, unless another project already has it.
 
 ## 16. Notifications and presence
 
