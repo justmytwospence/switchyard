@@ -150,7 +150,7 @@ export function BoardMobile() {
             extraCount={(board.projectId ? 1 : 0) + (board.view ? 1 : 0)}
             extra={
               <>
-                <ViewSelect allLabel="All tasks" labelVisible />
+                <ViewSelect allLabel="All tasks" subject="tasks" labelVisible />
                 <ProjectSelect board={board} labelVisible />
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-medium">Layout</span>

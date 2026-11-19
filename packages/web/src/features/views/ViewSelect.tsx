@@ -10,7 +10,7 @@ import { useSelectedView } from "./selection";
 /** The views and the one-line description of a view, with trackers loaded when any view needs them. */
 export function useViewDescriber(): {
   views: Record<string, View>;
-  describe: (v: View) => string;
+  describe: (v: View, subject?: "sessions" | "tasks") => string;
 } {
   const views = useSyncStore((s) => s.views);
   const projects = useSyncStore((s) => s.projects);
@@ -27,7 +27,7 @@ export function useViewDescriber(): {
   const { trackers } = useTrackers(trackerKey);
   return {
     views,
-    describe: (v) => describeView(v, { trackers, projects, hosts }),
+    describe: (v, subject) => describeView(v, { trackers, projects, hosts }, subject),
   };
 }
 
@@ -36,10 +36,13 @@ export function ViewSelect({
   allLabel,
   className,
   labelVisible,
+  subject = "sessions",
 }: {
   allLabel: string;
   className?: string;
   labelVisible?: boolean;
+  /** What the page lists, for the description. */
+  subject?: "sessions" | "tasks";
 }) {
   const id = useId();
   const { views, describe } = useViewDescriber();
@@ -59,7 +62,7 @@ export function ViewSelect({
         id={id}
         className={labelVisible ? "w-full" : "max-w-56"}
         value={view?.id ?? ""}
-        title={view ? describe(view) : undefined}
+        title={view ? describe(view, subject) : undefined}
         onChange={(e) => setSelectedId(e.target.value || null)}
       >
         <option value="">{allLabel}</option>
@@ -69,7 +72,7 @@ export function ViewSelect({
           </option>
         ))}
       </Select>
-      {labelVisible && view && <p className="text-xs text-muted">{describe(view)}</p>}
+      {labelVisible && view && <p className="text-xs text-muted">{describe(view, subject)}</p>}
     </div>
   );
 }

@@ -45,16 +45,31 @@ export interface DescribeContext {
   hosts: Record<string, Pick<Host, "name">>;
 }
 
-/** One line saying where a view's sessions come from. */
-export function describeView(v: View, ctx: DescribeContext): string {
+/** One line saying where a view's sessions (or, on the Tasks page, tasks) come from. */
+export function describeView(
+  v: View,
+  ctx: DescribeContext,
+  subject: "sessions" | "tasks" = "sessions",
+): string {
   const source = viewSource(v);
+  const tracker =
+    source === "tracker" ? ctx.trackers?.find((x) => x.id === v.trackerId) : undefined;
+  const x = tracker?.extraRepositories ?? [];
+  const also =
+    x.length === 1 ? ` and ${x[0]}` : x.length > 1 ? ` and ${x.length} other repositories` : "";
+  if (subject === "tasks") {
+    if (source === "tracker")
+      return tracker
+        ? `Tasks in the repositories of ${tracker.owner}${also}`
+        : "Tasks in a GitHub tracker's repositories";
+    if (v.mode === "pinned") return "Tasks of sessions you pin";
+    const projectNames = v.projectIds ? names(v.projectIds, ctx.projects) : "";
+    return projectNames ? `Tasks in ${projectNames}` : "Every task";
+  }
   if (source === "tracker") {
-    const t = ctx.trackers?.find((x) => x.id === v.trackerId);
+    const t = tracker;
     if (!t) return "Kept by a GitHub tracker";
     const board = t.board ? ` (board #${t.board.projectNumber})` : "";
-    const x = t.extraRepositories ?? [];
-    const also =
-      x.length === 1 ? ` and ${x[0]}` : x.length > 1 ? ` and ${x.length} other repositories` : "";
     return `Issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}, and live sessions there`;
   }
   if (source === "client") return `Pi you start in ${clientLabel(v.clientId ?? "")}`;

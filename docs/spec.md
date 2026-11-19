@@ -525,6 +525,8 @@ Each column is 288–360 pixels wide with a sticky title and count. Horizontal s
 
 Canceled tasks appear through a filter, not a permanent default column.
 
+A view filters tasks by its projects (a tracker's view: its repositories), or by pinned sessions; the view selector says which.
+
 ### Task cards
 
 Show:
@@ -618,6 +620,8 @@ Each item shows project/task/session, reason, age, and direct action.
 
 Resolving a question updates the same runtime interaction. Acknowledging a notification does not resolve the underlying task.
 
+Not filtered by the selected view; says so while one is selected.
+
 ### Queue
 
 Running and queued sections.
@@ -625,6 +629,8 @@ Running and queued sections.
 Each queued row explains its wait: dependency, host offline, project limit, workspace occupied, scheduled time, or invalid configuration.
 
 Allow priority changes and pause of future dispatch without terminating active runs.
+
+Not filtered by the selected view; says so while one is selected.
 
 ### Automations
 

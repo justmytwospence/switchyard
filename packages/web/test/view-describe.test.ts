@@ -105,6 +105,26 @@ describe("view descriptions", () => {
     );
   });
 
+  it("describes what a view covers on Tasks", () => {
+    const v = view({ trackerId: "trk_1" });
+    expect(describeView(v, ctx, "tasks")).toBe("Tasks in the repositories of VO-Health");
+    expect(
+      describeView(
+        v,
+        { ...ctx, trackers: [tracker({ extraRepositories: ["other/lib"] })] },
+        "tasks",
+      ),
+    ).toBe("Tasks in the repositories of VO-Health and other/lib");
+    expect(describeView(v, { ...ctx, trackers: null }, "tasks")).toBe(
+      "Tasks in a GitHub tracker's repositories",
+    );
+    expect(describeView(view({ mode: "pinned" }), ctx, "tasks")).toBe("Tasks of sessions you pin");
+    expect(describeView(view(), ctx, "tasks")).toBe("Every task");
+    expect(describeView(view({ projectIds: ["a"], hostIds: ["h1"] }), ctx, "tasks")).toBe(
+      "Tasks in Alpha",
+    );
+  });
+
   it("describes client and pinned views", () => {
     expect(describeView(view({ clientId: "herdr:default@mac" }), ctx)).toBe(
       "Pi you start in herdr default on mac",

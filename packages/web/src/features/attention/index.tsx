@@ -20,6 +20,7 @@ import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { apiPost, errorMessage } from "../../sync/api";
 import { useOpenAttention, useSyncStore } from "../../sync/store";
+import { UnfilteredNote } from "../views/UnfilteredNote";
 import {
   ATTENTION_GROUPS,
   type AttentionShow,
@@ -70,6 +71,7 @@ export default function AttentionView() {
           ]}
         />
       </header>
+      <UnfilteredNote what="sessions" />
       <LastKnownNote
         subject="attention items"
         consequence="Answers are sent once the connection is back."

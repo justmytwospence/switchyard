@@ -40,6 +40,7 @@ import { useSyncStore } from "../../sync/store";
 import { updateTask } from "../board/api";
 import { DispatchToggle } from "../board/BoardChrome";
 import { isRunActive, WAIT_LABELS, type WaitReason } from "../board/logic";
+import { UnfilteredNote } from "../views/UnfilteredNote";
 import { useNow } from "./useNow";
 
 const WAIT_ICONS: Record<WaitReason, LucideIcon> = {
@@ -106,6 +107,7 @@ export default function QueueView() {
         <h1 className="flex-1 text-lg font-semibold">Queue</h1>
         <DispatchToggle />
       </header>
+      <UnfilteredNote what="tasks" />
       <p className="text-sm text-muted">
         Pausing stops new work from starting. Runs already in progress keep going.
       </p>
