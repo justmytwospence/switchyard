@@ -84,6 +84,7 @@ export function WorkCard({
       </button>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
         {status && <StatusChip kind="custom" status={status} size="sm" />}
+        {card.branch && !card.sessionId && <span>No session</span>}
         {card.extraCount > 0 && <span>+{card.extraCount}</span>}
         {card.issue && (
           <a
@@ -118,6 +119,16 @@ export function WorkCard({
             onClick={() => void board.activate(card)}
           >
             Start
+          </Button>
+        )}
+        {card.branch && !card.sessionId && (
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Play className="size-3.5" />}
+            onClick={() => void board.activate(card)}
+          >
+            Start session
           </Button>
         )}
         {targets.length > 0 && (

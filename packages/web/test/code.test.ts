@@ -300,7 +300,7 @@ describe("navigator tree", () => {
     });
   });
 
-  it("Projects with All hides projects without sessions and lists branches without one", () => {
+  it("Projects with All hides projects without sessions", () => {
     const tree = buildNavTree(
       {
         ...input,
@@ -313,8 +313,8 @@ describe("navigator tree", () => {
       { filter: "all", query: "" },
     );
     expect(tree.groups.map((g) => g.label)).toEqual(["beta", "Other sessions"]);
-    expect(tree.groups[0]!.empty).toEqual([{ workspaceId: "w9", label: "feat/w9", host: null }]);
-    expect(buildNavTree(input, { filter: "active", query: "" }).groups[0]!.empty).toEqual([]);
+    expect(ids(tree)).not.toContain("w9");
+    expect(tree.groups[0]!.rows.map((r) => r.key)).not.toContain("b:prj_1:feat/w9");
   });
 
   it("two sessions in one workspace are one row with an extra", () => {

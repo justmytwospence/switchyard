@@ -254,13 +254,6 @@ export interface NavRow {
   role: "primary" | "extra" | "subagent";
 }
 
-/** A branch without a session, offered under its project (Projects layout, All filter). */
-export interface NavEmptyBranch {
-  workspaceId: string;
-  label: string;
-  host: string | null;
-}
-
 export interface NavGroup {
   /**
    * Collapse key: "p:<projectId|__none>", "h:<hostId>", "h:<hostId>/p:<projectId|__none>" or
@@ -275,8 +268,6 @@ export interface NavGroup {
   hostState: Connectivity | null;
   groups: NavGroup[];
   rows: NavRow[];
-  /** Branches without a session (Projects layout with the All filter). */
-  empty: NavEmptyBranch[];
   /** Branches in this group and its child groups. */
   sessionCount: number;
 }
@@ -359,7 +350,6 @@ function emptyGroup(
     hostState: null,
     groups: [],
     rows: [],
-    empty: [],
     sessionCount: 0,
     ...patch,
   };
@@ -423,7 +413,7 @@ function countSessions(g: NavGroup): number {
  * The navigator tree for a layout: one row per branch, showing its primary session, with the
  * branch's extra sessions (and subagents, when shown) nested under it. `active` keeps live
  * sessions and those needing attention; `attention` only the latter; `all` includes stopped
- * sessions and, in the Projects layout, branches without a session. Archived sessions are never
+ * sessions. Branches without a session are not listed (they are on the Board). Archived sessions are never
  * listed. Rows needing attention come first, then by the layout's sort.
  */
 export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
@@ -657,42 +647,6 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
     pg.detail = pg.rows[0]!.host;
     for (const r of pg.rows) r.host = null;
   }
-  if (opts.filter === "all") {
-    const occupied = new Set<string>();
-    for (const s of Object.values(input.sessions)) {
-      if (s.archivedAt === null && s.provenance !== "subagent" && s.workspaceId) {
-        occupied.add(s.workspaceId);
-      }
-    }
-    const multiHost = (projectId: string) =>
-      new Set(
-        Object.values(input.workspaces)
-          .filter((w) => w.projectId === projectId && !w.archivedAt)
-          .map((w) => w.hostId),
-      ).size > 1;
-    for (const pg of projects.values()) {
-      const projectId = projectIdOfGroup(pg.key);
-      if (!projectId) continue;
-      const project = input.projects[projectId] ?? null;
-      const many = multiHost(projectId);
-      pg.empty = Object.values(input.workspaces)
-        .filter(
-          (w) =>
-            w.projectId === projectId &&
-            !w.archivedAt &&
-            w.provenance !== "main" &&
-            !occupied.has(w.id) &&
-            (!q ||
-              [w.branch ?? "", project?.name ?? "", w.path].join("\n").toLowerCase().includes(q)),
-        )
-        .map((w) => ({
-          workspaceId: w.id,
-          label: workspaceLabel(w),
-          host: many ? (input.hosts[w.hostId]?.name ?? "Unknown host") : null,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label));
-    }
-  }
   const groups = sortGroups([...projects.values()], sort);
   for (const g of groups) countSessions(g);
   return { groups, rows: [] };
@@ -700,8 +654,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
 
 /** True when the tree has no rows and nothing to expand. */
 export function navTreeIsEmpty(tree: NavTree): boolean {
-  const empty = (g: NavGroup): boolean =>
-    g.rows.length === 0 && g.empty.length === 0 && g.groups.every(empty);
+  const empty = (g: NavGroup): boolean => g.rows.length === 0 && g.groups.every(empty);
   return tree.rows.length === 0 && tree.groups.every(empty);
 }
 

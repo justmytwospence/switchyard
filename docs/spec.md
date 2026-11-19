@@ -370,7 +370,7 @@ At compact widths, inspector overlays or replaces conversation temporarily; do n
 
 Every row is a branch (a project on a branch, see [model.md](model.md)) and shows its primary session. The branch's other sessions nest under it behind a "+N" toggle, which opens on its own when one of them needs input or is selected; the same branch on two hosts is one row. Layouts, chosen from View options (persisted per device):
 
-- **Projects** (default on desktop): project → branches. Each row shows host (or the project header does, when all its branches share one) and branch unless it is the main checkout. With the All filter, worktrees without a session are listed under their project with an Open action.
+- **Projects** (default on desktop): project → branches. Each row shows host (or the project header does, when all its branches share one) and branch unless it is the main checkout. A worktree with no session is not listed here; it is on the Board with Start session.
 - **Recent**: one list, branches needing input first, then by last activity, with project, host and branch on each row.
 - **Hosts**: host (with connection state) → project → branches (one row per host).
 - **Status**: grouped by what needs you.
@@ -500,7 +500,7 @@ Start a new session from mobile using the same creation fields as desktop, prese
 
 ## 12a. Board (branches)
 
-The Board lists branches as cards (see [model.md](model.md)), filtered by the selected view, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. Activating a card opens its primary session, or opens the branch (starting a session) when it has none.
+The Board lists branches as cards (see [model.md](model.md)), filtered by the selected view, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. Activating a card opens its primary session. A worktree with no session shows "No session" and a Start session button, which opens the branch (starting a session).
 
 Columns:
 

@@ -56,4 +56,23 @@ test.describe("branch board", () => {
     await expect(card).toBeVisible();
     await api("DELETE", `/api/views/${elsewhere.id}`);
   });
+
+  test("a worktree without a session offers Start session", async ({
+    page,
+    api,
+    signIn,
+    state,
+  }, info) => {
+    test.skip(isMobile(info), "desktop board only");
+    await signIn();
+    const project = await api("GET", `/api/projects/${state.projectId}`);
+    const branch = `empty-${uid(info)}`;
+    await api("POST", "/api/workspaces", { checkoutId: project.checkouts[0].id, branch });
+    await page.goto("/board");
+    const card = page.getByTestId("work-card").filter({ hasText: branch });
+    await expect(card).toBeVisible();
+    await expect(card.getByText("No session")).toBeVisible();
+    await card.getByRole("button", { name: "Start session" }).click();
+    await expect(page).toHaveURL(/\/code\/ses_/);
+  });
 });

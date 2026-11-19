@@ -140,6 +140,7 @@ describe("work board", () => {
       in_review: ["b:prj_1:feat/w2"],
       merged: ["b:prj_1:feat/w3"],
     });
+    expect(cols[2]!.cards[0]).toMatchObject({ key: "b:prj_1:feat/w2", sessionId: null });
     const w1 = cols[1]!.cards[0]!;
     expect(w1).toMatchObject({ sessionId: "a", branchLabel: "feat/w1", host: null });
   });

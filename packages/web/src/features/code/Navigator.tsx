@@ -5,7 +5,6 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   FolderGit2,
-  GitBranch,
   MessageCircleQuestion,
   Plus,
   Search,
@@ -27,11 +26,9 @@ import {
 } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
-import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
-import { errorMessage } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
 import { usePalette } from "../palette/registry";
@@ -39,13 +36,11 @@ import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import { emptyViewState, shownIn } from "../views/describe";
 import { useViewDescriber, ViewSelect } from "../views/ViewSelect";
 import { AdapterSlot } from "./AdapterSlots";
-import { codeApi } from "./api";
 import {
   buildNavTree,
   DEFAULT_SORT,
   NAV_LAYOUTS,
   NAV_SORTS,
-  type NavEmptyBranch,
   type NavFilter,
   type NavGroup,
   type NavLayout,
@@ -566,7 +561,7 @@ function GroupNode({
       </div>
       {open && (
         <ul className={cn("flex min-w-0 flex-col", depth > 0 && "gap-0.5 py-0.5")}>
-          {group.rows.length === 0 && group.groups.length === 0 && group.empty.length === 0 && (
+          {group.rows.length === 0 && group.groups.length === 0 && (
             <li className="px-7 py-1 text-xs text-muted">No branches yet.</li>
           )}
           {group.groups.map((g) => (
@@ -592,62 +587,7 @@ function GroupNode({
               expansion={expansion}
             />
           ))}
-          {pid &&
-            group.empty.map((b) => (
-              <EmptyBranchRow key={b.workspaceId} projectId={pid} branch={b} screen={screen} />
-            ))}
         </ul>
-      )}
-    </li>
-  );
-}
-
-/** A worktree with no session: one click opens a session in it. */
-function EmptyBranchRow({
-  projectId,
-  branch,
-  screen,
-}: {
-  projectId: string;
-  branch: NavEmptyBranch;
-  screen: boolean;
-}) {
-  const navigate = useNavigate();
-  const [busy, setBusy] = useState(false);
-  const workspace = useSyncStore((s) => s.workspaces[branch.workspaceId]);
-  const open = async () => {
-    if (!workspace?.branch) return;
-    setBusy(true);
-    try {
-      const r = await codeApi.openBranch({
-        projectId,
-        branch: workspace.branch,
-        hostId: workspace.hostId,
-      });
-      useSyncStore.getState().upsertSessionIfMissing(r.session);
-      navigate(`/code/${encodeURIComponent(r.session.id)}`, { state: BACK_STATE });
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <li
-      data-testid="empty-branch"
-      className={cn("flex min-w-0 items-center gap-1.5 py-1 pr-2 pl-7", screen && "py-2")}
-    >
-      <GitBranch aria-hidden className="size-3.5 shrink-0 text-subtle" />
-      <span className="min-w-0 flex-1 truncate">
-        <span className="font-mono text-xs text-muted">{branch.label}</span>
-        <span className="ml-1.5 text-xs text-subtle">
-          No session{branch.host ? ` · ${branch.host}` : ""}
-        </span>
-      </span>
-      {workspace?.branch && (
-        <Button size="sm" variant="ghost" busy={busy} onClick={() => void open()}>
-          Open
-        </Button>
       )}
     </li>
   );
