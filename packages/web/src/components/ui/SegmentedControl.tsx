@@ -6,6 +6,8 @@ export interface SegmentOption<T extends string> {
   label: ReactNode;
   icon?: ReactNode;
   badge?: ReactNode;
+  /** Tooltip. */
+  title?: string;
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -58,6 +60,7 @@ export function SegmentedControl<T extends string>({
             type="button"
             role="radio"
             aria-checked={selected}
+            title={o.title}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(o.value)}
             className={cn(

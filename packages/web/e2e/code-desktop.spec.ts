@@ -741,7 +741,9 @@ test.describe("desktop coding view", () => {
     const nav = page.getByTestId("navigator");
     await nav.getByLabel("View", { exact: true }).selectOption(v.id);
     await expect(nav.getByText("Only sessions you pin", { exact: true })).toBeVisible();
-    await expect(nav.getByText(/in pins-/)).toBeVisible();
+    await expect(nav.getByText(/^No (active )?sessions in pins-/)).toBeVisible();
+    await expect(nav.getByTestId("row-outside")).toContainText("Not in pins-");
+    await expect(page.getByTestId("view-note")).toContainText("Not in pins-");
     await expect(nav.getByText("This view holds only sessions you pin.")).toBeVisible();
 
     await nav.getByRole("button", { name: "Edit", exact: true }).click();

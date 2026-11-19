@@ -37,6 +37,7 @@ import {
   type NavGroup,
   type NavTree,
   navGroupKeys,
+  navOutsideRow,
   navTreeIsEmpty,
   newSessionDefaults,
   normalizeLayout,
@@ -48,12 +49,14 @@ import {
   projectIdOfGroup,
   STATUS_BUCKETS,
   sendModes,
+  sessionPlace,
   sessionStatus,
   sessionUsage,
   statusBucket,
   statusSummary,
   TERMINAL_COMMANDS,
   uniqueBranch,
+  viewNote,
   worktreePath,
 } from "../src/features/code/model";
 import type { StreamBuffer } from "../src/sync/store";
@@ -421,47 +424,97 @@ describe("navigator tree", () => {
     ]);
   });
 
+  const tracked = {
+    ...input,
+    sessions: {
+      a: session("a", { workspaceId: "w1", runtime: "running" }),
+      b: session("b", { workspaceId: "w1", runtime: "stopped", primary: false }),
+      c: session("c", { workspaceId: "w2", runtime: "stopped" }),
+      f: session("f", { workspaceId: "w3", runtime: "stopped" }),
+    } as Record<string, Session>,
+    workspaces: { ...input.workspaces, w3: workspace("w3") } as Record<string, Workspace>,
+    attention: {},
+    issues: {
+      i1: {
+        id: "i1",
+        trackerId: "trk_1",
+        projectId: "prj_1",
+        workspaceId: "w2",
+        branch: null,
+        branches: [],
+        number: 12,
+        url: "https://github.com/a/b/issues/12",
+        title: "Fix it",
+      } as unknown as TrackedIssue,
+    },
+  };
+  const trackerView = {
+    id: "viw_t",
+    name: "personal",
+    mode: "all",
+    projectIds: ["prj_1"],
+    hostIds: null,
+    sessionIds: [],
+    clients: [],
+    trackerId: "trk_1",
+    createdAt: "",
+    updatedAt: "",
+  } as never;
+  const rowOf = (tree: NavTree, id: string) => tree.rows.find((r) => r.session.id === id)!;
+
   it("a tracker's view keeps issue branches and live sessions", () => {
-    const tracked = {
-      ...input,
-      sessions: {
-        a: session("a", { workspaceId: "w1", runtime: "running" }),
-        b: session("b", { workspaceId: "w1", runtime: "stopped", primary: false }),
-        c: session("c", { workspaceId: "w2", runtime: "stopped" }),
-        f: session("f", { workspaceId: "w3", runtime: "stopped" }),
-      } as Record<string, Session>,
-      workspaces: { ...input.workspaces, w3: workspace("w3") } as Record<string, Workspace>,
-      attention: {},
-      issues: {
-        i1: {
-          id: "i1",
-          trackerId: "trk_1",
-          projectId: "prj_1",
-          workspaceId: "w2",
-          branch: null,
-          branches: [],
-        } as unknown as TrackedIssue,
-      },
-    };
-    const view = {
-      id: "viw_t",
-      name: "personal",
-      mode: "all",
-      projectIds: ["prj_1"],
-      hostIds: null,
-      sessionIds: [],
-      clients: [],
-      trackerId: "trk_1",
-      createdAt: "",
-      updatedAt: "",
-    } as const;
     const tree = buildNavTree(tracked, {
       filter: "all",
       query: "",
       layout: "recent",
-      view: view as never,
+      view: trackerView,
     });
     expect(ids(tree).sort()).toEqual(["a", "c"]);
+  });
+
+  it("rows carry their issue, and a tracker's view marks sessions it holds only while live", () => {
+    const tree = buildNavTree(tracked, {
+      filter: "all",
+      query: "",
+      layout: "recent",
+      view: trackerView,
+    });
+    expect(rowOf(tree, "c")).toMatchObject({ issue: { number: 12 }, leaves: false });
+    expect(rowOf(tree, "a")).toMatchObject({ issue: null, leaves: true });
+    const plain = buildNavTree(tracked, { filter: "all", query: "", layout: "recent" });
+    expect(plain.rows.every((r) => !r.leaves)).toBe(true);
+  });
+
+  it("search finds a row by its issue number", () => {
+    const tree = buildNavTree(tracked, { filter: "all", query: "#12", layout: "recent" });
+    expect(ids(tree)).toEqual(["c"]);
+  });
+
+  it("the open session keeps its row outside the view and outside the filter", () => {
+    const tree = buildNavTree(tracked, {
+      filter: "all",
+      query: "",
+      layout: "recent",
+      view: trackerView,
+      keepId: "f",
+    });
+    expect(ids(tree).sort()).toEqual(["a", "c", "f"]);
+    expect(rowOf(tree, "f").outside).toBe(true);
+    const active = buildNavTree(input, {
+      filter: "active",
+      query: "",
+      layout: "recent",
+      keepId: "b",
+    });
+    expect(ids(active)).toContain("b");
+    expect(active.rows.every((r) => !r.outside)).toBe(true);
+  });
+
+  it("a tree holding only the open session counts as empty and exposes its row", () => {
+    const pinned = { ...(trackerView as object), trackerId: null, mode: "pinned" } as never;
+    const tree = buildNavTree(input, { filter: "all", query: "", view: pinned, keepId: "a" });
+    expect(navTreeIsEmpty(tree)).toBe(true);
+    expect(navOutsideRow(tree)?.session.id).toBe("a");
   });
 
   it("a stored worktrees layout falls back", () => {
@@ -1050,6 +1103,71 @@ describe("new session helpers", () => {
       workspaceId: null,
       checkoutId: null,
     });
+  });
+});
+
+describe("session place", () => {
+  const w = { w1: workspace("w1"), w2: workspace("w2") } as Record<string, Workspace>;
+  const issues = [
+    {
+      id: "i1",
+      trackerId: "trk_1",
+      projectId: "prj_1",
+      workspaceId: "w1",
+      branch: null,
+      branches: [],
+      number: 7,
+      title: "T",
+      url: "u",
+    } as unknown as TrackedIssue,
+  ];
+  const tv = {
+    id: "viw_t",
+    name: "personal",
+    mode: "all",
+    projectIds: ["prj_1"],
+    hostIds: null,
+    sessionIds: [],
+    clients: [],
+    trackerId: "trk_1",
+    createdAt: "",
+    updatedAt: "",
+  } as never;
+  const place = (s: Session, sessions: Record<string, Session> = { [s.id]: s }, view = tv) =>
+    sessionPlace({ session: s, sessions, workspaces: w, issues, view });
+
+  it("names the issue and why the session is in the view", () => {
+    expect(place(session("a", { workspaceId: "w1", runtime: "stopped" }))).toMatchObject({
+      issue: { number: 7 },
+      reason: "issue",
+    });
+    expect(place(session("b", { workspaceId: "w2" }))).toMatchObject({
+      issue: null,
+      reason: "live",
+    });
+    expect(place(session("c", { workspaceId: "w2", runtime: "stopped" })).reason).toBeNull();
+    const parent = session("p", { workspaceId: "w1", runtime: "stopped" });
+    const sub = session("s", { provenance: "subagent", parentSessionId: "p", runtime: "stopped" });
+    expect(place(sub, { p: parent, s: sub }).reason).toBe("issue");
+  });
+
+  it("viewNote explains outside and live-only, and is silent otherwise", () => {
+    const out = session("c", { workspaceId: "w2", runtime: "stopped" });
+    expect(viewNote(place(out), out)).toEqual({
+      label: "Not in personal",
+      title:
+        "Outside the selected view. Pin it to personal from the session menu to keep it there.",
+    });
+    const live = session("b", { workspaceId: "w2" });
+    expect(viewNote(place(live), live)).toEqual({
+      label: "No issue",
+      title: "In personal only while it is live. Pin it or link an issue to keep it.",
+    });
+    const linked = session("a", { workspaceId: "w1" });
+    expect(viewNote(place(linked), linked)).toBeNull();
+    const archived = session("x", { archivedAt: "2026-01-01T00:00:00Z" });
+    expect(viewNote(place(archived), archived)).toBeNull();
+    expect(viewNote(place(out, { c: out }, null as never), out)).toBeNull();
   });
 });
 

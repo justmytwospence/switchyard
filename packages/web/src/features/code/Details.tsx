@@ -22,8 +22,9 @@ import { AdapterPanel } from "./AdapterPanel";
 import { ControlChip } from "./ConversationHeader";
 import { useCodeContext } from "./context";
 import type { SessionContext } from "./hooks";
-import { contextMeter, modelLabel, workspaceLabel } from "./model";
+import { contextMeter, modelLabel, viewNote, workspaceLabel } from "./model";
 import { GitHubStatus } from "./PullRequest";
+import { useSessionPlace } from "./place";
 import type { SessionActions } from "./SessionActions";
 import type { PullRequestState } from "./usePullRequest";
 
@@ -342,6 +343,8 @@ export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
 export function SessionFacts({ ctx }: { ctx: SessionContext }) {
   const { session, workspace, host } = ctx;
   const meter = contextMeter(session);
+  const place = useSessionPlace(session);
+  const note = viewNote(place, session);
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
       <dt className="text-muted">Project</dt>
@@ -364,6 +367,24 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
       <dd>{ctx.control === "none" ? "Manual session" : <ControlChip ctx={ctx} />}</dd>
       <dt className="text-muted">Policies</dt>
       <dd>{protectionLabel(session)}</dd>
+      {place.issue && (
+        <>
+          <dt className="text-muted">Issue</dt>
+          <dd className="min-w-0 break-words">
+            <a href={place.issue.url} target="_blank" rel="noreferrer" className="hover:underline">
+              #{place.issue.number} {place.issue.title}
+            </a>
+          </dd>
+        </>
+      )}
+      {note && (
+        <>
+          <dt className="text-muted">View</dt>
+          <dd className="min-w-0 break-words">
+            {note.label}. {note.title}
+          </dd>
+        </>
+      )}
       <dt className="text-muted">Branch</dt>
       <dd className="min-w-0 font-mono text-xs break-all">
         {workspaceLabel(workspace, session.cwd)}

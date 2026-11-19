@@ -4,6 +4,7 @@ import {
   branchInView,
   buildBranches,
   issueInView,
+  sessionViewReason,
   type TrackedIssue,
   type Tracker,
   type TrackerStatusOption,
@@ -36,6 +37,8 @@ export interface BoardCard {
   attention: boolean;
   extraCount: number;
   lastActivityAt: string;
+  /** In the selected tracker's view only while a session is live. */
+  leaves: boolean;
 }
 
 export interface BoardColumn {
@@ -80,10 +83,11 @@ function issueCard(i: TrackedIssue, input: BoardInput): BoardCard {
     attention: false,
     extraCount: 0,
     lastActivityAt: i.updatedAt,
+    leaves: false,
   };
 }
 
-function branchCard(b: Branch, input: BoardInput, attn: Set<string>): BoardCard {
+function branchCard(b: Branch, input: BoardInput, attn: Set<string>, leaves: boolean): BoardCard {
   const projectId = b.projectId;
   const hostsOfProject = new Set(
     Object.values(input.workspaces)
@@ -106,6 +110,7 @@ function branchCard(b: Branch, input: BoardInput, attn: Set<string>): BoardCard 
     attention,
     extraCount: b.extras.length,
     lastActivityAt: b.lastActivityAt,
+    leaves,
   };
 }
 
@@ -142,8 +147,18 @@ export function buildBoard(
   const cards: BoardCard[] = [];
   for (const b of branches) {
     if (!b.primary && (b.main || b.kind === "scratch")) continue;
-    if (opts.view && !branchInView(opts.view, b, input.workspaces, scope)) continue;
-    cards.push(branchCard(b, input, attn));
+    const view = opts.view;
+    if (view && !branchInView(view, b, input.workspaces, scope)) continue;
+    const leaves =
+      !!scope &&
+      !!view &&
+      b.issue?.trackerId !== view.trackerId &&
+      ![b.primary, ...b.extras].some((s) => {
+        if (!s) return false;
+        const r = sessionViewReason(view, s, input.workspaces, scope);
+        return r !== null && r !== "live";
+      });
+    cards.push(branchCard(b, input, attn, leaves));
   }
   const issueCards = unstarted
     .filter((i) => !opts.view || issueInView(opts.view, i))

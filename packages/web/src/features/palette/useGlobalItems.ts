@@ -1,8 +1,10 @@
+import { issueLookup, sessionInView, trackerScope } from "@switchyard/protocol";
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { useSyncStore } from "../../sync/store";
 import { SECTIONS } from "../settings/shared";
+import { useSelectedView } from "../views/selection";
 import type { PaletteItem } from "./registry";
 import { usePalette } from "./registry";
 
@@ -13,7 +15,15 @@ export function useGlobalItems(): PaletteItem[] {
   const tasks = useSyncStore((s) => s.tasks);
   const projects = useSyncStore((s) => s.projects);
   const hosts = useSyncStore((s) => s.hosts);
+  const workspaces = useSyncStore((s) => s.workspaces);
+  const issues = useSyncStore((s) => s.issues);
+  const views = useSyncStore((s) => s.views);
+  const [viewId] = useSelectedView();
   return useMemo(() => {
+    const issueList = Object.values(issues);
+    const issueOf = issueLookup(issueList);
+    const view = (viewId ? views[viewId] : null) ?? null;
+    const scope = view ? trackerScope(view, issueList) : null;
     const go = (path: string, state?: unknown) => () => navigate(path, { state });
     const items: PaletteItem[] = [];
     for (const s of Object.values(sessions)) {
@@ -21,7 +31,17 @@ export function useGlobalItems(): PaletteItem[] {
       items.push({
         id: s.id,
         title: s.title,
-        subtitle: s.projectId ? projects[s.projectId]?.name : undefined,
+        subtitle:
+          [
+            s.projectId ? projects[s.projectId]?.name : undefined,
+            (() => {
+              const issue = issueOf(s.workspaceId ? workspaces[s.workspaceId] : null);
+              return issue ? `#${issue.number}` : undefined;
+            })(),
+            view && !sessionInView(view, s, workspaces, scope) ? `not in ${view.name}` : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined,
         group: "Sessions",
         activityAt: s.lastActivityAt,
         run: go(`/code/${encodeURIComponent(s.id)}`, BACK_STATE),
@@ -78,5 +98,5 @@ export function useGlobalItems(): PaletteItem[] {
     action("settings", "Go to Settings", go("/settings"), "goSettings");
     action("keyboard-help", "Keyboard shortcuts", () => usePalette.getState().setHelpOpen(true));
     return items;
-  }, [navigate, sessions, tasks, projects, hosts]);
+  }, [navigate, sessions, tasks, projects, hosts, workspaces, issues, views, viewId]);
 }

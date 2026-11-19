@@ -85,6 +85,13 @@ export function WorkCard({
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
         {status && <StatusChip kind="custom" status={status} size="sm" />}
         {card.branch && !card.sessionId && <span>No session</span>}
+        {card.leaves && (
+          <span
+            title={`In ${board.view?.name ?? "this view"} only while it is live. Pin it or link an issue to keep it.`}
+          >
+            No issue
+          </span>
+        )}
         {card.extraCount > 0 && <span>+{card.extraCount}</span>}
         {card.issue && (
           <a

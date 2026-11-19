@@ -375,7 +375,7 @@ Every row is a branch (a project on a branch, see [model.md](model.md)) and show
 - **Hosts**: host (with connection state) → project → branches (one row per host).
 - **Status**: grouped by what needs you.
 
-Subagent sessions are nested under the session that started them and hidden unless "Show subagents" is on. View options also choose a sort per layout (Recent activity, Newest, Name, Status; defaults: Projects and Hosts by name, Recent and Status by activity), applied to groups and rows, with rows needing input first unless turned off. Rows show title, textual status, last activity, and attention indicator.
+Subagent sessions are nested under the session that started them and hidden unless "Show subagents" is on. View options also choose a sort per layout (Recent activity, Newest, Name, Status; defaults: Projects and Hosts by name, Recent and Status by activity), applied to groups and rows, with rows needing input first unless turned off. Rows show title, textual status, last activity, and attention indicator. A row on an issue's branch shows `#N`. In a tracker's view, a session that is there only while live shows "No issue". The open session always keeps its row, marked "Not in <view>" when the selected view excludes it. The status summary counts the selected view's sessions.
 
 Provide search, active/all filter, view options, collapse controls, and New session.
 
@@ -500,7 +500,7 @@ Start a new session from mobile using the same creation fields as desktop, prese
 
 ## 12a. Board (branches)
 
-The Board lists branches as cards (see [model.md](model.md)), filtered by the selected view, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. Activating a card opens its primary session. A worktree with no session shows "No session" and a Start session button, which opens the branch (starting a session).
+The Board lists branches as cards (see [model.md](model.md)), filtered by the selected view, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. Activating a card opens its primary session. A worktree with no session shows "No session" and a Start session button, which opens the branch (starting a session). In a tracker's view, a card without an issue shows "No issue".
 
 Columns:
 

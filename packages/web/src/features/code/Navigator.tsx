@@ -1,4 +1,4 @@
-import type { Session } from "@switchyard/protocol";
+import { type Session, sessionInView, trackerScope } from "@switchyard/protocol";
 import {
   ChevronDown,
   ChevronRight,
@@ -47,6 +47,7 @@ import {
   type NavRow,
   type NavSort,
   navGroupKeys,
+  navOutsideRow,
   navTreeIsEmpty,
   normalizeLayout,
   projectIdOfGroup,
@@ -133,9 +134,11 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           sort,
           needsInputFirst: prefs.needsInputFirst,
           view,
+          keepId: selectedId,
         },
       ),
     [
+      selectedId,
       projects,
       workspaces,
       sessions,
@@ -155,11 +158,17 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const navigate = useNavigate();
   const summary = useMemo(() => {
     const attn = sessionsNeedingAttention(attention, interactions);
+    const scope = view ? trackerScope(view, Object.values(issues)) : null;
     const rows = Object.values(sessions)
-      .filter((s) => s.archivedAt === null && s.provenance !== "subagent")
+      .filter(
+        (s) =>
+          s.archivedAt === null &&
+          s.provenance !== "subagent" &&
+          (!view || sessionInView(view, s, workspaces, scope)),
+      )
       .map((session) => ({ session, bucket: statusBucket(session, attn.has(session.id)) }));
     return statusSummary(rows);
-  }, [sessions, attention, interactions]);
+  }, [sessions, attention, interactions, view, workspaces, issues]);
   const collapsed = new Set(prefs.collapsed);
   const toggle = (key: string) => {
     const next = new Set(collapsed);
@@ -220,16 +229,22 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   ];
   const anyExpanded = allKeys.some((k) => !collapsed.has(k));
 
-  const filterOptions: { value: NavFilter; label: string }[] = screen
-    ? [
-        { value: "active", label: "Active" },
-        { value: "attention", label: "Needs input" },
-        { value: "all", label: "All" },
-      ]
-    : [
-        { value: "active", label: "Active" },
-        { value: "all", label: "All" },
-      ];
+  const activeOption = {
+    value: "active" as const,
+    label: "Active",
+    title: "Live sessions, and stopped ones that need you",
+  };
+  const allOption = {
+    value: "all" as const,
+    label: "All",
+    title: view?.trackerId
+      ? `Adds stopped sessions on ${view.name}'s issues, and pinned ones`
+      : "Adds stopped sessions",
+  };
+  const filterOptions: { value: NavFilter; label: string; title?: string }[] = screen
+    ? [activeOption, { value: "attention", label: "Needs input" }, allOption]
+    : [activeOption, allOption];
+  const viewName = view?.name ?? null;
 
   let body: ReactNode;
   if (!hydrated) {
@@ -262,6 +277,18 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       </>
     );
   } else if (navTreeIsEmpty(tree)) {
+    const kept = navOutsideRow(tree);
+    const keptRow = kept && (
+      <ul aria-label="Open session" className="flex min-w-0 flex-col gap-0.5 pb-2">
+        <SessionRow
+          row={kept}
+          indent={0}
+          selectedId={selectedId}
+          screen={screen}
+          viewName={viewName}
+        />
+      </ul>
+    );
     body = prefs.query ? (
       <EmptyState
         icon={<Search className="size-8" />}
@@ -270,36 +297,42 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         action={{ label: "Clear search", onClick: () => setPrefs({ ...prefs, query: "" }) }}
       />
     ) : view ? (
-      <EmptyState
-        {...emptyViewState(view, {
-          filter: prefs.filter,
-          source: describeView(view),
-          origin: window.location.host,
-        })}
-        action={{ label: "New session", onClick: () => onNewSession() }}
-        secondaryAction={
-          prefs.filter !== "all"
-            ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
-            : { label: "All sessions", onClick: () => setSelectedViewId(null) }
-        }
-      />
+      <>
+        {keptRow}
+        <EmptyState
+          {...emptyViewState(view, {
+            filter: prefs.filter,
+            source: describeView(view),
+            origin: window.location.host,
+          })}
+          action={{ label: "New session", onClick: () => onNewSession() }}
+          secondaryAction={
+            prefs.filter !== "all"
+              ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
+              : { label: "All sessions", onClick: () => setSelectedViewId(null) }
+          }
+        />
+      </>
     ) : (
-      <EmptyState
-        title={
-          prefs.filter === "attention"
-            ? "Nothing needs your input"
-            : prefs.filter === "active"
-              ? "No active sessions"
-              : "No sessions yet"
-        }
-        description="Start a session in one of your projects."
-        action={{ label: "New session", onClick: () => onNewSession() }}
-        secondaryAction={
-          prefs.filter !== "all"
-            ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
-            : undefined
-        }
-      />
+      <>
+        {keptRow}
+        <EmptyState
+          title={
+            prefs.filter === "attention"
+              ? "Nothing needs your input"
+              : prefs.filter === "active"
+                ? "No active sessions"
+                : "No sessions yet"
+          }
+          description="Start a session in one of your projects."
+          action={{ label: "New session", onClick: () => onNewSession() }}
+          secondaryAction={
+            prefs.filter !== "all"
+              ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
+              : undefined
+          }
+        />
+      </>
     );
   } else if (prefs.layout === "recent") {
     body = (
@@ -312,6 +345,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             selectedId={selectedId}
             screen={screen}
             expansion={expansion}
+            viewName={viewName}
           />
         ))}
       </ul>
@@ -335,6 +369,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             screen={screen}
             onNewSession={onNewSession}
             expansion={expansion}
+            viewName={viewName}
           />
         ))}
       </ul>
@@ -523,6 +558,7 @@ function GroupNode({
   screen,
   onNewSession,
   expansion,
+  viewName,
 }: {
   group: NavGroup;
   depth: number;
@@ -532,6 +568,7 @@ function GroupNode({
   screen: boolean;
   onNewSession: (projectId?: string) => void;
   expansion: RowExpansion;
+  viewName: string | null;
 }) {
   const open = !collapsed.has(group.key);
   const pid = group.kind === "project" ? projectIdOfGroup(group.key) : null;
@@ -575,6 +612,7 @@ function GroupNode({
               screen={screen}
               onNewSession={onNewSession}
               expansion={expansion}
+              viewName={viewName}
             />
           ))}
           {group.rows.map((row) => (
@@ -585,6 +623,7 @@ function GroupNode({
               selectedId={selectedId}
               screen={screen}
               expansion={expansion}
+              viewName={viewName}
             />
           ))}
         </ul>
@@ -602,6 +641,7 @@ function SessionRow({
   screen,
   expansion,
   nested = false,
+  viewName,
 }: {
   row: NavRow;
   indent: 0 | 1 | 2 | 3;
@@ -609,6 +649,7 @@ function SessionRow({
   screen: boolean;
   expansion?: RowExpansion;
   nested?: boolean;
+  viewName: string | null;
 }) {
   const { session, attention } = row;
   const selected = session.id === selectedId;
@@ -654,6 +695,25 @@ function SessionRow({
                 {row.role === "subagent" ? "Subagent" : "Extra"}
               </span>
             )}
+            {row.issue && (
+              <span className="shrink-0 text-xs text-muted" title={row.issue.title}>
+                #{row.issue.number}
+              </span>
+            )}
+            {row.leaves && (
+              <span
+                data-testid="row-no-issue"
+                className="shrink-0 text-xs text-subtle"
+                title={`In ${viewName ?? "this view"} only while it is live. Pin it or link an issue to keep it.`}
+              >
+                No issue
+              </span>
+            )}
+            {row.outside && (
+              <span data-testid="row-outside" className="shrink-0 text-xs text-subtle">
+                Not in {viewName ?? "this view"}
+              </span>
+            )}
             <span className="min-w-0 truncate text-xs text-muted">{context}</span>
           </span>
         </Link>
@@ -680,6 +740,7 @@ function SessionRow({
               selectedId={selectedId}
               screen={screen}
               nested
+              viewName={viewName}
             />
           ))}
         </ul>

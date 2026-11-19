@@ -196,6 +196,9 @@ describe("work board", () => {
       merged: [],
     });
     expect(cols[1]!.cards).toHaveLength(2);
+    const card = (k: string) => cols[1]!.cards.find((c) => c.key === k)!;
+    expect(card("b:prj_1:feat/w1").leaves).toBe(true);
+    expect(card("b:prj_1:feat/w2").leaves).toBe(false);
   });
 
   it("uses the tracker board's columns, with No status and Not on the board", () => {

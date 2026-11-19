@@ -15,13 +15,15 @@ import type {
   TrackedIssue,
   TranscriptItem,
   View,
+  ViewReason,
   Workspace,
 } from "@switchyard/protocol";
 import {
   branchKeyOf,
   DEFAULT_WORKTREE_DIR,
+  issueLookup,
   primarySession,
-  sessionInView,
+  sessionViewReason,
   ThinkingLevel,
   trackerScope,
 } from "@switchyard/protocol";
@@ -252,6 +254,12 @@ export interface NavRow {
   /** One of `others` needs input. */
   othersNeedInput: boolean;
   role: "primary" | "extra" | "subagent";
+  /** The tracked issue its branch is worked for. */
+  issue: { number: number; url: string; title: string } | null;
+  /** In the selected tracker's view only while it is live. */
+  leaves: boolean;
+  /** Listed only because it is the open session. */
+  outside: boolean;
 }
 
 export interface NavGroup {
@@ -291,6 +299,8 @@ export interface NavOptions {
   needsInputFirst?: boolean;
   /** Only sessions in this view. */
   view?: View | null;
+  /** The open session: always listed. */
+  keepId?: string | null;
 }
 
 export interface NavInput {
@@ -325,6 +335,9 @@ interface NavEntry {
   project: Project | null;
   hostId: string;
   hostName: string;
+  issue: TrackedIssue | null;
+  leaves: boolean;
+  outside: boolean;
 }
 
 /** One branch: its entries in sort order, the row's entry, and the rest. */
@@ -414,7 +427,8 @@ function countSessions(g: NavGroup): number {
  * branch's extra sessions (and subagents, when shown) nested under it. `active` keeps live
  * sessions and those needing attention; `attention` only the latter; `all` includes stopped
  * sessions. Branches without a session are not listed (they are on the Board). Archived sessions are never
- * listed. Rows needing attention come first, then by the layout's sort.
+ * listed. Rows needing attention come first, then by the layout's sort. The open session (`keepId`)
+ * is always listed; `outside` marks it when the view excludes it.
  */
 export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   const layout = opts.layout ?? "projects";
@@ -423,6 +437,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   const q = opts.query.trim().toLowerCase();
   const attn = sessionsNeedingAttention(input.attention, input.interactions);
   const scope = opts.view ? trackerScope(opts.view, Object.values(input.issues ?? {})) : null;
+  const issueOf = issueLookup(Object.values(input.issues ?? {}));
 
   const entries: NavEntry[] = [];
   for (const s of Object.values(input.sessions)) {
@@ -432,18 +447,31 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       s.provenance === "subagent" && s.parentSessionId
         ? input.sessions[s.parentSessionId]
         : undefined;
-    if (opts.view && !sessionInView(opts.view, parent ?? s, input.workspaces, scope)) continue;
+    const keep = s.id === opts.keepId;
+    const reason = opts.view
+      ? sessionViewReason(opts.view, parent ?? s, input.workspaces, scope)
+      : "filter";
+    if (reason === null && !keep) continue;
     const needs = attn.has(s.id);
-    if (opts.filter === "active" && !isLive(s) && !needs) continue;
-    if (opts.filter === "attention" && !needs) continue;
+    if (!keep && opts.filter === "active" && !isLive(s) && !needs) continue;
+    if (!keep && opts.filter === "attention" && !needs) continue;
     const ws = s.workspaceId ? (input.workspaces[s.workspaceId] ?? null) : null;
     const projectId = s.projectId ?? ws?.projectId ?? null;
     const project = projectId ? (input.projects[projectId] ?? null) : null;
     const hostId = ws?.hostId ?? s.hostId;
     const hostName = input.hosts[hostId]?.name ?? "Unknown host";
+    const issue = issueOf(ws);
     if (
       q &&
-      ![s.title, s.subtitle ?? "", ws?.branch ?? "", project?.name ?? "", hostName, s.cwd]
+      ![
+        s.title,
+        s.subtitle ?? "",
+        ws?.branch ?? "",
+        project?.name ?? "",
+        hostName,
+        s.cwd,
+        issue ? `#${issue.number}\n${issue.title}` : "",
+      ]
         .join("\n")
         .toLowerCase()
         .includes(q)
@@ -458,6 +486,9 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       project,
       hostId,
       hostName,
+      issue,
+      leaves: reason === "live",
+      outside: reason === null,
     });
   }
   const byActivity = (a: NavEntry, b: NavEntry) =>
@@ -530,17 +561,16 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
     });
   }
 
-  const row = (
-    u: NavUnit,
-    ctx: Omit<
-      NavRow,
-      "session" | "attention" | "bucket" | "key" | "others" | "othersNeedInput" | "role"
-    >,
-  ): NavRow => ({
+  const row = (u: NavUnit, ctx: Pick<NavRow, "project" | "host" | "branch">): NavRow => ({
     session: u.head.session,
     attention: u.head.attention,
     bucket: u.head.bucket,
     ...ctx,
+    issue: u.head.issue
+      ? { number: u.head.issue.number, url: u.head.issue.url, title: u.head.issue.title }
+      : null,
+    leaves: u.head.leaves,
+    outside: u.head.outside,
     key: u.key,
     others: u.others.map(({ entry, role }) => ({
       session: entry.session,
@@ -553,6 +583,9 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       others: [],
       othersNeedInput: false,
       role,
+      issue: null,
+      leaves: false,
+      outside: entry.outside,
     })),
     othersNeedInput: u.others.some((o) => o.entry.attention),
     role: "primary",
@@ -654,8 +687,69 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
 
 /** True when the tree has no rows and nothing to expand. */
 export function navTreeIsEmpty(tree: NavTree): boolean {
-  const empty = (g: NavGroup): boolean => g.rows.length === 0 && g.groups.every(empty);
-  return tree.rows.length === 0 && tree.groups.every(empty);
+  const empty = (g: NavGroup): boolean => g.rows.every((r) => r.outside) && g.groups.every(empty);
+  return tree.rows.every((r) => r.outside) && tree.groups.every(empty);
+}
+
+/** The first top-level row listed only because it is open. */
+export function navOutsideRow(tree: NavTree): NavRow | null {
+  const inRows = tree.rows.find((r) => r.outside);
+  if (inRows) return inRows;
+  const walk = (gs: NavGroup[]): NavRow | null => {
+    for (const g of gs) {
+      const r = g.rows.find((x) => x.outside) ?? walk(g.groups);
+      if (r) return r;
+    }
+    return null;
+  };
+  return walk(tree.groups);
+}
+
+/** Where a session stands: its issue, and why it is in the selected view (null: it is not). */
+export interface SessionPlace {
+  issue: TrackedIssue | null;
+  view: View | null;
+  reason: ViewReason | null;
+}
+
+export function sessionPlace(input: {
+  session: Session;
+  sessions: Record<string, Session>;
+  workspaces: Record<string, Workspace>;
+  issues: TrackedIssue[];
+  view: View | null;
+}): SessionPlace {
+  const { session, view } = input;
+  const ws = session.workspaceId ? input.workspaces[session.workspaceId] : undefined;
+  const issue = issueLookup(input.issues)(ws);
+  const parent =
+    session.provenance === "subagent" && session.parentSessionId
+      ? input.sessions[session.parentSessionId]
+      : undefined;
+  const reason = view
+    ? sessionViewReason(view, parent ?? session, input.workspaces, trackerScope(view, input.issues))
+    : null;
+  return { issue, view, reason };
+}
+
+/** A short note on a session's place in the selected view; null when there is nothing to say. */
+export function viewNote(
+  place: SessionPlace,
+  session: Pick<Session, "archivedAt">,
+): { label: string; title: string } | null {
+  const v = place.view;
+  if (!v || session.archivedAt) return null;
+  if (place.reason === null)
+    return {
+      label: `Not in ${v.name}`,
+      title: `Outside the selected view. Pin it to ${v.name} from the session menu to keep it there.`,
+    };
+  if (place.reason === "live")
+    return {
+      label: "No issue",
+      title: `In ${v.name} only while it is live. Pin it or link an issue to keep it.`,
+    };
+  return null;
 }
 
 /** Every group key, depth-first (for Collapse all). */

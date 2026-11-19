@@ -3,6 +3,7 @@ import {
   Archive,
   ArchiveRestore,
   Bot,
+  CircleDot,
   EllipsisVertical,
   GitBranch,
   Hand,
@@ -23,7 +24,8 @@ import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { useSyncStore } from "../../sync/store";
 import { type SessionContext, useElementWidth } from "./hooks";
-import { AUTOMATION_LABEL, workspaceLabel } from "./model";
+import { AUTOMATION_LABEL, viewNote, workspaceLabel } from "./model";
+import { useSessionPlace } from "./place";
 import type { SessionActions } from "./SessionActions";
 import type { Surface } from "./surface";
 
@@ -148,6 +150,8 @@ export function ConversationHeader({
   const navigate = useNavigate();
   const views = useSyncStore((st) => st.views);
   const [ref, width] = useElementWidth<HTMLElement>();
+  const place = useSessionPlace(session);
+  const note = viewNote(place, session);
   const narrow = width > 0 && width < 640;
   const menuItems: MenuItem[] = [
     ...(narrow && task
@@ -238,6 +242,24 @@ export function ConversationHeader({
           <span className="truncate font-mono">{workspaceLabel(workspace, session.cwd)}</span>
         </span>
         <HostChip ctx={ctx} />
+        {place.issue && (
+          <a
+            data-testid="session-issue"
+            href={place.issue.url}
+            target="_blank"
+            rel="noreferrer"
+            title={place.issue.title}
+            className="inline-flex shrink-0 items-center gap-1 text-xs text-muted hover:underline"
+          >
+            <CircleDot aria-hidden className="size-3.5 shrink-0" />
+            <span className="sr-only">Issue </span>#{place.issue.number}
+          </a>
+        )}
+        {note && (
+          <span data-testid="view-note" title={note.title} className="shrink-0 text-xs text-subtle">
+            {note.label}
+          </span>
+        )}
       </div>
     </header>
   );
