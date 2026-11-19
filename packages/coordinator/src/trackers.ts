@@ -1,4 +1,6 @@
 import {
+  issueLinkProblem,
+  issueUnlinkProblem,
   newId,
   type Project,
   type Session,
@@ -526,6 +528,37 @@ export class TrackerService {
       });
     });
     return result;
+  }
+
+  /** Link a worktree's branch to a not-started issue by hand. GitHub's own link, once it has one, wins at the next sync. */
+  linkIssue(issueId: string, workspaceId: string): TrackedIssue {
+    const { store } = this.ctx;
+    return store.tx(() => {
+      const issue = store.issues.require(issueId);
+      const ws = store.workspaces.require(workspaceId);
+      const problem = issueLinkProblem(issue, ws, store.issues.list());
+      if (problem) throw new SwitchyardError("conflict", problem);
+      const now = store.nowIso();
+      // The worktree exists; never recreate it from the issue if it is removed later.
+      store.setSetting(`issueBranchTried:${issueId}:${ws.branch}`, now);
+      return store.putIssue({ ...issue, branch: ws.branch, workspaceId: ws.id, updatedAt: now });
+    });
+  }
+
+  /** Undo a link GitHub does not know about. */
+  unlinkIssue(issueId: string): TrackedIssue {
+    const { store } = this.ctx;
+    return store.tx(() => {
+      const issue = store.issues.require(issueId);
+      const problem = issueUnlinkProblem(issue);
+      if (problem) throw new SwitchyardError("conflict", problem);
+      return store.putIssue({
+        ...issue,
+        branch: null,
+        workspaceId: null,
+        updatedAt: store.nowIso(),
+      });
+    });
   }
 
   /** Set a card's board column by hand. */

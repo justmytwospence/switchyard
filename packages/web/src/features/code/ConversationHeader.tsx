@@ -8,6 +8,7 @@ import {
   GitBranch,
   Hand,
   Info,
+  Link2,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
@@ -15,6 +16,7 @@ import {
   Server,
   Square,
   SquareKanban,
+  Unlink2,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { Button, buttonClasses } from "../../components/ui/Button";
@@ -108,6 +110,25 @@ export function sessionMenuItems(
           },
         ]
       : []),
+    ...(a.issueLink?.linked && a.issueLink.canUnlink
+      ? [
+          {
+            id: "unlink-issue",
+            label: `Unlink from #${a.issueLink.linked.number}`,
+            icon: <Unlink2 className="size-4" />,
+            onSelect: a.issueLink.unlink,
+          },
+        ]
+      : a.issueLink && !a.issueLink.linked && a.issueLink.candidates.length > 0
+        ? [
+            {
+              id: "link-issue",
+              label: "Link to issue…",
+              icon: <Link2 className="size-4" />,
+              onSelect: a.issueLink.open,
+            },
+          ]
+        : []),
     ...views.map(
       (v): MenuItem => ({
         id: `view-${v.id}`,

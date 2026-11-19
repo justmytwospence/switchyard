@@ -407,6 +407,64 @@ describe("open", () => {
   });
 });
 
+describe("manual links", () => {
+  const linkPath = (id: string) => `/api/issues/${encodeURIComponent(id)}/link`;
+  async function worktree(branch: string) {
+    const r = await h.t.admin("POST", "/api/workspaces", {
+      checkoutId: h.project.checkouts[0]!.id,
+      branch,
+    });
+    expect(r.status).toBe(201);
+    return r.body as { id: string };
+  }
+
+  it("links a worktree's branch to a not-started issue and keeps it across syncs", async () => {
+    items = [item(1)];
+    const t = await create();
+    const ws = await worktree("spike");
+    const [issue] = tracked(t.id);
+    const r = await h.t.admin("POST", linkPath(issue!.id), { workspaceId: ws.id });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ branch: "spike", workspaceId: ws.id });
+    const created = commandsOf(h.host, "workspace.create").length;
+    await service().sync(t.id);
+    expect(store().issues.require(issue!.id)).toMatchObject({
+      branch: "spike",
+      workspaceId: ws.id,
+    });
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(created);
+  });
+
+  it("refuses a main checkout and an issue that has a branch", async () => {
+    items = [item(1), item(2, { branches: ["feat/x"] })];
+    const t = await create();
+    const main = store()
+      .workspaces.list("project_id = ?", [h.project.id])
+      .find((w) => w.provenance === "main")!;
+    const [first, second] = tracked(t.id);
+    const r1 = await h.t.admin("POST", linkPath(first!.id), { workspaceId: main.id });
+    expect(r1.status).toBe(409);
+    const ws = await worktree("spike");
+    const r2 = await h.t.admin("POST", linkPath(second!.id), { workspaceId: ws.id });
+    expect(r2.status).toBe(409);
+  });
+
+  it("unlinks a manual link, and refuses when GitHub links the branch", async () => {
+    items = [item(1)];
+    const t = await create();
+    const ws = await worktree("spike");
+    const [issue] = tracked(t.id);
+    await h.t.admin("POST", linkPath(issue!.id), { workspaceId: ws.id });
+    const r = await h.t.admin("DELETE", linkPath(issue!.id));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ branch: null, workspaceId: null });
+    await h.t.admin("POST", linkPath(issue!.id), { workspaceId: ws.id });
+    items = [item(1, { branches: ["spike"] })];
+    await service().sync(t.id);
+    expect((await h.t.admin("DELETE", linkPath(issue!.id))).status).toBe(409);
+  });
+});
+
 describe("work host", () => {
   it("makes the worktree on the project's default host, not the tracker's", async () => {
     const host2 = await secondHost({ defaultHost: true });

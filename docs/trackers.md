@@ -24,6 +24,8 @@ Trackers and surfaces never talk to each other; both meet at branches and sessio
 3. **The pull request opens**: the branch moves to In review on the Board. **It merges**: the branch moves to Merged, and with "Remove merged worktrees" on, about ten minutes later its sessions are archived and the worktree and local branch removed.
 4. **The issue closes or is unassigned**: it disappears from the tracker. The branch, its worktree and its sessions stay.
 
+**Link by hand.** When you already started work in a worktree, open its session's menu and choose **Link to issue…**: it lists the project's issues that have no branch yet. The branch becomes the issue's branch, so its sessions stay in the tracker's view, and with write-back the card moves to the `--on-start` column at the next sync. A main checkout cannot be linked; pin the session to the view instead. **Unlink from #N** undoes a link GitHub does not know about. Once GitHub links a branch to the issue (its Development sidebar, or a pull request that closes it), GitHub's link is used.
+
 Trackers create no tasks. Tasks are for automations ([spec.md](spec.md)).
 
 ## Setting up

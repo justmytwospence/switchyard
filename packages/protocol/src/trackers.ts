@@ -159,6 +159,10 @@ export const TrackerSetStatusResult = z.discriminatedUnion("status", [
 ]);
 export type TrackerSetStatusResult = z.infer<typeof TrackerSetStatusResult>;
 
+/** POST /api/issues/:id/link */
+export const LinkIssueRequest = z.object({ workspaceId: Id });
+export type LinkIssueRequest = z.infer<typeof LinkIssueRequest>;
+
 /** POST /api/issues/:id/status */
 export const TrackerStatusRequest = z.object({ status: z.string().min(1).max(200) });
 

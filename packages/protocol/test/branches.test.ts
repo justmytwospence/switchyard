@@ -4,7 +4,9 @@ import {
   branchKeyOf,
   buildBranches,
   issueInView,
+  issueLinkProblem,
   issueLookup,
+  issueUnlinkProblem,
   issueUnstarted,
   primarySession,
   type Session,
@@ -311,5 +313,43 @@ describe("issueLookup and issueUnstarted", () => {
     expect(issueUnstarted(issue("i", { branches: ["x"] }))).toBe(false);
     expect(issueUnstarted(issue("i", { workspaceId: "wsp_1" }))).toBe(false);
     expect(issueUnstarted(issue("i", { pullRequest: pr("MERGED") }))).toBe(false);
+  });
+});
+
+describe("manual issue links", () => {
+  it("issueLinkProblem refuses main checkouts, detached worktrees, other projects, started issues and linked branches", () => {
+    const i = issue("i", { number: 4 });
+    const w = ws("wsp_1", { branch: "spike" });
+    expect(issueLinkProblem(i, w, [i])).toBeNull();
+    expect(issueLinkProblem(i, { ...w, archivedAt: T }, [i])).toBe("This worktree is archived");
+    expect(issueLinkProblem(i, { ...w, provenance: "main" }, [i])).toBe(
+      "A main checkout cannot be linked to an issue; pin the session to the view instead",
+    );
+    expect(issueLinkProblem(i, { ...w, branch: null }, [i])).toBe(
+      "A detached worktree has no branch to link",
+    );
+    expect(issueLinkProblem(i, { ...w, projectId: "prj_b" }, [i])).toBe(
+      "This issue belongs to another project",
+    );
+    expect(issueLinkProblem({ ...i, pullRequest: pr("MERGED") }, w, [i])).toBe(
+      "This issue is merged",
+    );
+    expect(issueLinkProblem({ ...i, branches: ["x"] }, w, [i])).toBe(
+      "This issue already has a branch",
+    );
+    const other = issue("o", { number: 9, branch: "spike" });
+    expect(issueLinkProblem(i, w, [i, other])).toBe("This branch is already linked to #9");
+  });
+
+  it("issueUnlinkProblem allows only links GitHub does not know", () => {
+    const linked = issue("i", { number: 4, branch: "spike", workspaceId: "wsp_1" });
+    expect(issueUnlinkProblem(linked)).toBeNull();
+    expect(issueUnlinkProblem(issue("i"))).toBe("This issue has no branch");
+    expect(issueUnlinkProblem({ ...linked, branches: ["spike"] })).toBe(
+      "GitHub links #4 to spike; unlink it there",
+    );
+    expect(issueUnlinkProblem({ ...linked, pullRequest: pr("OPEN") })).toBe(
+      "#4 has a pull request",
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { primarySession } from "@switchyard/protocol";
+import { primarySession, type TrackedIssue } from "@switchyard/protocol";
 import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
@@ -9,6 +9,8 @@ import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { apiDelete, apiPost, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
+import { unlinkIssue } from "../workboard/api";
+import { LinkIssueDialog, useIssueLink } from "../workboard/LinkIssue";
 import { codeApi } from "./api";
 import type { SessionContext } from "./hooks";
 import { useMutation } from "./hooks";
@@ -39,6 +41,14 @@ export interface SessionActions {
   setPrimary: (primary: boolean) => void;
   /** Start another session in this session's workspace, or null when it has none. */
   newInBranch: (() => void) | null;
+  /** Link this worktree's branch to an issue, or undo it; null without a worktree. */
+  issueLink: {
+    linked: TrackedIssue | null;
+    candidates: TrackedIssue[];
+    canUnlink: boolean;
+    open: () => void;
+    unlink: () => void;
+  } | null;
   busy: { takeover: boolean; ret: boolean; stop: boolean; resume: boolean; unarchive: boolean };
   /** Confirmation and form dialogs; render once in the view. */
   dialogs: ReactNode;
@@ -48,9 +58,12 @@ export interface SessionActions {
 export function useSessionActions(ctx: SessionContext): SessionActions {
   const { session, run, control } = ctx;
   const navigate = useNavigate();
-  const [dialog, setDialog] = useState<null | "stop" | "rename" | "archive" | "info">(null);
+  const [dialog, setDialog] = useState<null | "stop" | "rename" | "archive" | "info" | "link">(
+    null,
+  );
   const [title, setTitle] = useState(session.title);
   const [selectedView] = useSelectedView();
+  const link = useIssueLink(session.provenance === "subagent" ? null : ctx.workspace);
   const views = useSyncStore((st) => st.views);
   const isPrimary = useSyncStore((st) => {
     if (session.provenance === "subagent" || session.archivedAt) return false;
@@ -185,6 +198,15 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
         )}
       </ConfirmDialog>
 
+      {ctx.workspace && (
+        <LinkIssueDialog
+          open={dialog === "link"}
+          onClose={close}
+          workspace={ctx.workspace}
+          candidates={link.candidates}
+        />
+      )}
+
       <SessionInfoDialog
         session={session}
         hostLabel={`${ctx.hostName} (${ctx.link})`}
@@ -238,6 +260,20 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
                 navigate(`/code/${encodeURIComponent(s.id)}`);
               })
               .catch((e) => toast.error(errorMessage(e)));
+          }
+        : null,
+    issueLink:
+      ctx.workspace && session.provenance !== "subagent"
+        ? {
+            ...link,
+            open: () => setDialog("link"),
+            unlink: () => {
+              const i = link.linked;
+              if (!i) return;
+              void unlinkIssue(i.id)
+                .then(() => toast.success(`Unlinked from #${i.number}`))
+                .catch((e) => toast.error(errorMessage(e)));
+            },
           }
         : null,
     busy: {

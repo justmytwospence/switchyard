@@ -1219,6 +1219,45 @@ describe("session menu branch items", () => {
   });
 });
 
+describe("session menu issue links", () => {
+  it("offers Link to issue with candidates and Unlink only when allowed", async () => {
+    const { sessionMenuItems } = await import("../src/features/code/ConversationHeader");
+    const ctx = {
+      session: { id: "ses_1", readOnly: false, archivedAt: null, provenance: "created" },
+    } as never;
+    const calls: string[] = [];
+    const base = {
+      isPrimary: false,
+      setPrimary: () => {},
+      newInBranch: null,
+    };
+    const link = (over: object) =>
+      ({
+        ...base,
+        issueLink: {
+          linked: null,
+          candidates: [],
+          canUnlink: false,
+          open: () => calls.push("open"),
+          unlink: () => calls.push("unlink"),
+          ...over,
+        },
+      }) as never;
+    const ids = (a: never) =>
+      sessionMenuItems(ctx, a, [])
+        .filter((i) => i.id.endsWith("-issue"))
+        .map((i) => i.label);
+    const withCandidate = sessionMenuItems(ctx, link({ candidates: [{ number: 3 }] }), []);
+    withCandidate.find((i) => i.id === "link-issue")!.onSelect();
+    expect(ids(link({ candidates: [{ number: 3 }] }))).toEqual(["Link to issue…"]);
+    expect(ids(link({ linked: { number: 3 }, canUnlink: true }))).toEqual(["Unlink from #3"]);
+    expect(ids(link({ linked: { number: 3 }, canUnlink: false }))).toEqual([]);
+    expect(ids({ ...base, issueLink: null } as never)).toEqual([]);
+    expect(ids(link({}))).toEqual([]);
+    expect(calls).toEqual(["open"]);
+  });
+});
+
 describe("foldTimeline", () => {
   const at = "2026-11-01T10:00:00.000Z";
   const user = (id: string, order: number): TranscriptItem => ({

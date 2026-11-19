@@ -1,4 +1,5 @@
 import {
+  LinkIssueRequest,
   newId,
   OpenIssueRequest,
   SwitchyardError,
@@ -96,6 +97,13 @@ export function registerTrackerRoutes(app: FastifyInstance, ctx: CoordinatorCont
     const result = await service().openIssue(idOf(req), body);
     return reply.code(result.created ? 202 : 200).send(result);
   });
+
+  app.post("/api/issues/:id/link", async (req) => {
+    const body = parse(LinkIssueRequest, req.body);
+    return service().linkIssue(idOf(req), body.workspaceId);
+  });
+
+  app.delete("/api/issues/:id/link", async (req) => service().unlinkIssue(idOf(req)));
 
   app.post("/api/issues/:id/status", async (req) => {
     const body = parse(TrackerStatusRequest, req.body);

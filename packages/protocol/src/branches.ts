@@ -257,6 +257,34 @@ export function issueUnstarted(
   );
 }
 
+/** Why this workspace's branch cannot be linked to this issue by hand; null when it can. */
+export function issueLinkProblem(
+  issue: TrackedIssue,
+  ws: Pick<Workspace, "id" | "projectId" | "branch" | "provenance" | "archivedAt">,
+  issues: Iterable<TrackedIssue>,
+): string | null {
+  if (ws.archivedAt) return "This worktree is archived";
+  if (ws.provenance === "main")
+    return "A main checkout cannot be linked to an issue; pin the session to the view instead";
+  if (!ws.branch) return "A detached worktree has no branch to link";
+  if (issue.projectId !== ws.projectId) return "This issue belongs to another project";
+  if (issue.pullRequest?.state === "MERGED") return "This issue is merged";
+  if (issue.branch !== null || issue.branches.length > 0 || issue.workspaceId !== null)
+    return "This issue already has a branch";
+  const other = issueLookup(issues)(ws);
+  if (other) return `This branch is already linked to #${other.number}`;
+  return null;
+}
+
+/** Why an issue's branch cannot be unlinked here; null when it can. */
+export function issueUnlinkProblem(issue: TrackedIssue): string | null {
+  if (issue.branch === null && issue.workspaceId === null) return "This issue has no branch";
+  if (issue.branches.length > 0)
+    return `GitHub links #${issue.number} to ${issue.branches[0]}; unlink it there`;
+  if (issue.pullRequest) return `#${issue.number} has a pull request`;
+  return null;
+}
+
 /** Is a branch in a view? By its sessions, else (unless pinned-only) by project and host. */
 export function branchInView(
   view: View,

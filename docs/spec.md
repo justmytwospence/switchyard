@@ -392,7 +392,7 @@ Actions:
 - Open linked task.
 - Take over / Return to automation.
 - Stop, when running.
-- Session menu: rename, archive, primary session of this branch, new session in this branch, native-session information.
+- Session menu: rename, archive, primary session of this branch, new session in this branch, pin to a view, link to issue / unlink from #N (a worktree branch and a not-started issue), native-session information.
 
 Attach is navigation to this view, not an action that creates a process.
 
