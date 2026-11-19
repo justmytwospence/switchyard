@@ -235,7 +235,7 @@ describe("agent request transport", () => {
         platform: "darwin",
         capabilities: null,
         protocolVersion: 1,
-        features: ["agentRequests.v1", "trackers.v1", "bogus.v1"],
+        features: ["agentRequests.v1", "trackers.v1", "trackers.board.v1", "bogus.v1"],
       }),
       onCommand,
       log: silentLogger(),
@@ -246,6 +246,7 @@ describe("agent request transport", () => {
     expect(frames.find((f) => f.type === "hello").features).toEqual([
       "agentRequests.v1",
       "trackers.v1",
+      "trackers.board.v1",
     ]);
   });
 

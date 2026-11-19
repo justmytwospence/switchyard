@@ -17,7 +17,7 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux integration: mirror Switchyard into a paired tmux session, a window per session ([integrations/tmux](../integrations/tmux/README.md)) |
 | `views list` / `create` / `edit` / `delete` / `pin` / `unpin` | Views: saved filters (projects, hosts, pins) that herdr and tmux surfaces bind to with `SWITCHYARD_VIEW`, and the web navigator and Board can select; `--client herdr:<session>` makes that herdr session the view's source (the sessions started in it). `list` shows each view's SOURCE and the surfaces it is OPEN IN |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
-| `trackers list` / `create` / `edit` / `delete` / `sync` | GitHub trackers: sync assigned issues into tracked issues and worktrees, optionally with a Projects board ([trackers.md](trackers.md)) |
+| `trackers list` / `create` / `edit` / `delete` / `sync` | GitHub trackers: sync assigned issues, or a board's open issues, into tracked issues and worktrees, optionally with a Projects board ([trackers.md](trackers.md)) |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
 | `tasks create` / `list` / `move` | Create, list and move tasks |
 | `automations list` / `run` | List automations; fire one now |

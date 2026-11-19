@@ -133,7 +133,7 @@ The coordinator needs neither the host home mount nor Docker socket.
 | Task           | Objective, acceptance criteria, project, dependencies, priority, state, policy |
 | Run            | Task/session, dispatch key, attempt, limits, control revision, outcome         |
 | Automation     | Trigger, filters, task template, grouping/overlap/missed-run policy            |
-| Tracker        | Host, GitHub owner, repositories, optional board, write-back; tracked issues link to branches |
+| Tracker        | Host, GitHub owner, repositories, optional board, follow mode, backlog columns, write-back; tracked issues link to branches |
 | Tracked issue  | Tracker, issue, project, linked branches, branch and workspace worked on, pull request, board column |
 | Interaction    | Session, ID/revision, payload, allowed responses, resolution                   |
 | Attention item | Session/task, reason, severity, acknowledgment                                 |
@@ -504,8 +504,8 @@ The Board lists branches as cards (see [model.md](model.md)), filtered by the se
 
 Columns:
 
-- **Stage** (default): Not started (assigned issues with no branch yet), Working, In review (an open pull request), Merged. Stages are facts; the only move is an issue from Not started to Working, which starts it: its branch, worktree and an idle session titled `#<number> <title>`.
-- **Tracker board** (a tracker's view whose issues have a GitHub Projects board): one column per board column, then No status and Not on the board. Moving a card sets its board column on GitHub, only with the tracker's write-back on.
+- **Stage** (default): Not started (tracked issues with no branch yet), Working, In review (an open pull request), Merged. Stages are facts; the only move is an issue from Not started to Working, which starts it: its branch, worktree and an idle session titled `#<number> <title>`.
+- **Tracker board** (a tracker's view whose issues have a GitHub Projects board): one column per board column (a backlog column only when it has cards), then No status and Not on the board. Moving a card sets its board column on GitHub, only with the tracker's write-back on.
 
 Invalid drops show the reason. Every move is also in the card's Move to… menu; mobile shows one column at a time as tabs.
 

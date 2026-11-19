@@ -2,7 +2,7 @@
 import type { HostCommand, Task, Tracker, TrackerItem } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { requireService } from "../src/index.js";
-import { inScope, issueBranch, mergeSyncResults } from "../src/trackers.js";
+import { inScope, issueBranch, mergeSyncResults, repositoryInScope } from "../src/trackers.js";
 import { enrollHost, FakeHost, until } from "./helpers.js";
 import {
   commandsOf,
@@ -208,12 +208,48 @@ describe("tracker sync", () => {
     const t = { owner: "acme", repositories: null, extraRepositories: ["Other/Lib"] };
     expect(inScope(t, { ...project, repoIdentity: "https://github.com/other/lib" })).toBe(true);
     expect(inScope(t, { ...project, repoIdentity: "https://github.com/other/x" })).toBe(false);
+    expect(inScope(t, { ...project, repoIdentity: "local:abc" })).toBe(false);
+    expect(repositoryInScope(t, "ACME/app")).toBe(true);
+    expect(repositoryInScope(t, "other/lib")).toBe(true);
+    expect(repositoryInScope(t, "zzz/x")).toBe(false);
+    expect(repositoryInScope({ ...t, repositories: ["acme/app"] }, "acme/b")).toBe(false);
+  });
+
+  it("follows a board: one request, scoped to its repositories", async () => {
+    items = [item(1), item(2, { repository: "zzz/x", url: "https://github.com/zzz/x/issues/2" })];
+    const t = await create({
+      board: { projectNumber: 5, backlog: ["Backlog"] },
+      follow: "board",
+      extraRepositories: ["other/lib"],
+    });
+    const syncs = commandsOf(h.host, "tracker.sync");
+    expect(syncs).toHaveLength(1);
+    expect(syncs[0]).toMatchObject({ follow: "board", backlog: ["Backlog"], repositories: null });
+    expect(tracked(t.id)).toHaveLength(1);
+    expect(t.lastError).toBeNull();
+  });
+
+  it("rejects following a board without a board", async () => {
+    const r = await h.t.admin("POST", "/api/trackers", {
+      name: "x",
+      hostId: h.creds.hostId,
+      owner: "acme",
+      follow: "board",
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("explains a host too old to follow a board", async () => {
+    await h.host.close();
+    await h.host.open({ features: ["agentRequests.v1", "policies.v1", "trackers.v1"] });
+    const t = await create({ board: { projectNumber: 5 }, follow: "board" });
+    expect(t.lastError).toMatch(/does not support following a board or backlog columns/);
   });
 
   it("reports issues in repositories without a project", async () => {
     items = [item(1, { repository: "acme/other", url: "https://github.com/acme/other/issues/1" })];
     const t = await create();
-    expect(t.lastError).toBe("1 issue is in repositories with no project here");
+    expect(t.lastError).toBe("1 issue is in repositories with no project here: acme/other");
     expect(tracked(t.id)).toHaveLength(0);
   });
 
@@ -525,11 +561,18 @@ describe("board write-back", () => {
       expectedOptionId: "o-Todo",
       login: "me",
       allowShared: true,
+      allowUnassigned: false,
     });
     expect(tracked(t.id)[0]!.board!.status).toBe("In progress");
     // A person moves it back on GitHub: Switchyard does not fight them.
     await service().sync(t.id);
     expect(commandsOf(h.host, "tracker.setStatus")).toHaveLength(1);
+  });
+
+  it("moves unassigned cards when following the board", async () => {
+    items = [item(1, { branches: ["feat/x"], board: board("Todo") })];
+    await create({ ...withBoard, follow: "board" });
+    expect(commandsOf(h.host, "tracker.setStatus")[0]).toMatchObject({ allowUnassigned: true });
   });
 
   it("moves to review once a pull request is open", async () => {

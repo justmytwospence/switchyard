@@ -21,6 +21,11 @@ export interface TrackerFlags extends ConnectionFlags {
   statusField?: string;
   onStart?: string;
   onReview?: string;
+  follow?: string;
+  /** Backlog columns (`--backlog`, repeatable). */
+  backlog?: string[];
+  /** commander's `--no-backlog`: true when given. */
+  noBacklog?: boolean;
   writeBack?: boolean;
   moveShared?: boolean;
   enable?: boolean;
@@ -43,12 +48,25 @@ function boardNumber(raw: string): number {
   return n;
 }
 
+function followOf(flags: TrackerFlags): "assigned" | "board" | undefined {
+  if (flags.follow === undefined) return undefined;
+  if (flags.follow !== "assigned" && flags.follow !== "board")
+    throw new CliError("--follow must be assigned or board");
+  return flags.follow;
+}
+
 function boardFields(flags: TrackerFlags): {
   statusField?: string;
   onStart?: string;
   onReview?: string;
+  backlog?: string[];
 } {
   return {
+    ...(flags.noBacklog
+      ? { backlog: [] }
+      : flags.backlog?.length
+        ? { backlog: flags.backlog }
+        : {}),
     ...(flags.statusField ? { statusField: flags.statusField } : {}),
     ...(flags.onStart ? { onStart: flags.onStart } : {}),
     ...(flags.onReview ? { onReview: flags.onReview } : {}),
@@ -65,7 +83,7 @@ export async function trackersList(ctx: Ctx, flags: TrackerFlags): Promise<void>
     ctx,
     flags.json,
     trackers,
-    ["NAME", "HOST", "OWNER", "REPOS", "BOARD", "WRITE-BACK", "LAST SYNC", "ERROR"],
+    ["NAME", "HOST", "OWNER", "REPOS", "BOARD", "WRITE-BACK", "FOLLOWS", "LAST SYNC", "ERROR"],
     trackers.map((t) => [
       t.name,
       hosts.find((h) => h.id === t.hostId)?.name ?? t.hostId,
@@ -74,6 +92,7 @@ export async function trackersList(ctx: Ctx, flags: TrackerFlags): Promise<void>
         (t.extraRepositories?.length ? ` + ${t.extraRepositories.join(", ")}` : ""),
       t.board ? `#${t.board.projectNumber}` : "-",
       t.writeBack ? "on" : "off",
+      t.follow === "board" && t.board ? "board" : "assigned",
       t.lastSyncedAt ?? "never",
       t.lastError ?? "-",
     ]),
@@ -85,8 +104,10 @@ export async function trackersCreate(ctx: Ctx, name: string, flags: TrackerFlags
   if (!flags.host) throw new CliError("--host is required");
   if (!flags.owner) throw new CliError("--owner is required");
   const fields = boardFields(flags);
+  const follow = followOf(flags);
+  if (follow === "board" && !flags.board) throw new CliError("--follow board needs --board");
   if (!flags.board && Object.keys(fields).length > 0)
-    throw new CliError("--status-field, --on-start and --on-review need --board");
+    throw new CliError("--status-field, --on-start, --on-review and --backlog need --board");
   const { api } = connect(ctx, flags);
   const host = await resolveHost(api, flags.host);
   const t = await api.post<Tracker>("/api/trackers", {
@@ -96,6 +117,7 @@ export async function trackersCreate(ctx: Ctx, name: string, flags: TrackerFlags
     ...(flags.repo?.length ? { repositories: flags.repo } : {}),
     ...(flags.also?.length ? { extraRepositories: flags.also } : {}),
     ...(flags.board ? { board: { projectNumber: boardNumber(flags.board), ...fields } } : {}),
+    ...(follow ? { follow } : {}),
     ...(flags.writeBack ? { writeBack: true } : {}),
     ...(flags.moveShared === false ? { moveShared: false } : {}),
   });
@@ -103,7 +125,10 @@ export async function trackersCreate(ctx: Ctx, name: string, flags: TrackerFlags
 }
 
 export async function trackersEdit(ctx: Ctx, ref: string, flags: TrackerFlags): Promise<void> {
+  if (flags.noBacklog && flags.backlog?.length)
+    throw new CliError("--no-backlog cannot be combined with --backlog");
   const fields = boardFields(flags);
+  const follow = followOf(flags);
   if (flags.noBoard && (flags.board || Object.keys(fields).length > 0))
     throw new CliError("--no-board cannot be combined with other board options");
   if (flags.allRepos && flags.repo?.length)
@@ -138,6 +163,7 @@ export async function trackersEdit(ctx: Ctx, ref: string, flags: TrackerFlags): 
         ? { extraRepositories: flags.also }
         : {}),
     ...(board !== undefined ? { board } : {}),
+    ...(flags.noBoard ? { follow: "assigned" } : follow ? { follow } : {}),
     ...(flags.writeBack !== undefined ? { writeBack: flags.writeBack } : {}),
     ...(flags.moveShared !== undefined ? { moveShared: flags.moveShared } : {}),
     ...(flags.enable ? { enabled: true } : flags.disable ? { enabled: false } : {}),

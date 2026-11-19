@@ -27,6 +27,7 @@ import {
   SwitchyardError,
   type TermCoordinatorMsg,
   type TermServerToViewer,
+  TRACKER_BOARD_FEATURE,
   TRACKERS_FEATURE,
   TranscriptItem,
   UNTITLED_SESSION_TITLE,
@@ -74,6 +75,8 @@ interface Conn {
   github: boolean;
   /** The host answers `tracker.*` commands. */
   trackers: boolean;
+  /** The host's tracker.sync can follow a board and skip backlog columns. */
+  trackerBoard: boolean;
   /** The host answers `workspace.log` and `workspace.diff` with `rev`. */
   gitLog: boolean;
 }
@@ -381,6 +384,12 @@ export class HostHub {
     }
     if (command.type === "workspace.log") return conn.gitLog;
     if (command.type === "workspace.diff" && command.rev !== undefined) return conn.gitLog;
+    if (
+      command.type === "tracker.sync" &&
+      (command.follow === "board" || (command.backlog?.length ?? 0) > 0)
+    ) {
+      return conn.trackers && conn.trackerBoard;
+    }
     if (command.type.startsWith("tracker.")) return conn.trackers;
     if (
       (command.type === "session.start" || command.type === "dispatch.start") &&
@@ -546,6 +555,7 @@ export class HostHub {
       features,
       github: hello.github !== undefined,
       trackers: hello.features?.includes(TRACKERS_FEATURE) === true,
+      trackerBoard: hello.features?.includes(TRACKER_BOARD_FEATURE) === true,
       gitLog: hello.features?.includes(GIT_LOG_FEATURE) === true,
     });
     if (old && old.socket !== socket) old.socket.close(4000, "replaced by a newer connection");

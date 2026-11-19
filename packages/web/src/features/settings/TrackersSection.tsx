@@ -56,7 +56,7 @@ export function TrackersSection() {
   return (
     <SectionPage
       title="Trackers"
-      description="A tracker follows the GitHub issues assigned to you, makes worktrees for their branches, and is the source of a view of its projects."
+      description="A tracker follows your GitHub issues (those assigned to you, or every open issue on a Projects board), makes worktrees for their branches, and is the source of a view of its projects."
       testId="trackers-section"
       actions={
         <Button
@@ -76,7 +76,7 @@ export function TrackersSection() {
         <EmptyState
           icon={<CircleDot className="size-8" />}
           title="No trackers"
-          description="Add one to bring your assigned GitHub issues onto the board."
+          description="Add one to bring your GitHub issues onto the board."
           action={{ label: "New tracker", onClick: () => setEditing("new") }}
         />
       ) : (
@@ -435,6 +435,18 @@ function TrackerForm({
                 <option key={c} value={c} />
               ))}
             </datalist>
+            <Field label="Issues to follow" hint="On the board, issues need no assignee.">
+              {(p) => (
+                <Select
+                  {...p}
+                  value={draft.follow}
+                  onChange={(e) => set("follow", e.target.value as TrackerDraft["follow"])}
+                >
+                  <option value="assigned">Assigned to me</option>
+                  <option value="board">Every open issue on the board</option>
+                </Select>
+              )}
+            </Field>
             <Field label="Status field">
               {(p) => (
                 <TextInput
@@ -464,9 +476,27 @@ function TrackerForm({
                 />
               )}
             </Field>
+            <Field
+              label="Backlog columns"
+              optional
+              hint="Cards in these columns are not tracked until they have a branch or pull request. Separate names with commas."
+              error={errors.backlog}
+            >
+              {(p) => (
+                <TextInput
+                  {...p}
+                  value={draft.backlog}
+                  onChange={(e) => set("backlog", e.target.value)}
+                />
+              )}
+            </Field>
             <SwitchRow
               label="Move cards on GitHub"
-              description="Only cards assigned to you, only the status field, and only from the column Switchyard last saw."
+              description={
+                draft.follow === "board"
+                  ? "Cards assigned to you or to nobody, only the status field, and only from the column Switchyard last saw."
+                  : "Only cards assigned to you, only the status field, and only from the column Switchyard last saw."
+              }
               checked={draft.writeBack}
               onChange={(v) => set("writeBack", v)}
             />

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { GitHubIssueUrl, GitHubRepository } from "./github.js";
 
 /**
- * Trackers: a user's assigned GitHub issues in one owner (optionally some repositories, plus
+ * Trackers: a user's GitHub issues (assigned to them, or every open issue on a board) in one owner (optionally some repositories, plus
  * repositories of other owners, optionally with a Projects board), synced into tracked issues that link to branches and worktrees. See docs/trackers.md.
  */
 
@@ -11,6 +11,12 @@ const Id = z.string().min(1);
 
 /** Host feature: the host answers `tracker.*` commands. */
 export const TRACKERS_FEATURE = "trackers.v1";
+/** Host feature: tracker.sync can follow a board and skip backlog columns. */
+export const TRACKER_BOARD_FEATURE = "trackers.board.v1";
+
+/** Which issues a tracker follows: those assigned to you, or every open issue on its board. */
+export const TrackerFollow = z.enum(["assigned", "board"]);
+export type TrackerFollow = z.infer<typeof TrackerFollow>;
 
 export const GitHubLogin = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/);
 
@@ -27,6 +33,8 @@ export const TrackerBoard = z.object({
   onStart: z.string().min(1).max(200).nullable().default(null),
   /** Column to move a card to once a pull request is open (write-back). */
   onReview: z.string().min(1).max(200).nullable().default(null),
+  /** Columns whose cards are not tracked until they have a branch or pull request. */
+  backlog: z.array(z.string().min(1).max(200)).max(20).optional(),
 });
 export type TrackerBoard = z.infer<typeof TrackerBoard>;
 
@@ -40,6 +48,8 @@ export const Tracker = z.object({
   /** Repositories outside `owner` that belong to this tracker too (never limited by `repositories`). */
   extraRepositories: z.array(GitHubRepository).max(20).optional(),
   board: TrackerBoard.nullable(),
+  /** Which issues it follows; absent means "assigned". "board": every open issue on its board. */
+  follow: TrackerFollow.optional(),
   writeBack: z.boolean(),
   moveShared: z.boolean(),
   enabled: z.boolean(),
@@ -52,6 +62,11 @@ export const Tracker = z.object({
 });
 export type Tracker = z.infer<typeof Tracker>;
 
+/** Stored trackers lack the newer fields: always read them through these. */
+export const trackerFollow = (t: Pick<Tracker, "follow" | "board">): TrackerFollow =>
+  t.follow === "board" && t.board ? "board" : "assigned";
+export const trackerBacklog = (t: Pick<Tracker, "board">): string[] => t.board?.backlog ?? [];
+
 export const TrackerInput = z.object({
   name: Tracker.shape.name,
   hostId: Id,
@@ -59,6 +74,7 @@ export const TrackerInput = z.object({
   repositories: Tracker.shape.repositories.default(null),
   extraRepositories: z.array(GitHubRepository).max(20).default([]),
   board: TrackerBoard.nullable().default(null),
+  follow: TrackerFollow.default("assigned"),
   writeBack: z.boolean().default(false),
   moveShared: z.boolean().default(true),
   enabled: z.boolean().default(true),
@@ -72,6 +88,7 @@ export const TrackerPatch = z.object({
   repositories: Tracker.shape.repositories.optional(),
   extraRepositories: z.array(GitHubRepository).max(20).optional(),
   board: TrackerBoard.nullable().optional(),
+  follow: TrackerFollow.optional(),
   writeBack: z.boolean().optional(),
   moveShared: z.boolean().optional(),
   enabled: z.boolean().optional(),
@@ -117,7 +134,7 @@ export const TrackerSyncResult = z.object({
 export type TrackerSyncResult = z.infer<typeof TrackerSyncResult>;
 
 /**
- * One open assigned issue a tracker follows ("Issue" in the UI). It decorates the branch it is
+ * One open issue a tracker follows ("Issue" in the UI). It decorates the branch it is
  * worked on, or waits as not started (coordinator-owned snapshot; GitHub is authoritative).
  */
 export const TrackedIssue = z.object({
@@ -176,6 +193,8 @@ export const TrackerHostSyncRequest = z.object({
   board: z
     .object({ projectNumber: z.number().int().positive(), statusField: z.string().min(1) })
     .nullable(),
+  follow: TrackerFollow.optional(),
+  backlog: z.array(z.string().min(1)).max(20).optional(),
 });
 export type TrackerHostSyncRequest = z.infer<typeof TrackerHostSyncRequest>;
 export const TrackerHostPrepareBranchRequest = z.object({
@@ -199,5 +218,6 @@ export const TrackerHostSetStatusRequest = z.object({
   expectedOptionId: z.string().nullable(),
   login: z.string().min(1),
   allowShared: z.boolean(),
+  allowUnassigned: z.boolean().optional(),
 });
 export type TrackerHostSetStatusRequest = z.infer<typeof TrackerHostSetStatusRequest>;

@@ -3,6 +3,8 @@ import {
   GitHubRepository,
   type Tracker,
   type TrackerInput,
+  trackerBacklog,
+  trackerFollow,
 } from "@switchyard/protocol";
 
 /** The tracker form's fields, as typed. */
@@ -19,14 +21,27 @@ export interface TrackerDraft {
   statusField: string;
   onStart: string;
   onReview: string;
+  /** Which issues to follow. */
+  follow: "assigned" | "board";
+  /** Backlog columns, comma-separated. */
+  backlog: string;
   writeBack: boolean;
   moveShared: boolean;
   enabled: boolean;
 }
 
 export type TrackerDraftErrors = Partial<
-  Record<"name" | "hostId" | "owner" | "repositories" | "extraRepositories" | "board", string>
+  Record<
+    "name" | "hostId" | "owner" | "repositories" | "extraRepositories" | "board" | "backlog",
+    string
+  >
 >;
+
+const backlogOf = (text: string) =>
+  text
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
 const lines = (text: string) =>
   text
@@ -46,6 +61,8 @@ export function draftOf(t: Tracker | null, defaultHostId: string): TrackerDraft 
       statusField: "Status",
       onStart: "",
       onReview: "",
+      follow: "assigned",
+      backlog: "",
       writeBack: false,
       moveShared: true,
       enabled: true,
@@ -60,6 +77,8 @@ export function draftOf(t: Tracker | null, defaultHostId: string): TrackerDraft 
     statusField: t.board?.statusField ?? "Status",
     onStart: t.board?.onStart ?? "",
     onReview: t.board?.onReview ?? "",
+    follow: trackerFollow(t),
+    backlog: trackerBacklog(t).join(", "),
     writeBack: t.writeBack,
     moveShared: t.moveShared,
     enabled: t.enabled,
@@ -82,6 +101,7 @@ export function validateDraft(d: TrackerDraft): TrackerDraftErrors {
   else if (extra.length > 20) e.extraRepositories = "Use 20 repositories or fewer.";
   const board = d.board.trim();
   if (board && !/^[1-9][0-9]*$/.test(board)) e.board = "Enter the board's number, as in its URL.";
+  if (backlogOf(d.backlog).length > 20) e.backlog = "Use 20 columns or fewer.";
   return e;
 }
 
@@ -101,8 +121,10 @@ export function bodyOf(d: TrackerDraft): TrackerInput {
           statusField: d.statusField.trim() || "Status",
           onStart: d.onStart.trim() || null,
           onReview: d.onReview.trim() || null,
+          backlog: backlogOf(d.backlog),
         }
       : null,
+    follow: board ? d.follow : "assigned",
     writeBack: board ? d.writeBack : false,
     moveShared: d.moveShared,
     enabled: d.enabled,
@@ -129,9 +151,22 @@ export function trackerFacts(t: Tracker, hostName: string): [string, string][] {
         t.extraRepositories?.length ? `, plus ${t.extraRepositories.join(", ")}` : ""
       }`,
     ],
+    [
+      "Follows",
+      trackerFollow(t) === "board"
+        ? "Every open issue on the board"
+        : `Issues assigned to ${t.login ?? "you"}`,
+    ],
     ["Signed in as", t.login ?? "Not synced yet"],
     ["Host", hostName],
-    ["Board", t.board ? `#${t.board.projectNumber}, field ${t.board.statusField}` : "None"],
+    [
+      "Board",
+      t.board
+        ? `#${t.board.projectNumber}, field ${t.board.statusField}${
+            trackerBacklog(t).length ? `; hides ${trackerBacklog(t).join(", ")} until started` : ""
+          }`
+        : "None",
+    ],
     ["Moves cards", moves],
   ];
 }

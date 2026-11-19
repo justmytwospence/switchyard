@@ -221,6 +221,29 @@ describe("work board", () => {
     });
   });
 
+  it("hides an empty backlog column on the tracker board", () => {
+    const withBacklog = tracker({
+      board: {
+        projectNumber: 4,
+        statusField: "Status",
+        onStart: null,
+        onReview: null,
+        backlog: ["todo"],
+      },
+    });
+    const run = (issues: Record<string, TrackedIssue>) =>
+      buildBoard(input({ issues }), {
+        view: null,
+        query: "",
+        mode: "tracker",
+        tracker: withBacklog,
+      });
+    const none = run({ i0: issue("i0", { board: board("Doing") }) });
+    expect(none.map((c) => c.label)).toEqual(["Doing", "No status", "Not on the board"]);
+    const some = run({ i0: issue("i0", { board: board("Todo") }) });
+    expect(some.map((c) => c.label)).toContain("Todo");
+  });
+
   it("offers the tracker board only for a tracker's view with a board", () => {
     const issues = [issue("i0", { board: board("Todo") })];
     expect(trackerBoardOf(view({ trackerId: "trk_1" }), [tracker()], issues)?.options).toHaveLength(

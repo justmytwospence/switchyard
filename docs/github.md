@@ -16,7 +16,7 @@ Squash merge is a separate explicit confirmation against the displayed head SHA.
 
 ## Trackers
 
-A tracker syncs the issues assigned to the host's `gh` user in one owner into tracked issues, creates worktrees for their branches, and can move their GitHub Projects cards. See [trackers.md](trackers.md).
+A tracker syncs the issues assigned to the host's `gh` user in one owner (or a board's open issues) into tracked issues, creates worktrees for their branches, and can move their GitHub Projects cards. See [trackers.md](trackers.md).
 
 ## Tasks from issues
 

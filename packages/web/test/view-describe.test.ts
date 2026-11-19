@@ -88,6 +88,23 @@ describe("view descriptions", () => {
     ).toBe("Issues assigned to you in VO-Health (board #1), and live sessions there");
     expect(describeView(v, { ...ctx, trackers: null })).toBe("Kept by a GitHub tracker");
     expect(
+      describeView(v, {
+        ...ctx,
+        trackers: [
+          tracker({
+            follow: "board",
+            board: {
+              projectNumber: 1,
+              statusField: "Status",
+              onStart: null,
+              onReview: null,
+              backlog: ["Backlog"],
+            },
+          }),
+        ],
+      }),
+    ).toBe("Issues on VO-Health's board #1, except Backlog, and live sessions there");
+    expect(
       describeView(v, { ...ctx, trackers: [tracker({ extraRepositories: ["other/lib"] })] }),
     ).toBe("Issues assigned to me in VO-Health and other/lib, and live sessions there");
     expect(

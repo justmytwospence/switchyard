@@ -22,6 +22,7 @@ import {
   SwitchyardError,
   type TermCoordinatorMsg,
   type TermServerToViewer,
+  TRACKER_BOARD_FEATURE,
   TRACKERS_FEATURE,
 } from "@switchyard/protocol";
 import WebSocket from "ws";
@@ -33,7 +34,7 @@ export const OUTBOX_RETENTION_MS = 24 * 60 * 60 * 1000;
 const ACKED_META = "outbox.ackedHostSeq";
 const AGENT_FEATURES = ["agentRequests.v1", "policies.v1"] as const;
 /** Host features the coordinator gates commands on; not negotiated in `welcome`. */
-const HOST_FEATURES: readonly string[] = [TRACKERS_FEATURE, GIT_LOG_FEATURE];
+const HOST_FEATURES: readonly string[] = [TRACKERS_FEATURE, TRACKER_BOARD_FEATURE, GIT_LOG_FEATURE];
 
 export interface AgentRequestOptions {
   toolCallId?: string;

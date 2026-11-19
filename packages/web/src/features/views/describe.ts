@@ -4,6 +4,8 @@ import {
   type Project,
   type Surface,
   type Tracker,
+  trackerBacklog,
+  trackerFollow,
   type View,
 } from "@switchyard/protocol";
 
@@ -69,6 +71,10 @@ export function describeView(
   if (source === "tracker") {
     const t = tracker;
     if (!t) return "Kept by a GitHub tracker";
+    if (t.board && trackerFollow(t) === "board") {
+      const backlog = trackerBacklog(t);
+      return `Issues on ${t.owner}'s board #${t.board.projectNumber}${backlog.length ? `, except ${backlog.join(", ")}` : ""}, and live sessions there`;
+    }
     const board = t.board ? ` (board #${t.board.projectNumber})` : "";
     return `Issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}, and live sessions there`;
   }

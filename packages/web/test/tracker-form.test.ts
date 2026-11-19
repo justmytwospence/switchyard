@@ -36,11 +36,34 @@ describe("tracker form", () => {
       owner: "VO-Health",
       repositories: ["VO-Health/datasync"],
       extraRepositories: [],
-      board: { projectNumber: 1, statusField: "Status", onStart: "In Progress", onReview: null },
+      board: {
+        projectNumber: 1,
+        statusField: "Status",
+        onStart: "In Progress",
+        onReview: null,
+        backlog: [],
+      },
+      follow: "assigned",
       writeBack: true,
       moveShared: true,
       enabled: true,
     });
+    const followed = tracker({
+      follow: "board",
+      board: {
+        projectNumber: 4,
+        statusField: "Status",
+        onStart: null,
+        onReview: null,
+        backlog: ["Backlog", "Icebox"],
+      },
+    });
+    expect(draftOf(followed, "h")).toMatchObject({ follow: "board", backlog: "Backlog, Icebox" });
+    expect(bodyOf(draftOf(followed, "h"))).toMatchObject({
+      follow: "board",
+      board: { backlog: ["Backlog", "Icebox"] },
+    });
+    expect(bodyOf({ ...draftOf(followed, "h"), board: "" }).follow).toBe("assigned");
     expect(draftOf(null, "hst_x")).toMatchObject({ hostId: "hst_x", statusField: "Status" });
     expect(bodyOf(draftOf(null, "h")).extraRepositories).toEqual([]);
     const extra = tracker({ extraRepositories: ["other/lib", "other/app"] });
@@ -71,6 +94,8 @@ describe("tracker form", () => {
     expect(validateDraft({ ...ok, extraRepositories: many }).extraRepositories).toBe(
       "Use 20 repositories or fewer.",
     );
+    const columns = Array.from({ length: 21 }, (_, i) => `c${i}`).join(",");
+    expect(validateDraft({ ...ok, backlog: columns }).backlog).toBe("Use 20 columns or fewer.");
     expect(validateDraft({ ...ok, board: "0" }).board).toBe(
       "Enter the board's number, as in its URL.",
     );
@@ -79,6 +104,7 @@ describe("tracker form", () => {
   it("states the facts", () => {
     expect(trackerFacts(tracker(), "Mac")).toEqual([
       ["GitHub", "VO-Health: VO-Health/datasync"],
+      ["Follows", "Issues assigned to me"],
       ["Signed in as", "me"],
       ["Host", "Mac"],
       ["Board", "#1, field Status"],
@@ -93,11 +119,19 @@ describe("tracker form", () => {
     ).toEqual(["GitHub", "VO-Health (all repositories), plus other/lib"]);
     expect(plain).toEqual([
       ["GitHub", "VO-Health (all repositories)"],
+      ["Follows", "Issues assigned to you"],
       ["Signed in as", "Not synced yet"],
       ["Host", "Mac"],
       ["Board", "None"],
       ["Moves cards", "Off"],
     ]);
+    const board = { projectNumber: 4, statusField: "Status", onStart: null, onReview: null };
+    const facts = trackerFacts(
+      tracker({ follow: "board", board: { ...board, backlog: ["Backlog"] } }),
+      "Mac",
+    );
+    expect(facts[1]).toEqual(["Follows", "Every open issue on the board"]);
+    expect(facts[4]).toEqual(["Board", "#4, field Status; hides Backlog until started"]);
     expect(
       trackerFacts(
         tracker({
@@ -105,7 +139,7 @@ describe("tracker form", () => {
           board: { projectNumber: 1, statusField: "Status", onStart: null, onReview: "Review" },
         }),
         "Mac",
-      )[4],
+      )[5],
     ).toEqual(["Moves cards", 'To "Review" when a pull request opens; never shared cards']);
   });
 });

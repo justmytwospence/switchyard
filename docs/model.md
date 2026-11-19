@@ -18,7 +18,7 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 | **Branch** | A project on a branch: the row on Sessions and the card on the Board. Derived, never stored | Workspaces, sessions and tracked issues |
 | Workspace | A branch's checkout on one host: the main checkout or a git worktree, with its git state | The host |
 | Session | A Pi agent in a workspace. One per branch is **primary**; other sessions on the branch are **extras**; subagents hang off the session that started them | Pi owns the conversation; Switchyard owns which session is primary |
-| Tracker | A GitHub owner's open issues assigned to you, optionally with a Projects board ([trackers.md](trackers.md)) | GitHub |
+| Tracker | A GitHub owner's open issues that Switchyard follows (those assigned to you, or every open issue on a Projects board), optionally with a Projects board ([trackers.md](trackers.md)) | GitHub |
 | Issue (tracked issue) | One issue a tracker follows: its branch, pull request and board column | GitHub; Switchyard keeps a snapshot |
 | View | A saved filter: projects, hosts, pins, and an optional source (a tracker, or the terminal sessions are started in) | Switchyard |
 | Device | A sign-in credential: a browser, the installed app, a terminal | Switchyard |
@@ -40,7 +40,7 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 
 | Work | Where it shows |
 |---|---|
-| Not started: an assigned issue with no branch, or a worktree with no session | Board only (Not started, or Working with Start session) |
+| Not started: a tracked issue with no branch, or a worktree with no session | Board only (Not started, or Working with Start session) |
 | Active: its session is live (starting, idle, running, waiting for input) | Sessions and Board |
 | Stopped: its session is stopped, failed or interrupted | Sessions under All, and Board. In a tracker's view, only when its branch is linked to one of the tracker's issues or the session is pinned |
 

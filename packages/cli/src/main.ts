@@ -453,6 +453,9 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     statusField: o.statusField,
     onStart: o.onStart,
     onReview: o.onReview,
+    follow: o.follow,
+    backlog: Array.isArray(o.backlog) ? o.backlog : undefined,
+    noBacklog: o.backlog === false,
     writeBack: o.writeBack,
     moveShared: o.moveShared,
     enable: o.enable,
@@ -474,6 +477,15 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--status-field <name>", "board status field (default Status)")
     .option("--on-start <column>", "column once the worktree exists (write-back)")
     .option("--on-review <column>", "column once a pull request is open (write-back)")
+    .option(
+      "--follow <assigned|board>",
+      "which issues to follow: assigned to you (default), or every open issue on the board",
+    )
+    .option(
+      "--backlog <column>",
+      "board column whose cards wait until they have a branch (repeatable)",
+      collect,
+    )
     .option("--write-back", "let Switchyard move board cards")
     .option("--no-move-shared", "never move cards assigned to someone else too")
     .action((name, o) => trackersCreate(ctx, name, trackerFlags(o)));
@@ -494,6 +506,16 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--status-field <name>", "board status field")
     .option("--on-start <column>", "column once the worktree exists")
     .option("--on-review <column>", "column once a pull request is open")
+    .option(
+      "--follow <assigned|board>",
+      "which issues to follow: assigned to you, or every open issue on the board",
+    )
+    .option(
+      "--backlog <column>",
+      "board column whose cards wait until they have a branch (repeatable)",
+      collect,
+    )
+    .option("--no-backlog", "track every column")
     .option("--write-back", "let Switchyard move board cards")
     .option("--no-write-back", "never move board cards")
     .option("--move-shared", "also move cards assigned to someone else too")

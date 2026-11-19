@@ -12,6 +12,8 @@ import {
   TrackerSetStatusResult,
   TrackerSyncResult,
   trackedIssueId,
+  trackerBacklog,
+  trackerFollow,
   type View,
 } from "@switchyard/protocol";
 import { openBranch } from "./branches.js";
@@ -36,13 +38,23 @@ export function inScope(
   tracker: Pick<Tracker, "owner" | "repositories" | "extraRepositories">,
   project: Project,
 ): boolean {
-  const identity = project.repoIdentity.toLowerCase();
-  if ((tracker.extraRepositories ?? []).some((r) => identity === `${GITHUB}${r}`.toLowerCase())) {
-    return true;
-  }
-  if (!identity.startsWith(`${GITHUB}${tracker.owner.toLowerCase()}/`)) return false;
+  const identity = project.repoIdentity;
+  return (
+    identity.toLowerCase().startsWith(GITHUB) &&
+    repositoryInScope(tracker, identity.slice(GITHUB.length))
+  );
+}
+
+/** Whether a GitHub repository (`owner/name`) is one the tracker covers. */
+export function repositoryInScope(
+  tracker: Pick<Tracker, "owner" | "repositories" | "extraRepositories">,
+  repository: string,
+): boolean {
+  const repo = repository.toLowerCase();
+  if ((tracker.extraRepositories ?? []).some((r) => repo === r.toLowerCase())) return true;
+  if (!repo.startsWith(`${tracker.owner.toLowerCase()}/`)) return false;
   if (!tracker.repositories) return true;
-  return tracker.repositories.some((r) => identity === `${GITHUB}${r}`.toLowerCase());
+  return tracker.repositories.some((r) => repo === r.toLowerCase());
 }
 
 /** One result from several host syncs: items once each (by `itemId`), at most 200. */
@@ -75,7 +87,7 @@ export function issueBranch(number: number, title: string): string {
 }
 
 /**
- * Syncs each tracker's assigned issues into tracked issues, worktrees for their branches and a
+ * Syncs each tracker's issues into tracked issues, worktrees for their branches and a
  * view of the projects it covers; optionally moves board cards. GitHub stays authoritative for
  * the issues; Switchyard keeps a snapshot of each (`TrackedIssue`).
  */
@@ -161,8 +173,11 @@ export class TrackerService {
   }
 
   private hostError(tracker: Tracker, err: unknown): string {
-    if (err instanceof SwitchyardError && err.code === "unsupported_capability")
+    if (err instanceof SwitchyardError && err.code === "unsupported_capability") {
+      if (trackerFollow(tracker) === "board" || trackerBacklog(tracker).length > 0)
+        return `Host ${this.hostName(tracker.hostId)} does not support following a board or backlog columns; upgrade its host agent`;
       return `Host ${this.hostName(tracker.hostId)} does not support trackers; upgrade its host agent`;
+    }
     return err instanceof Error ? err.message : String(err);
   }
 
@@ -185,25 +200,42 @@ export class TrackerService {
       ? { projectNumber: tracker.board.projectNumber, statusField: tracker.board.statusField }
       : null;
     const extra = tracker.extraRepositories ?? [];
-    const scopes = [tracker.repositories, ...(extra.length ? [extra] : [])];
+    const follow = trackerFollow(tracker);
+    const backlog = trackerBacklog(tracker);
+    const scopes =
+      follow === "board" ? [null] : [tracker.repositories, ...(extra.length ? [extra] : [])];
     let result: TrackerSyncResult;
     try {
       const parts: TrackerSyncResult[] = [];
       for (const repositories of scopes) {
         const raw = await hostHub.request(
           tracker.hostId,
-          { type: "tracker.sync", owner: tracker.owner, repositories, board },
+          {
+            type: "tracker.sync",
+            owner: tracker.owner,
+            repositories,
+            board,
+            ...(follow === "board" ? { follow } : {}),
+            ...(backlog.length ? { backlog } : {}),
+          },
           { timeoutMs: SYNC_TIMEOUT_MS },
         );
         parts.push(TrackerSyncResult.parse(raw));
       }
       result = mergeSyncResults(parts);
+      if (follow === "board") {
+        result = {
+          ...result,
+          items: result.items.filter((i) => repositoryInScope(tracker, i.repository)),
+        };
+      }
     } catch (err) {
       return this.save(trackerId, { lastError: this.hostError(tracker, err) });
     }
 
     const errors: string[] = [];
-    let unmatched = 0;
+    const unmatched = new Set<string>();
+    let unmatchedCount = 0;
     const matched: { item: TrackerItem; project: Project; issueId: string }[] = [];
     store.tx(() => {
       const now = store.nowIso();
@@ -211,7 +243,8 @@ export class TrackerService {
       for (const item of result.items) {
         const project = projectForRepository(projects, item.repository);
         if (!project) {
-          unmatched++;
+          unmatched.add(item.repository);
+          unmatchedCount++;
           continue;
         }
         const id = trackedIssueId(trackerId, item.itemId);
@@ -267,10 +300,14 @@ export class TrackerService {
       }
     }
 
+    const unmatchedList = [...unmatched].sort();
+    const unmatchedNames =
+      unmatchedList.slice(0, 3).join(", ") +
+      (unmatchedList.length > 3 ? ` and ${unmatchedList.length - 3} more` : "");
     const lastError =
       errors[0] ??
-      (unmatched > 0
-        ? `${unmatched} ${unmatched === 1 ? "issue is" : "issues are"} in repositories with no project here`
+      (unmatched.size > 0
+        ? `${unmatchedCount} ${unmatchedCount === 1 ? "issue is" : "issues are"} in repositories with no project here: ${unmatchedNames}`
         : result.truncated
           ? "More than 200 issues; only the first 200 are tracked"
           : null);
@@ -435,6 +472,7 @@ export class TrackerService {
         expectedOptionId: board.statusOptionId,
         login: tracker.login ?? "",
         allowShared: tracker.moveShared,
+        allowUnassigned: trackerFollow(tracker) === "board",
       },
       { timeoutMs: 30_000 },
     );
@@ -585,7 +623,9 @@ export class TrackerService {
           ? "The card moved on GitHub; refresh and try again"
           : result.reason === "shared"
             ? "This card is shared and the tracker does not move shared cards"
-            : `This card is no longer assigned to ${tracker.login ?? "the tracker's user"}`;
+            : trackerFollow(tracker) === "board"
+              ? "This card is assigned to someone else"
+              : `This card is no longer assigned to ${tracker.login ?? "the tracker's user"}`;
       throw new SwitchyardError("conflict", message);
     }
     return this.applyMove(issueId, option) ?? store.issues.require(issueId);

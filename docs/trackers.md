@@ -1,6 +1,6 @@
 # Trackers and worktree rules
 
-A tracker connects Switchyard to the GitHub issues assigned to you, so that work arrives on the Board, gets a worktree and a session, and is cleaned up when it merges. It is one of three layers:
+A tracker connects Switchyard to your GitHub issues (those assigned to you, or every open issue on a Projects board), so that work arrives on the Board, gets a worktree and a session, and is cleaned up when it merges. It is one of three layers:
 
 ```
 Trackers ──annotate──> Branch ──has──> Sessions <──query── Views <──shown on── Surfaces
@@ -12,17 +12,17 @@ Trackers and surfaces never talk to each other; both meet at branches and sessio
 
 | Concept | What it is | Who owns the truth |
 |---|---|---|
-| Tracker | The host user's open assigned issues in one GitHub owner (optionally some repositories), plus repositories of other owners you add, optionally with a Projects board | GitHub owns issues, assignees and board columns |
-| Issue (tracked issue) | One open assigned issue the tracker follows: its title, linked branches, pull request and board column, and the branch and worktree Switchyard works on | GitHub; Switchyard keeps a snapshot |
+| Tracker | The host user's open assigned issues in one GitHub owner (optionally some repositories), plus repositories of other owners you add, optionally with a Projects board. With `--follow board`: every open issue on its Projects board, assigned or not | GitHub owns issues, assignees and board columns |
+| Issue (tracked issue) | One open issue the tracker follows: its title, linked branches, pull request and board column, and the branch and worktree Switchyard works on | GitHub; Switchyard keeps a snapshot |
 | Keep a session in every worktree (project setting) | Every non-main worktree gets one session when it first appears | Switchyard |
 | Remove merged worktrees (project setting) | When a worktree's pull request has merged, archive its sessions and remove the worktree and its local branch | GitHub (PR state) and host git |
 
 ## What happens
 
-1. **An issue is assigned to you** in the tracker's owner: it appears in the Board's Not started column, under the tracker's view. Issues in repositories that have no project in Switchyard are counted in the tracker's error instead.
+1. **An issue is assigned to you** in the tracker's owner: it appears in the Board's Not started column, under the tracker's view. With `--follow board` an issue appears once it is on the board and outside the backlog columns. Issues in repositories that have no project in Switchyard are counted in the tracker's error, which names the repositories.
 2. **Work starts** when the issue has a branch: a linked branch (the issue's Development sidebar, `gh issue develop`) or the head branch of an open pull request that closes it. **Start session** on the Board, or the issue chosen under Workspace in New session, (or dragging the issue to Working) creates the linked branch (`<number>-<title>`) for you when the tracker's host has a checkout, or a local branch of that name otherwise, then makes its worktree and opens an idle session titled `#<number> <title>`. A branch that already exists gets its worktree on its own at the next sync, or the worktree you already have is linked. Worktrees are made on the project's default host when it has a checkout there, else on the tracker's host.
 3. **The pull request opens**: the branch moves to In review on the Board. **It merges**: the branch moves to Merged, and with "Remove merged worktrees" on, about ten minutes later its sessions are archived and the worktree and local branch removed.
-4. **The issue closes or is unassigned**: it disappears from the tracker. The branch, its worktree and its sessions stay.
+4. **The issue closes, is unassigned, leaves the board or returns to a backlog column with no branch or pull request**: it disappears from the tracker. The branch, its worktree and its sessions stay.
 
 **Link by hand.** When you already started work in a worktree, open its session's menu and choose **Link to issue…**: it lists the project's issues that have no branch yet. The branch becomes the issue's branch, so its sessions stay in the tracker's view, and with write-back the card moves to the `--on-start` column at the next sync. A main checkout cannot be linked; pin the session to the view instead. **Unlink from #N** undoes a link GitHub does not know about. Once GitHub links a branch to the issue (its Development sidebar, or a pull request that closes it), GitHub's link is used.
 
@@ -44,6 +44,20 @@ Trackers use the host's `gh` login, like the rest of the [GitHub integration](gi
    `--repo owner/name` (repeatable) limits it to some repositories. `--status-field` names the board's status field (default `Status`). `--also owner/name` (repeatable) adds a repository of another owner, for work that lives outside the organization: its project joins the tracker's view and your assigned issues there are tracked too. An issue belongs to one tracker, so do not cover the same repository with two.
 3. `switchyard trackers sync <name>` syncs now; otherwise every tracker syncs every two minutes. `switchyard trackers list` shows the last sync and error.
 
+### Following a board
+
+For a personal board where issues are triaged by column and not assigned, follow the board instead of your assignments:
+
+```sh
+switchyard trackers create personal --host nuc --owner justmytwospence \
+  --board 4 --follow board --backlog Backlog \
+  --on-start "In progress" --on-review "In review" --write-back
+```
+
+- `--follow board` tracks every open issue on the board, whoever is assigned; `--follow assigned` (the default) tracks issues assigned to you. It needs `--board`.
+- `--backlog <column>` (repeatable; `--no-backlog` on edit) names columns whose cards are not tracked until GitHub shows a branch or closing pull request for them, so a long backlog stays out of Not started. Move an issue to Ready (or any other column) to plan it.
+- GitHub's own project workflows (new items to Backlog, merged pull requests to Done, auto-archive) keep working; Switchyard moves a card at most once per column.
+
 ### In the web app
 
 Settings > Trackers shows each tracker as a card: its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, its issue count, and links that open its view on Sessions or the Board. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** and **Delete** change or remove it (its issues are removed, its view stays as an ordinary view). The view selector on Sessions and the Board names each view's source, such as `fieldgoal · GitHub`. Edit has "Repositories of other owners", the same as `--also`.
@@ -54,7 +68,7 @@ A tracker keeps a view of its own name pointed at the projects in its owner and 
 
 With `--write-back`, Switchyard moves a card to the `--on-start` column once its worktree exists, and to the `--on-review` column once a pull request is open, at most once per column, so a card you move back stays where you put it. On the Board, with the tracker's columns shown, you can also drag a card to another column. Every move is checked on the host first, and skipped when:
 
-- the card is no longer assigned to the tracker's user;
+- the card is assigned to someone else and not to the tracker's user (following a board, a card assigned to nobody is moved);
 - someone else is assigned too and `--no-move-shared` is set (shared cards move by default);
 - the card is no longer in the column Switchyard last saw (refresh and try again).
 
@@ -63,7 +77,8 @@ Only the status field is ever written. Draft items (not issues) are ignored.
 ## Limits
 
 - Polling only (every two minutes); no webhooks. github.com only.
-- At most 200 issues per tracker. Beyond that, nothing is removed until the list fits again.
+- At most 200 tracked issues per tracker; following a board reads its first 500 open issues. Beyond that, nothing is removed until the list fits again.
+- Following a board or backlog columns needs a host agent that supports it; an older one reports an error on the tracker.
 - Board columns are not stages: stages (Not started, Working, In review, Merged) come from the branch and its pull request.
 - Landed means: the pull request is merged, the worktree's HEAD is the merged head, the tree is clean, and no session is running, for ten minutes. A squash-merged branch with local commits added afterwards is kept.
 - With `gh` missing or signed out, a tracker reports the error and nothing else changes.

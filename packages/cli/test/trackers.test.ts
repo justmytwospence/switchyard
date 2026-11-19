@@ -93,6 +93,42 @@ describe("trackers commands", () => {
     expect(ctx.lines).toEqual(["Created tracker vo (trk_1)"]);
   });
 
+  it("follows a board with backlog columns", async () => {
+    const { fetch, calls } = setup();
+    const ctx = testCtx(fetch);
+    await trackersCreate(ctx, "me", {
+      ...conn,
+      host: "Mac",
+      owner: "me",
+      board: "4",
+      follow: "board",
+      backlog: ["Backlog"],
+    });
+    expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({
+      follow: "board",
+      board: { projectNumber: 4, backlog: ["Backlog"] },
+    });
+    await expect(
+      trackersCreate(ctx, "x", { ...conn, host: "Mac", owner: "me", follow: "board" }),
+    ).rejects.toThrow("--follow board needs --board");
+    await expect(
+      trackersCreate(ctx, "x", { ...conn, host: "Mac", owner: "me", board: "4", follow: "nope" }),
+    ).rejects.toThrow("--follow must be assigned or board");
+    await trackersEdit(ctx, "vo", { ...conn, noBacklog: true });
+    expect(calls.find((c) => c.method === "PATCH")!.body).toEqual({
+      board: {
+        projectNumber: 3,
+        statusField: "Status",
+        onStart: "Doing",
+        onReview: null,
+        backlog: [],
+      },
+    });
+    await expect(
+      trackersEdit(ctx, "vo", { ...conn, noBacklog: true, backlog: ["a"] }),
+    ).rejects.toThrow("--no-backlog cannot be combined with --backlog");
+  });
+
   it("adds and clears repositories of other owners", async () => {
     const { fetch, calls } = setup();
     const ctx = testCtx(fetch);
@@ -124,6 +160,7 @@ describe("trackers commands", () => {
     await trackersEdit(ctx, "vo", { ...conn, noBoard: true, writeBack: false });
     expect(calls.filter((c) => c.method === "PATCH")[1]!.body).toEqual({
       board: null,
+      follow: "assigned",
       writeBack: false,
     });
     await expect(trackersEdit(ctx, "nope", conn)).rejects.toThrow(
@@ -138,8 +175,8 @@ describe("trackers commands", () => {
     const { fetch } = setup();
     const ctx = testCtx(fetch);
     await trackersList(ctx, conn);
-    expect(ctx.lines[0]).toMatch(/^NAME\s+HOST\s+OWNER\s+REPOS\s+BOARD\s+WRITE-BACK/);
-    expect(ctx.lines[1]).toMatch(/^vo\s+Mac\s+VO-Health\s+any\s+#3\s+on/);
+    expect(ctx.lines[0]).toMatch(/^NAME\s+HOST\s+OWNER\s+REPOS\s+BOARD\s+WRITE-BACK\s+FOLLOWS/);
+    expect(ctx.lines[1]).toMatch(/^vo\s+Mac\s+VO-Health\s+any\s+#3\s+on\s+assigned/);
     await trackersSync(ctx, "vo", conn);
     expect(ctx.lines.at(-1)).toBe("Synced vo: 1 issue");
   });

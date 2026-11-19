@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { GitState, Project, Task, TrackedIssue, TrackerInput, View } from "../src/index.js";
+import {
+  GitState,
+  Project,
+  Task,
+  TrackedIssue,
+  TrackerInput,
+  trackerBacklog,
+  trackerFollow,
+  View,
+} from "../src/index.js";
 
 const T = "2026-11-02T10:00:00.000Z";
 
@@ -12,10 +21,20 @@ describe("tracker schemas", () => {
       repositories: null,
       extraRepositories: [],
       board: null,
+      follow: "assigned",
       writeBack: false,
       moveShared: true,
       enabled: true,
     });
+    const followed = TrackerInput.parse({
+      name: "p",
+      hostId: "h",
+      owner: "me",
+      board: { projectNumber: 4, backlog: ["Backlog"] },
+      follow: "board",
+    });
+    expect(followed.follow).toBe("board");
+    expect(followed.board?.backlog).toEqual(["Backlog"]);
     expect(
       TrackerInput.parse({
         name: "vo",
@@ -25,6 +44,16 @@ describe("tracker schemas", () => {
       }).board,
     ).toEqual({ projectNumber: 3, statusField: "Status", onStart: null, onReview: null });
     expect(TrackerInput.safeParse({ name: "x", hostId: "h", owner: "-bad" }).success).toBe(false);
+  });
+
+  it("reads follow and backlog safely from stored trackers", () => {
+    expect(trackerFollow({ board: null, follow: "board" })).toBe("assigned");
+    expect(trackerFollow({ board: null })).toBe("assigned");
+    const board = { projectNumber: 1, statusField: "Status", onStart: null, onReview: null };
+    expect(trackerFollow({ board, follow: "board" })).toBe("board");
+    expect(trackerBacklog({ board: null })).toEqual([]);
+    expect(trackerBacklog({ board })).toEqual([]);
+    expect(trackerBacklog({ board: { ...board, backlog: ["Backlog"] } })).toEqual(["Backlog"]);
   });
 
   it("keeps older entities valid", () => {

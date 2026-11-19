@@ -26,7 +26,7 @@ function page(nodes: unknown[], hasNextPage = false, endCursor = "c") {
 const vars = (args: string[]) =>
   Object.fromEntries(
     args
-      .map((a, i) => (args[i - 1] === "-f" ? a : null))
+      .map((a, i) => (args[i - 1] === "-f" || args[i - 1] === "-F" ? a : null))
       .filter((a): a is string => a !== null)
       .map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]),
   );
@@ -193,6 +193,126 @@ describe("trackerSync", () => {
   });
 });
 
+describe("trackerSync backlog columns", () => {
+  it("skips backlog cards in assigned mode too", async () => {
+    const node = (id: string, name: string | null) => ({
+      id,
+      project: {
+        id: "P_1",
+        number: 5,
+        owner: { login: "acme" },
+        field: { id: "F1", options: [{ id: "o1", name: "Todo" }] },
+      },
+      fieldValueByName: name ? { name, optionId: "o1" } : null,
+    });
+    const gh: Gh = async () =>
+      page([
+        issue(1, { projectItems: { nodes: [node("a", "Todo")] } }),
+        issue(2, { projectItems: { nodes: [node("b", null)] } }),
+        issue(3, {
+          projectItems: { nodes: [node("c", "Todo")] },
+          linkedBranches: {
+            nodes: [{ ref: { name: "3-x", repository: { nameWithOwner: REPO } } }],
+          },
+        }),
+      ]);
+    const r = await trackerSync(gh, {
+      owner: "acme",
+      repositories: null,
+      board: { projectNumber: 5, statusField: "Status" },
+      backlog: ["todo"],
+    });
+    expect(r.items.map((i) => i.number)).toEqual([2, 3]);
+  });
+});
+
+describe("trackerSync following a board", () => {
+  const req = {
+    owner: "acme",
+    repositories: null,
+    follow: "board" as const,
+    backlog: ["Backlog"],
+    board: { projectNumber: 5, statusField: "Status" },
+  };
+  const boardNode = (n: number, status: string, content: Record<string, unknown> = {}) => ({
+    id: `PVTI_${n}`,
+    fieldValueByName: { name: status, optionId: status === "Ready" ? "o2" : "o1" },
+    content: issue(n, { state: "OPEN", assignees: { nodes: [] }, ...content }),
+  });
+  const boardPage = (nodes: unknown[], hasNextPage = false, project: unknown = undefined) => ({
+    data: {
+      viewer: { login: "me" },
+      repositoryOwner: {
+        projectV2:
+          project === undefined
+            ? {
+                id: "P_1",
+                field: {
+                  id: "F1",
+                  options: [
+                    { id: "o1", name: "Backlog" },
+                    { id: "o2", name: "Ready" },
+                  ],
+                },
+                items: { pageInfo: { hasNextPage, endCursor: "c" }, nodes },
+              }
+            : project,
+      },
+    },
+  });
+
+  it("tracks unassigned issues outside the backlog, and backlog issues that have a branch", async () => {
+    const gh: Gh = vi.fn(async () =>
+      boardPage([
+        boardNode(1, "Backlog"),
+        boardNode(2, "Backlog", {
+          linkedBranches: {
+            nodes: [{ ref: { name: "2-x", repository: { nameWithOwner: REPO } } }],
+          },
+        }),
+        boardNode(3, "Ready"),
+        boardNode(4, "Ready", { state: "CLOSED" }),
+        { id: "PVTI_draft", fieldValueByName: null, content: {} },
+      ]),
+    );
+    const r = await trackerSync(gh, req);
+    expect(r.items.map((i) => i.number)).toEqual([2, 3]);
+    expect(r.items[1]!.assignees).toEqual([]);
+    expect(r.items[1]!.board).toMatchObject({
+      projectId: "P_1",
+      projectItemId: "PVTI_3",
+      fieldId: "F1",
+      status: "Ready",
+      statusOptionId: "o2",
+    });
+    const args = (gh as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string[];
+    expect(vars(args)).toMatchObject({
+      owner: "acme",
+      number: "5",
+      statusField: "Status",
+      q: "is:open is:issue",
+    });
+    expect(args[args.indexOf("number=5") - 1]).toBe("-F");
+  });
+
+  it("reads up to ten pages", async () => {
+    let n = 0;
+    const gh: Gh = vi.fn(async () => boardPage([boardNode(++n, "Ready")], true));
+    const r = await trackerSync(gh, req);
+    expect(gh).toHaveBeenCalledTimes(10);
+    expect(r.truncated).toBe(true);
+  });
+
+  it("explains a missing board or status field", async () => {
+    await expect(trackerSync(async () => boardPage([], false, null), req)).rejects.toThrow(
+      "acme has no Projects board #5",
+    );
+    await expect(
+      trackerSync(async () => boardPage([], false, { id: "P_1", field: {} }), req),
+    ).rejects.toThrow("has no single-select field named Status");
+  });
+});
+
 describe("trackerSetStatus", () => {
   const req = {
     projectId: "P",
@@ -221,6 +341,24 @@ describe("trackerSetStatus", () => {
     const gh: Gh = vi.fn(async () => item([...assignees], optionId));
     expect(await trackerSetStatus(gh, r)).toEqual({ status: "skipped", reason });
     expect(gh).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves an unassigned card only when allowed", async () => {
+    const gh = (assignees: string[]) =>
+      vi.fn(async (args: string[]) =>
+        vars(args).query!.startsWith("mutation") ? { data: {} } : item(assignees, "o1"),
+      );
+    expect(await trackerSetStatus(gh([]), req)).toEqual({
+      status: "skipped",
+      reason: "not_assigned",
+    });
+    expect(await trackerSetStatus(gh([]), { ...req, allowUnassigned: true })).toEqual({
+      status: "moved",
+    });
+    expect(await trackerSetStatus(gh(["someone"]), { ...req, allowUnassigned: true })).toEqual({
+      status: "skipped",
+      reason: "not_assigned",
+    });
   });
 
   it("moves an assigned card that is where it was last seen", async () => {

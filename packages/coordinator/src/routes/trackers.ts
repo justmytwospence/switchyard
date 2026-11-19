@@ -25,10 +25,14 @@ export function registerTrackerRoutes(app: FastifyInstance, ctx: CoordinatorCont
     if (taken) throw new SwitchyardError("conflict", `A tracker named ${name} exists`);
   };
 
+  const needsBoard = () =>
+    new SwitchyardError("invalid_request", "Following a board needs a board number");
+
   app.get("/api/trackers", async () => store.trackers.list(undefined, [], "created_at, rowid"));
 
   app.post("/api/trackers", async (req, reply) => {
     const body = parse(TrackerInput, req.body);
+    if (body.follow === "board" && !body.board) throw needsBoard();
     const created = store.tx(() => {
       checkName(body.name);
       store.hosts.require(body.hostId);
@@ -59,6 +63,7 @@ export function registerTrackerRoutes(app: FastifyInstance, ctx: CoordinatorCont
       if (body.hostId !== undefined) store.hosts.require(body.hostId);
       const defined = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
       const next: Tracker = { ...cur, ...defined, updatedAt: store.nowIso() };
+      if (next.follow === "board" && !next.board) throw needsBoard();
       store.trackers.upsert(next);
       if (body.name !== undefined && body.name !== cur.name) {
         const view = store.views.list().find((v) => v.trackerId === cur.id);

@@ -81,7 +81,7 @@ sequenceDiagram
 |---|---|
 | **Branches** | One row per branch with its primary session; extra sessions and subagents nested under it; open a new or existing branch in one step; the same branch on two hosts is one row |
 | **Board** | Branches by stage (Not started, Working, In review, Merged), or by a GitHub Projects board's columns for a tracker's view |
-| **Trackers** | The GitHub issues assigned to you, worktrees for their branches, and card moves on your Projects board ([trackers.md](docs/trackers.md)) |
+| **Trackers** | The GitHub issues assigned to you, or every open issue on a Projects board, worktrees for their branches, and card moves on your Projects board ([trackers.md](docs/trackers.md)) |
 | **Sessions** | Persistent Pi conversations on any host; the same live session in every client; steer or queue follow-ups; take over and return to automation; resume after crashes with the same conversation (never a silent new one); import existing Pi sessions; switch model and effort, see context use and compact, a slash-command picker |
 | **Workspaces** | A git worktree per branch inside the repository, discovery of worktrees you made yourself, setup commands, `.worktreeinclude` to copy ignored files such as `.env` into new worktrees, removal that refuses to lose uncommitted or unmerged work, and project folders per host whose repositories are added automatically |
 | **Tasks and automations** | A task board (Backlog, Ready, In progress, Review, Done) for dispatched work; dependencies with cycle detection; priorities; per-project concurrency limits; a Queue view explaining why queued work waits |
@@ -102,7 +102,7 @@ sequenceDiagram
 | **Branch** | A project on a branch: the unit of work, listed on Sessions and the Board. Derived from its workspaces and sessions |
 | **Workspace** | A branch's checkout on one host: the main checkout or a git worktree |
 | **Session** | One persistent Pi conversation in a workspace. Each branch has a **primary** session; others are **extras**; **subagents** belong to the session that started them |
-| **Tracker** | The GitHub issues assigned to you in one owner, optionally with a Projects board |
+| **Tracker** | The GitHub issues assigned to you (or a board's open issues) in one owner, optionally with a Projects board |
 | **Issue** | One issue a tracker follows, attached to the branch it is worked on |
 | **Stage** | Where a branch is: Not started, Working, In review, Merged |
 | **View** | A saved filter over branches: projects, hosts, pins, and an optional source |

@@ -223,7 +223,13 @@ export class FakeHost {
             piVersion: "1.5.0",
             piCompatible: true,
             platform: "darwin",
-            features: ["agentRequests.v1", "policies.v1", "trackers.v1", "gitLog.v1"],
+            features: [
+              "agentRequests.v1",
+              "policies.v1",
+              "trackers.v1",
+              "trackers.board.v1",
+              "gitLog.v1",
+            ],
             capabilities: {
               prompt: true,
               steer: true,

@@ -8,6 +8,7 @@ import {
   type TrackedIssue,
   type Tracker,
   type TrackerStatusOption,
+  trackerBacklog,
   trackerScope,
   type View,
 } from "@switchyard/protocol";
@@ -170,11 +171,14 @@ export function buildBoard(
       Object.values(input.issues).find((i) => i.trackerId === opts.tracker!.id && i.board)?.board
         ?.options ?? [];
     const mine = (c: BoardCard) => c.issue?.trackerId === opts.tracker!.id;
-    const columns: BoardColumn[] = options.map((o) => ({
-      id: o.id,
-      label: o.name,
-      cards: all.filter((c) => mine(c) && c.issue?.board?.statusOptionId === o.id).sort(order),
-    }));
+    const backlog = trackerBacklog(opts.tracker).map((b) => b.toLowerCase());
+    const columns: BoardColumn[] = options
+      .map((o) => ({
+        id: o.id,
+        label: o.name,
+        cards: all.filter((c) => mine(c) && c.issue?.board?.statusOptionId === o.id).sort(order),
+      }))
+      .filter((c) => c.cards.length > 0 || !backlog.includes(c.label.toLowerCase()));
     const known = new Set(options.map((o) => o.id));
     columns.push({
       id: NO_STATUS,
