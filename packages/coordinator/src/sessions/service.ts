@@ -10,6 +10,7 @@ import {
   sessionInView,
   type TranscriptItem,
   titleFrom,
+  trackerScope,
   type Workspace,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
@@ -205,7 +206,8 @@ export function pinIfOutsideView(ctx: CoordinatorContext, viewId: string, sessio
     const fresh = store.sessions.get(sessionId);
     if (!cur || !fresh || cur.sessionIds.includes(fresh.id)) return;
     const workspaces = Object.fromEntries(store.workspaces.list().map((w) => [w.id, w]));
-    if (cur.mode === "pinned" || !sessionInView(cur, fresh, workspaces)) {
+    const scope = trackerScope(cur, store.issues.list());
+    if (cur.mode === "pinned" || !sessionInView(cur, fresh, workspaces, scope)) {
       store.putView({
         ...cur,
         sessionIds: [...cur.sessionIds, fresh.id],

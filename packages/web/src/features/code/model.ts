@@ -12,6 +12,7 @@ import type {
   Session,
   SessionModel,
   SlashCommand,
+  TrackedIssue,
   TranscriptItem,
   View,
   Workspace,
@@ -22,6 +23,7 @@ import {
   primarySession,
   sessionInView,
   ThinkingLevel,
+  trackerScope,
 } from "@switchyard/protocol";
 import { formatDuration } from "../../lib/time";
 import { PANE_LIMITS } from "../../prefs";
@@ -307,6 +309,8 @@ export interface NavInput {
   hosts: Record<string, Host>;
   attention: Record<string, AttentionItem>;
   interactions: Record<string, Interaction>;
+  /** Tracked issues: decide a tracker view's sessions. */
+  issues?: Record<string, TrackedIssue>;
 }
 
 export { sessionsNeedingAttention } from "../../sync/selectors";
@@ -428,6 +432,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   const needsFirst = opts.needsInputFirst ?? true;
   const q = opts.query.trim().toLowerCase();
   const attn = sessionsNeedingAttention(input.attention, input.interactions);
+  const scope = opts.view ? trackerScope(opts.view, Object.values(input.issues ?? {})) : null;
 
   const entries: NavEntry[] = [];
   for (const s of Object.values(input.sessions)) {
@@ -437,7 +442,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       s.provenance === "subagent" && s.parentSessionId
         ? input.sessions[s.parentSessionId]
         : undefined;
-    if (opts.view && !sessionInView(opts.view, parent ?? s, input.workspaces)) continue;
+    if (opts.view && !sessionInView(opts.view, parent ?? s, input.workspaces, scope)) continue;
     const needs = attn.has(s.id);
     if (opts.filter === "active" && !isLive(s) && !needs) continue;
     if (opts.filter === "attention" && !needs) continue;

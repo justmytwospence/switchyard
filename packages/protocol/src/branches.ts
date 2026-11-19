@@ -1,17 +1,11 @@
-import type { RuntimeState, Session, View, Workspace } from "./entities.js";
+import type { Session, View, Workspace } from "./entities.js";
 import type { TrackedIssue } from "./trackers.js";
-import { sessionInView, type WorkspaceLookup } from "./views.js";
+import { isLiveRuntime, sessionInView, type TrackerScope, type WorkspaceLookup } from "./views.js";
 
 /**
  * Branches: a project on a branch, the unit of work every client lists. Derived from workspaces,
  * sessions and tracked issues; never stored. See docs/model.md.
  */
-
-export const LIVE_RUNTIMES = ["starting", "idle", "running", "waiting_input"] as const;
-
-export function isLiveRuntime(r: RuntimeState): boolean {
-  return (LIVE_RUNTIMES as readonly string[]).includes(r);
-}
 
 export type BranchStage = "not_started" | "working" | "in_review" | "merged";
 
@@ -228,19 +222,26 @@ export function buildBranches(
 }
 
 /** Is a branch in a view? By its sessions, else (unless pinned-only) by project and host. */
-export function branchInView(view: View, b: Branch, workspaces: WorkspaceLookup): boolean {
+export function branchInView(
+  view: View,
+  b: Branch,
+  workspaces: WorkspaceLookup,
+  scope?: TrackerScope | null,
+): boolean {
   const sessions = [...(b.primary ? [b.primary] : []), ...b.extras];
-  if (sessions.some((s) => sessionInView(view, s, workspaces))) return true;
+  if (sessions.some((s) => sessionInView(view, s, workspaces, scope))) return true;
   if (view.mode === "pinned") return false;
   if (view.projectIds !== null && (b.projectId === null || !view.projectIds.includes(b.projectId)))
     return false;
   if (view.hostIds !== null && !b.placements.some((p) => view.hostIds!.includes(p.hostId)))
     return false;
+  if (view.trackerId && scope) return b.issue?.trackerId === view.trackerId;
   return true;
 }
 
-/** Is an issue in a view? By its project; never in a pinned-only view. */
-export function issueInView(view: View, i: Pick<TrackedIssue, "projectId">): boolean {
+/** Is an issue in a view? A tracker's view holds its own issues; others filter by project. */
+export function issueInView(view: View, i: Pick<TrackedIssue, "projectId" | "trackerId">): boolean {
   if (view.mode === "pinned") return false;
+  if (view.trackerId) return i.trackerId === view.trackerId;
   return view.projectIds === null || view.projectIds.includes(i.projectId);
 }

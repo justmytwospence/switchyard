@@ -123,12 +123,13 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const shownText = view ? shownIn(view, Object.values(surfaces), hostsMap) : null;
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
+  const issues = useSyncStore((s) => s.issues);
   const hosts = useHosts();
   const projectList = useProjects();
   const tree = useMemo(
     () =>
       buildNavTree(
-        { projects, workspaces, sessions, hosts: hostsMap, attention, interactions },
+        { projects, workspaces, sessions, hosts: hostsMap, attention, interactions, issues },
         {
           filter: prefs.filter,
           query: prefs.query,
@@ -146,6 +147,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       hostsMap,
       attention,
       interactions,
+      issues,
       prefs.filter,
       prefs.query,
       prefs.layout,

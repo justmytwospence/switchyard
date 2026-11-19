@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   findView,
   openSurfaces,
+  type Session,
   SURFACE_OPEN_MS,
   sessionInView,
   taskInView,
+  trackerScope,
   type View,
 } from "../src/index.js";
 
@@ -31,6 +33,7 @@ const s = (over: Record<string, unknown> = {}) => ({
   workspaceId: "wsp_1" as string | null,
   hostId: "hst_1",
   archivedAt: null as string | null,
+  runtime: "idle" as Session["runtime"],
   ...over,
 });
 
@@ -70,6 +73,58 @@ describe("sessionInView", () => {
         {},
       ),
     ).toBe(true);
+  });
+});
+
+describe("tracker views", () => {
+  const v = view({ trackerId: "trk_1", projectIds: ["prj_a"] });
+  const ws = {
+    wsp_1: { projectId: "prj_a", branch: "feat/x" },
+    wsp_2: { projectId: "prj_a", branch: "other" },
+  };
+  const issue = (over: Record<string, unknown> = {}) => ({
+    trackerId: "trk_1",
+    projectId: "prj_a",
+    workspaceId: null as string | null,
+    branch: null as string | null,
+    branches: [] as string[],
+    ...over,
+  });
+  const stopped = { runtime: "stopped" as const };
+
+  it("trackerScope is null without a tracker and collects workspaces and branches", () => {
+    expect(trackerScope(view(), [issue()])).toBeNull();
+    const scope = trackerScope(v, [
+      issue({ workspaceId: "wsp_9", branch: "a", branches: ["b"] }),
+      issue({ trackerId: "trk_2", workspaceId: "wsp_8" }),
+    ])!;
+    expect([...scope.workspaceIds]).toEqual(["wsp_9"]);
+    expect([...scope.branches].sort()).toEqual(["prj_a\na", "prj_a\nb"]);
+  });
+  it("a stopped session on an issue's workspace is in the view", () => {
+    const scope = trackerScope(v, [issue({ workspaceId: "wsp_1" })]);
+    expect(sessionInView(v, s(stopped), ws, scope)).toBe(true);
+  });
+  it("a stopped session on an issue's branch name is in the view", () => {
+    const scope = trackerScope(v, [issue({ branches: ["feat/x"] })]);
+    expect(sessionInView(v, s(stopped), ws, scope)).toBe(true);
+  });
+  it("a live session with no issue is in the view; a stopped one is not", () => {
+    const scope = trackerScope(v, []);
+    expect(sessionInView(v, s({ runtime: "running" }), ws, scope)).toBe(true);
+    expect(sessionInView(v, s(stopped), ws, scope)).toBe(false);
+    expect(sessionInView(v, s({ ...stopped, workspaceId: null }), ws, scope)).toBe(false);
+  });
+  it("a live session in another project is not in the view", () => {
+    const scope = trackerScope(v, []);
+    expect(sessionInView(v, s({ projectId: "prj_b" }), ws, scope)).toBe(false);
+  });
+  it("without a scope a tracker view falls back to its projects", () => {
+    expect(sessionInView(v, s(stopped), ws)).toBe(true);
+  });
+  it("a pin still wins", () => {
+    const scope = trackerScope(v, []);
+    expect(sessionInView({ ...v, sessionIds: ["ses_1"] }, s(stopped), ws, scope)).toBe(true);
   });
 });
 

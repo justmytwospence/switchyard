@@ -55,7 +55,7 @@ export function describeView(v: View, ctx: DescribeContext): string {
     const x = t.extraRepositories ?? [];
     const also =
       x.length === 1 ? ` and ${x[0]}` : x.length > 1 ? ` and ${x.length} other repositories` : "";
-    return `Branches and issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}`;
+    return `Issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}, and live sessions there`;
   }
   if (source === "client") return `Pi you start in ${clientLabel(v.clientId ?? "")}`;
   if (v.mode === "pinned") return "Only sessions you pin";
@@ -100,6 +100,8 @@ export function emptyViewState(
   let description: string;
   if (source === "client" && v.sessionIds.length === 0) {
     description = `A Pi you start in ${clientLabel(v.clientId ?? "")} joins this view once it enrols with a host agent connected to ${opts.origin}.`;
+  } else if (source === "tracker") {
+    description = `This view shows sessions on ${v.name}'s issues and live sessions in its repositories. Issues that are not started are on the Board.`;
   } else if (source === "manual" && v.mode === "pinned") {
     description = `This view holds only sessions you pin. Pin one from its menu: Pin to ${v.name}.`;
   } else {

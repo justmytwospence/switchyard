@@ -31,9 +31,18 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 - **A second session on a branch is allowed but out of the way.** You ask for it explicitly ("Start another session in this branch", or "New session in this branch" in the session menu). It nests under the primary behind a "+N" count and never becomes its own row. Choose another primary from the session menu.
 - **The same branch on two hosts is one branch.** Each host keeps its own workspace with its own git state; the branch shows the host where its primary session runs. The Hosts layout splits it per host.
 - **Trackers decorate branches.** An issue with a branch shows its issue, pull request and board column on that branch. An issue with no branch waits in the Board's Not started column; starting it makes the branch, its worktree on the project's default host, and an idle session.
+- **A tracker's view is its issues' work.** It holds the sessions on branches linked to the tracker's issues, whatever their state, plus any session in the tracker's repositories that is live right now. A stopped session with no issue is not in it; it is under All sessions.
 - **A view decides which branches you see; a surface decides where.** Every surface bound to a view shows the same sessions, and the web app and phone select a view of their own. Closing a tab in one surface archives the session everywhere.
 - **Where a session was started is a fact on the session.** A view whose source is a terminal (`--client herdr:<session>`) holds every Pi started there, including ones that started before the view existed.
 - **Cleanup follows the branch.** When the pull request merges and the worktree is clean and idle, its sessions are archived and the worktree removed (with "Remove merged worktrees" on).
+
+## Planned, active, dormant
+
+| State of a piece of work | Where it shows |
+|---|---|
+| Planned: an assigned issue with no branch, or a worktree with no session | Board only (Not started, or Working with Start session) |
+| Active: its session is live (starting, idle, running, waiting for input) | Sessions and Board |
+| Dormant: its session exists but is stopped, failed or interrupted | Sessions under All, and Board. In a tracker's view, only when its branch is linked to one of the tracker's issues |
 
 ## Stages
 

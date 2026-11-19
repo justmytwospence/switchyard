@@ -72,7 +72,9 @@ describe("view descriptions", () => {
 
   it("describes tracker views", () => {
     const v = view({ trackerId: "trk_1" });
-    expect(describeView(v, ctx)).toBe("Branches and issues assigned to me in VO-Health");
+    expect(describeView(v, ctx)).toBe(
+      "Issues assigned to me in VO-Health, and live sessions there",
+    );
     expect(
       describeView(v, {
         ...ctx,
@@ -83,11 +85,11 @@ describe("view descriptions", () => {
           }),
         ],
       }),
-    ).toBe("Branches and issues assigned to you in VO-Health (board #1)");
+    ).toBe("Issues assigned to you in VO-Health (board #1), and live sessions there");
     expect(describeView(v, { ...ctx, trackers: null })).toBe("Kept by a GitHub tracker");
     expect(
       describeView(v, { ...ctx, trackers: [tracker({ extraRepositories: ["other/lib"] })] }),
-    ).toBe("Branches and issues assigned to me in VO-Health and other/lib");
+    ).toBe("Issues assigned to me in VO-Health and other/lib, and live sessions there");
     expect(
       describeView(v, {
         ...ctx,
@@ -98,7 +100,9 @@ describe("view descriptions", () => {
           }),
         ],
       }),
-    ).toBe("Branches and issues assigned to me in VO-Health and 2 other repositories (board #1)");
+    ).toBe(
+      "Issues assigned to me in VO-Health and 2 other repositories (board #1), and live sessions there",
+    );
   });
 
   it("describes client and pinned views", () => {
@@ -182,5 +186,8 @@ describe("view descriptions", () => {
       "This view holds only sessions you pin. Pin one from its menu: Pin to work.",
     );
     expect(emptyViewState(view(), opts).description).toBe("This view's source: Every session.");
+    expect(emptyViewState(view({ trackerId: "trk_1", name: "vo" }), opts).description).toBe(
+      "This view shows sessions on vo's issues and live sessions in its repositories. Issues that are not started are on the Board.",
+    );
   });
 });

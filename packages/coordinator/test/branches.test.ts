@@ -102,4 +102,14 @@ describe("open branch", () => {
     const r = await open({ branch: "main", viewId: v.body.id });
     expect(store().views.require(v.body.id).sessionIds).toEqual([r.body.session.id]);
   });
+
+  it("does not pin a new session to a tracker's view of its project", async () => {
+    const v = await h.t.admin("POST", "/api/views", {
+      name: "tracked",
+      projectIds: [h.project.id],
+    });
+    store().putView({ ...store().views.require(v.body.id), trackerId: "trk_x" });
+    await open({ branch: "main", viewId: v.body.id });
+    expect(store().views.require(v.body.id).sessionIds).toEqual([]);
+  });
 });

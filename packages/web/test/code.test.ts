@@ -3,6 +3,7 @@ import type {
   Host,
   Project,
   Session,
+  TrackedIssue,
   TranscriptItem,
   Workspace,
 } from "@switchyard/protocol";
@@ -418,6 +419,49 @@ describe("navigator tree", () => {
       ["b", "extra"],
       ["s", "subagent"],
     ]);
+  });
+
+  it("a tracker's view keeps issue branches and live sessions", () => {
+    const tracked = {
+      ...input,
+      sessions: {
+        a: session("a", { workspaceId: "w1", runtime: "running" }),
+        b: session("b", { workspaceId: "w1", runtime: "stopped", primary: false }),
+        c: session("c", { workspaceId: "w2", runtime: "stopped" }),
+        f: session("f", { workspaceId: "w3", runtime: "stopped" }),
+      } as Record<string, Session>,
+      workspaces: { ...input.workspaces, w3: workspace("w3") } as Record<string, Workspace>,
+      attention: {},
+      issues: {
+        i1: {
+          id: "i1",
+          trackerId: "trk_1",
+          projectId: "prj_1",
+          workspaceId: "w2",
+          branch: null,
+          branches: [],
+        } as unknown as TrackedIssue,
+      },
+    };
+    const view = {
+      id: "viw_t",
+      name: "personal",
+      mode: "all",
+      projectIds: ["prj_1"],
+      hostIds: null,
+      sessionIds: [],
+      clients: [],
+      trackerId: "trk_1",
+      createdAt: "",
+      updatedAt: "",
+    } as const;
+    const tree = buildNavTree(tracked, {
+      filter: "all",
+      query: "",
+      layout: "recent",
+      view: view as never,
+    });
+    expect(ids(tree).sort()).toEqual(["a", "c"]);
   });
 
   it("a stored worktrees layout falls back", () => {

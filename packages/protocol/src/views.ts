@@ -1,21 +1,64 @@
-import type { Session, Surface, Task, View, Workspace } from "./entities.js";
+import type { RuntimeState, Session, Surface, Task, View, Workspace } from "./entities.js";
+import type { TrackedIssue } from "./trackers.js";
 
 /** A surface counts as open while its last report is younger than this. */
 export const SURFACE_OPEN_MS = 10 * 60_000;
 
-export type WorkspaceLookup =
-  | Record<string, Pick<Workspace, "projectId">>
-  | Map<string, Pick<Workspace, "projectId">>;
+export const LIVE_RUNTIMES = ["starting", "idle", "running", "waiting_input"] as const;
+
+export function isLiveRuntime(r: RuntimeState): boolean {
+  return (LIVE_RUNTIMES as readonly string[]).includes(r);
+}
+
+type WorkspaceRef = Pick<Workspace, "projectId"> & { branch?: string | null };
+
+export type WorkspaceLookup = Record<string, WorkspaceRef> | Map<string, WorkspaceRef>;
+
+/** The branches a tracker's issues are worked on: what a tracker's view holds besides live sessions. */
+export interface TrackerScope {
+  trackerId: string;
+  workspaceIds: Set<string>;
+  /** `${projectId}\n${branch}` */
+  branches: Set<string>;
+}
+
+export function trackerScope(
+  view: Pick<View, "trackerId">,
+  issues: Iterable<
+    Pick<TrackedIssue, "trackerId" | "projectId" | "workspaceId" | "branch" | "branches">
+  >,
+): TrackerScope | null {
+  if (!view.trackerId) return null;
+  const scope: TrackerScope = {
+    trackerId: view.trackerId,
+    workspaceIds: new Set(),
+    branches: new Set(),
+  };
+  for (const i of issues) {
+    if (i.trackerId !== view.trackerId) continue;
+    if (i.workspaceId) scope.workspaceIds.add(i.workspaceId);
+    if (i.branch) scope.branches.add(`${i.projectId}\n${i.branch}`);
+    for (const b of i.branches) scope.branches.add(`${i.projectId}\n${b}`);
+  }
+  return scope;
+}
 
 function workspaceOf(ws: WorkspaceLookup, id: string) {
   return ws instanceof Map ? ws.get(id) : ws[id];
 }
 
-/** Is a session in a view? Archived sessions never are. */
+/**
+ * Is a session in a view? Archived sessions never are. In a tracker's view (given its scope):
+ * sessions on its issues' branches, and live sessions in its projects.
+ */
 export function sessionInView(
   view: View,
-  s: Pick<Session, "id" | "projectId" | "workspaceId" | "hostId" | "archivedAt" | "startedIn">,
+  s: Pick<
+    Session,
+    "id" | "projectId" | "workspaceId" | "hostId" | "archivedAt" | "startedIn" | "runtime"
+  >,
   workspaces: WorkspaceLookup,
+  scope?: TrackerScope | null,
 ): boolean {
   if (s.archivedAt !== null) return false;
   if (view.sessionIds.includes(s.id)) return true;
@@ -29,6 +72,13 @@ export function sessionInView(
     return false;
   }
   if (view.hostIds !== null && !view.hostIds.includes(s.hostId)) return false;
+  if (view.trackerId && scope) {
+    if (isLiveRuntime(s.runtime)) return true;
+    if (!s.workspaceId) return false;
+    if (scope.workspaceIds.has(s.workspaceId)) return true;
+    const ws = workspaceOf(workspaces, s.workspaceId);
+    return !!ws?.branch && scope.branches.has(`${ws.projectId}\n${ws.branch}`);
+  }
   return true;
 }
 

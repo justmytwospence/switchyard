@@ -7,6 +7,7 @@ import {
   type TrackedIssue,
   type Tracker,
   type TrackerStatusOption,
+  trackerScope,
   type View,
 } from "@switchyard/protocol";
 import { sessionsNeedingAttention } from "../../sync/selectors";
@@ -137,10 +138,11 @@ export function buildBoard(
     sessions: Object.values(input.sessions),
     issues: Object.values(input.issues),
   });
+  const scope = opts.view ? trackerScope(opts.view, Object.values(input.issues)) : null;
   const cards: BoardCard[] = [];
   for (const b of branches) {
     if (!b.primary && (b.main || b.kind === "scratch")) continue;
-    if (opts.view && !branchInView(opts.view, b, input.workspaces)) continue;
+    if (opts.view && !branchInView(opts.view, b, input.workspaces, scope)) continue;
     cards.push(branchCard(b, input, attn));
   }
   const issueCards = unstarted

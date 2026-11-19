@@ -11,6 +11,7 @@ import {
   spaceLabel,
   tabLabel,
 } from "../src/herdr/mirror.js";
+import { viewedSessions } from "../src/mirror/state.js";
 import { session } from "./herdr-fixtures.js";
 
 const NOW = Date.parse("2026-11-03T00:00:00Z");
@@ -321,6 +322,56 @@ describe("views and ownership", () => {
     });
     const plan = planMirror(st, h, mem, NOW, view as any);
     expect(plan.closeTabs).toEqual([{ tabId: "w1:t2", sessionId: "ses_2" }]);
+  });
+
+  it("a tracker's view mirrors issue sessions and live ones only", () => {
+    const view = {
+      id: "viw_t",
+      name: "personal",
+      mode: "all",
+      projectIds: ["prj_sy"],
+      hostIds: null,
+      sessionIds: [],
+      clients: [],
+      trackerId: "trk_1",
+      createdAt: "",
+      updatedAt: "",
+    } as const;
+    const st = state({
+      sessions: [
+        session("ses_live"),
+        session("ses_old", { runtime: "stopped" }),
+        session("ses_issue", {
+          runtime: "stopped",
+          workspaceId: "wsp_feat",
+          cwd: "/repo/.worktrees/feat",
+        }),
+      ],
+      issues: [
+        {
+          id: "trk_1:I_1",
+          trackerId: "trk_1",
+          itemId: "I_1",
+          projectId: "prj_sy",
+          repository: "me/switchyard",
+          number: 1,
+          title: "x",
+          url: "https://github.com/me/switchyard/issues/1",
+          assignees: [],
+          branches: ["feat"],
+          branch: null,
+          workspaceId: null,
+          pullRequest: null,
+          board: null,
+          updatedAt: "",
+        },
+      ],
+    });
+    expect(
+      viewedSessions(st, view as any)
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual(["ses_issue", "ses_live"]);
   });
 });
 

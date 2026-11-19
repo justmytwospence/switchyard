@@ -174,6 +174,29 @@ describe("work board", () => {
     expect(found[0]!.cards).toHaveLength(1);
   });
 
+  it("a tracker's view shows its issues, their branches and live sessions only", () => {
+    const tv = view({ trackerId: "trk_1", projectIds: ["prj_1"] });
+    const data = input({
+      sessions: {
+        a: session("a", { workspaceId: "w1", runtime: "running" }),
+        s: session("s", { workspaceId: "w3", runtime: "stopped" }),
+      } as Record<string, Session>,
+      issues: {
+        i0: issue("i0"),
+        i2: issue("i2", { workspaceId: "w2" }),
+        x: issue("x", { trackerId: "trk_2" }),
+      },
+    });
+    const cols = buildBoard(data, { view: tv, query: "", mode: "stage", tracker: null });
+    expect(keys(cols)).toEqual({
+      not_started: ["i:i0"],
+      working: expect.arrayContaining(["b:prj_1:feat/w1", "b:prj_1:feat/w2"]),
+      in_review: [],
+      merged: [],
+    });
+    expect(cols[1]!.cards).toHaveLength(2);
+  });
+
   it("uses the tracker board's columns, with No status and Not on the board", () => {
     const issues = {
       i0: issue("i0", { board: board("Todo") }),

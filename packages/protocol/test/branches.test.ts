@@ -7,6 +7,7 @@ import {
   primarySession,
   type Session,
   type TrackedIssue,
+  trackerScope,
   type View,
   type Workspace,
 } from "../src/index.js";
@@ -258,5 +259,32 @@ describe("branchInView and issueInView", () => {
     );
     expect(issueInView(view({ projectIds: ["prj_a"] }), issue("i"))).toBe(true);
     expect(issueInView(view({ projectIds: ["prj_b"] }), issue("i"))).toBe(false);
+  });
+
+  it("a tracker view keeps issue branches and live sessions, not dormant leftovers or empty worktrees", () => {
+    const v = view({ trackerId: "trk_1", projectIds: ["prj_a"] });
+    const workspaces = [
+      ws("wsp_1"),
+      ws("wsp_2", { branch: "feat/live" }),
+      ws("wsp_3", { branch: "feat/old" }),
+      ws("wsp_4", { branch: "feat/empty" }),
+    ];
+    const sessions = [
+      ses("a", { runtime: "stopped" }),
+      ses("b", { workspaceId: "wsp_2", runtime: "running" }),
+      ses("c", { workspaceId: "wsp_3", runtime: "stopped" }),
+    ];
+    const issues = [issue("i1", { workspaceId: "wsp_1" })];
+    const { branches } = buildBranches({ workspaces, sessions, issues });
+    const lookup = Object.fromEntries(workspaces.map((w) => [w.id, w]));
+    const scope = trackerScope(v, issues);
+    const kept = branches.filter((x) => branchInView(v, x, lookup, scope)).map((x) => x.branch);
+    expect(kept.sort()).toEqual(["feat/live", "feat/x"]);
+  });
+
+  it("issueInView follows the tracker", () => {
+    const v = view({ trackerId: "trk_1", projectIds: ["prj_b"] });
+    expect(issueInView(v, issue("i"))).toBe(true);
+    expect(issueInView(v, issue("i", { trackerId: "trk_2" }))).toBe(false);
   });
 });

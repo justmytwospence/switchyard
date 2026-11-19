@@ -1,5 +1,13 @@
-import type { Checkout, Host, Project, Session, View, Workspace } from "@switchyard/protocol";
-import { findView, sessionInView } from "@switchyard/protocol";
+import type {
+  Checkout,
+  Host,
+  Project,
+  Session,
+  TrackedIssue,
+  View,
+  Workspace,
+} from "@switchyard/protocol";
+import { findView, sessionInView, trackerScope } from "@switchyard/protocol";
 import { SwitchyardClient } from "@switchyard/terminal";
 import { CliError, type ConnectionFlags, resolveConnection } from "../config.js";
 import type { Ctx } from "../context.js";
@@ -15,6 +23,8 @@ export interface MirrorState {
   hosts: Host[];
   checkouts: Checkout[];
   views: View[];
+  /** Tracked issues (decide a tracker view's sessions); absent in older fixtures. */
+  issues?: TrackedIssue[];
 }
 
 export type AgentState = "idle" | "working" | "blocked";
@@ -78,6 +88,7 @@ export function mirrorStateOf(client: SwitchyardClient): MirrorState {
     hosts: Object.values(s.hosts),
     checkouts: Object.values(s.checkouts),
     views: Object.values(s.views),
+    issues: Object.values(s.issues ?? {}),
   };
 }
 
@@ -86,7 +97,8 @@ export function viewedSessions(st: MirrorState, view: View | null): Session[] {
   const all = mirroredSessions(st);
   if (!view) return all;
   const workspaces = Object.fromEntries(st.workspaces.map((w) => [w.id, w]));
-  return all.filter((s) => sessionInView(view, s, workspaces));
+  const scope = trackerScope(view, st.issues ?? []);
+  return all.filter((s) => sessionInView(view, s, workspaces, scope));
 }
 
 /** The view a client is bound to by name or id; unbound mirrors everything. */
