@@ -14,30 +14,40 @@ export type Gh = (args: string[]) => Promise<any>;
 const PAGE = 50;
 const MAX_PAGES = 4;
 
-const BOARD_FIELDS = `projectItems(first:20){nodes{ id
+// The priority value is read from the item (an unknown field name is null there), never from
+// `project.field(name:)`, which makes GitHub return errors for a missing field.
+const PRIORITY_VALUE = `priority: fieldValueByName(name:$priorityField){ ... on ProjectV2ItemFieldSingleSelectValue{ name optionId field{ ... on ProjectV2SingleSelectField{ options{id name} } } } }`;
+
+const boardFields = (priority: boolean) => `projectItems(first:20){nodes{ id
   project{ id number owner{ ... on Organization{login} ... on User{login} }
     field(name:$statusField){ ... on ProjectV2SingleSelectField{ id options{id name} } } }
-  fieldValueByName(name:$statusField){ ... on ProjectV2ItemFieldSingleSelectValue{ name optionId } } }}`;
+  fieldValueByName(name:$statusField){ ... on ProjectV2ItemFieldSingleSelectValue{ name optionId } }
+  ${priority ? PRIORITY_VALUE : ""} }}`;
 
 const ISSUE_FIELDS = `id number title url state repository{nameWithOwner}
       assignees(first:20){nodes{login}}
       linkedBranches(first:10){nodes{ref{name repository{nameWithOwner}}}}
-      closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state url headRefName headRepository{nameWithOwner}}}`;
+      closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state url headRefName headRepository{nameWithOwner}}}
+      parent{number title url} subIssuesSummary{total completed}`;
 
-function searchQuery(board: boolean): string {
-  return `query($q:String!,$cursor:String${board ? ",$statusField:String!" : ""}){ viewer{login}
+function searchQuery(board: boolean, priority: boolean): string {
+  const vars = `${board ? ",$statusField:String!" : ""}${board && priority ? ",$priorityField:String!" : ""}`;
+  return `query($q:String!,$cursor:String${vars}){ viewer{login}
   search(query:$q,type:ISSUE,first:${PAGE},after:$cursor){ pageInfo{hasNextPage endCursor}
     nodes{ ... on Issue{ ${ISSUE_FIELDS}
-      ${board ? BOARD_FIELDS : ""} }}}}`;
+      ${board ? boardFields(priority) : ""} }}}}`;
 }
 
 const BOARD_MAX_PAGES = 10;
-const BOARD_QUERY = `query($owner:String!,$number:Int!,$cursor:String,$statusField:String!,$q:String!){ viewer{login}
+const boardQuery = (
+  priority: boolean,
+) => `query($owner:String!,$number:Int!,$cursor:String,$statusField:String!,$q:String!${priority ? ",$priorityField:String!" : ""}){ viewer{login}
   repositoryOwner(login:$owner){ ... on ProjectV2Owner{ projectV2(number:$number){ id
     field(name:$statusField){ ... on ProjectV2SingleSelectField{ id options{id name} } }
     items(first:${PAGE},after:$cursor,query:$q){ pageInfo{hasNextPage endCursor}
       nodes{ id
         fieldValueByName(name:$statusField){ ... on ProjectV2ItemFieldSingleSelectValue{ name optionId } }
+        ${priority ? PRIORITY_VALUE : ""}
         content{ ... on Issue{ ${ISSUE_FIELDS} } } }}}}}}`;
 
 /** The search string for a tracker's scope: the host user's open assigned issues. */
@@ -67,6 +77,14 @@ const same = (a: unknown, b: string) =>
   typeof a === "string" && a.toLowerCase() === b.toLowerCase();
 const nodes = (v: any): any[] => (Array.isArray(v?.nodes) ? v.nodes.filter(Boolean) : []);
 
+/** The rank of a priority value among its field's options (first option first). */
+function priorityOf(value: any): { name: string; rank: number } | null {
+  if (typeof value?.name !== "string" || !value.name) return null;
+  const options: any[] = Array.isArray(value.field?.options) ? value.field.options : [];
+  const index = options.findIndex((o) => o?.id === value.optionId);
+  return { name: value.name.slice(0, 200), rank: index >= 0 ? index : options.length };
+}
+
 /** A board card from a project (with its status field) and one of its items. */
 function boardItem(project: any, item: any): TrackerItemBoard | null {
   const field = project?.field;
@@ -82,6 +100,7 @@ function boardItem(project: any, item: any): TrackerItemBoard | null {
       .filter((o: any) => typeof o?.id === "string" && typeof o?.name === "string" && o.name)
       .slice(0, 50)
       .map((o: any) => ({ id: o.id, name: o.name })),
+    priority: priorityOf(item.priority),
   };
 }
 
@@ -151,6 +170,21 @@ function itemOf(issue: any, board: TrackerItemBoard | null): TrackerItem | null 
     branches: branches.slice(0, 10),
     pullRequest,
     board,
+    parent:
+      typeof issue.parent?.number === "number" && typeof issue.parent.url === "string"
+        ? {
+            number: issue.parent.number,
+            title: String(issue.parent.title ?? "").slice(0, 300),
+            url: issue.parent.url,
+          }
+        : null,
+    subIssues:
+      typeof issue.subIssuesSummary?.total === "number" && issue.subIssuesSummary.total > 0
+        ? {
+            total: issue.subIssuesSummary.total,
+            completed: Number(issue.subIssuesSummary.completed) || 0,
+          }
+        : null,
   };
 }
 
@@ -165,11 +199,12 @@ async function trackerBoardSync(gh: Gh, req: TrackerHostSyncRequest): Promise<Tr
   let cursor: string | undefined;
   let truncated = false;
   for (let page = 0; page < BOARD_MAX_PAGES; page++) {
-    const data = await graphql(gh, BOARD_QUERY, {
+    const data = await graphql(gh, boardQuery(!!board.priorityField), {
       owner: req.owner,
       number: board.projectNumber,
       cursor,
       statusField: board.statusField,
+      ...(board.priorityField ? { priorityField: board.priorityField } : {}),
       q: "is:open is:issue",
     });
     login = data?.viewer?.login ?? login;
@@ -200,7 +235,7 @@ async function trackerBoardSync(gh: Gh, req: TrackerHostSyncRequest): Promise<Tr
 export async function trackerSync(gh: Gh, req: TrackerHostSyncRequest): Promise<TrackerSyncResult> {
   if (req.follow === "board" && req.board) return trackerBoardSync(gh, req);
   const q = trackerSearch(req);
-  const query = searchQuery(req.board !== null);
+  const query = searchQuery(req.board !== null, !!req.board?.priorityField);
   const items: TrackerItem[] = [];
   let login = "";
   let cursor: string | undefined;
@@ -210,6 +245,7 @@ export async function trackerSync(gh: Gh, req: TrackerHostSyncRequest): Promise<
       q,
       cursor,
       ...(req.board ? { statusField: req.board.statusField } : {}),
+      ...(req.board?.priorityField ? { priorityField: req.board.priorityField } : {}),
     });
     login = data?.viewer?.login ?? login;
     for (const node of nodes(data?.search)) {

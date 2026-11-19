@@ -42,6 +42,7 @@ describe("tracker form", () => {
         onStart: "In Progress",
         onReview: null,
         backlog: [],
+        priorityField: null,
       },
       follow: "assigned",
       writeBack: true,
@@ -58,6 +59,20 @@ describe("tracker form", () => {
         backlog: ["Backlog", "Icebox"],
       },
     });
+    const ranked = tracker({
+      board: {
+        projectNumber: 1,
+        statusField: "Status",
+        onStart: null,
+        onReview: null,
+        priorityField: "Priority",
+      },
+    });
+    expect(bodyOf(draftOf(ranked, "h")).board?.priorityField).toBe("Priority");
+    expect(trackerFacts(ranked, "Mac")[4]).toEqual([
+      "Board",
+      "#1, field Status, priority Priority",
+    ]);
     expect(draftOf(followed, "h")).toMatchObject({ follow: "board", backlog: "Backlog, Icebox" });
     expect(bodyOf(draftOf(followed, "h"))).toMatchObject({
       follow: "board",

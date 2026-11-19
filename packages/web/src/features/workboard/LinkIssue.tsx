@@ -1,4 +1,5 @@
 import {
+  compareIssues,
   issueLinkProblem,
   issueLookup,
   issueUnlinkProblem,
@@ -26,9 +27,7 @@ export function useIssueLink(workspace: Workspace | null | undefined): {
     const linked = workspace ? issueLookup(list)(workspace) : null;
     const candidates =
       workspace && !linked
-        ? list
-            .filter((i) => issueLinkProblem(i, workspace, list) === null)
-            .sort((a, b) => a.number - b.number)
+        ? list.filter((i) => issueLinkProblem(i, workspace, list) === null).sort(compareIssues)
         : [];
     return { linked, candidates, canUnlink: !!linked && issueUnlinkProblem(linked) === null };
   }, [issues, workspace]);
@@ -94,7 +93,10 @@ export function LinkIssueDialog({
                 <span className="truncate text-sm">
                   #{i.number} {i.title}
                 </span>
-                <span className="truncate text-xs text-muted">{i.repository}</span>
+                <span className="truncate text-xs text-muted">
+                  {i.repository}
+                  {i.board?.priority ? ` · ${i.board.priority.name}` : ""}
+                </span>
               </button>
             </li>
           ))}

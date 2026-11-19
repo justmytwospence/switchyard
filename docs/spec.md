@@ -134,7 +134,7 @@ The coordinator needs neither the host home mount nor Docker socket.
 | Run            | Task/session, dispatch key, attempt, limits, control revision, outcome         |
 | Automation     | Trigger, filters, task template, grouping/overlap/missed-run policy            |
 | Tracker        | Host, GitHub owner, repositories, optional board, follow mode, backlog columns, write-back; tracked issues link to branches |
-| Tracked issue  | Tracker, issue, project, linked branches, branch and workspace worked on, pull request, board column |
+| Tracked issue  | Tracker, issue, project, priority, parent and sub-issue count, linked branches, branch and workspace worked on, pull request, board column |
 | Interaction    | Session, ID/revision, payload, allowed responses, resolution                   |
 | Attention item | Session/task, reason, severity, acknowledgment                                 |
 | Device         | Identity, credentials, presence, push subscription, revocation                 |
@@ -381,7 +381,7 @@ Provide search, active/all filter, view options, collapse controls, and New sess
 
 Empty state: "Add a project" and "Connect a host," based on what is missing.
 
-New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt; it also lists the project's not-started issues under "Start an issue", and choosing one starts the issue: its branch, worktree and session), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. The selected view's projects come first. In a tracker's view, a session that will not stay says so. Show the resulting branch/path above Start session; Cmd/Ctrl+Enter starts. When the chosen workspace already has a session, the primary action is Open session: no new session starts, and a typed prompt waits in that session's composer. "Start another session in this branch" is an explicit checkbox. Do not require a task.
+New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt; it also lists the project's not-started issues (by priority) under "Start an issue", and choosing one starts the issue: its branch, worktree and session), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. The selected view's projects come first. In a tracker's view, a session that will not stay says so. Show the resulting branch/path above Start session; Cmd/Ctrl+Enter starts. When the chosen workspace already has a session, the primary action is Open session: no new session starts, and a typed prompt waits in that session's composer. "Start another session in this branch" is an explicit checkbox. Do not require a task.
 
 ### Conversation header
 
@@ -500,11 +500,11 @@ Start a new session from mobile using the same creation fields as desktop, prese
 
 ## 12a. Board (branches)
 
-The Board lists branches as cards (see [model.md](model.md)), filtered by the selected view, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. Activating a card opens its primary session. A worktree with no session shows "No session" and a Start session button, which opens the branch (starting a session). In a tracker's view, a card without an issue shows "No issue".
+The Board lists branches as cards (see [model.md](model.md)), filtered by the selected view, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. An issue's card also shows its board priority, "Part of #N" for a sub-issue and "N/M sub-issues" for a parent. Activating a card opens its primary session. A worktree with no session shows "No session" and a Start session button, which opens the branch (starting a session). In a tracker's view, a card without an issue shows "No issue".
 
 Columns:
 
-- **Stage** (default): Not started (tracked issues with no branch yet), Working, In review (an open pull request), Merged. Stages are facts; the only move is an issue from Not started to Working, which starts it: its branch, worktree and an idle session titled `#<number> <title>`.
+- **Stage** (default): Not started (tracked issues with no branch yet, by board priority, then number), Working, In review (an open pull request), Merged. Stages are facts; the only move is an issue from Not started to Working, which starts it: its branch, worktree and an idle session titled `#<number> <title>`.
 - **Tracker board** (a tracker's view whose issues have a GitHub Projects board): one column per board column (a backlog column only when it has cards), then No status and Not on the board. Moving a card sets its board column on GitHub, only with the tracker's write-back on.
 
 Invalid drops show the reason. Every move is also in the card's Move to… menu; mobile shows one column at a time as tabs.

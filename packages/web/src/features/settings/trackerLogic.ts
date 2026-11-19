@@ -25,6 +25,8 @@ export interface TrackerDraft {
   follow: "assigned" | "board";
   /** Backlog columns, comma-separated. */
   backlog: string;
+  /** The board's priority field; empty: none. */
+  priorityField: string;
   writeBack: boolean;
   moveShared: boolean;
   enabled: boolean;
@@ -63,6 +65,7 @@ export function draftOf(t: Tracker | null, defaultHostId: string): TrackerDraft 
       onReview: "",
       follow: "assigned",
       backlog: "",
+      priorityField: "",
       writeBack: false,
       moveShared: true,
       enabled: true,
@@ -79,6 +82,7 @@ export function draftOf(t: Tracker | null, defaultHostId: string): TrackerDraft 
     onReview: t.board?.onReview ?? "",
     follow: trackerFollow(t),
     backlog: trackerBacklog(t).join(", "),
+    priorityField: t.board?.priorityField ?? "",
     writeBack: t.writeBack,
     moveShared: t.moveShared,
     enabled: t.enabled,
@@ -122,6 +126,7 @@ export function bodyOf(d: TrackerDraft): TrackerInput {
           onStart: d.onStart.trim() || null,
           onReview: d.onReview.trim() || null,
           backlog: backlogOf(d.backlog),
+          priorityField: d.priorityField.trim() || null,
         }
       : null,
     follow: board ? d.follow : "assigned",
@@ -163,6 +168,8 @@ export function trackerFacts(t: Tracker, hostName: string): [string, string][] {
       "Board",
       t.board
         ? `#${t.board.projectNumber}, field ${t.board.statusField}${
+            t.board.priorityField ? `, priority ${t.board.priorityField}` : ""
+          }${
             trackerBacklog(t).length ? `; hides ${trackerBacklog(t).join(", ")} until started` : ""
           }`
         : "None",

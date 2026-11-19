@@ -3,6 +3,7 @@ import {
   branchInView,
   branchKeyOf,
   buildBranches,
+  compareIssues,
   issueInView,
   issueLinkProblem,
   issueLookup,
@@ -351,5 +352,28 @@ describe("manual issue links", () => {
     expect(issueUnlinkProblem({ ...linked, pullRequest: pr("OPEN") })).toBe(
       "#4 has a pull request",
     );
+  });
+});
+
+describe("compareIssues", () => {
+  it("orders by board priority, then repository and number", () => {
+    const ranked = (id: string, number: number, rank: number | null, repository = "a/x") => ({
+      ...issue(id, { number, repository }),
+      board: rank === null ? null : { priority: { name: `P${rank}`, rank } },
+    });
+    const list = [
+      ranked("none", 1, null),
+      ranked("r2", 5, 2),
+      ranked("r0b", 9, 0),
+      ranked("r0a", 3, 0),
+      ranked("r0z", 1, 0, "b/y"),
+    ] as never[];
+    expect([...list].sort(compareIssues).map((i: { id: string }) => i.id)).toEqual([
+      "r0a",
+      "r0b",
+      "r0z",
+      "r2",
+      "none",
+    ]);
   });
 });

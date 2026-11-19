@@ -197,7 +197,11 @@ export class TrackerService {
       });
     }
     const board = tracker.board
-      ? { projectNumber: tracker.board.projectNumber, statusField: tracker.board.statusField }
+      ? {
+          projectNumber: tracker.board.projectNumber,
+          statusField: tracker.board.statusField,
+          ...(tracker.board.priorityField ? { priorityField: tracker.board.priorityField } : {}),
+        }
       : null;
     const extra = tracker.extraRepositories ?? [];
     const follow = trackerFollow(tracker);
@@ -264,6 +268,8 @@ export class TrackerService {
           workspaceId: this.liveWorkspace(prev?.workspaceId),
           pullRequest: item.pullRequest,
           board: item.board,
+          parent: item.parent ?? null,
+          subIssues: item.subIssues ?? null,
           updatedAt: now,
         };
         if (

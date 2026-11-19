@@ -124,6 +124,20 @@ describe("trackers commands", () => {
         backlog: [],
       },
     });
+    await trackersCreate(ctx, "p", {
+      ...conn,
+      host: "Mac",
+      owner: "me",
+      board: "4",
+      priorityField: "Priority",
+    });
+    expect(calls.filter((c) => c.method === "POST").at(-1)!.body).toMatchObject({
+      board: { projectNumber: 4, priorityField: "Priority" },
+    });
+    await trackersEdit(ctx, "vo", { ...conn, noPriorityField: true });
+    expect(calls.filter((c) => c.method === "PATCH").at(-1)!.body).toMatchObject({
+      board: { priorityField: null },
+    });
     await expect(
       trackersEdit(ctx, "vo", { ...conn, noBacklog: true, backlog: ["a"] }),
     ).rejects.toThrow("--no-backlog cannot be combined with --backlog");

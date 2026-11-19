@@ -104,6 +104,28 @@ export function WorkCard({
             #{card.issue.number}
           </a>
         )}
+        {card.issue?.board?.priority && (
+          <span data-testid="card-priority" title="Priority on the board">
+            {card.issue.board.priority.name}
+          </span>
+        )}
+        {card.issue?.parent && (
+          <a
+            href={card.issue.parent.url}
+            target="_blank"
+            rel="noreferrer"
+            title={card.issue.parent.title}
+            className="hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Part of #{card.issue.parent.number}
+          </a>
+        )}
+        {card.issue?.subIssues && (
+          <span>
+            {card.issue.subIssues.completed}/{card.issue.subIssues.total} sub-issues
+          </span>
+        )}
         {pr && (
           <a
             href={pr.url}

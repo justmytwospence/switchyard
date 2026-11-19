@@ -490,6 +490,19 @@ function TrackerForm({
                 />
               )}
             </Field>
+            <Field
+              label="Priority field"
+              optional
+              hint="A single-select field, such as Priority. Not-started issues are listed by it."
+            >
+              {(p) => (
+                <TextInput
+                  {...p}
+                  value={draft.priorityField}
+                  onChange={(e) => set("priorityField", e.target.value)}
+                />
+              )}
+            </Field>
             <SwitchRow
               label="Move cards on GitHub"
               description={

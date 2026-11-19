@@ -185,6 +185,7 @@ describe("trackerSync", () => {
         { id: "o1", name: "Todo" },
         { id: "o2", name: "In progress" },
       ],
+      priority: null,
     });
     expect(r.items[1]!.board).toMatchObject({ status: null, statusOptionId: null });
     const args = (gh as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string[];
@@ -310,6 +311,116 @@ describe("trackerSync following a board", () => {
     await expect(
       trackerSync(async () => boardPage([], false, { id: "P_1", field: {} }), req),
     ).rejects.toThrow("has no single-select field named Status");
+  });
+});
+
+describe("trackerSync priority and sub-issues", () => {
+  const priority = {
+    name: "P1",
+    optionId: "p1",
+    field: {
+      options: [
+        { id: "p0", name: "P0" },
+        { id: "p1", name: "P1" },
+      ],
+    },
+  };
+  const project = {
+    id: "P_1",
+    number: 5,
+    owner: { login: "acme" },
+    field: { id: "F1", options: [{ id: "o1", name: "Todo" }] },
+  };
+  const node = (value: unknown) => ({
+    id: "PVTI_1",
+    project,
+    fieldValueByName: { name: "Todo", optionId: "o1" },
+    priority: value,
+  });
+  const board = { projectNumber: 5, statusField: "Status", priorityField: "Priority" };
+
+  it("reads priority from the item's field value in search mode", async () => {
+    const gh: Gh = vi.fn(async () =>
+      page([
+        issue(1, { projectItems: { nodes: [node(priority)] } }),
+        issue(2, { projectItems: { nodes: [node({})] } }),
+        issue(3, { projectItems: { nodes: [node(null)] } }),
+        issue(4, {
+          projectItems: {
+            nodes: [node({ name: "P9", optionId: "gone", field: priority.field })],
+          },
+        }),
+      ]),
+    );
+    const r = await trackerSync(gh, { owner: "acme", repositories: null, board });
+    expect(r.items.map((i) => i.board?.priority)).toEqual([
+      { name: "P1", rank: 1 },
+      null,
+      null,
+      { name: "P9", rank: 2 },
+    ]);
+    const args = (gh as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string[];
+    expect(vars(args).query).toContain("$priorityField");
+    expect(vars(args).query).toContain("priority: fieldValueByName");
+    expect(vars(args).priorityField).toBe("Priority");
+  });
+
+  it("asks for no priority without a priority field", async () => {
+    const gh: Gh = vi.fn(async () => page([]));
+    await trackerSync(gh, {
+      owner: "acme",
+      repositories: null,
+      board: { projectNumber: 5, statusField: "Status" },
+    });
+    const args = (gh as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string[];
+    expect(vars(args).query).not.toContain("$priorityField");
+    expect(vars(args).priorityField).toBeUndefined();
+  });
+
+  it("reads priority on a followed board too", async () => {
+    const gh: Gh = vi.fn(async () => ({
+      data: {
+        viewer: { login: "me" },
+        repositoryOwner: {
+          projectV2: {
+            id: "P_1",
+            field: { id: "F1", options: [{ id: "o1", name: "Todo" }] },
+            items: {
+              pageInfo: { hasNextPage: false, endCursor: "c" },
+              nodes: [
+                {
+                  id: "PVTI_1",
+                  fieldValueByName: { name: "Todo", optionId: "o1" },
+                  priority,
+                  content: issue(1, { state: "OPEN" }),
+                },
+              ],
+            },
+          },
+        },
+      },
+    }));
+    const r = await trackerSync(gh, { owner: "acme", repositories: null, follow: "board", board });
+    expect(r.items[0]!.board?.priority).toEqual({ name: "P1", rank: 1 });
+    const args = (gh as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string[];
+    expect(vars(args).priorityField).toBe("Priority");
+  });
+
+  it("maps parent and sub-issues", async () => {
+    const gh: Gh = async () =>
+      page([
+        issue(1, {
+          parent: { number: 39, title: "Epic", url: `https://github.com/${REPO}/issues/39` },
+          subIssuesSummary: { total: 3, completed: 1 },
+        }),
+        issue(2, { parent: null, subIssuesSummary: { total: 0, completed: 0 } }),
+      ]);
+    const r = await trackerSync(gh, { owner: "acme", repositories: null, board: null });
+    expect(r.items[0]).toMatchObject({
+      parent: { number: 39, title: "Epic", url: `https://github.com/${REPO}/issues/39` },
+      subIssues: { total: 3, completed: 1 },
+    });
+    expect(r.items[1]).toMatchObject({ parent: null, subIssues: null });
   });
 });
 

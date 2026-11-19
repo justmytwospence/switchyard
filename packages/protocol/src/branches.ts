@@ -245,6 +245,12 @@ export function issueLookup(
   };
 }
 
+/** Order for issues nothing is started on: board priority (first option first, none last), then repository and number. */
+export function compareIssues(a: TrackedIssue, b: TrackedIssue): number {
+  const rank = (i: TrackedIssue) => i.board?.priority?.rank ?? Number.MAX_SAFE_INTEGER;
+  return rank(a) - rank(b) || a.repository.localeCompare(b.repository) || a.number - b.number;
+}
+
 /** An issue nothing is worked on yet: no branch, no linked branches, no worktree, not merged. */
 export function issueUnstarted(
   i: Pick<TrackedIssue, "branch" | "branches" | "workspaceId" | "pullRequest">,

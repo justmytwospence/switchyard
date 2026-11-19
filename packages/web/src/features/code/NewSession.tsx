@@ -1,4 +1,5 @@
 import {
+  compareIssues,
   issueLookup,
   issueUnstarted,
   primarySession,
@@ -149,7 +150,7 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null, view:
     () =>
       Object.values(issues)
         .filter((i) => i.projectId === projectId && issueUnstarted(i))
-        .sort((a, b) => a.number - b.number),
+        .sort(compareIssues),
     [issues, projectId],
   );
   /** The branch's primary session per workspace (only workspaces that have one). */
@@ -455,6 +456,7 @@ export function NewSessionFlow({
                 {f.startable.map((i) => (
                   <option key={i.id} value={`${ISSUE}${i.id}`}>
                     #{i.number} {i.title.slice(0, 60)}
+                    {i.board?.priority ? ` · ${i.board.priority.name}` : ""}
                   </option>
                 ))}
               </optgroup>

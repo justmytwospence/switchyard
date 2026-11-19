@@ -3,6 +3,7 @@ import {
   type Branch,
   branchInView,
   buildBranches,
+  compareIssues,
   issueInView,
   sessionViewReason,
   type TrackedIssue,
@@ -123,6 +124,7 @@ function matches(card: BoardCard, q: string): boolean {
     card.branch?.branch ?? "",
     card.project,
     card.issue ? `#${card.issue.number}` : "",
+    card.issue?.board?.priority?.name ?? "",
   ]
     .join("\n")
     .toLowerCase()
@@ -130,7 +132,11 @@ function matches(card: BoardCard, q: string): boolean {
 }
 
 const order = (a: BoardCard, b: BoardCard) =>
-  Number(b.attention) - Number(a.attention) || b.lastActivityAt.localeCompare(a.lastActivityAt);
+  Number(b.attention) - Number(a.attention) ||
+  Number(!!b.branch) - Number(!!a.branch) ||
+  (!a.branch && a.issue && b.issue
+    ? compareIssues(a.issue, b.issue)
+    : b.lastActivityAt.localeCompare(a.lastActivityAt));
 
 /** The board's columns for a view, a search and a mode. */
 export function buildBoard(

@@ -22,6 +22,10 @@ export interface TrackerFlags extends ConnectionFlags {
   onStart?: string;
   onReview?: string;
   follow?: string;
+  /** The board's priority field (`--priority-field`). */
+  priorityField?: string;
+  /** commander's `--no-priority-field`: true when given. */
+  noPriorityField?: boolean;
   /** Backlog columns (`--backlog`, repeatable). */
   backlog?: string[];
   /** commander's `--no-backlog`: true when given. */
@@ -60,8 +64,14 @@ function boardFields(flags: TrackerFlags): {
   onStart?: string;
   onReview?: string;
   backlog?: string[];
+  priorityField?: string | null;
 } {
   return {
+    ...(flags.noPriorityField
+      ? { priorityField: null }
+      : flags.priorityField
+        ? { priorityField: flags.priorityField }
+        : {}),
     ...(flags.noBacklog
       ? { backlog: [] }
       : flags.backlog?.length
@@ -107,7 +117,9 @@ export async function trackersCreate(ctx: Ctx, name: string, flags: TrackerFlags
   const follow = followOf(flags);
   if (follow === "board" && !flags.board) throw new CliError("--follow board needs --board");
   if (!flags.board && Object.keys(fields).length > 0)
-    throw new CliError("--status-field, --on-start, --on-review and --backlog need --board");
+    throw new CliError(
+      "--status-field, --on-start, --on-review, --backlog and --priority-field need --board",
+    );
   const { api } = connect(ctx, flags);
   const host = await resolveHost(api, flags.host);
   const t = await api.post<Tracker>("/api/trackers", {

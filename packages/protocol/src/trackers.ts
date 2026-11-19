@@ -33,6 +33,8 @@ export const TrackerBoard = z.object({
   onStart: z.string().min(1).max(200).nullable().default(null),
   /** Column to move a card to once a pull request is open (write-back). */
   onReview: z.string().min(1).max(200).nullable().default(null),
+  /** A single-select field that ranks issues: its first option is the highest. */
+  priorityField: z.string().min(1).max(100).nullable().optional(),
   /** Columns whose cards are not tracked until they have a branch or pull request. */
   backlog: z.array(z.string().min(1).max(200)).max(20).optional(),
 });
@@ -102,6 +104,11 @@ export const TrackerItemBoard = z.object({
   status: z.string().nullable(),
   statusOptionId: z.string().nullable(),
   options: z.array(TrackerStatusOption).max(50),
+  /** The issue's value of the tracker's priority field; `rank` is its option's position. */
+  priority: z
+    .object({ name: z.string().min(1).max(200), rank: z.number().int().min(0) })
+    .nullable()
+    .optional(),
 });
 export type TrackerItemBoard = z.infer<typeof TrackerItemBoard>;
 
@@ -113,6 +120,19 @@ export const TrackerPullRequest = z.object({
 });
 export type TrackerPullRequest = z.infer<typeof TrackerPullRequest>;
 
+export const TrackerParent = z.object({
+  number: z.number().int().positive(),
+  title: z.string().max(300),
+  url: GitHubIssueUrl,
+});
+export type TrackerParent = z.infer<typeof TrackerParent>;
+
+export const TrackerSubIssues = z.object({
+  total: z.number().int().min(0),
+  completed: z.number().int().min(0),
+});
+export type TrackerSubIssues = z.infer<typeof TrackerSubIssues>;
+
 export const TrackerItem = z.object({
   itemId: z.string().min(1),
   repository: GitHubRepository,
@@ -123,6 +143,8 @@ export const TrackerItem = z.object({
   branches: z.array(z.string().min(1).max(255)).max(10),
   pullRequest: TrackerPullRequest.nullable(),
   board: TrackerItemBoard.nullable(),
+  parent: TrackerParent.nullable().optional(),
+  subIssues: TrackerSubIssues.nullable().optional(),
 });
 export type TrackerItem = z.infer<typeof TrackerItem>;
 
@@ -155,6 +177,9 @@ export const TrackedIssue = z.object({
   workspaceId: Id.nullable(),
   pullRequest: TrackerPullRequest.nullable(),
   board: TrackerItemBoard.nullable(),
+  /** The issue this one is a sub-issue of. */
+  parent: TrackerParent.nullable().optional(),
+  subIssues: TrackerSubIssues.nullable().optional(),
   updatedAt: Iso,
 });
 export type TrackedIssue = z.infer<typeof TrackedIssue>;
@@ -191,7 +216,11 @@ export const TrackerHostSyncRequest = z.object({
   owner: GitHubLogin,
   repositories: z.array(GitHubRepository).nullable(),
   board: z
-    .object({ projectNumber: z.number().int().positive(), statusField: z.string().min(1) })
+    .object({
+      projectNumber: z.number().int().positive(),
+      statusField: z.string().min(1),
+      priorityField: z.string().min(1).nullable().optional(),
+    })
     .nullable(),
   follow: TrackerFollow.optional(),
   backlog: z.array(z.string().min(1)).max(20).optional(),

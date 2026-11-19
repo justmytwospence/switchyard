@@ -229,6 +229,26 @@ describe("tracker sync", () => {
     expect(t.lastError).toBeNull();
   });
 
+  it("passes the priority field and keeps priority, parent and sub-issues", async () => {
+    const parent = { number: 39, title: "Epic", url: `https://github.com/${REPO}/issues/39` };
+    items = [
+      item(1, {
+        board: { ...board("Todo"), priority: { name: "P1", rank: 1 } },
+        parent,
+        subIssues: { total: 3, completed: 1 },
+      }),
+    ];
+    const t = await create({ board: { projectNumber: 5, priorityField: "Priority" } });
+    expect(commandsOf(h.host, "tracker.sync")[0]).toMatchObject({
+      board: { priorityField: "Priority" },
+    });
+    expect(tracked(t.id)[0]).toMatchObject({
+      board: { priority: { name: "P1", rank: 1 } },
+      parent,
+      subIssues: { total: 3, completed: 1 },
+    });
+  });
+
   it("rejects following a board without a board", async () => {
     const r = await h.t.admin("POST", "/api/trackers", {
       name: "x",

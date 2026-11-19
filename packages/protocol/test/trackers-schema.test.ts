@@ -111,5 +111,20 @@ describe("tracker schemas", () => {
       updatedAt: T,
     };
     expect(TrackedIssue.parse(issue)).toEqual(issue);
+    const full = {
+      ...issue,
+      board: {
+        projectId: "P",
+        projectItemId: "PI",
+        fieldId: "F",
+        status: "Ready",
+        statusOptionId: "o1",
+        options: [{ id: "o1", name: "Ready" }],
+        priority: { name: "P1", rank: 1 },
+      },
+      parent: { number: 39, title: "Epic", url: "https://github.com/acme/app/issues/39" },
+      subIssues: { total: 3, completed: 1 },
+    };
+    expect(TrackedIssue.parse(full)).toEqual(full);
   });
 });

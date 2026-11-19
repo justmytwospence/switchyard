@@ -13,7 +13,7 @@ Trackers and surfaces never talk to each other; both meet at branches and sessio
 | Concept | What it is | Who owns the truth |
 |---|---|---|
 | Tracker | The host user's open assigned issues in one GitHub owner (optionally some repositories), plus repositories of other owners you add, optionally with a Projects board. With `--follow board`: every open issue on its Projects board, assigned or not | GitHub owns issues, assignees and board columns |
-| Issue (tracked issue) | One open issue the tracker follows: its title, linked branches, pull request and board column, and the branch and worktree Switchyard works on | GitHub; Switchyard keeps a snapshot |
+| Issue (tracked issue) | One open issue the tracker follows: its title, board priority, parent and sub-issue count, linked branches, pull request and board column, and the branch and worktree Switchyard works on | GitHub; Switchyard keeps a snapshot |
 | Keep a session in every worktree (project setting) | Every non-main worktree gets one session when it first appears | Switchyard |
 | Remove merged worktrees (project setting) | When a worktree's pull request has merged, archive its sessions and remove the worktree and its local branch | GitHub (PR state) and host git |
 
@@ -50,12 +50,14 @@ For a personal board where issues are triaged by column and not assigned, follow
 
 ```sh
 switchyard trackers create personal --host nuc --owner justmytwospence \
-  --board 4 --follow board --backlog Backlog \
+  --board 4 --follow board --backlog Backlog --priority-field Priority \
   --on-start "In progress" --on-review "In review" --write-back
 ```
 
 - `--follow board` tracks every open issue on the board, whoever is assigned; `--follow assigned` (the default) tracks issues assigned to you. It needs `--board`.
 - `--backlog <column>` (repeatable; `--no-backlog` on edit) names columns whose cards are not tracked until GitHub shows a branch or closing pull request for them, so a long backlog stays out of Not started. Move an issue to Ready (or any other column) to plan it.
+- `--priority-field <name>` (`--no-priority-field` on edit) names a single-select field such as Priority. Its first option is the highest: not-started issues are listed by it on the Board, in New session and in Link to issue, and cards show it. A board without the field just has no priority.
+- Sub-issues: a sub-issue's card says "Part of #N" and a parent shows "N/M sub-issues"; a parent stays an ordinary issue you can start.
 - GitHub's own project workflows (new items to Backlog, merged pull requests to Done, auto-archive) keep working; Switchyard moves a card at most once per column.
 
 ### In the web app

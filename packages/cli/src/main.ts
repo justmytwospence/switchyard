@@ -456,6 +456,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     follow: o.follow,
     backlog: Array.isArray(o.backlog) ? o.backlog : undefined,
     noBacklog: o.backlog === false,
+    priorityField: typeof o.priorityField === "string" ? o.priorityField : undefined,
+    noPriorityField: o.priorityField === false,
     writeBack: o.writeBack,
     moveShared: o.moveShared,
     enable: o.enable,
@@ -486,6 +488,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
       "board column whose cards wait until they have a branch (repeatable)",
       collect,
     )
+    .option("--priority-field <name>", "single-select board field that ranks issues")
     .option("--write-back", "let Switchyard move board cards")
     .option("--no-move-shared", "never move cards assigned to someone else too")
     .action((name, o) => trackersCreate(ctx, name, trackerFlags(o)));
@@ -516,6 +519,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
       collect,
     )
     .option("--no-backlog", "track every column")
+    .option("--priority-field <name>", "single-select board field that ranks issues")
+    .option("--no-priority-field", "stop reading a priority field")
     .option("--write-back", "let Switchyard move board cards")
     .option("--no-write-back", "never move board cards")
     .option("--move-shared", "also move cards assigned to someone else too")

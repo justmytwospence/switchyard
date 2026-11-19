@@ -221,6 +221,33 @@ describe("work board", () => {
     });
   });
 
+  it("lists not-started issues by priority, then number, and finds them by priority", () => {
+    const ranked = (id: string, number: number, rank: number | null) =>
+      issue(id, {
+        number,
+        board: rank === null ? null : { ...board("Todo"), priority: { name: `P${rank}`, rank } },
+      });
+    const issues = {
+      none: ranked("none", 1, null),
+      r2: ranked("r2", 2, 2),
+      r0: ranked("r0", 3, 0),
+    };
+    const cols = buildBoard(input({ issues, workspaces: {}, sessions: {} }), {
+      view: null,
+      query: "",
+      mode: "stage",
+      tracker: null,
+    });
+    expect(cols[0]!.cards.map((c) => c.key)).toEqual(["i:r0", "i:r2", "i:none"]);
+    const found = buildBoard(input({ issues, workspaces: {}, sessions: {} }), {
+      view: null,
+      query: "p0",
+      mode: "stage",
+      tracker: null,
+    });
+    expect(found[0]!.cards.map((c) => c.key)).toEqual(["i:r0"]);
+  });
+
   it("hides an empty backlog column on the tracker board", () => {
     const withBacklog = tracker({
       board: {
