@@ -66,6 +66,16 @@ Settings > Trackers shows each tracker as a card: its owner and repositories, th
 
 A tracker keeps a view of its own name pointed at the projects in its owner and its other repositories (an existing view of that name is adopted). Its project list is the tracker's; hosts and pins stay editable. The view holds the sessions on branches linked to the tracker's issues, in any state, plus any session in its repositories that is live right now; a stopped session with no issue is not in it. With that view selected, the Board can show the Projects board's own columns instead of stages. A herdr or tmux session bound to the view mirrors the same sessions: a stopped session with no issue leaves it. Bind a herdr session to it with `switchyard herdr pair --session <name> --view <name>`.
 
+## Watching only
+
+When something else already starts and finishes your work (for example pi-issues' `issue` tool, which links a branch, makes the worktree and sets the board status, and herdr's worktree-reaper, which removes merged worktrees), let Switchyard watch instead of act, so two tools never move the same card or remove the same worktree:
+
+- create the tracker without `--write-back` (or `switchyard trackers edit <name> --no-write-back`);
+- leave "Keep a session in every worktree" and "Remove merged worktrees" off for its projects;
+- start work your usual way. The Pi you start is adopted ([terminal-sessions.md](terminal-sessions.md#sessions-you-start-yourself)), its worktree is found, and a branch GitHub links to an issue shows that issue, its pull request and its board column.
+
+Start session on the Board still works when you want it.
+
 ## Board write-back
 
 With `--write-back`, Switchyard moves a card to the `--on-start` column once its worktree exists, and to the `--on-review` column once a pull request is open, at most once per column, so a card you move back stays where you put it. On the Board, with the tracker's columns shown, you can also drag a card to another column. Every move is checked on the host first, and skipped when:

@@ -36,6 +36,7 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 - **Where a session was started is a fact on the session.** A view whose source is a terminal (`--client herdr:<session>`) holds every Pi started there, including ones that started before the view existed.
 - **Cleanup follows the branch.** When the pull request merges and the worktree is clean and idle, its sessions are archived and the worktree removed (with "Remove merged worktrees" on).
 - **A branch keeps its latest session.** Ended sessions that are not the primary are archived after three days, with their subagents ([operations.md](operations.md#ended-sessions)).
+- **One owner starts and cleans up work.** Switchyard can do it (Start session, "Keep a session in every worktree", "Remove merged worktrees", board write-back), or your terminal tools can (a Pi plugin that starts issues in worktrees, a multiplexer that removes merged ones) while Switchyard only watches: sessions you start yourself are adopted, branches and issues are matched, nothing is created or removed. Pick one per project and turn the other off ([trackers.md](trackers.md#watching-only)).
 
 ## Where work shows
 
