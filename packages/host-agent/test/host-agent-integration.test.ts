@@ -270,13 +270,13 @@ function frame(ms: any, method = "inbox.read", args: unknown = {}) {
 }
 
 describe("supervisor A.1 integration", () => {
-  it.each(["1.4.9", "1.6.0", "1.5.0-beta.1", null, undefined])(
+  it.each(["1.4.9", "1.7.0", "1.6.0-beta.1", null, undefined])(
     "does not advertise new support for %s",
     (version) => {
       expect(supportsAgentBridge(version)).toBe(false);
     },
   );
-  it.each(["1.5.0", "1.5.12"])("advertises potential support for %s", (version) => {
+  it.each(["1.5.0", "1.5.12", "1.6.0"])("advertises potential support for %s", (version) => {
     expect(supportsAgentBridge(version)).toBe(true);
   });
   it("binds/configures before protected initial prompt and persists the actual receipt", async () => {

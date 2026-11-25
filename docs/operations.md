@@ -107,7 +107,7 @@ The web app shows this under Settings > Diagnostics.
 `switchyard doctor` runs local checks and prints PASS, WARN or FAIL per line; it exits non-zero when any check fails:
 
 - Node >=24;
-- Pi installed and in the supported range (>=1.4.0 <1.6.0);
+- Pi installed and in the supported range (>=1.4.0 <1.7.0);
 - git available;
 - the coordinator answers `/healthz`;
 - a "Sign-in" line: PASS when single sign-on or a passkey is available (showing both), WARN when neither is;
@@ -127,7 +127,7 @@ A missing Pi or git is a FAIL only on a machine with a host config; elsewhere (a
 
 Upgrade the coordinator before its hosts: a coordinator works with hosts one release older, not newer. Hosts are upgraded separately: `npm update -g @spencerboucher/switchyard`, then restart the installed service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux). Hosts and the coordinator reconnect on their own; running Pi sessions on a host stop when its agent restarts: sessions that were working show as interrupted until resumed; idle ones show as stopped and resume when you send to them.
 
-For policy-protected launches, upgrade hosts and Pi to the supported policy-capable range (`>=1.5.0 <1.6.0`) and verify the session's actual bridge protection state. Optional negotiation keeps older hosts browsable but does not protect their live Pi processes. Explicitly reload or restart old live sessions when appropriate; they are not silently replaced. Protected launches refuse unsupported hosts, and coordinator communication or policy evaluation failures block protected actions rather than allowing them. See [policies.md](policies.md).
+For policy-protected launches, upgrade hosts and Pi to the supported policy-capable range (`>=1.5.0 <1.7.0`) and verify the session's actual bridge protection state. Optional negotiation keeps older hosts browsable but does not protect their live Pi processes. Explicitly reload or restart old live sessions when appropriate; they are not silently replaced. Protected launches refuse unsupported hosts, and coordinator communication or policy evaluation failures block protected actions rather than allowing them. See [policies.md](policies.md).
 
 For GitHub, install and authenticate `gh` as the host user on each relevant host; missing or expired authentication is reported as an unavailable reason. See [github.md](github.md).
 

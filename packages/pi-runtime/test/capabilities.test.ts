@@ -24,19 +24,20 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("capabilities", () => {
   it("has the tested range", () => {
-    expect(SUPPORTED_RANGE).toBe(">=1.4.0 <1.6.0");
+    expect(SUPPORTED_RANGE).toBe(">=1.4.0 <1.7.0");
     expect(isSupportedVersion("1.4.0")).toBe(true);
     expect(isSupportedVersion("1.5.9")).toBe(true);
-    expect(isSupportedVersion("1.6.0")).toBe(false);
+    expect(isSupportedVersion("1.6.0")).toBe(true);
+    expect(isSupportedVersion("1.7.0")).toBe(false);
     expect(isSupportedVersion("1.3.9")).toBe(false);
-    expect(isSupportedVersion("1.6.0-beta.1")).toBe(false);
+    expect(isSupportedVersion("1.7.0-beta.1")).toBe(false);
   });
 
   it("refuses versions outside the range with the documented message", async () => {
-    const d = await detectPi(fakePi("1.6.2"));
-    expect(d).toMatchObject({ version: "1.6.2", compatible: false });
-    expect(d.reason).toBe("Pi 1.6.2 is outside the tested range >=1.4.0 <1.6.0");
-    expect(incompatibleMessage("1.6.2")).toBe(d.reason);
+    const d = await detectPi(fakePi("1.7.2"));
+    expect(d).toMatchObject({ version: "1.7.2", compatible: false });
+    expect(d.reason).toBe("Pi 1.7.2 is outside the tested range >=1.4.0 <1.7.0");
+    expect(incompatibleMessage("1.7.2")).toBe(d.reason);
     expect(() => assertCompatible(d)).toThrow(expect.objectContaining({ code: "pi_incompatible" }));
   });
 

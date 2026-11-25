@@ -21,7 +21,7 @@ export * from "./views.js";
 export * from "./web-bridge.js";
 
 export const PROTOCOL_VERSION = 1;
-export const PI_SUPPORTED_RANGE = ">=1.4.0 <1.6.0";
+export const PI_SUPPORTED_RANGE = ">=1.4.0 <1.7.0";
 export const DEFAULT_PORT = 7400;
 export const MARKERS = {
   done: "SWITCHYARD: DONE",

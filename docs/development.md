@@ -1,6 +1,6 @@
 # Development
 
-Requirements: Node 24 or newer, pnpm 12, git, and Pi `>=1.4.0 <1.6.0` on `PATH`. For feature placement, failure behavior and compatibility expectations, see the [core/plugin ownership contract](plugin-boundaries.md).
+Requirements: Node 24 or newer, pnpm 12, git, and Pi `>=1.4.0 <1.7.0` on `PATH`. For feature placement, failure behavior and compatibility expectations, see the [core/plugin ownership contract](plugin-boundaries.md).
 
 ```sh
 pnpm i

@@ -160,7 +160,7 @@ Details: [docs/auth.md](docs/auth.md) and the [privilege model](docs/deployment.
 License: [MIT](LICENSE).
 
 
-Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.6.0` (see [docs/compatibility.md](docs/compatibility.md) for supported and unsupported Pi capabilities) and runs on macOS and Linux hosts. What has and has not been verified is recorded in [docs/acceptance-report.md](docs/acceptance-report.md).
+Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.7.0` (see [docs/compatibility.md](docs/compatibility.md) for supported and unsupported Pi capabilities) and runs on macOS and Linux hosts. What has and has not been verified is recorded in [docs/acceptance-report.md](docs/acceptance-report.md).
 
 ## Documentation
 

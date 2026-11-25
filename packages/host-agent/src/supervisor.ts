@@ -124,7 +124,7 @@ export const SESSION_LIVE_CONFLICT = "Session already live on this host";
 
 /** Potential A.1 support; actual protection still requires a live configure receipt. */
 export function supportsAgentBridge(version: string | null | undefined): boolean {
-  return typeof version === "string" && /^1\.5\.\d+$/.test(version);
+  return typeof version === "string" && /^1\.[56]\.\d+$/.test(version);
 }
 
 /** What a session the previous agent lost becomes: mid-turn work is interrupted, idle is stopped. */
@@ -1063,7 +1063,7 @@ export class SessionSupervisor {
     )
       throw new SwitchyardError(
         "unsupported_capability",
-        "Required policies need Pi >=1.5.0 <1.6.0 and a negotiated policy broker",
+        "Required policies need Pi >=1.5.0 <1.7.0 and a negotiated policy broker",
       );
   }
 

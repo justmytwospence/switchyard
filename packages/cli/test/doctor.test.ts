@@ -97,7 +97,7 @@ describe("doctor", () => {
             ...okPi,
             version: "1.7.0",
             compatible: false,
-            reason: "Pi 1.7.0 is outside the tested range >=1.4.0 <1.6.0",
+            reason: "Pi 1.7.0 is outside the tested range >=1.4.0 <1.7.0",
           }),
         },
         HOST,

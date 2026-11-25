@@ -4,14 +4,14 @@ Switchyard drives Pi through `pi --mode rpc`, one child process per live session
 
 - **Pi version tested:** 1.4.0 (Homebrew `pi-coding-agent` 1.4.0), on Node 26.13.0.
 - **Date:** 2026-11-02.
-- **Supported range:** `>=1.4.0 <1.6.0` (`SUPPORTED_RANGE` in `pi-runtime`; prereleases are not accepted).
-- **Outside the range:** the host refuses to start sessions with "Pi <v> is outside the tested range >=1.4.0 <1.6.0" (`pi_incompatible`).
+- **Supported range:** `>=1.4.0 <1.7.0` (`SUPPORTED_RANGE` in `pi-runtime`; prereleases are not accepted).
+- **Outside the range:** the host refuses to start sessions with "Pi <v> is outside the tested range >=1.4.0 <1.7.0" (`pi_incompatible`).
 
 The gate tests run the real installed `pi` (override with `SWITCHYARD_PI_BIN`) against a scripted OpenAI Chat Completions SSE server (`test-fixtures/mock-model-server.ts`, provider `mock`, api `openai-completions`) in an isolated `PI_CODING_AGENT_DIR` with `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` and `PI_TELEMETRY=0`. No network, no cost. A missing Pi fails the tests; only `SWITCHYARD_SKIP_REAL_PI=1` skips them.
 
 ## Orchestration and policy negotiation
 
-Host and coordinator negotiate optional features without a global protocol version bump. Older hosts remain connected and browsable, but protected launches require a capable host and Pi `>=1.5.0 <1.6.0`. Actual bridge state, not host capability alone, determines protection. A live Pi process with an older bridge remains unprotected until explicitly reloaded or restarted; it is not silently restarted. See [operations.md](operations.md#upgrading) and [policies.md](policies.md). Feature negotiation is a permanent compatibility mechanism, not a temporary shim.
+Host and coordinator negotiate optional features without a global protocol version bump. Older hosts remain connected and browsable, but protected launches require a capable host and Pi `>=1.5.0 <1.7.0`. Actual bridge state, not host capability alone, determines protection. A live Pi process with an older bridge remains unprotected until explicitly reloaded or restarted; it is not silently restarted. See [operations.md](operations.md#upgrading) and [policies.md](policies.md). Feature negotiation is a permanent compatibility mechanism, not a temporary shim.
 
 Pre-provider `model_request` enforcement is deferred; no compatibility claim implies a spending cap during a running turn.
 

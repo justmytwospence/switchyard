@@ -22,4 +22,4 @@ Inspiration sources from spec section 2, with the revision or access date used. 
 | Pi RPC types                                             | https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/modes/rpc/rpc-types.ts                             | blob `7fc71516aebb8b68ea019f1df4eef966eeaa17c7`, identical in v1.4.0, v1.5.0 and main `642e30b68930a644050794011555a04ed9027eb4` |
 | Vibe Kanban shutdown                                     | https://vibekanban.com/blog/shutdown                                                                                        | access date only                                                                                                                 |
 
-Pi installed and tested: 1.4.0. npm latest at access time: 1.5.0. Supported range: `>=1.4.0 <1.6.0`.
+Pi installed and tested: 1.4.0. npm latest at access time: 1.5.0. Supported range: `>=1.4.0 <1.7.0` (1.6.0 added 2026-11-25).
