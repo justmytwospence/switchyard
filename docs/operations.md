@@ -54,7 +54,7 @@ The durable event log keeps 30 days by default. A sweep runs at start and then h
 
 The window is the `retentionDays` row in the coordinator's `settings` table. There is no CLI flag, environment variable or API endpoint to change it in this version; the value in effect is reported under `events.retentionDays` in `GET /api/diagnostics`. Transcript items, tasks, runs and sessions are not subject to this sweep.
 
-On each host, the outbox keeps acknowledged events for 24 hours (for diagnostics) and then prunes them; unacknowledged events are never pruned.
+On each host, the outbox keeps acknowledged events for 24 hours (for diagnostics) and then prunes them, at most once a minute; unacknowledged events are never pruned. Panel updates are the exception to "every event is kept": only a panel's latest state matters, so an unacknowledged update is replaced by the next one for the same panel, and the coordinator's event log keeps one event per panel. A generic Status or widget panel whose text only ticks (a countdown, a counter: digits change and nothing else) is sent at most every 30 seconds; any other change is sent at once.
 
 ## Logs
 

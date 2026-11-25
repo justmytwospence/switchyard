@@ -79,6 +79,7 @@ import {
   resolvePolicyBoundary,
   unverifiedBoundary,
 } from "./policy-context.js";
+import { TickThrottle } from "./tick-throttle.js";
 
 export const RESTART_NOTICE = "Host agent restarted while Pi was working; resume to continue";
 export const RESTART_DETAIL = "Host agent restarted";
@@ -257,6 +258,8 @@ interface Live {
   byPiRequest: Map<string, string>;
   chain: Promise<void>;
   statuses: Map<string, string>;
+  /** Generic status and widget panels, rate-limited while they only tick. */
+  genericPanels: TickThrottle<Omit<Panel, "sessionId" | "updatedAt">>;
   subagents: Map<string, { id: string; order: number }>;
   awaitingSettled: boolean;
   deferredIdle: { detail: string | null } | null;
@@ -659,6 +662,7 @@ export class SessionSupervisor {
       byPiRequest: new Map(),
       chain: Promise.resolve(),
       statuses: new Map(),
+      genericPanels: new TickThrottle((_slot, panel) => this.setPanel(rec.id, panel)),
       subagents: new Map(),
       awaitingSettled: false,
       deferredIdle: null,
@@ -2379,6 +2383,7 @@ export class SessionSupervisor {
     l.registry?.closeSession(l.rec.id);
     this.opts.catalog.releaseSession(l.rec.id);
     l.claims.clear();
+    l.genericPanels.clear();
     l.ms = null;
   }
 
@@ -2645,7 +2650,7 @@ export class SessionSupervisor {
         if (presented || req.statusText === undefined || req.statusText === "") {
           l.statuses.delete(req.statusKey);
         } else l.statuses.set(req.statusKey, req.statusText);
-        this.setPanel(rec.id, {
+        l.genericPanels.offer("status", {
           adapterId: GENERIC_ADAPTER_ID,
           slot: "status",
           title: "Status",
@@ -2657,7 +2662,7 @@ export class SessionSupervisor {
       }
       case "setWidget": {
         const presented = (await l.adapters?.onWidget(req.widgetKey, req.widgetLines)) === true;
-        this.setPanel(rec.id, {
+        l.genericPanels.offer(`widget:${req.widgetKey}`, {
           adapterId: GENERIC_ADAPTER_ID,
           slot: `widget:${req.widgetKey}`,
           title: req.widgetKey,
@@ -3009,7 +3014,11 @@ export class SessionSupervisor {
           [sessionId, p.adapterId, p.slot, JSON.stringify(panel)],
         );
       }
-      this.link.emit({ type: "panel.updated", sessionId, data: panel });
+      // Only the latest state of a panel matters: an unsent older one is dropped.
+      this.link.emit(
+        { type: "panel.updated", sessionId, data: panel },
+        { coalesce: `panel:${sessionId}:${p.adapterId}:${p.slot}` },
+      );
     });
   }
 

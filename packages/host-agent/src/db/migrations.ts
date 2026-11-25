@@ -116,4 +116,21 @@ CREATE INDEX message_receipts_due ON message_receipts (next_attempt_at)
   WHERE state NOT IN ('appended', 'failed');
 `,
   },
+  {
+    name: "004_outbox_coalesce",
+    sql: `
+-- Events of which only the latest matters (panel updates) carry a key; emitting one drops the
+-- unacked rows with the same key. Existing panel rows are keyed and their backlog collapsed.
+ALTER TABLE outbox ADD COLUMN coalesce_key TEXT;
+UPDATE outbox SET coalesce_key = 'panel:' || json_extract(json, '$.data.sessionId') || ':'
+    || json_extract(json, '$.data.adapterId') || ':' || json_extract(json, '$.data.slot')
+  WHERE json_extract(json, '$.type') = 'panel.updated';
+CREATE INDEX outbox_coalesce ON outbox (coalesce_key, host_seq) WHERE coalesce_key IS NOT NULL;
+DELETE FROM outbox
+  WHERE coalesce_key IS NOT NULL
+    AND host_seq > COALESCE((SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'outbox.ackedHostSeq'), 0)
+    AND host_seq < (SELECT MAX(o.host_seq) FROM outbox o WHERE o.coalesce_key = outbox.coalesce_key);
+CREATE INDEX outbox_created ON outbox (created_at);
+`,
+  },
 ];

@@ -31,6 +31,10 @@ import type { Logger } from "./logger.js";
 
 /** Acked outbox rows are kept this long for diagnostics. */
 export const OUTBOX_RETENTION_MS = 24 * 60 * 60 * 1000;
+/** Acked rows past retention are pruned at most this often, not on every ack. */
+const OUTBOX_PRUNE_INTERVAL_MS = 60_000;
+/** Outbox rows read and sent per step of a replay. */
+const FLUSH_PAGE = 500;
 const ACKED_META = "outbox.ackedHostSeq";
 const AGENT_FEATURES = ["agentRequests.v1", "policies.v1"] as const;
 /** Host features the coordinator gates commands on; not negotiated in `welcome`. */
@@ -137,6 +141,7 @@ export class CoordinatorLink {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   private lastPong = Date.now();
+  private lastPruneAt = 0;
   private flushScheduled = false;
   private advertisedFeatures = new Set<string>();
   private features = new Set<string>();
@@ -206,7 +211,7 @@ export class CoordinatorLink {
    * Persist a durable event in the outbox and send it once committed. Call inside the same
    * `db.tx()` as the state change that caused it.
    */
-  emit(input: HostEventInput): OutboxRow {
+  emit(input: HostEventInput, opts: { coalesce?: string } = {}): OutboxRow {
     const event: HostEvent = {
       eventId: newId("evt"),
       type: input.type,
@@ -218,20 +223,28 @@ export class CoordinatorLink {
       ...(input.taskId ? { taskId: input.taskId } : {}),
     };
     const createdAt = new Date().toISOString();
+    // A coalesced event replaces the unacked ones with its key: a backlog built while the
+    // coordinator is away or slow holds one row per key, not one per update.
+    if (opts.coalesce) {
+      this.db.run("DELETE FROM outbox WHERE coalesce_key = ? AND host_seq > ?", [
+        opts.coalesce,
+        this.ackedHostSeq(),
+      ]);
+    }
     const { lastInsertRowid } = this.db.run(
-      "INSERT INTO outbox (event_id, json, created_at) VALUES (?, ?, ?)",
-      [event.eventId, JSON.stringify(event), createdAt],
+      "INSERT INTO outbox (event_id, json, created_at, coalesce_key) VALUES (?, ?, ?, ?)",
+      [event.eventId, JSON.stringify(event), createdAt, opts.coalesce ?? null],
     );
     this.db.afterCommit(() => this.scheduleFlush());
     return { hostSeq: lastInsertRowid, eventId: event.eventId, event, createdAt };
   }
 
   /** Outbox rows above `afterSeq`, in order. */
-  pending(afterSeq = this.ackedHostSeq()): OutboxRow[] {
+  pending(afterSeq = this.ackedHostSeq(), limit = -1): OutboxRow[] {
     return this.db
       .all<{ host_seq: number; event_id: string; json: string; created_at: string }>(
-        "SELECT host_seq, event_id, json, created_at FROM outbox WHERE host_seq > ? ORDER BY host_seq",
-        [afterSeq],
+        "SELECT host_seq, event_id, json, created_at FROM outbox WHERE host_seq > ? ORDER BY host_seq LIMIT ?",
+        [afterSeq, limit],
       )
       .map((r) => ({
         hostSeq: r.host_seq,
@@ -569,6 +582,10 @@ export class CoordinatorLink {
   private recordAck(hostSeq: number): void {
     const prev = this.ackedHostSeq();
     if (hostSeq > prev) this.db.setMeta(ACKED_META, String(hostSeq));
+    // The prune reads every acked row; once a minute is plenty for a diagnostics window.
+    const now = Date.now();
+    if (now - this.lastPruneAt < OUTBOX_PRUNE_INTERVAL_MS) return;
+    this.lastPruneAt = now;
     const cutoff = new Date(Date.now() - OUTBOX_RETENTION_MS).toISOString();
     this.db.run("DELETE FROM outbox WHERE host_seq <= ? AND created_at < ?", [
       Math.max(prev, hostSeq),
@@ -588,9 +605,18 @@ export class CoordinatorLink {
   /** Send every committed outbox row above `sentUpTo`, in order. */
   private flush(): void {
     if (!this.ready) return;
-    for (const row of this.pending(this.sentUpTo)) {
+    const rows = this.pending(this.sentUpTo, FLUSH_PAGE);
+    for (const row of rows) {
       if (!this.send({ type: "event", hostSeq: row.hostSeq, event: row.event })) return;
       this.sentUpTo = row.hostSeq;
+    }
+    // A long replay is sent a page per turn of the event loop, so pings and acks get through.
+    if (rows.length === FLUSH_PAGE) {
+      this.flushScheduled = true;
+      setImmediate(() => {
+        this.flushScheduled = false;
+        this.flush();
+      });
     }
   }
 

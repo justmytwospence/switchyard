@@ -30,12 +30,47 @@ describe("host db", () => {
       "INSERT INTO interactions (id, session_id, revision, state, json) VALUES (?, ?, ?, ?, ?)",
       ["int_1", "ses_1", 1, "cancelled", '{"id":"int_1","state":"cancelled"}'],
     );
-    expect(db.migrate()).toEqual(["002_interaction_canceled", "003_agent_messages"]);
+    expect(db.migrate()).toEqual([
+      "002_interaction_canceled",
+      "003_agent_messages",
+      "004_outbox_coalesce",
+    ]);
     const row = db.get<{ state: string; json: string }>(
       "SELECT state, json FROM interactions WHERE id = 'int_1'",
     );
     expect(row?.state).toBe("canceled");
     expect(JSON.parse(row!.json).state).toBe("canceled");
+    db.close();
+  });
+
+  it("collapses the unacked panel backlog in migration 004", () => {
+    const db = new HostDb(":memory:");
+    db.migrate(MIGRATIONS.filter((m) => m.name < "004"));
+    const add = (type: string, slot: string, n: number) =>
+      db.run("INSERT INTO outbox (event_id, json, created_at) VALUES (?, ?, ?)", [
+        `evt_${type}_${slot}_${n}`,
+        JSON.stringify({ type, data: { sessionId: "ses_1", adapterId: "generic", slot, n } }),
+        "2026-01-01T00:00:00.000Z",
+      ]);
+    for (let n = 1; n <= 3; n++) add("panel.updated", "status", n); // seq 1-3
+    add("transcript.item", "x", 1); // 4
+    for (let n = 4; n <= 6; n++) add("panel.updated", "status", n); // 5-7
+    add("panel.updated", "widget:w", 1); // 8
+    db.setMeta("outbox.ackedHostSeq", "2");
+    expect(db.migrate()).toEqual(["004_outbox_coalesce"]);
+    expect(
+      db
+        .all<{ host_seq: number; coalesce_key: string | null }>(
+          "SELECT host_seq, coalesce_key FROM outbox ORDER BY host_seq",
+        )
+        .map((r) => [r.host_seq, r.coalesce_key]),
+    ).toEqual([
+      [1, "panel:ses_1:generic:status"],
+      [2, "panel:ses_1:generic:status"],
+      [4, null],
+      [7, "panel:ses_1:generic:status"],
+      [8, "panel:ses_1:generic:widget:w"],
+    ]);
     db.close();
   });
 

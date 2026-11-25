@@ -114,6 +114,59 @@ describe("coordinator link", () => {
     expect(messages(h, mark2)).toEqual(["m7"]);
   });
 
+  it("keeps one unacked row per coalesce key and replays a long backlog in pages", async () => {
+    await h.coord.close();
+    await waitFor(() => !h.agent.link.connected, 5000, "host notices");
+    const acked = h.agent.link.ackedHostSeq();
+    const tick = (key: string, n: number) =>
+      h.agent.db.tx(() =>
+        h.agent.link.emit(
+          {
+            type: "diagnostic",
+            data: {
+              sessionId: null,
+              adapterId: null,
+              level: "info",
+              message: `t-${key}-${n}`,
+              at: new Date().toISOString(),
+            },
+          },
+          { coalesce: key },
+        ),
+      );
+    for (let n = 1; n <= 50; n++) {
+      tick("a", n);
+      tick("b", n);
+    }
+    for (let n = 1; n <= 1200; n++) diag(h, `m${n}`);
+    const text = (r: { event: { data: unknown } }) =>
+      (r.event.data as { message?: string }).message ?? "";
+    expect(
+      h.agent.link
+        .pending(acked)
+        .map(text)
+        .filter((m) => m.startsWith("t-")),
+    ).toEqual(["t-a-50", "t-b-50"]);
+
+    const mark = h.coord.events.length;
+    await h.coord.listen();
+    await h.coord.waitUntil(() => messages(h, mark).length >= 1200, 15000, "paged replay");
+    expect(messages(h, mark)).toEqual(Array.from({ length: 1200 }, (_, i) => `m${i + 1}`));
+    await waitFor(
+      () => h.agent.link.ackedHostSeq() === h.agent.link.lastHostSeq(),
+      10000,
+      "all acked",
+    );
+    // Acked rows are history: a later update with the key adds a row and leaves them alone.
+    tick("a", 51);
+    await waitFor(
+      () => h.agent.link.ackedHostSeq() === h.agent.link.lastHostSeq(),
+      5000,
+      "t-a-51 acked",
+    );
+    expect(h.agent.link.pending(acked).map(text)).toContain("t-a-50");
+  });
+
   it("emit() inside a rolled-back transaction sends nothing", async () => {
     const before = h.agent.link.lastHostSeq();
     expect(() =>

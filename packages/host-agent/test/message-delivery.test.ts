@@ -132,9 +132,9 @@ describe("host migration 003_agent_messages", () => {
     db.migrate(MIGRATIONS.filter((m) => m.name < "003"));
     const json = '{"id":"s1","runtime":"stopped"}';
     db.run("INSERT INTO sessions (id, json) VALUES ('s1', ?)", [json]);
-    expect(db.migrate()).toEqual(["003_agent_messages"]);
+    expect(db.migrate()).toEqual(["003_agent_messages", "004_outbox_coalesce"]);
     expect(db.migrate()).toEqual([]);
-    expect(db.migrationLevel()).toBe("003_agent_messages");
+    expect(db.migrationLevel()).toBe("004_outbox_coalesce");
     expect(db.get<{ json: string }>("SELECT json FROM sessions")?.json).toBe(json);
     const columns = db
       .all<{ name: string }>("PRAGMA table_info(message_receipts)")
