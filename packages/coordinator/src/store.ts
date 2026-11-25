@@ -897,6 +897,33 @@ export class Store {
       .run(p.sessionId, p.adapterId, p.slot, JSON.stringify(p));
   }
 
+  /**
+   * Record `seq` as the journal event of a panel's current state and delete the event it
+   * supersedes. Call after `upsertPanel`/`deletePanel` and `appendEvent`, in one transaction;
+   * a deleted panel's tombstone event stays.
+   */
+  supersedePanelEvent(
+    panel: Pick<Panel, "sessionId" | "adapterId" | "slot">,
+    previousSeq: number | null,
+    seq: number,
+  ): void {
+    if (previousSeq !== null)
+      this.st.get("DELETE FROM events WHERE seq = ? AND type = 'panel.updated'").run(previousSeq);
+    this.st
+      .get("UPDATE panels SET event_seq = ? WHERE session_id = ? AND adapter_id = ? AND slot = ?")
+      .run(seq, panel.sessionId, panel.adapterId, panel.slot);
+  }
+
+  /** The journal event that carries a panel's current state, when known. */
+  panelEventSeq(panel: Pick<Panel, "sessionId" | "adapterId" | "slot">): number | null {
+    const r = this.st
+      .get("SELECT event_seq FROM panels WHERE session_id = ? AND adapter_id = ? AND slot = ?")
+      .get(panel.sessionId, panel.adapterId, panel.slot) as
+      | { event_seq: number | null }
+      | undefined;
+    return r?.event_seq ?? null;
+  }
+
   deletePanel(sessionId: string, adapterId: string, slot: string): void {
     this.st
       .get("DELETE FROM panels WHERE session_id = ? AND adapter_id = ? AND slot = ?")

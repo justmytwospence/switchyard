@@ -61,6 +61,44 @@ describe("client sync", () => {
     c.close();
   });
 
+  it("keeps only the latest journal event of a panel", async () => {
+    t = await startCoordinator();
+    const host = await FakeHost.connect(t, await enrollHost(t));
+    await host.event("session.updated", hostSession("ses_tick", { runtime: "idle" }));
+    const panel = (slot: string, text: string | null) => ({
+      sessionId: "ses_tick",
+      adapterId: "generic",
+      slot,
+      title: "Status",
+      node: text === null ? null : { t: "text", text },
+      mobileFallback: null,
+      webRenderer: false,
+      updatedAt: new Date().toISOString(),
+    });
+    for (const text of ["cache 3", "cache 2", "cache 1"])
+      await host.event("panel.updated", panel("status", text));
+    await host.event("panel.updated", panel("other", "x"));
+    const journal = () =>
+      (
+        t.c.store.st
+          .get("SELECT json FROM events WHERE type = 'panel.updated' ORDER BY seq")
+          .all() as { json: string }[]
+      ).map((r) => {
+        const p = JSON.parse(r.json) as { slot: string; node: { text: string } | null };
+        return [p.slot, p.node?.text ?? null];
+      });
+    expect(journal()).toEqual([
+      ["status", "cache 1"],
+      ["other", "x"],
+    ]);
+    // Removing a panel replaces its event with the tombstone.
+    await host.event("panel.updated", panel("status", null));
+    expect(journal()).toEqual([
+      ["other", "x"],
+      ["status", null],
+    ]);
+  });
+
   it("projects contributed panels and cards independently for old and new clients", async () => {
     t = await startCoordinator();
     const hostCreds = await enrollHost(t);

@@ -16,6 +16,7 @@ import { sql as trackers } from "./migrations/014_trackers.js";
 import { sql as trackedIssues } from "./migrations/015_tracked_issues.js";
 import { sql as sessionLinks } from "./migrations/016_session_links.js";
 import { sql as surfaces } from "./migrations/017_surfaces.js";
+import { sql as panelEventSeq } from "./migrations/018_panel_event_seq.js";
 
 export interface Migration {
   version: number;
@@ -42,6 +43,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 15, name: "015_tracked_issues", sql: trackedIssues },
   { version: 16, name: "016_session_links", sql: sessionLinks },
   { version: 17, name: "017_surfaces", sql: surfaces },
+  { version: 18, name: "018_panel_event_seq", sql: panelEventSeq },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

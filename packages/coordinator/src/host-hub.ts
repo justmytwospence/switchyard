@@ -948,14 +948,16 @@ export class HostHub {
           }
         }
         const session = this.ownedSession(hostId, panel.sessionId);
+        const previousSeq = this.store.panelEventSeq(panel);
         if (panel.node === null && !panel.webRenderer)
           this.store.deletePanel(panel.sessionId, panel.adapterId, panel.slot);
         else this.store.upsertPanel(panel);
-        this.store.appendEvent(
+        const env = this.store.appendEvent(
           "panel.updated",
           { hostId, sessionId: panel.sessionId, projectId: session?.projectId ?? undefined },
           panel,
         );
+        this.store.supersedePanelEvent(panel, previousSeq, env.seq);
         return;
       }
       case "adapters.updated": {
