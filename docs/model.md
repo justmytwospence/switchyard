@@ -35,6 +35,7 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 - **A view decides which branches you see; a surface decides where.** Every surface bound to a view shows the same sessions, and the web app and phone select a view of their own. Closing a tab in one surface archives the session everywhere.
 - **Where a session was started is a fact on the session.** A view whose source is a terminal (`--client herdr:<session>`) holds every Pi started there, including ones that started before the view existed.
 - **Cleanup follows the branch.** When the pull request merges and the worktree is clean and idle, its sessions are archived and the worktree removed (with "Remove merged worktrees" on).
+- **A branch keeps its latest session.** Ended sessions that are not the primary are archived after three days, with their subagents ([operations.md](operations.md#ended-sessions)).
 
 ## Where work shows
 

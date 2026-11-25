@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { COORDINATOR_VERSION, type CoordinatorContext } from "../context.js";
 import { LATEST_MIGRATION, migrationLevel } from "../db/index.js";
 import { VERSIONS } from "../ops.js";
+import { sessionArchiveDays } from "../session-retention.js";
 
 export function registerOpsRoutes(app: FastifyInstance, ctx: CoordinatorContext): void {
   app.get("/healthz", async () => ({ ok: true }));
@@ -46,6 +47,7 @@ export function registerOpsRoutes(app: FastifyInstance, ctx: CoordinatorContext)
         minRetainedSeq: ctx.store.minRetainedSeq(),
         retentionDays: ctx.store.retentionDays,
       },
+      sessions: { archiveEndedAfterDays: sessionArchiveDays(ctx.store) },
       push: {
         vapidConfigured: ctx.store.getSetting<unknown>("vapid", null) !== null,
         subscriptions: ctx.store.listPushSubscriptions().length,

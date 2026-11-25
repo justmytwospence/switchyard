@@ -56,6 +56,15 @@ The window is the `retentionDays` row in the coordinator's `settings` table. The
 
 On each host, the outbox keeps acknowledged events for 24 hours (for diagnostics) and then prunes them, at most once a minute; unacknowledged events are never pruned. Panel updates are the exception to "every event is kept": only a panel's latest state matters, so an unacknowledged update is replaced by the next one for the same panel, and the coordinator's event log keeps one event per panel. A generic Status or widget panel whose text only ticks (a countdown, a counter: digits change and nothing else) is sent at most every 30 seconds; any other change is sent at once.
 
+### Ended sessions
+
+The same hourly sweep archives ended sessions nobody will come back to, so a checkout that sees one session after another keeps its latest and not a growing "+N":
+
+- an ended (stopped, failed or interrupted) session that is not its branch's primary, with no activity for 3 days;
+- an ended subagent with no activity for 3 days, or whose parent session is archived.
+
+A branch's primary session, live sessions, sessions pinned to a view, task sessions and sessions with an open question are never archived this way. An archived session is hidden, not deleted: it is unarchived when its Pi comes back (resumed in a terminal) or from the session menu. The window is the `sessionArchiveDays` row in the `settings` table (`0` turns it off), reported under `sessions.archiveEndedAfterDays` in `GET /api/diagnostics`.
+
 ## Logs
 
 The coordinator writes structured JSON (pino) to stdout. Set the level with `SWITCHYARD_LOG_LEVEL` (default `info`).

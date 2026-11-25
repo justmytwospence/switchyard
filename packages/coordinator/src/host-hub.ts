@@ -16,6 +16,7 @@ import {
   HostToCoordinator,
   type HostToolPolicyContext,
   Interaction,
+  isLiveRuntime,
   newId,
   Panel,
   PROTOCOL_VERSION,
@@ -1128,6 +1129,9 @@ export class HostHub {
         };
     }
     const prev = existing?.runtime;
+    // An archived session whose Pi comes back (resumed in a terminal) is work again.
+    if (existing?.archivedAt && prev && !isLiveRuntime(prev) && isLiveRuntime(next.runtime))
+      next.archivedAt = null;
     const finished = (prev === "running" || prev === "waiting_input") && next.runtime === "idle";
     const settled = (raw.settled ?? null) as {
       aborted?: boolean;
