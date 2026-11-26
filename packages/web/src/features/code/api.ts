@@ -101,6 +101,9 @@ export const codeApi = {
     apiPost<ModelStateResult>(`${s(id)}/thinking`, { level }),
   compact: (id: string, instructions?: string | null) =>
     apiPost<{ ok: true }>(`${s(id)}/compact`, instructions ? { instructions } : {}),
+  /** Edit queue: take every queued message back out of Pi's queue. */
+  clearQueue: (id: string) =>
+    apiPost<{ steering: string[]; followUp: string[] }>(`${s(id)}/queue/clear`),
   abort: (id: string, clearQueue = false) => apiPost(`${s(id)}/abort`, { clearQueue }),
   stop: (id: string) => apiPost<Session>(`${s(id)}/stop`),
   resume: (id: string) => apiPost<Session>(`${s(id)}/resume`),

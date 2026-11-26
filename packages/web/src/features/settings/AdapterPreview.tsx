@@ -234,7 +234,9 @@ export function PreviewFrame({ preview, phone, disabled, onAction }: PreviewFram
   const placements = [
     "sidebar.header",
     "session.panel",
+    "composer.tracker",
     "composer.pill",
+    "session.badge",
     "palette.item",
     "slash.command",
     "sidebar.footer",

@@ -73,6 +73,7 @@ export default {
       return {
         title: first.question,
         ownerToolCallId: toolCallId,
+        kind: "question",
         presentation: {
           t: "form",
           formId: `ask-user-question:${toolCallId}`,

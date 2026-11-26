@@ -39,7 +39,7 @@ import {
   sessionWhereToken,
   type Where,
 } from "../scopes/where";
-import { describeTool } from "./toolView";
+import { toolViewOf } from "./toolView";
 
 /**
  * Pure helpers for the Code feature (navigator tree, composer state,
@@ -1188,19 +1188,40 @@ export function buildTimeline(
 }
 
 /**
+ * Tool calls a question stands for: the dock shows the question while it waits and the transcript
+ * its outcome line afterwards, so the call's own row would say it twice. An approval keeps its
+ * row (it is the command being approved), and so does a dialog nobody described.
+ */
+export function questionToolCalls(
+  interactions: Iterable<Pick<Interaction, "sessionId" | "kind" | "toolCallId">>,
+  sessionId: string,
+): Set<string> {
+  const out = new Set<string>();
+  for (const i of interactions) {
+    if (i.sessionId === sessionId && i.kind === "question" && i.toolCallId) out.add(i.toolCallId);
+  }
+  return out;
+}
+
+/**
  * The entries the transcript draws. A pending interaction is answered in the dock, so its row is
- * dropped unless `keepsRow` says it still has one (a plan's text). Suggestions show in the composer.
+ * dropped unless `keepsRow` says it still has one (a plan's text). Suggestions show in the
+ * composer. A tool row is dropped when its view says `hide` or a question stands for the call.
  */
 export function transcriptEntries(
   entries: TimelineEntry[],
   pending: Interaction[],
   keepsRow: (i: Interaction) => boolean,
+  hiddenToolCalls: ReadonlySet<string> = new Set(),
 ): TimelineEntry[] {
   const docked = new Set(pending.filter((i) => !keepsRow(i)).map((i) => i.id));
   return entries.filter((e) => {
     if (e.type === "interaction") return !docked.has(e.interaction.id);
     if (e.type !== "item") return true;
     if (e.item.kind === "interaction") return !docked.has(e.item.data.interactionId);
+    if (e.item.kind === "tool") {
+      return e.item.data.view?.hide !== true && !hiddenToolCalls.has(e.item.data.toolCallId);
+    }
     return !(e.item.kind === "system" && e.item.data.suggestion === true);
   });
 }
@@ -1273,7 +1294,7 @@ export function summarizeWork(entries: TimelineEntry[], turnStartAt: string | nu
     if (item.kind === "tool") {
       const d = item.data;
       if (d.status === "error") s.failed += 1;
-      const view = describeTool(d, null);
+      const view = toolViewOf(d, null);
       switch (view.kind) {
         case "edit":
         case "write":

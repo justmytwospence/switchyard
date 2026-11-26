@@ -22,6 +22,7 @@ import {
   foldTimeline,
   interactionDomId,
   isBusy,
+  questionToolCalls,
   transcriptEntries,
   workingSince,
 } from "./model";
@@ -91,17 +92,25 @@ export function Transcript({
   const loadTranscript = useSyncStore((s) => s.loadTranscript);
   const level = usePrefs((s) => s.transcriptDetail);
   const busy = session ? isBusy(session) : false;
+  const interactions = useSyncStore((s) => s.interactions);
+  const answeredByQuestion = useMemo(
+    () => questionToolCalls(Object.values(interactions), sessionId),
+    [interactions, sessionId],
+  );
   const entries = useMemo(
     () =>
       foldTimeline(
         // A pending question is in the dock; only a plan's text keeps a row here.
-        transcriptEntries(buildTimeline(t.items, streams, pending), pending, (i) =>
-          isDocumentPresentation(i.presentation),
+        transcriptEntries(
+          buildTimeline(t.items, streams, pending),
+          pending,
+          (i) => isDocumentPresentation(i.presentation),
+          answeredByQuestion,
         ),
         busy,
         level,
       ),
-    [t.items, streams, pending, level, busy],
+    [t.items, streams, pending, level, busy, answeredByQuestion],
   );
   // The Working line ends the transcript unless a folded running turn already says it.
   const working =

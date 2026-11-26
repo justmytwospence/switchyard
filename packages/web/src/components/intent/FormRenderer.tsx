@@ -1,6 +1,6 @@
 import type { Field, FieldOption, UINode } from "@switchyard/protocol";
 import { Check } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/Button";
 import { TextArea, TextInput } from "../ui/TextArea";
@@ -45,9 +45,48 @@ export function FormRenderer({ node, className }: FormRendererProps) {
   const at = Math.min(step, visible.length - 1);
   const last = at === visible.length - 1;
   const shown = stepped ? visible.slice(at, at + 1) : visible;
+  const formRef = useRef<HTMLFormElement>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  // A question in the dock: 1 to 9 pick an option of the question on screen. Picking the only
+  // choice of the last question moves focus to Submit, so Enter sends it; nothing is sent by a
+  // digit alone.
+  const only = shown.length === 1 ? shown[0]! : null;
+  const keyField = dock?.keys && !locked && only && only.kind !== "text" ? only : null;
+  const keyState = keyField ? state[keyField.name] : undefined;
+  useEffect(() => {
+    if (!keyField || !keyState) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || !/^[1-9]$/.test(e.key))
+        return;
+      const form = formRef.current;
+      // Hidden (another question is showing, or the dock is folded): not this form's key.
+      if (!form || form.offsetParent === null) return;
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      const typing =
+        t !== null &&
+        (t.isContentEditable ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          (t instanceof HTMLInputElement && t.type !== "radio" && t.type !== "checkbox"));
+      if (typing) return;
+      const option = keyField.options[Number(e.key) - 1];
+      if (!option) return;
+      e.preventDefault();
+      if (keyField.kind === "multiselect") {
+        setField(keyField.name, toggleMulti(keyState, option.value, keyField.max));
+        return;
+      }
+      setField(keyField.name, chooseSelect(keyState, option.value));
+      if (stepped && !last) setStep(at + 1);
+      else submitRef.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
 
   return (
     <form
+      ref={formRef}
       className={cn("flex flex-col gap-4", className)}
       noValidate
       onSubmit={(e) => {
@@ -109,6 +148,7 @@ export function FormRenderer({ node, className }: FormRendererProps) {
           error={attempted ? errors[f.name] : undefined}
           disabled={locked}
           hideLabel={!!dock && f.label.trim() === dock.title.trim()}
+          keycaps={keyField === f}
         />
       ))}
       {!disabled && (
@@ -123,7 +163,7 @@ export function FormRenderer({ node, className }: FormRendererProps) {
               Next
             </Button>
           ) : (
-            <Button type="submit" variant="primary" busy={busy}>
+            <Button ref={submitRef} type="submit" variant="primary" busy={busy}>
               {node.submitLabel || "Submit"}
             </Button>
           )}
@@ -153,6 +193,7 @@ function FieldView({
   error,
   disabled,
   hideLabel,
+  keycaps,
 }: {
   field: Field;
   state: FieldState;
@@ -161,6 +202,8 @@ function FieldView({
   disabled?: boolean;
   /** The surrounding dock already shows this label as its title. */
   hideLabel?: boolean;
+  /** Number the first nine options: the keys 1 to 9 pick them. */
+  keycaps?: boolean;
 }) {
   const id = useId();
   const errId = `${id}-err`;
@@ -224,11 +267,12 @@ function FieldView({
       </legend>
       {hint && hideLabel && <p className="text-sm text-muted">{hint}</p>}
       <div className="grid gap-2">
-        {field.options.map((o) => (
+        {field.options.map((o, i) => (
           <OptionCard
             key={o.value}
             name={id}
             option={o}
+            keycap={keycaps && i < 9 ? i + 1 : undefined}
             multi={multi}
             checked={state.selected.includes(o.value)}
             disabled={disabled}
@@ -291,9 +335,11 @@ function OptionCard({
   checked,
   disabled,
   onToggle,
+  keycap,
 }: {
   name: string;
   option: FieldOption;
+  keycap?: number;
   multi: boolean;
   checked: boolean;
   disabled?: boolean;
@@ -338,6 +384,14 @@ function OptionCard({
           <span className="block text-muted break-words">{option.description}</span>
         )}
       </span>
+      {keycap !== undefined && (
+        <kbd
+          aria-hidden
+          className="mt-0.5 hidden h-5 min-w-5 shrink-0 items-center justify-center rounded border border-border-strong px-1 font-mono text-[11px] text-muted pointer-fine:inline-flex"
+        >
+          {keycap}
+        </kbd>
+      )}
     </label>
   );
 }

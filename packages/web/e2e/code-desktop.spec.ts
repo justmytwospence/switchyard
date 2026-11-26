@@ -285,6 +285,52 @@ test.describe("desktop coding view", () => {
     expect(prompts[0]!.postDataJSON().mode).toBe("followUp");
     await expect(box).toHaveValue("");
     await expect(page.getByTestId("queued-messages")).toContainText(text, { timeout: 15_000 });
+    // Edit queue takes the message back out of Pi's queue and into the draft.
+    await composer.getByRole("button", { name: "Edit queue" }).click();
+    await expect(box).toHaveValue(text);
+    await expect(page.getByTestId("queued-messages")).toHaveCount(0);
+    await box.fill("");
+  });
+
+  test("A question hides its tool row and takes number keys", async ({
+    page,
+    state,
+    api,
+  }, info) => {
+    const id = await createSession(
+      api,
+      state,
+      `Keys ${uid(info)}`,
+      "ASK-TOPPINGS please",
+      (s) => s.runtime === "waiting_input",
+    );
+    await poll("pending toppings question", async () => {
+      const list: any[] = await api("GET", `/api/interactions?sessionId=${id}&state=pending`);
+      return list.length > 0 && list[0].kind === "question" && !!list[0].toolCallId;
+    });
+    await page.goto(`/code/${id}`);
+    const dock = page.getByTestId("request-dock");
+    await expect(dock).toContainText("Which toppings do you want?");
+    // The dock stands for the call: no ask_user_question row in the transcript.
+    await expect(page.getByTestId("transcript").getByTestId("tool-row")).toHaveCount(0);
+    await expect(dock.locator("kbd")).toHaveCount(3);
+    // Keys count only outside a text field.
+    await page.getByLabel("Message to Pi").fill("13");
+    await expect(dock.getByRole("checkbox", { name: /Cheese/ })).not.toBeChecked();
+    await page.getByLabel("Message to Pi").fill("");
+    await dock.getByText("Needs input").click();
+    await page.keyboard.press("1");
+    await page.keyboard.press("3");
+    await expect(dock.getByRole("checkbox", { name: /Cheese/ })).toBeChecked();
+    await expect(dock.getByRole("checkbox", { name: /Basil/ })).toBeChecked();
+    await expect(dock.getByRole("checkbox", { name: /Olives/ })).not.toBeChecked();
+    await dock.getByRole("button", { name: "Submit answers" }).click();
+    await expect(
+      page.getByTestId("transcript").getByText(/Got your toppings\. Toppings: Cheese, Basil/),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("interaction-outcome")).toContainText(
+      "Which toppings do you want?",
+    );
   });
 
   test("archived session: one status bar, Unarchive, then Resume", async ({

@@ -225,7 +225,9 @@ export function InteractionCard({
             onRespond={(r) => void respond(r)}
             busy={busy}
             disabled={!!readOnlyReason}
-            dock={dock ? { title: interaction.title } : undefined}
+            dock={
+              dock ? { title: interaction.title, keys: interaction.kind === "question" } : undefined
+            }
           />
           {!readOnlyReason && !hasInteractive(interaction.presentation) && (
             <div>

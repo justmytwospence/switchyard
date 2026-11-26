@@ -14,7 +14,11 @@ export interface IntentHandlers {
   /** Read-only (already answered, expired, read-only session). */
   disabled?: boolean;
   /** Rendered in the request dock, whose header already shows this title. */
-  dock?: { title: string };
+  dock?: {
+    title: string;
+    /** The dialog is a question: number keys 1 to 9 pick an option. Never set for an approval. */
+    keys?: boolean;
+  };
 }
 
 export const IntentContext = createContext<IntentHandlers>({});

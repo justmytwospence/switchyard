@@ -46,7 +46,7 @@ import {
   type WorkSummary,
 } from "./model";
 import { initialPromptFor } from "./startingPrompts";
-import { describeTool, type ToolView, toolLabel } from "./toolView";
+import { type ToolView, toolLabel, toolViewOf } from "./toolView";
 
 export interface TimelineRowProps {
   entry: TimelineEntry;
@@ -346,7 +346,7 @@ export function ToolRow({
     }
   };
 
-  const view = describeTool(data, session?.cwd ?? null);
+  const view = toolViewOf(data, session?.cwd ?? null);
   const label = toolLabel(view, data.name, data.status);
   const [open, setOpen] = useState(!!data.card);
   const inSheet = mobile && !data.card;
@@ -493,8 +493,11 @@ function ToolDetailView({
   card: ReactNode;
 }) {
   const running = data.status === "running";
-  const d = view.detail;
-  const showOutput = data.status === "error" || (d.t !== "edit" && d.t !== "write");
+  // A node from the host or an adapter stands in for what the arguments alone could show.
+  const replaced = view.node !== null && (view.detail.t === "edit" || view.detail.t === "args");
+  const d = replaced ? ({ t: "node" } as const) : view.detail;
+  const showOutput =
+    data.status === "error" || (d.t !== "edit" && d.t !== "write" && d.t !== "node");
   const filePath = view.filePath;
   const lineCount = output.replace(/\n+$/, "").split("\n").length;
   const outputNote = running ? "last lines" : `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
@@ -507,6 +510,7 @@ function ToolDetailView({
         ))}
       </p>
       {card}
+      {view.node && <UINodeRenderer node={view.node} onOpenFile={openFile} />}
       {d.t === "command" && d.command && <CodeBlock text={`$ ${d.command}`} />}
       {d.t === "edit" &&
         (d.files.length > 0 ? (

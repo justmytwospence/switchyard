@@ -1,5 +1,14 @@
 import type { UINode, UIRef } from "@switchyard/protocol";
-import { ChevronRight, CircleCheck, CircleX, FileCode, LoaderCircle } from "lucide-react";
+import {
+  ChevronRight,
+  Circle,
+  CircleCheck,
+  CircleSlash,
+  CircleX,
+  ExternalLink,
+  FileCode,
+  LoaderCircle,
+} from "lucide-react";
 import { useId, useState } from "react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/Button";
@@ -119,6 +128,31 @@ export function NodeView({ node }: { node: UINode }) {
       return <ConfirmRenderer node={node} />;
     case "actions":
       return <ActionsView node={node} />;
+    case "checklist":
+      return <ChecklistView node={node} />;
+    case "facts":
+      return (
+        <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+          {node.items.map((item, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: facts are positional
+            <div key={i} className="contents">
+              <dt className="text-muted">{item.label}</dt>
+              <dd
+                className={cn(
+                  "min-w-0 break-words whitespace-pre-wrap",
+                  item.mono && "font-mono text-xs leading-5",
+                )}
+              >
+                {item.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      );
+    case "rows":
+      return <RowsView node={node} />;
+    case "badge":
+      return <BadgeView text={node.text} tone={node.tone} />;
     default:
       return null;
   }
@@ -159,7 +193,7 @@ function ListView({ node }: { node: Extract<UINode, { t: "list" }> }) {
 function SectionView({ node }: { node: Extract<UINode, { t: "section" }> }) {
   if (node.collapsible) {
     return (
-      <details className="group min-w-0" open>
+      <details className="group min-w-0" open={node.open !== false}>
         <summary className="tap flex cursor-pointer list-none items-center gap-1.5 py-1 text-sm font-medium [&::-webkit-details-marker]:hidden">
           <ChevronRight
             aria-hidden
@@ -295,11 +329,108 @@ function RefView({ refValue, label }: { refValue: UIRef; label: string }) {
       </span>
     );
   }
+  if (refValue.kind === "url") {
+    return (
+      <a
+        href={refValue.url}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="inline-flex min-w-0 items-center gap-1 text-sm text-accent hover:underline"
+      >
+        <span className="truncate">{label || refValue.url}</span>
+        <ExternalLink aria-hidden className="size-3.5 shrink-0" />
+      </a>
+    );
+  }
   if (refValue.kind !== "native_session") return <span className="text-sm">{label}</span>;
   return (
     <span className="text-sm" title={refValue.sessionFile}>
       {label} <span className="text-muted">(native Pi session, not imported)</span>
     </span>
+  );
+}
+
+const BADGE_TONE = {
+  default: "border-border text-text",
+  muted: "border-border text-muted",
+  success: "border-success text-success",
+  warning: "border-warning text-warning",
+  danger: "border-danger text-danger",
+} as const;
+
+export function BadgeView({ text, tone }: { text: string; tone?: keyof typeof BADGE_TONE }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center self-start rounded-full border px-2 py-0.5 text-xs",
+        BADGE_TONE[tone ?? "default"],
+      )}
+    >
+      <span className="truncate">{text}</span>
+    </span>
+  );
+}
+
+const CHECK_LABEL = { todo: "To do", doing: "In progress", done: "Done", skipped: "Skipped" };
+
+function ChecklistView({ node }: { node: Extract<UINode, { t: "checklist" }> }) {
+  return (
+    <ul className="flex min-w-0 flex-col gap-1 text-sm">
+      {node.items.map((item, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: checklist items are positional
+        <li key={i} data-state={item.state} className="flex min-w-0 items-start gap-2">
+          {item.state === "doing" ? (
+            <Spinner className="mt-0.5 size-4 text-info" />
+          ) : item.state === "done" ? (
+            <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
+          ) : item.state === "skipped" ? (
+            <CircleSlash aria-hidden className="mt-0.5 size-4 shrink-0 text-subtle" />
+          ) : (
+            <Circle aria-hidden className="mt-0.5 size-4 shrink-0 text-subtle" />
+          )}
+          <span className="sr-only">{CHECK_LABEL[item.state]}: </span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 break-words",
+              item.state === "done" && "text-muted",
+              item.state === "skipped" && "text-subtle line-through",
+              item.state === "doing" && "font-medium",
+            )}
+          >
+            {item.text}
+            {item.note && <span className="block text-xs font-normal text-muted">{item.note}</span>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RowsView({ node }: { node: Extract<UINode, { t: "rows" }> }) {
+  return (
+    <ul className="flex min-w-0 flex-col divide-y divide-border text-sm">
+      {node.rows.map((row, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional
+        <li key={i} className="flex min-w-0 items-center gap-2 py-1.5">
+          <span className="min-w-0 flex-1 truncate" title={row.title}>
+            {row.title}
+          </span>
+          {row.status && (
+            <span className={cn("shrink-0 text-xs", TONE_TEXT[row.tone ?? "muted"])}>
+              {row.status}
+            </span>
+          )}
+          {row.meta && (
+            <span className="shrink-0 text-xs text-subtle tabular-nums">{row.meta}</span>
+          )}
+          {row.ref && (
+            <span className="shrink-0">
+              <RefView refValue={row.ref} label="Open" />
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

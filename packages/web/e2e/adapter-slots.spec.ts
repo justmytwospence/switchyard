@@ -56,6 +56,15 @@ test("session-scoped slots, palette and namespaced form", async ({
     await backToChat(page);
   }
   await expect(page.getByLabel("Adapter pills")).toContainText("Slots ready");
+  // Contract v2: a tracker with its count and step, opening a checklist.
+  const tracker = page.getByLabel("Trackers").getByRole("button", { name: /Slots tracker/ });
+  await expect(tracker).toContainText("1/2");
+  await expect(tracker).toContainText("Second step");
+  await tracker.click();
+  const detail = page.getByRole("dialog", { name: "Slots tracker" });
+  await expect(detail.getByText("First step")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detail).toHaveCount(0);
   await expect(page.getByTestId("notice-card")).toContainText("Slots custom card");
   await expect(page.getByTestId("inspector").getByText("Hidden slots fixture")).toHaveCount(0);
   const composer = page.getByTestId("composer");
@@ -83,6 +92,9 @@ test("session-scoped slots, palette and namespaced form", async ({
   if (!mobile) await expect(page.getByLabel("Adapter footer")).not.toContainText("run:");
   await api("POST", `/api/sessions/${id}/prompt`, { text: "/fixture-slots-clear" });
   await expect(page.getByLabel("Adapter pills")).toHaveCount(0);
+  await expect(
+    page.getByLabel("Trackers").getByRole("button", { name: /Slots tracker/ }),
+  ).toHaveCount(0);
   if (!mobile) {
     if (viewportOf(info) === "compact")
       await page.getByRole("button", { name: "Show inspector" }).click();

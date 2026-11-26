@@ -32,7 +32,7 @@ import { errorMessage } from "../../sync/api";
 import { useContributions, useSyncStore } from "../../sync/store";
 import { paletteNavigationDelta } from "../palette/shortcuts";
 import { AdapterCommandDialog, type AdapterCommandRequest } from "./AdapterCommandDialog";
-import { AdapterSlot, useAdapterSlot } from "./AdapterSlots";
+import { AdapterSlot, TrackerSlot, useAdapterSlot } from "./AdapterSlots";
 import { adapterCommandError, adapterCommandName } from "./adapterIdentity";
 import { codeApi, type PromptMode } from "./api";
 import { applyPrefill, canNavigate, useOpenBranch } from "./branching";
@@ -124,6 +124,7 @@ export function Composer({
   const [queueOpen, setQueueOpen] = useState(false);
   const { openInspector } = useCodeContext();
   const pillPanels = useAdapterSlot(session.id, "composer.pill");
+  const trackerPanels = useAdapterSlot(session.id, "composer.tracker");
   const CommandSurface = mobile ? Sheet : Dialog;
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [active, setActive] = useState(0);
@@ -248,6 +249,18 @@ export function Composer({
         return;
       }
       await afterBranch(await codeApi.branch(session.id, entryId, fork));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+  /** Take the queued messages back into the draft (Pi can only clear its whole queue). */
+  const editQueue = async () => {
+    try {
+      const q = await codeApi.clearQueue(session.id);
+      const texts = [...q.steering, ...q.followUp].filter((t) => t.trim() !== "");
+      if (texts.length === 0) return;
+      setDraft([draft.trim() === "" ? null : draft, ...texts].filter(Boolean).join("\n\n"));
+      requestAnimationFrame(() => textRef.current?.focus());
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -549,7 +562,7 @@ export function Composer({
       <div className="mx-auto flex w-full max-w-[80ch] min-w-0 flex-col gap-2">
         {dock?.({ collapsed: mobile && focused })}
 
-        {((ctx.workspace && !mobile) || pillPanels.length > 0) && (
+        {((ctx.workspace && !mobile) || pillPanels.length > 0 || trackerPanels.length > 0) && (
           <div data-testid="tracker-bar" className="flex h-7 min-w-0 items-center gap-1.5">
             {/* A phone has this in its header. */}
             {ctx.workspace && openInspector && !mobile && (
@@ -564,6 +577,7 @@ export function Composer({
                 {changed > 0 ? `${changed} changed` : "Changes"}
               </button>
             )}
+            <TrackerSlot sessionId={session.id} />
             <AdapterSlot sessionId={session.id} placement="composer.pill" />
           </div>
         )}
@@ -588,11 +602,18 @@ export function Composer({
                 </li>
               ))}
             </ul>
-            {queue.length > 3 && (
-              <TextLink size="xs" onClick={() => setQueueOpen((v) => !v)}>
-                {queueOpen ? "Show fewer" : `Show ${queue.length - 3} more`}
-              </TextLink>
-            )}
+            <div className="flex min-w-0 items-center gap-3">
+              {queue.length > 3 && (
+                <TextLink size="xs" onClick={() => setQueueOpen((v) => !v)}>
+                  {queueOpen ? "Show fewer" : `Show ${queue.length - 3} more`}
+                </TextLink>
+              )}
+              {host?.capabilities?.queueEdit === true && !session.readOnly && !block && (
+                <TextLink size="xs" onClick={() => void editQueue()}>
+                  Edit queue
+                </TextLink>
+              )}
+            </div>
           </div>
         )}
 

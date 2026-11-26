@@ -47,6 +47,31 @@ function publish(ctx, value) {
       },
     ],
     [
+      "tracker",
+      {
+        placement: "composer.tracker",
+        title: "Slots tracker",
+        node: {
+          t: "checklist",
+          items: [
+            { text: "First step", state: "done" },
+            { text: "Second step", state: "doing" },
+          ],
+        },
+        mobileFallback: "1 of 2",
+        tracker: { count: "1/2", status: "running", step: "Second step" },
+      },
+    ],
+    [
+      "badge",
+      {
+        placement: "session.badge",
+        title: "Slots badge",
+        node: { t: "badge", text: "slots", tone: "warning" },
+        mobileFallback: "slots",
+      },
+    ],
+    [
       "palette",
       {
         placement: "palette.item",
@@ -88,6 +113,11 @@ export default {
   },
   toolCard(tool) {
     return tool.name === "fixture_status" ? { t: "text", text: "Slots tool card" } : undefined;
+  },
+  toolView(tool) {
+    return tool.name === "fixture_status"
+      ? { verb: "Checked the fixture", activeVerb: "Checking the fixture", meta: ["slots"] }
+      : undefined;
   },
   customMessageCard(message) {
     return message.customType === "slots-visible"

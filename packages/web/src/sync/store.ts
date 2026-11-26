@@ -9,6 +9,7 @@ import type {
   SyncState,
   Task,
   TaskState,
+  Tone,
   TranscriptItem,
 } from "@switchyard/protocol";
 import { useEffect, useMemo } from "react";
@@ -429,6 +430,42 @@ export function contributionsForSession(
         a.adapterId.localeCompare(b.adapterId) ||
         (a.contribution?.id ?? "").localeCompare(b.contribution?.id ?? ""),
     );
+}
+
+/** `session.badge` contributions per session: the short words its adapters put on its row. */
+export function sessionBadges(
+  panels: Record<string, Panel>,
+): Record<string, { adapterId: string; id: string; text: string; tone: Tone | undefined }[]> {
+  const out: Record<
+    string,
+    { adapterId: string; id: string; text: string; tone: Tone | undefined; order: number }[]
+  > = {};
+  for (const p of Object.values(panels)) {
+    if (p.contribution?.placement !== "session.badge" || !p.node) continue;
+    if (p.node.t !== "text" && p.node.t !== "badge") continue;
+    const list = out[p.sessionId] ?? [];
+    out[p.sessionId] = list;
+    list.push({
+      adapterId: p.adapterId,
+      id: p.contribution.id,
+      text: p.node.text,
+      tone: p.node.tone,
+      order: p.contribution.order ?? 0,
+    });
+  }
+  for (const list of Object.values(out)) {
+    list.sort(
+      (a, b) =>
+        a.order - b.order || a.adapterId.localeCompare(b.adapterId) || a.id.localeCompare(b.id),
+    );
+  }
+  return out;
+}
+
+/** Every session's badges, for the navigator. */
+export function useSessionBadges() {
+  const panels = useSyncStore((s) => s.panels);
+  return useMemo(() => sessionBadges(panels), [panels]);
 }
 
 export function useContributions(sessionId: string | null | undefined): Panel[] {
