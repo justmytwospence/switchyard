@@ -13,10 +13,11 @@ import {
   Session,
   SessionModel,
   SlashCommand,
-  Surface,
   Task,
   TaskState,
   TaskTemplate,
+  Terminal,
+  TerminalMirror,
   ThinkingLevel,
   TranscriptItem,
   Trigger,
@@ -594,7 +595,26 @@ export const MeResponse = z.object({
 });
 export type MeResponse = z.infer<typeof MeResponse>;
 
-export const SurfaceReport = Surface.pick({
+/** A terminal's binding as the CLI or web app records it. */
+export const TerminalBindingInput = z
+  .object({ mirror: TerminalMirror, viewId: z.string().min(1).nullable().optional() })
+  .refine((b) => (b.mirror === "view") === !!b.viewId, {
+    message: "viewId is required for mirror=view and only then",
+  });
+export type TerminalBindingInput = z.infer<typeof TerminalBindingInput>;
+
+/** A daemon's heartbeat for the terminal it runs in. */
+export const TerminalReport = Terminal.pick({ kind: true, name: true, machine: true }).extend({
+  hostId: z.string().nullable().optional(),
+  /** Sessions in its mirror tabs or windows; omitted when unchanged or unknown. */
+  shows: z.array(z.string()).max(1000).optional(),
+  /** The binding this terminal had before bindings were recorded (env file); applied only when none is recorded. */
+  seed: TerminalBindingInput.optional(),
+});
+export type TerminalReport = z.infer<typeof TerminalReport>;
+
+/** Deprecated: the report of a mirror daemon from 0.19 or earlier (`PUT /api/surfaces/:id`). */
+export const SurfaceReport = Terminal.pick({
   kind: true,
   name: true,
   machine: true,

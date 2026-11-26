@@ -135,7 +135,7 @@ export function snapshot(patch: Partial<SyncState> = {}): SyncState {
     panels: [],
     devices: [],
     issues: [],
-    surfaces: [],
+    terminals: [],
     adapters: {},
     dispatchPaused: false,
     ...patch,

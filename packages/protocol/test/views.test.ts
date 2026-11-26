@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   findView,
-  openSurfaces,
+  openTerminals,
   type Session,
-  SURFACE_OPEN_MS,
   scopeHasWorkspace,
   sessionInView,
   sessionViewReason,
+  TERMINAL_OPEN_MS,
   taskInView,
   trackerScope,
   View,
@@ -158,8 +158,8 @@ describe("findView", () => {
   });
 });
 
-describe("openSurfaces", () => {
-  it("keeps this view's recent surfaces, sorted by kind then name", () => {
+describe("openTerminals", () => {
+  it("keeps recent terminals mirroring this view, sorted by kind then name", () => {
     const at = (ms: number) => new Date(NOW - ms).toISOString();
     const c = (
       id: string,
@@ -167,6 +167,7 @@ describe("openSurfaces", () => {
       name: string,
       lastSeenAt: string,
       viewId = "viw_1",
+      mirror: "view" | "all" | undefined = undefined,
     ) => ({
       id,
       kind,
@@ -175,16 +176,19 @@ describe("openSurfaces", () => {
       deviceId: "dev_1",
       hostId: null,
       viewId,
+      ...(mirror ? { mirror } : {}),
       lastSeenAt,
-      createdAt: at(SURFACE_OPEN_MS * 2),
+      createdAt: at(TERMINAL_OPEN_MS * 2),
     });
     const surfaces = [
       c("1", "tmux", "a", at(1000)),
       c("2", "herdr", "z", at(1000)),
-      c("3", "herdr", "old", at(SURFACE_OPEN_MS + 1)),
+      c("3", "herdr", "old", at(TERMINAL_OPEN_MS + 1)),
       c("4", "herdr", "elsewhere", at(1000), "viw_2"),
+      c("5", "herdr", "everything", at(1000), "viw_1", "all"),
+      c("6", "herdr", "recorded", at(1000), "viw_1", "view"),
     ];
-    expect(openSurfaces(surfaces, "viw_1", NOW).map((x) => x.id)).toEqual(["2", "1"]);
+    expect(openTerminals(surfaces, "viw_1", NOW).map((x) => x.id)).toEqual(["6", "2", "1"]);
   });
 });
 

@@ -19,6 +19,7 @@ import { sql as surfaces } from "./migrations/017_surfaces.js";
 import { sql as panelEventSeq } from "./migrations/018_panel_event_seq.js";
 import { sql as unreadNeedsOutput } from "./migrations/019_unread_needs_output.js";
 import { sql as dropViewSources } from "./migrations/020_drop_view_sources.js";
+import { sql as terminals } from "./migrations/021_terminals.js";
 
 export interface Migration {
   version: number;
@@ -48,6 +49,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 18, name: "018_panel_event_seq", sql: panelEventSeq },
   { version: 19, name: "019_unread_needs_output", sql: unreadNeedsOutput },
   { version: 20, name: "020_drop_view_sources", sql: dropViewSources },
+  { version: 21, name: "021_terminals", sql: terminals },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

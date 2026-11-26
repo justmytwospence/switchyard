@@ -20,6 +20,49 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("021 turns surfaces into terminals with a recorded binding", () => {
+    const db = dbAt(20);
+    const put = db.prepare(
+      "INSERT INTO surfaces (id, device_id, view_id, last_seen_at, json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    put.run(
+      "herdr:a@m",
+      "dev_1",
+      "viw_1",
+      "2026-02",
+      JSON.stringify({ id: "herdr:a@m", viewId: "viw_1" }),
+      "2026",
+    );
+    put.run(
+      "tmux:b@m",
+      "dev_1",
+      null,
+      "2026-03",
+      JSON.stringify({ id: "tmux:b@m", viewId: null }),
+      "2026",
+    );
+    const ev = db.prepare("INSERT INTO events (id, type, json, at) VALUES (?, ?, ?, ?)");
+    ev.run("evt_1", "surface.updated", "{}", "2026");
+    ev.run("evt_2", "surface.deleted", "{}", "2026");
+    migrate(db);
+    const json = (id: string) =>
+      JSON.parse(
+        (db.prepare("SELECT json FROM terminals WHERE id = ?").get(id) as { json: string }).json,
+      );
+    expect(json("herdr:a@m")).toMatchObject({
+      mirror: "view",
+      viewId: "viw_1",
+      bindingSetAt: "2026-02",
+      shows: [],
+    });
+    expect(json("tmux:b@m")).toMatchObject({ mirror: "none", bindingSetAt: null, shows: [] });
+    const types = (
+      db.prepare("SELECT type FROM events ORDER BY seq").all() as { type: string }[]
+    ).map((r) => r.type);
+    expect(types).toEqual(["terminal.updated", "terminal.deleted"]);
+    db.close();
+  });
+
   it("020 removes view sources and startedIn, keeping pins", () => {
     const db = dbAt(19);
     const view = db.prepare("INSERT INTO views (id, name, json, created_at) VALUES (?, ?, ?, ?)");
@@ -80,7 +123,7 @@ describe("coordinator migrations", () => {
     );
     expect(json.clients).toEqual([]);
     db.prepare(
-      "INSERT INTO surfaces (id, device_id, view_id, last_seen_at, json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO terminals (id, device_id, view_id, last_seen_at, json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
     ).run("herdr:a@m", "dev_1", null, "2026", "{}", "2026");
     db.close();
   });

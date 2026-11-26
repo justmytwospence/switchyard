@@ -10,7 +10,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import type { CoordinatorContext } from "../context.js";
 import { deviceOf, parse } from "../http.js";
-import { reportSurface } from "./surfaces.js";
+import { reportTerminal } from "./terminals.js";
 
 function stripUndefined<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
@@ -70,8 +70,9 @@ export function registerViewRoutes(app: FastifyInstance, ctx: CoordinatorContext
   app.delete("/api/views/:id", async (req) =>
     store.tx(() => {
       const v = store.views.require(idOf(req));
-      for (const x of store.surfaces.list("view_id = ?", [v.id])) {
-        store.putSurface({ ...x, viewId: null });
+      // Its terminals mirror nothing (never everything) until they are bound again.
+      for (const x of store.terminals.list("view_id = ?", [v.id])) {
+        store.putTerminal({ ...x, mirror: "none", viewId: null });
       }
       store.deleteView(v.id);
       return { ok: true, id: v.id };
@@ -107,27 +108,26 @@ export function registerViewRoutes(app: FastifyInstance, ctx: CoordinatorContext
     }),
   );
 
-  // Legacy (CLI 0.17 mirrors): a client report is a surface report bound to this view.
+  // Legacy (CLI 0.17 mirrors): a client report is a terminal report seeding this view.
   app.post("/api/views/:id/clients", async (req) => {
     const body = parse(ViewClientReport, req.body);
     return store.tx((): View => {
       const v = store.views.require(idOf(req));
-      reportSurface(
+      reportTerminal(
         ctx,
         body.id,
-        { kind: body.kind, name: body.name, machine: body.machine, viewId: v.id },
+        {
+          kind: body.kind,
+          name: body.name,
+          machine: body.machine,
+          seed: { mirror: "view", viewId: v.id },
+        },
         deviceOf(req).id,
       );
       return v;
     });
   });
 
-  app.delete("/api/views/:id/clients/:clientId", async (req) =>
-    store.tx(() => {
-      const { clientId } = req.params as { clientId: string };
-      const v = store.views.require(idOf(req));
-      if (store.surfaces.get(clientId)?.viewId === v.id) store.deleteSurface(clientId);
-      return v;
-    }),
-  );
+  // Withdrawing no longer forgets the terminal or its binding.
+  app.delete("/api/views/:id/clients/:clientId", async (req) => store.views.require(idOf(req)));
 }

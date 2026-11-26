@@ -1,9 +1,10 @@
 import {
   type Host,
-  openSurfaces,
+  openTerminals,
   type Project,
-  type Surface,
+  type Terminal,
   type Tracker,
+  terminalMirror,
   trackerBacklog,
   trackerFollow,
   type View,
@@ -77,15 +78,26 @@ export function describeView(
 /** Terminals showing this view now, as "herdr vo on mac-pro, tmux main on nuc"; null when none. */
 export function shownIn(
   v: View,
-  surfaces: Surface[],
+  terminals: Terminal[],
   hosts: Record<string, Pick<Host, "name">> = {},
   now = Date.now(),
 ): string | null {
-  const open = openSurfaces(surfaces, v.id, now);
+  const open = openTerminals(terminals, v.id, now);
   if (open.length === 0) return null;
   return open
     .map((c) => `${c.kind} ${c.name} on ${(c.hostId && hosts[c.hostId]?.name) || c.machine}`)
     .join(", ");
+}
+
+/** What a terminal mirrors, for a list: "everything", "view work" or "nothing". */
+export function mirrorLabel(
+  t: Pick<Terminal, "mirror" | "viewId">,
+  views: Record<string, Pick<View, "name">>,
+): string {
+  const m = terminalMirror(t);
+  if (m === "all") return "everything";
+  if (m === "view") return `view ${(t.viewId && views[t.viewId]?.name) || "(deleted)"}`;
+  return "nothing";
 }
 
 export type ViewEmptyFilter = "active" | "attention" | "all";

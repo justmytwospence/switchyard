@@ -41,12 +41,12 @@ describe("views", () => {
     expect(r.status).toBe(409);
   });
 
-  it("a legacy client report writes a surface once, then again when it changes", async () => {
+  it("a legacy client report seeds a terminal once, then refreshes it when stale", async () => {
     t = await startCoordinator();
     const id = (await t.admin("POST", "/api/views", { name: "work" })).body.id;
     const surfaceEvents = () =>
       (t!.c.store as any).db
-        .prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'surface.updated'")
+        .prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'terminal.updated'")
         .get().n as number;
     const before = viewEvents(t);
     const r = await t.admin("POST", `/api/views/${id}/clients`, client);
@@ -59,9 +59,13 @@ describe("views", () => {
     t.clock.advance(5 * 60_000);
     await t.admin("POST", `/api/views/${id}/clients`, client);
     expect(surfaceEvents()).toBe(2);
-    expect(t.c.store.surfaces.require(client.id)).toMatchObject({ viewId: id, kind: "herdr" });
+    expect(t.c.store.terminals.require(client.id)).toMatchObject({
+      mirror: "view",
+      viewId: id,
+      kind: "herdr",
+    });
     await t.admin("DELETE", `/api/views/${id}/clients/${encodeURIComponent(client.id)}`);
-    expect(t.c.store.surfaces.get(client.id)).toBeUndefined();
+    expect(t.c.store.terminals.get(client.id)).toMatchObject({ viewId: id });
   });
 
   it("pins and unpins, and an unknown session is not found", async () => {

@@ -1,8 +1,16 @@
-import type { RuntimeState, Session, Surface, Task, View, Workspace } from "./entities.js";
+import {
+  type RuntimeState,
+  type Session,
+  type Task,
+  type Terminal,
+  terminalMirror,
+  type View,
+  type Workspace,
+} from "./entities.js";
 import type { TrackedIssue } from "./trackers.js";
 
-/** A surface counts as open while its last report is younger than this. */
-export const SURFACE_OPEN_MS = 10 * 60_000;
+/** A terminal counts as open while its last report is younger than this. */
+export const TERMINAL_OPEN_MS = 10 * 60_000;
 
 export const LIVE_RUNTIMES = ["starting", "idle", "running", "waiting_input"] as const;
 
@@ -108,10 +116,15 @@ export function sessionInView(
   return sessionViewReason(view, s, workspaces, scope) !== null;
 }
 
-/** Surfaces showing a view that reported recently, sorted by kind then name. */
-export function openSurfaces(surfaces: Surface[], viewId: string, now = Date.now()): Surface[] {
-  return surfaces
-    .filter((c) => c.viewId === viewId && now - Date.parse(c.lastSeenAt) < SURFACE_OPEN_MS)
+/** Whether a terminal reported recently (its daemon runs). */
+export function terminalOpen(t: Pick<Terminal, "lastSeenAt">, now = Date.now()): boolean {
+  return now - Date.parse(t.lastSeenAt) < TERMINAL_OPEN_MS;
+}
+
+/** Open terminals mirroring a view, sorted by kind then name. */
+export function openTerminals(terminals: Terminal[], viewId: string, now = Date.now()): Terminal[] {
+  return terminals
+    .filter((c) => terminalMirror(c) === "view" && c.viewId === viewId && terminalOpen(c, now))
     .sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
 }
 

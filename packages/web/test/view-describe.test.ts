@@ -1,8 +1,9 @@
-import type { Surface, Tracker, View } from "@switchyard/protocol";
+import type { Terminal, Tracker, View } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
   describeView,
   emptyViewState,
+  mirrorLabel,
   shownIn,
   viewOptionLabel,
   viewSource,
@@ -157,13 +158,14 @@ describe("view descriptions", () => {
     const now = Date.parse(T);
     const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
     const v = view();
-    const surface = (over: Partial<Surface>): Surface => ({
+    const surface = (over: Partial<Terminal>): Terminal => ({
       id: "herdr:vo@mac",
       kind: "herdr",
       name: "vo",
       machine: "mac",
       deviceId: "dev_1",
       hostId: null,
+      mirror: "view",
       viewId: v.id,
       lastSeenAt: at(1),
       createdAt: at(30),
@@ -172,6 +174,7 @@ describe("view descriptions", () => {
     expect(shownIn(v, [], {}, now)).toBeNull();
     expect(shownIn(v, [surface({ lastSeenAt: at(11) })], {}, now)).toBeNull();
     expect(shownIn(v, [surface({ viewId: "viw_other" })], {}, now)).toBeNull();
+    expect(shownIn(v, [surface({ mirror: "all" })], {}, now)).toBeNull();
     expect(
       shownIn(
         v,
@@ -189,6 +192,15 @@ describe("view descriptions", () => {
         now,
       ),
     ).toBe("herdr vo on mac, tmux main on NUC");
+  });
+
+  it("says what a terminal mirrors", () => {
+    const views = { viw_1: { name: "work" } };
+    expect(mirrorLabel({ mirror: "all", viewId: null }, views)).toBe("everything");
+    expect(mirrorLabel({ mirror: "view", viewId: "viw_1" }, views)).toBe("view work");
+    expect(mirrorLabel({ mirror: "view", viewId: "viw_gone" }, views)).toBe("view (deleted)");
+    expect(mirrorLabel({ mirror: "none", viewId: null }, views)).toBe("nothing");
+    expect(mirrorLabel({ viewId: "viw_1" }, views)).toBe("view work");
   });
 
   it("explains an empty view", () => {

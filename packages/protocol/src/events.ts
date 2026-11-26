@@ -14,8 +14,8 @@ import {
   Project,
   Run,
   Session,
-  Surface,
   Task,
+  Terminal,
   TranscriptItem,
   View,
   Workspace,
@@ -52,17 +52,19 @@ export const EventDataSchemas = {
   "device.updated": Device,
   "issue.updated": TrackedIssue,
   "issue.deleted": z.object({ id: z.string() }),
-  "surface.updated": Surface,
-  "surface.deleted": z.object({ id: z.string() }),
+  "terminal.updated": Terminal,
+  "terminal.deleted": z.object({ id: z.string() }),
   "settings.updated": z.object({ dispatchPaused: z.boolean() }),
 } as const;
 
 export type EventType = keyof typeof EventDataSchemas;
 export const EVENT_TYPES = Object.keys(EventDataSchemas) as EventType[];
 
-/** Event types renamed in 0.9 (old -> new); accepted on parse for one release. */
+/** Renamed event types (old -> new): `workspace.removed` in 0.9, `surface.*` in 0.20. */
 export const LEGACY_EVENT_TYPES: Readonly<Record<string, EventType>> = {
   "workspace.removed": "workspace.deleted",
+  "surface.updated": "terminal.updated",
+  "surface.deleted": "terminal.deleted",
 };
 export function canonicalEventType(type: string): string {
   return LEGACY_EVENT_TYPES[type] ?? type;

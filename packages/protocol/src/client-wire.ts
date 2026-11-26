@@ -12,8 +12,8 @@ import {
   Project,
   Run,
   Session,
-  Surface,
   Task,
+  Terminal,
   View,
   Workspace,
 } from "./entities.js";
@@ -37,8 +37,10 @@ export const SyncState = z.object({
   devices: z.array(Device),
   /** Tracked issues; absent from older coordinators. */
   issues: z.array(TrackedIssue).default([]),
-  /** Terminal surfaces; absent from older coordinators. */
-  surfaces: z.array(Surface).default([]),
+  /** Terminals (herdr and tmux sessions); absent from older coordinators. */
+  terminals: z.array(Terminal).optional(),
+  /** Deprecated: terminals as older coordinators send them (`terminals` replaces it). */
+  surfaces: z.array(Terminal).optional(),
   adapters: z.record(z.string(), z.array(AdapterInfo)),
   dispatchPaused: z.boolean(),
 });

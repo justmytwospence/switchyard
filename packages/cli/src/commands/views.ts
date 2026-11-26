@@ -1,6 +1,6 @@
-import type { Host, Project, Surface, View } from "@switchyard/protocol";
-import { findView, openSurfaces } from "@switchyard/protocol";
-import type { ApiClient } from "@switchyard/terminal";
+import type { Host, Project, Terminal, View } from "@switchyard/protocol";
+import { findView, openTerminals } from "@switchyard/protocol";
+import { type ApiClient, ApiRequestError } from "@switchyard/terminal";
 import { CliError, type ConnectionFlags } from "../config.js";
 import { type Ctx, connect, printList } from "../context.js";
 import { resolveHost } from "./hosts.js";
@@ -14,6 +14,21 @@ export interface ViewFlags extends ConnectionFlags {
   anyProject?: boolean;
   anyHost?: boolean;
   name?: string;
+}
+
+/** Every terminal; an older coordinator lists them as surfaces. */
+export async function listTerminals(api: ApiClient): Promise<Terminal[]> {
+  try {
+    return await api.get<Terminal[]>("/api/terminals");
+  } catch (err) {
+    if (!isUnknownRoute(err)) throw err;
+    return api.get<Terminal[]>("/api/surfaces");
+  }
+}
+
+/** A 404 for a route the coordinator does not have (not a missing entity). */
+export function isUnknownRoute(err: unknown): boolean {
+  return err instanceof ApiRequestError && err.status === 404 && /^No route /.test(err.message);
 }
 
 async function resolveView(api: ApiClient, ref: string): Promise<View> {
@@ -32,11 +47,11 @@ function checkMode(mode: string | undefined): void {
 
 export async function viewsList(ctx: Ctx, flags: ViewFlags): Promise<void> {
   const { api } = connect(ctx, flags);
-  const [views, projects, hosts, surfaces] = await Promise.all([
+  const [views, projects, hosts, terminals] = await Promise.all([
     api.get<View[]>("/api/views"),
     api.get<Project[]>("/api/projects"),
     api.get<Host[]>("/api/hosts"),
-    api.get<Surface[]>("/api/surfaces").catch(() => [] as Surface[]),
+    listTerminals(api).catch(() => [] as Terminal[]),
   ]);
   const names = (ids: string[] | null, all: { id: string; name: string }[]) =>
     ids === null ? "any" : ids.map((i) => all.find((x) => x.id === i)?.name ?? i).join(", ") || "-";
@@ -44,14 +59,14 @@ export async function viewsList(ctx: Ctx, flags: ViewFlags): Promise<void> {
     ctx,
     flags.json,
     views,
-    ["NAME", "MODE", "PROJECTS", "HOSTS", "PINNED", "OPEN IN"],
+    ["NAME", "MODE", "PROJECTS", "HOSTS", "PINNED", "MIRRORED IN"],
     views.map((v) => [
       v.name,
       v.mode,
       names(v.projectIds, projects),
       names(v.hostIds, hosts),
       String(v.sessionIds.length),
-      openSurfaces(surfaces, v.id)
+      openTerminals(terminals, v.id)
         .map((c) => `${c.kind} ${c.name} (${c.machine})`)
         .join(", ") || "-",
     ]),

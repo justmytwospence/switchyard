@@ -33,7 +33,7 @@ import { registerProfileRoutes, seedDefaultProfiles } from "./routes/profiles.js
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerStaticRoutes } from "./routes/static.js";
-import { registerSurfaceRoutes } from "./routes/surfaces.js";
+import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerViewRoutes } from "./routes/views.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { archiveEndedSessions, sweepStaleSessionState } from "./session-retention.js";
@@ -332,7 +332,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
   registerGitHubRoutes(app, ctx);
   registerProfileRoutes(app, ctx);
   registerViewRoutes(app, ctx);
-  registerSurfaceRoutes(app, ctx);
+  registerTerminalRoutes(app, ctx);
   registerSessionRoutes(app, ctx);
   registerInteractionRoutes(app, ctx);
   registerAttentionRoutes(app, ctx);

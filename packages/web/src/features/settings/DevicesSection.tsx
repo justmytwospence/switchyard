@@ -21,6 +21,7 @@ import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
+import { mirrorLabel } from "../views/describe";
 import { SectionPage, useHydrated } from "./shared";
 
 export const DEVICE_KIND_LABEL: Record<Device["kind"], string> = {
@@ -46,7 +47,7 @@ function KindIcon({ kind }: { kind: Device["kind"] }) {
 export function DevicesSection() {
   const hydrated = useHydrated();
   const devicesById = useSyncStore((s) => s.devices);
-  const surfaces = useSyncStore((s) => s.surfaces);
+  const terminals = useSyncStore((s) => s.terminals);
   const views = useSyncStore((s) => s.views);
   useAuth((s) => s.me); // re-render when the current device becomes known
   const thisId = currentDeviceId();
@@ -160,15 +161,15 @@ export function DevicesSection() {
                       {PERMISSION_LABEL[d.push.permission]}
                     </span>
                   </div>
-                  {Object.values(surfaces).some((x) => x.deviceId === d.id) && (
-                    <ul data-testid="device-surfaces" className="flex flex-col text-sm text-muted">
-                      {Object.values(surfaces)
+                  {Object.values(terminals).some((x) => x.deviceId === d.id) && (
+                    <ul data-testid="device-terminals" className="flex flex-col text-sm text-muted">
+                      {Object.values(terminals)
                         .filter((x) => x.deviceId === d.id)
                         .sort((a, b) => a.id.localeCompare(b.id))
                         .map((x) => (
                           <li key={x.id}>
-                            {x.kind} {x.name} · view {(x.viewId && views[x.viewId]?.name) || "none"}{" "}
-                            · seen {formatRelative(x.lastSeenAt)}
+                            {x.kind} {x.name} · mirrors {mirrorLabel(x, views)} · seen{" "}
+                            {formatRelative(x.lastSeenAt)}
                           </li>
                         ))}
                     </ul>

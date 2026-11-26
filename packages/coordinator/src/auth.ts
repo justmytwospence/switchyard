@@ -344,9 +344,6 @@ export class Auth {
         push: { ...d.push, subscribed: false },
       };
       this.store.deletePushSubscriptionsForDevice(id);
-      for (const x of this.store.surfaces.list("device_id = ?", [id])) {
-        this.store.deleteSurface(x.id);
-      }
       return this.store.putDevice(updated);
     });
     this.hub.emit("device.revoked", { deviceId: id });
