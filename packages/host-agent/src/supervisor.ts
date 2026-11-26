@@ -90,6 +90,7 @@ export const terminalLostNotice = (reason: string): string =>
   `Host agent restarted and the terminal session had ended (${reason}); resume to continue`;
 export const QUEUED_ANSWER_SUMMARY = "Answered from your earlier form";
 export const PI_CLOSED_SUMMARY = "Pi closed this question (timeout or abort)";
+export const PI_EXITED_SUMMARY = "Pi exited before this question was answered";
 export const UNSUPPORTED_TITLE = "Terminal-only interface requested";
 export const UNSUPPORTED_TEXT =
   "An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one.";
@@ -498,7 +499,7 @@ export class SessionSupervisor {
     rec.queue = { steering: [], followUp: [] };
     rec.terminal = null;
     rec.external = null;
-    this.expirePending(rec.id, lost.expireSummary);
+    this.expirePending(rec.id, lost.expireSummary, true);
     if (next === "interrupted") {
       const item: TranscriptItem = {
         id: newId("itm"),
@@ -2369,7 +2370,21 @@ export class SessionSupervisor {
         rec.external = null;
         this.db.tx(() => this.saveAndEmit(rec));
       }
-      void l.chain.finally(() => this.teardown(l));
+      void l.chain.finally(() => {
+        // After queued dialog events: what Pi left open can no longer be answered.
+        if (!this.closing && this.live.get(rec.id) === l) {
+          l.terminalPrompt = null;
+          try {
+            this.db.tx(() => this.expirePending(rec.id, PI_EXITED_SUMMARY, true));
+          } catch (err) {
+            this.opts.log.warn(
+              { sessionId: rec.id, err: errorMessage(err) },
+              "could not expire questions after Pi exited",
+            );
+          }
+        }
+        this.teardown(l);
+      });
     });
   }
 
@@ -2783,7 +2798,7 @@ export class SessionSupervisor {
       state: "expired",
       resolution: {
         by: "pi",
-        summary: r.by === "pi" ? PI_CLOSED_SUMMARY : "Pi exited before this question was answered",
+        summary: r.by === "pi" ? PI_CLOSED_SUMMARY : PI_EXITED_SUMMARY,
         at: nowIso(),
       },
     });
@@ -3080,8 +3095,20 @@ export class SessionSupervisor {
     return next;
   }
 
-  private expirePending(sessionId: string, summary: string): void {
-    for (const i of this.pendingInteractions(sessionId)) {
+  /**
+   * Expire a session's pending questions. With `pi_gone`, also its unanswered terminal-only
+   * dialogs: nothing can answer them once Pi has exited.
+   */
+  private expirePending(sessionId: string, summary: string, piGone = false): void {
+    const open = piGone
+      ? this.db
+          .allJson<Interaction>(
+            "SELECT json FROM interactions WHERE session_id = ? AND state IN ('pending', 'unsupported') ORDER BY rowid",
+            [sessionId],
+          )
+          .filter((i) => i.state === "pending" || i.resolution === null)
+      : this.pendingInteractions(sessionId);
+    for (const i of open) {
       this.updateInteraction(i, {
         state: "expired",
         resolution: { by: "host", summary, at: nowIso() },
