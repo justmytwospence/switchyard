@@ -51,7 +51,28 @@ export type UIRef =
   | { kind: "file"; path: string }
   | { kind: "session"; sessionId: string }
   | { kind: "task"; taskId: string }
-  | { kind: "native_session"; hostId: string; sessionFile: string };
+  | { kind: "native_session"; hostId: string; sessionFile: string }
+  /** `ui.nodes.v2`: an http(s) link, opened in a new tab. */
+  | { kind: "url"; url: string };
+
+/** `ui.nodes.v2`: one step of a checklist. */
+export interface ChecklistItem {
+  text: string;
+  state: "todo" | "doing" | "done" | "skipped";
+  note?: string;
+}
+
+/** `ui.nodes.v2`: one row of a `rows` node (a job, a subagent, a file). */
+export interface UIRow {
+  title: string;
+  /** Short state word, such as "running" or "exit 1". */
+  status?: string;
+  tone?: Tone;
+  /** Secondary text, such as an elapsed time. */
+  meta?: string;
+  /** What "Open" opens. */
+  ref?: UIRef;
+}
 
 export type UINode =
   | { t: "text"; text: string; tone?: Tone }
@@ -60,7 +81,7 @@ export type UINode =
   | { t: "diff"; patch: string }
   | { t: "list"; items: UINode[]; ordered?: boolean }
   | { t: "table"; columns: string[]; rows: string[][] }
-  | { t: "section"; title?: string; collapsible?: boolean; children: UINode[] }
+  | { t: "section"; title?: string; collapsible?: boolean; open?: boolean; children: UINode[] }
   | { t: "tabs"; tabs: { id: string; label: string; children: UINode[] }[] }
   | { t: "progress"; label: string; value?: number; status?: "running" | "ok" | "error" }
   | { t: "ref"; ref: UIRef; label: string }
@@ -72,7 +93,12 @@ export type UINode =
       cancelLabel: string;
       destructive?: boolean;
     }
-  | { t: "actions"; actions: { id: string; label: string; tone?: ActionTone }[] };
+  | { t: "actions"; actions: { id: string; label: string; tone?: ActionTone }[] }
+  /** `ui.nodes.v2`. */
+  | { t: "checklist"; items: ChecklistItem[] }
+  | { t: "facts"; items: { label: string; value: string; mono?: boolean }[] }
+  | { t: "rows"; rows: UIRow[] }
+  | { t: "badge"; text: string; tone?: Tone };
 
 const ToneSchema = z.enum(["default", "muted", "success", "warning", "danger"]);
 const ShowIfSchema = z.object({ field: z.string(), values: z.array(z.string()) });
@@ -119,6 +145,13 @@ const RefSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("session"), sessionId: z.string() }),
   z.object({ kind: z.literal("task"), taskId: z.string() }),
   z.object({ kind: z.literal("native_session"), hostId: z.string(), sessionFile: z.string() }),
+  z.object({
+    kind: z.literal("url"),
+    url: z
+      .string()
+      .max(2000)
+      .regex(/^https?:\/\/[^\s]+$/i, "must be an http(s) URL"),
+  }),
 ]);
 
 export const UINodeSchema: z.ZodType<UINode> = z.lazy(() =>
@@ -141,6 +174,7 @@ export const UINodeSchema: z.ZodType<UINode> = z.lazy(() =>
       t: z.literal("section"),
       title: z.string().optional(),
       collapsible: z.boolean().optional(),
+      open: z.boolean().optional(),
       children: z.array(UINodeSchema),
     }),
     z.object({
@@ -180,6 +214,35 @@ export const UINodeSchema: z.ZodType<UINode> = z.lazy(() =>
         }),
       ),
     }),
+    z.object({
+      t: z.literal("checklist"),
+      items: z.array(
+        z.object({
+          text: z.string(),
+          state: z.enum(["todo", "doing", "done", "skipped"]),
+          note: z.string().optional(),
+        }),
+      ),
+    }),
+    z.object({
+      t: z.literal("facts"),
+      items: z.array(
+        z.object({ label: z.string(), value: z.string(), mono: z.boolean().optional() }),
+      ),
+    }),
+    z.object({
+      t: z.literal("rows"),
+      rows: z.array(
+        z.object({
+          title: z.string(),
+          status: z.string().optional(),
+          tone: ToneSchema.optional(),
+          meta: z.string().optional(),
+          ref: RefSchema.optional(),
+        }),
+      ),
+    }),
+    z.object({ t: z.literal("badge"), text: z.string(), tone: ToneSchema.optional() }),
   ]),
 ) as z.ZodType<UINode>;
 
@@ -215,6 +278,72 @@ export function validateUINode(input: unknown): UINode {
   };
   walk(node, 1);
   return node;
+}
+
+const CHECK_MARK = { todo: "[ ]", doing: "[~]", done: "[x]", skipped: "[-]" } as const;
+
+/**
+ * The same tree for a reader without `ui.nodes.v2`: a checklist becomes a list, facts a table,
+ * rows a list, a badge text, and a URL its label and address. Returns the input when nothing in
+ * it is new.
+ */
+export function downgradeUINode(node: UINode): UINode {
+  const all = (nodes: UINode[]): UINode[] => {
+    const out = nodes.map(downgradeUINode);
+    return out.some((n, i) => n !== nodes[i]) ? out : nodes;
+  };
+  const text = (t: string, tone?: Tone): UINode =>
+    tone && tone !== "default" ? { t: "text", text: t, tone } : { t: "text", text: t };
+  switch (node.t) {
+    case "checklist":
+      return {
+        t: "list",
+        items: node.items.map((i) =>
+          text(`${CHECK_MARK[i.state]} ${i.text}${i.note ? ` (${i.note})` : ""}`),
+        ),
+      };
+    case "facts":
+      return {
+        t: "table",
+        columns: ["Field", "Value"],
+        rows: node.items.map((i) => [i.label, i.value]),
+      };
+    case "rows":
+      return {
+        t: "list",
+        items: node.rows.map((r) =>
+          text([r.title, r.status, r.meta].filter(Boolean).join(" · "), r.tone),
+        ),
+      };
+    case "badge":
+      return text(node.text, node.tone);
+    case "ref":
+      return node.ref.kind === "url"
+        ? text(node.label ? `${node.label}: ${node.ref.url}` : node.ref.url)
+        : node;
+    case "list": {
+      const items = all(node.items);
+      return items === node.items ? node : { ...node, items };
+    }
+    case "section": {
+      const children = all(node.children);
+      if (children === node.children && node.open === undefined) return node;
+      const { open: _open, ...rest } = node;
+      return { ...rest, children };
+    }
+    case "tabs": {
+      let changed = false;
+      const tabs = node.tabs.map((tab) => {
+        const children = all(tab.children);
+        if (children === tab.children) return tab;
+        changed = true;
+        return { ...tab, children };
+      });
+      return changed ? { ...node, tabs } : node;
+    }
+    default:
+      return node;
+  }
 }
 
 /** Whether a field with `showIf` is visible given current form values. */
@@ -271,4 +400,12 @@ export const ui = {
     t: "actions",
     actions,
   }),
+  checklist: (items: ChecklistItem[]): UINode => ({ t: "checklist", items }),
+  facts: (items: { label: string; value: string; mono?: boolean }[]): UINode => ({
+    t: "facts",
+    items,
+  }),
+  rows: (rows: UIRow[]): UINode => ({ t: "rows", rows }),
+  badge: (text: string, tone?: Tone): UINode =>
+    tone ? { t: "badge", text, tone } : { t: "badge", text },
 };

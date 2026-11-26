@@ -14,9 +14,11 @@ export * from "./host-wire.js";
 export * from "./ids.js";
 export * from "./issues.js";
 export * from "./policies.js";
+export * from "./projection.js";
 export * from "./scopes.js";
 export * from "./terminal-wire.js";
 export * from "./titles.js";
+export * from "./tool-view.js";
 export * from "./ui.js";
 export * from "./web-bridge.js";
 

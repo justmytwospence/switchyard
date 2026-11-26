@@ -6,6 +6,10 @@ export const ContributionPlacement = z.enum([
   "sidebar.footer",
   "session.panel",
   "composer.pill",
+  /** `adapter.trackers.v1`: a live summary above the input that opens its detail. */
+  "composer.tracker",
+  /** `adapter.trackers.v1`: a short word on the session's navigator row. */
+  "session.badge",
   "palette.item",
   "slash.command",
 ]);
@@ -14,10 +18,22 @@ export type ContributionPlacement = z.infer<typeof ContributionPlacement>;
 const Id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/);
 const ActionId = z.string().min(1).max(200);
 const Keywords = z.array(z.string().min(1).max(80)).max(20);
+/** What a `composer.tracker` shows beside its title. */
+export const TrackerSummary = z
+  .object({
+    /** Progress or a count, such as "2/5" or "3". */
+    count: z.string().min(1).max(24).optional(),
+    status: z.enum(["idle", "running", "ok", "error", "attention"]).optional(),
+    /** The step in progress, such as the current todo. */
+    step: z.string().min(1).max(120).optional(),
+  })
+  .strict();
+export type TrackerSummary = z.infer<typeof TrackerSummary>;
 const Common = {
   placement: ContributionPlacement,
   order: z.number().int().min(-1000).max(1000).optional(),
   actionId: ActionId.optional(),
+  tracker: TrackerSummary.optional(),
 };
 export const ContributionDescriptor = z
   .object({
@@ -46,6 +62,12 @@ export const ContributionDescriptor = z
     if (v.placement === "composer.pill" && v.actionId !== undefined) {
       ctx.addIssue({ code: "custom", message: "Composer pills are not interactive" });
     }
+    if (v.placement === "session.badge" && v.actionId !== undefined) {
+      ctx.addIssue({ code: "custom", message: "Session badges are not interactive" });
+    }
+    if (v.placement !== "composer.tracker" && v.tracker !== undefined) {
+      ctx.addIssue({ code: "custom", message: "Only composer trackers have a tracker summary" });
+    }
   });
 export type ContributionDescriptor = z.infer<typeof ContributionDescriptor>;
 
@@ -66,6 +88,8 @@ const ContributionInput = z
 export type AdapterContribution = Omit<z.infer<typeof ContributionInput>, "node"> & {
   node: UINode;
 };
+
+export const SESSION_BADGE_MAX = 24;
 
 /** Bound untrusted JSON before recursive Zod parsing; avoid cycles and pathological inputs. */
 export function boundContributionJson(value: unknown, maxBytes = 256 * 1024): void {
@@ -142,6 +166,14 @@ export function validateContribution(
   if (descriptor.placement === "composer.pill" && node.t !== "text" && node.t !== "progress") {
     throw new Error("Composer pill content must be text or progress");
   }
+  if (descriptor.placement === "session.badge") {
+    if (node.t !== "text" && node.t !== "badge") {
+      throw new Error("Session badge content must be text or a badge");
+    }
+    if (node.text.length === 0 || node.text.length > SESSION_BADGE_MAX) {
+      throw new Error(`Session badge text must be 1 to ${SESSION_BADGE_MAX} characters`);
+    }
+  }
   if (descriptor.placement !== "session.panel" && state !== undefined) {
     throw new Error("Only session panels accept renderer state");
   }
@@ -165,4 +197,10 @@ export function contributionSlot(id: string): string {
 
 export function contributionKey(adapterId: string, id: string): string {
   return JSON.stringify([adapterId, Id.parse(id)]);
+}
+
+/** One line that says what a tracker says: its title, count and current step. */
+export function trackerText(title: string, tracker: TrackerSummary | undefined): string {
+  const head = tracker?.count ? `${title} ${tracker.count}` : title;
+  return tracker?.step ? `${head} · ${tracker.step}` : head;
 }

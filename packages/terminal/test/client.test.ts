@@ -1,6 +1,7 @@
 // @module-tag slow
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { CLIENT_CAPABILITIES } from "@switchyard/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import { ApiRequestError, SwitchyardClient, wsUrlFor } from "../src/client.js";
@@ -70,7 +71,7 @@ describe("SwitchyardClient", () => {
     expect(received[0]).toEqual({
       type: "hello",
       cursor: null,
-      capabilities: ["adapter.slots.v1", "timeline.cards.v1", "scopes.v1"],
+      capabilities: [...CLIENT_CAPABILITIES],
       projectionId: null,
     });
     expect(st.connection.state).toBe("live");

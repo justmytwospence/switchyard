@@ -86,6 +86,8 @@ export const HostCommand = z.discriminatedUnion("type", [
     controlRevision: z.number().int(),
   }),
   z.object({ type: z.literal("session.abort"), sessionId: z.string(), clearQueue: z.boolean() }),
+  /** `queueClear.v1`: empty Pi's queue without aborting; the receipt's result has the messages. */
+  z.object({ type: z.literal("session.clearQueue"), sessionId: z.string() }),
   z.object({ type: z.literal("session.stop"), sessionId: z.string() }),
   z.object({
     type: z.literal("session.answer"),

@@ -3,6 +3,7 @@ import { ContributionDescriptor } from "./contributions.js";
 import { GitHubIssue, HostGitHub, WorkspaceGitHub } from "./github.js";
 import { GitHubSource } from "./issues.js";
 import { CompletedUsageWatermark, PolicyPermission, PolicyPhase } from "./policies.js";
+import { ToolViewData } from "./tool-view.js";
 import { UINodeSchema } from "./ui.js";
 
 const Iso = z.string();
@@ -53,6 +54,8 @@ export const RuntimeCapabilities = CoreCapabilities.extend({
   policies: z.boolean().optional(),
   /** Session-scoped adapter inspection and safe reload. */
   adapterDevelopment: z.boolean().optional(),
+  /** The host answers session.clearQueue (Edit queue). */
+  queueEdit: z.boolean().optional(),
   unsupported: z.array(z.object({ capability: z.string(), reason: z.string() })),
 });
 export type RuntimeCapabilities = z.infer<typeof RuntimeCapabilities>;
@@ -651,6 +654,9 @@ export const InteractionState = z.preprocess(
 );
 export type InteractionState = z.infer<typeof InteractionState>;
 
+export const InteractionKind = z.enum(["question", "approval", "plan"]);
+export type InteractionKind = z.infer<typeof InteractionKind>;
+
 export const Interaction = z.object({
   id: Id,
   sessionId: Id,
@@ -665,6 +671,13 @@ export const Interaction = z.object({
   ]),
   adapterId: z.string().nullable(),
   permission: PolicyPermission.optional(),
+  /**
+   * What the dialog is, when its adapter or the host says so: a question to answer, an approval
+   * of something Pi wants to do, or a plan to accept. Absent for a dialog nobody described.
+   */
+  kind: InteractionKind.optional(),
+  /** The tool call that opened the dialog, when the host knows it. */
+  toolCallId: z.string().optional(),
   title: z.string(),
   presentation: UINodeSchema,
   state: InteractionState,
@@ -737,6 +750,8 @@ export const ToolItemData = z.object({
   card: UINodeSchema.nullable(),
   adapterId: z.string().nullable(),
   adapterGeneration: z.string().uuid().optional(),
+  /** `tool.views.v1`: what the host and an adapter say about the call (see tool-view.ts). */
+  view: ToolViewData.optional(),
 });
 export type ToolItemData = z.infer<typeof ToolItemData>;
 

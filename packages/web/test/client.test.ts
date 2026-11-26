@@ -1,3 +1,4 @@
+import { CLIENT_CAPABILITIES } from "@switchyard/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONNECT_TIMEOUT_MS, RESUME_PONG_TIMEOUT_MS, SyncClient } from "../src/sync/client";
 import { useSyncStore } from "../src/sync/store";
@@ -88,7 +89,7 @@ describe("SyncClient projection negotiation", () => {
     expect(ws.lastSent()).toMatchObject({
       type: "hello",
       cursor: null,
-      capabilities: ["adapter.slots.v1", "timeline.cards.v1", "scopes.v1"],
+      capabilities: [...CLIENT_CAPABILITIES],
       projectionId: null,
     });
     ws.receive({

@@ -63,7 +63,17 @@ export type Presence = z.infer<typeof Presence>;
  * `scopes.v1`: the client reads `scopes` and `clients` and the `scope.*` and `client.*` events.
  * Without it the coordinator sends 0.20's `views` and `terminals` (COMPAT(scopes-rename)).
  */
-export const CLIENT_CAPABILITIES = ["adapter.slots.v1", "timeline.cards.v1", "scopes.v1"] as const;
+export const CLIENT_CAPABILITIES = [
+  "adapter.slots.v1",
+  "timeline.cards.v1",
+  "scopes.v1",
+  /** The client reads `ToolItemData.view`. */
+  "tool.views.v1",
+  /** The client draws checklist, facts, rows and badge nodes, `section.open` and URL refs. */
+  "ui.nodes.v2",
+  /** The client draws `composer.tracker` and `session.badge` contributions. */
+  "adapter.trackers.v1",
+] as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[number];
 
 export const ClientToServer = z.discriminatedUnion("type", [
