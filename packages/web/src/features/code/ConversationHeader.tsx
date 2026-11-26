@@ -140,7 +140,7 @@ export function sessionMenuItems(
             },
           ]
         : []),
-    ...views.map(
+    ...(ctx.session.archivedAt ? [] : views).map(
       (v): MenuItem => ({
         id: `view-${v.id}`,
         label: `Pin to ${v.name}`,

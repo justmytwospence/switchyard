@@ -82,8 +82,10 @@ export function registerViewRoutes(app: FastifyInstance, ctx: CoordinatorContext
     store.tx(() => {
       const { sessionId } = req.params as { sessionId: string };
       const v = store.views.require(idOf(req));
-      store.sessions.require(sessionId);
+      const session = store.sessions.require(sessionId);
       if (v.sessionIds.includes(sessionId)) return v;
+      if (session.archivedAt)
+        throw new SwitchyardError("conflict", "Unarchive this session before pinning it");
       return store.putView({
         ...v,
         sessionIds: [...v.sessionIds, sessionId],
