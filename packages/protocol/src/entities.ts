@@ -246,7 +246,7 @@ export const Profile = z.object({
 });
 export type Profile = z.infer<typeof Profile>;
 
-/** Deprecated: a TUI client bound to a view, replaced by `Surface`. */
+/** Deprecated: a TUI client bound to a view, replaced by `Terminal`. */
 export const ViewClient = z.object({
   /** `${kind}:${name}@${machine}` */
   id: z.string().min(1),
@@ -257,7 +257,7 @@ export const ViewClient = z.object({
 });
 export type ViewClient = z.infer<typeof ViewClient>;
 
-/** A named part of your work: a set of projects (or a tracker's) plus pins. Surfaces bind to one. */
+/** A named part of your work: a set of projects (or a tracker's) plus pins. Terminals can mirror one. */
 export const View = z.object({
   id: Id,
   name: z.string().min(1).max(60),
@@ -265,7 +265,7 @@ export const View = z.object({
   projectIds: z.array(z.string()).nullable(),
   hostIds: z.array(z.string()).nullable(),
   sessionIds: z.array(z.string()),
-  /** Deprecated: always empty; see Surface. */
+  /** Deprecated: always empty; see Terminal. */
   clients: z.array(ViewClient).default([]),
   /** A tracker keeps this view's projects (see docs/trackers.md). */
   trackerId: z.string().nullable().optional(),
@@ -274,26 +274,44 @@ export const View = z.object({
 });
 export type View = z.infer<typeof View>;
 
-export const SurfaceKind = z.enum(["herdr", "tmux"]);
-export type SurfaceKind = z.infer<typeof SurfaceKind>;
+export const TerminalKind = z.enum(["herdr", "tmux"]);
+export type TerminalKind = z.infer<typeof TerminalKind>;
+
+/** What a terminal mirrors: nothing, every session, or one view (`viewId`). */
+export const TerminalMirror = z.enum(["none", "all", "view"]);
+export type TerminalMirror = z.infer<typeof TerminalMirror>;
 
 /**
- * A terminal multiplexer session (herdr, tmux) that shows a view: owned by the signed-in device
- * that reports it, optionally on a host (coordinator-owned).
+ * A terminal: a herdr or tmux session Switchyard knows about, reported by the signed-in device
+ * whose daemon runs in it, optionally on a host. Which sessions it mirrors (`mirror`, `viewId`)
+ * is recorded by the coordinator from the CLI or the web app, never inferred from names;
+ * `shows` and `lastSeenAt` are the daemon's report. See docs/terminal-sessions.md.
  */
-export const Surface = z.object({
+export const Terminal = z.object({
   /** `${kind}:${name}@${machine}` */
   id: z.string().min(1).max(200),
-  kind: SurfaceKind,
+  kind: TerminalKind,
   name: z.string().min(1),
   machine: z.string().min(1),
   deviceId: Id,
   hostId: Id.nullable(),
+  /** What it mirrors (coordinator-owned); older records have only `viewId`. */
+  mirror: TerminalMirror.optional(),
+  /** The view it mirrors when `mirror` is "view" (coordinator-owned). */
   viewId: Id.nullable(),
+  /** When the binding was recorded; null when it never was (a daemon may seed it once). */
+  bindingSetAt: Iso.nullable().optional(),
+  /** Sessions it shows in mirror tabs or windows now (daemon-owned). */
+  shows: z.array(Id).max(1000).optional(),
   lastSeenAt: Iso,
   createdAt: Iso,
 });
-export type Surface = z.infer<typeof Surface>;
+export type Terminal = z.infer<typeof Terminal>;
+
+/** A terminal's binding, also for records written before `mirror` existed. */
+export function terminalMirror(t: Pick<Terminal, "mirror" | "viewId">): TerminalMirror {
+  return t.mirror ?? (t.viewId ? "view" : "none");
+}
 
 export const RuntimeState = z.enum([
   "starting",

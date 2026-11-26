@@ -19,6 +19,27 @@ import {
 } from "../src/sync/store";
 import { assistant, attention, ev, interaction, session, snapshot, task } from "./fixtures";
 
+describe("terminals", () => {
+  const t = { id: "herdr:vo@mac", kind: "herdr", name: "vo", machine: "mac", viewId: null };
+  it("reads terminals from a snapshot, or surfaces from an older coordinator", () => {
+    const s = applySnapshot(emptySyncData(), 1, snapshot({ terminals: [t as never] }));
+    expect(Object.keys(s.terminals)).toEqual(["herdr:vo@mac"]);
+    const { terminals: _, ...rest } = snapshot({});
+    const old = applySnapshot(emptySyncData(), 1, { ...rest, surfaces: [t as never] });
+    expect(Object.keys(old.terminals)).toEqual(["herdr:vo@mac"]);
+  });
+
+  it("applies terminal events, and surface events from before the rename", () => {
+    let s = applySnapshot(emptySyncData(), 1, snapshot({}));
+    s = applyEvent(s, ev("surface.updated" as never, t, 2));
+    expect(s.terminals["herdr:vo@mac"]).toMatchObject({ name: "vo" });
+    s = applyEvent(s, ev("terminal.updated", { ...t, mirror: "all" }, 3));
+    expect(s.terminals["herdr:vo@mac"]).toMatchObject({ mirror: "all" });
+    s = applyEvent(s, ev("terminal.deleted", { id: t.id }, 4));
+    expect(s.terminals).toEqual({});
+  });
+});
+
 describe("snapshot", () => {
   it("normalizes entities, drops resolved attention and round-trips", () => {
     const s = applySnapshot(

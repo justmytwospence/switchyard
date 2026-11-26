@@ -1,4 +1,4 @@
-import type { SurfaceKind } from "@switchyard/protocol";
+import type { TerminalKind } from "@switchyard/protocol";
 import { type ApiClient, ApiRequestError } from "@switchyard/terminal";
 
 const EVERY_MS = 60_000;
@@ -7,7 +7,7 @@ const EVERY_MS = 60_000;
 export interface SurfaceInfo {
   /** `${kind}:${name}@${machine}` */
   id: string;
-  kind: SurfaceKind;
+  kind: TerminalKind;
   name: string;
   machine: string;
   /** The host agent on this machine, when it is enrolled with the same coordinator. */

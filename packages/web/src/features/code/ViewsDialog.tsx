@@ -25,9 +25,9 @@ function ViewAbout({
   onNavigate: () => void;
 }) {
   const source = viewSource(view);
-  const surfaces = useSyncStore((s) => s.surfaces);
+  const terminals = useSyncStore((s) => s.terminals);
   const hosts = useSyncStore((s) => s.hosts);
-  const shown = shownIn(view, Object.values(surfaces), hosts);
+  const shown = shownIn(view, Object.values(terminals), hosts);
   const session = view.name.trim().replace(/\s+/g, "-");
   return (
     <dl

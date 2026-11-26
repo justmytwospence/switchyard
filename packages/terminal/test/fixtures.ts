@@ -167,7 +167,7 @@ export function syncState(over: Partial<SyncState> = {}): SyncState {
     panels: [],
     devices: [],
     issues: [],
-    surfaces: [],
+    terminals: [],
     adapters: {},
     dispatchPaused: false,
     ...over,

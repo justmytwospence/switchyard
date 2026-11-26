@@ -31,13 +31,13 @@ describe("views create", () => {
 });
 
 describe("views list", () => {
-  it("shows the surfaces a view is open in", async () => {
+  it("shows the terminals mirroring a view", async () => {
     const seen = new Date().toISOString();
     const { fetch } = stubFetch({
       "GET /api/views": () => [VIEW],
       "GET /api/projects": () => [],
       "GET /api/hosts": () => [],
-      "GET /api/surfaces": () => [
+      "GET /api/terminals": () => [
         {
           id: "herdr:default@mac",
           kind: "herdr",

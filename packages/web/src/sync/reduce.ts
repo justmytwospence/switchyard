@@ -17,9 +17,9 @@ import type {
   Run,
   Session,
   StreamDelta,
-  Surface,
   SyncState,
   Task,
+  Terminal,
   TrackedIssue,
   TranscriptItem,
   View,
@@ -55,7 +55,7 @@ export interface EntityState {
   /** Keyed by `panelKey(sessionId, adapterId, slot)`. */
   panels: ById<Panel>;
   devices: ById<Device>;
-  surfaces: ById<Surface>;
+  terminals: ById<Terminal>;
   issues: ById<TrackedIssue>;
   /** Adapters per host id. */
   adapters: Record<string, AdapterInfo[]>;
@@ -129,7 +129,7 @@ export function emptyEntities(): EntityState {
     interactions: {},
     panels: {},
     devices: {},
-    surfaces: {},
+    terminals: {},
     issues: {},
     adapters: {},
     occurrences: {},
@@ -211,7 +211,7 @@ export function applySnapshot<S extends SyncData>(state: S, seq: number, snap: S
     interactions: byId(snap.interactions),
     panels,
     devices: byId(snap.devices),
-    surfaces: byId(snap.surfaces ?? []),
+    terminals: byId(snap.terminals ?? snap.surfaces ?? []),
     issues: byId(snap.issues ?? []),
     adapters: { ...snap.adapters },
     dispatchPaused: snap.dispatchPaused,
@@ -238,7 +238,7 @@ export function toSyncState(state: EntityState): SyncState {
     panels: Object.values(state.panels),
     devices: Object.values(state.devices),
     issues: Object.values(state.issues),
-    surfaces: Object.values(state.surfaces),
+    terminals: Object.values(state.terminals),
     adapters: state.adapters,
     dispatchPaused: state.dispatchPaused,
   };
@@ -509,13 +509,13 @@ function reduceEvent<S extends SyncData, T extends EventType>(
       const d = data as EventData<"issue.deleted">;
       return { ...state, issues: drop(state.issues, d.id) };
     }
-    case "surface.updated": {
-      const d = data as EventData<"surface.updated">;
-      return { ...state, surfaces: put(state.surfaces, d.id, d) };
+    case "terminal.updated": {
+      const d = data as EventData<"terminal.updated">;
+      return { ...state, terminals: put(state.terminals, d.id, d) };
     }
-    case "surface.deleted": {
-      const d = data as EventData<"surface.deleted">;
-      return { ...state, surfaces: drop(state.surfaces, d.id) };
+    case "terminal.deleted": {
+      const d = data as EventData<"terminal.deleted">;
+      return { ...state, terminals: drop(state.terminals, d.id) };
     }
     case "settings.updated": {
       const d = data as EventData<"settings.updated">;

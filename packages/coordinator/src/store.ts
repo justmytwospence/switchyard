@@ -20,10 +20,10 @@ import {
   type Project,
   type Run,
   type Session,
-  type Surface,
   SwitchyardError,
   type SyncState,
   type Task,
+  type Terminal,
   type TrackedIssue,
   type Tracker,
   type TranscriptItem,
@@ -188,7 +188,7 @@ export class Store {
   /** Trackers are REST resources: no events; their per-item data rides on tasks. */
   readonly trackers: JsonRepo<Tracker>;
   readonly issues: JsonRepo<TrackedIssue>;
-  readonly surfaces: JsonRepo<Surface>;
+  readonly terminals: JsonRepo<Terminal>;
   readonly sessions: JsonRepo<Session>;
   readonly interactions: JsonRepo<Interaction>;
   readonly tasks: JsonRepo<Task>;
@@ -271,10 +271,10 @@ export class Store {
       { name: (t) => t.name },
       { created_at: () => now() },
     );
-    this.surfaces = new JsonRepo<Surface>(
+    this.terminals = new JsonRepo<Terminal>(
       st,
-      "surfaces",
-      "Surface",
+      "terminals",
+      "Terminal",
       {
         device_id: (x) => x.deviceId,
         view_id: (x) => x.viewId,
@@ -624,18 +624,18 @@ export class Store {
     });
   }
 
-  putSurface(x: Surface): Surface {
+  putTerminal(x: Terminal): Terminal {
     return this.tx(() => {
-      this.surfaces.upsert(x);
-      this.appendEvent("surface.updated", {}, x);
+      this.terminals.upsert(x);
+      this.appendEvent("terminal.updated", {}, x);
       return x;
     });
   }
 
-  deleteSurface(id: string): void {
+  deleteTerminal(id: string): void {
     this.tx(() => {
-      if (!this.surfaces.delete(id)) return;
-      this.appendEvent("surface.deleted", {}, { id });
+      if (!this.terminals.delete(id)) return;
+      this.appendEvent("terminal.deleted", {}, { id });
     });
   }
 
@@ -1339,7 +1339,7 @@ export class Store {
       panels: this.listPanels(),
       devices: this.devices.list("is_admin = 0", [], "created_at"),
       issues: this.issues.list(undefined, [], "created_at, rowid"),
-      surfaces: this.surfaces.list(undefined, [], "created_at, rowid"),
+      terminals: this.terminals.list(undefined, [], "created_at, rowid"),
       adapters: this.adaptersByHost(),
       dispatchPaused: this.dispatchPaused,
     };
