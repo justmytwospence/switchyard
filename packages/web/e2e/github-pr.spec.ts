@@ -248,7 +248,7 @@ test.describe("GitHub PR inspector", () => {
     await review.click();
     await expect(panel.getByRole("alert")).toContainText("Policy blocks this prompt");
     if (viewportOf(info) === "mobile")
-      await page.getByRole("radio", { name: "Chat", exact: true }).click();
+      await page.getByRole("button", { name: /^Back to chat/ }).click();
     else if (viewportOf(info) === "compact")
       await page
         .getByRole("dialog", { name: "Inspector", exact: true })
@@ -359,9 +359,11 @@ test.describe("GitHub PR inspector", () => {
     });
     await expect.poll(() => calls).toBe(hidden + 1);
     await expect(panel.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
-    if (viewportOf(info) === "mobile")
+    if (viewportOf(info) === "mobile") {
       await page.getByRole("radio", { name: "Details", exact: true }).click();
-    else
+      // Switching is a navigation: wait for it before counting polls.
+      await expect(page.getByRole("region", { name: "Details", exact: true })).toBeVisible();
+    } else
       await page
         .getByTestId("inspector")
         .getByRole("tab", { name: "Details", exact: true })
@@ -374,7 +376,7 @@ test.describe("GitHub PR inspector", () => {
     else await page.getByTestId("inspector").getByRole("tab", { name: "PR", exact: true }).click();
     await expect(panel.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
     if (viewportOf(info) === "mobile")
-      await page.getByRole("radio", { name: "Chat", exact: true }).click();
+      await page.getByRole("button", { name: /^Back to chat/ }).click();
     else if (viewportOf(info) === "compact")
       await page
         .getByRole("dialog", { name: "Inspector", exact: true })

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { createSession, expect, poll, test, uid } from "./support";
+import { backToChat, createSession, expect, openSessionPanel, poll, test, uid } from "./support";
 
 test.skip(({ isMobile }) => !isMobile, "Mobile coding view only");
 
@@ -24,13 +24,14 @@ test.describe("mobile coding view", () => {
     await signIn();
   });
 
-  test("one surface at a time: Chat, Changes and Details", { tag: "@smoke" }, async ({
+  test("the chat fills the screen; Changes and Details open over it", { tag: "@smoke" }, async ({
     page,
     state,
   }) => {
     await page.goto(`/code/${state.sessions.long}`);
-    const tabs = page.getByTestId("mobile-tabs");
-    await expect(tabs).toBeVisible();
+    const tabs = page.getByTestId("session-panel-tabs");
+    await expect(tabs).toHaveCount(0);
+    await expect(page.getByTestId("mobile-tabs")).toHaveCount(0);
     // No miniature desktop sidebars.
     await expect(page.getByTestId("navigator")).toHaveCount(0);
     await expect(page.getByTestId("inspector")).toHaveCount(0);
@@ -47,7 +48,7 @@ test.describe("mobile coding view", () => {
     await info.getByRole("button", { name: "Close" }).tap();
     await expect(info).toHaveCount(0);
 
-    await tabs.getByRole("radio", { name: "Changes" }).click();
+    await page.getByTestId("session-panel-button").tap();
     await expect(tabs.getByRole("radio", { name: "Changes" })).toHaveAttribute(
       "aria-checked",
       "true",
@@ -68,8 +69,13 @@ test.describe("mobile coding view", () => {
     ).toBeVisible();
     await expect(details.getByRole("link", { name: "Open Board" })).toHaveCount(0);
 
-    await tabs.getByRole("radio", { name: "Chat" }).click();
+    // Back closes the panel instead of leaving the session.
+    await page.goBack();
     await expect(page.getByTestId("transcript")).toBeVisible();
+    await openSessionPanel(page, "Details");
+    await backToChat(page);
+    await expect(page.getByTestId("transcript")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to sessions" })).toBeVisible();
     await expect(page.getByTestId("composer")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -125,7 +131,7 @@ test.describe("mobile coding view", () => {
 
   test("full-screen diff with previous and next", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
-    await page.getByTestId("mobile-tabs").getByRole("radio", { name: "Changes" }).click();
+    await openSessionPanel(page, "Changes");
     const list = page.getByRole("list", { name: "Changed files" });
     await expect(list.getByRole("button")).toHaveCount(state.changedFiles.length);
     await list.getByRole("button").first().tap();
@@ -285,9 +291,13 @@ test.describe("mobile coding view", () => {
     await page.getByRole("link", { name: "Review changes" }).first().tap();
     await expect(page).toHaveURL(new RegExp(`/code/${state.reviewSessionId}\\?tab=changes`));
     await expect(
-      page.getByTestId("mobile-tabs").getByRole("radio", { name: "Changes" }),
+      page.getByTestId("session-panel-tabs").getByRole("radio", { name: "Changes" }),
     ).toHaveAttribute("aria-checked", "true");
     await expect(page.getByRole("region", { name: "Changes" })).toBeVisible();
+    // The link opened the panel: Back to chat stays in the session.
+    await backToChat(page);
+    await expect(page).toHaveURL(new RegExp(`/code/${state.reviewSessionId}$`));
+    await expect(page.getByTestId("transcript")).toBeVisible();
   });
 
   test("model and effort controls are thumb-sized and stay on screen", async ({

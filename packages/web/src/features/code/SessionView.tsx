@@ -1,7 +1,14 @@
 import type { Session } from "@switchyard/protocol";
-import { ArrowLeft, EllipsisVertical, Square, SquareKanban } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import {
+  ArrowLeft,
+  EllipsisVertical,
+  FileDiff,
+  Square,
+  SquareKanban,
+  SquareTerminal,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useHideBottomNav } from "../../app/chrome";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { CountBadge } from "../../components/ui/Badge";
@@ -162,13 +169,24 @@ export function Conversation({
 
 type MobileTab = "chat" | "changes" | "details" | "terminal" | "pr";
 
-/** Mobile segment for a requested inspector tab (`?tab=`): PR, Changes, else Details. */
+/** Mobile surface for a requested inspector tab (`?tab=`): PR, Changes, else Details. */
 function mobileTabFor(tab: InspectorTab | null | undefined): MobileTab {
   if (!tab) return "chat";
   return tab === "pr" ? "pr" : tab === "changes" ? "changes" : "details";
 }
 
-/** Mobile session screen: one surface at a time (Chat, Changes, PR, Details, Terminal). */
+const MOBILE_TABS: readonly string[] = ["changes", "details", "terminal", "pr"];
+
+/** The surface a history entry opened over the chat (`location.state.syPanel`), if any. */
+function panelOf(state: unknown): MobileTab | null {
+  const p = (state as { syPanel?: unknown } | null)?.syPanel;
+  return typeof p === "string" && MOBILE_TABS.includes(p) ? (p as MobileTab) : null;
+}
+
+/**
+ * Mobile session screen: the chat fills it. Changes, PR and Details open over it as one panel
+ * with a switcher, and Terminal from the menu; each is a history entry, so Back returns to the chat.
+ */
 export function MobileSession({
   ctx,
   actions,
@@ -184,26 +202,43 @@ export function MobileSession({
   const back = useBackTo("/code");
   const { session, task } = ctx;
   const navigate = useNavigate();
-  const [tab, setTab] = useState<MobileTab>(() => mobileTabFor(tabRequest?.tab));
+  const location = useLocation();
+  const pushed = panelOf(location.state);
+  // The chat, unless this entry opened a panel or the link asks for a tab (`?tab=changes`).
+  const tab: MobileTab = pushed ?? mobileTabFor(tabRequest?.tab);
+  const setTab = (next: MobileTab) => {
+    if (next === tab) return;
+    const {
+      syPanel: _panel,
+      syPanelPushed,
+      ...rest
+    } = (location.state ?? {}) as Record<string, unknown>;
+    if (next === "chat") {
+      // Opened from the chat: go back to it. Opened by a link: drop the tab from the URL.
+      if (syPanelPushed) navigate(-1);
+      else navigate(location.pathname, { replace: true, state: rest });
+      return;
+    }
+    navigate(location.pathname, {
+      replace: tab !== "chat",
+      state: { ...rest, syPanel: next, syPanelPushed: tab === "chat" || syPanelPushed === true },
+    });
+  };
   const github = usePullRequest(ctx, tab === "pr");
-  const [visited, setVisited] = useState<Set<MobileTab>>(
-    () => new Set([mobileTabFor(tabRequest?.tab)]),
-  );
+  const [visited, setVisited] = useState<Set<MobileTab>>(() => new Set([tab]));
   const [infoOpen, setInfoOpen] = useState(false);
   const pending = usePendingInteractions(session.id);
   const d = useComposerDraft(session.id);
   useSubagentRefresh(session);
   useHideBottomNav(true); // Back replaces the bottom navigation here.
 
-  // Deep links and session switches show Chat, unless the link asks for a tab (`?tab=changes`).
-  const tabKey = tabRequest ? `${tabRequest.tab}:${tabRequest.key}` : null;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: apply once per navigation
-  useEffect(() => setTab(mobileTabFor(tabRequest?.tab)), [session.id, focusInteractionId, tabKey]);
   // Changes and Details mount on first visit, then stay mounted.
   useEffect(() => setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab))), [tab]);
 
+  const latest = useRef(setTab);
+  latest.current = setTab;
   const codeCtx = useMemo<CodeViewContext>(
-    () => ({ mobile: true, openInspector: (t) => setTab(mobileTabFor(t)) }),
+    () => ({ mobile: true, openInspector: (t) => latest.current(mobileTabFor(t)) }),
     [],
   );
 
@@ -212,6 +247,16 @@ export function MobileSession({
   const menuItems: MenuItem[] = [
     ...(github.snapshot?.pullRequest
       ? [{ id: "pr", label: "Pull request", onSelect: () => setTab("pr") }]
+      : []),
+    ...(canUseTerminal(session, ctx.host)
+      ? [
+          {
+            id: "terminal",
+            label: "Terminal",
+            icon: <SquareTerminal className="size-4" />,
+            onSelect: () => setTab("terminal"),
+          },
+        ]
       : []),
     ...(task
       ? [
@@ -241,72 +286,110 @@ export function MobileSession({
     <CodeContext.Provider value={codeCtx}>
       <div className="absolute inset-0 flex min-w-0 flex-col bg-bg">
         <div className="shrink-0 border-b border-border bg-surface safe-pt">
-          <header className="flex min-w-0 items-center gap-1 px-1.5 py-1">
-            <Link
-              to="/code"
-              onClick={backLinkClick(back)}
-              aria-label="Back to sessions"
-              title="Back to sessions"
-              className={buttonClasses("ghost", "md", "size-11 px-0")}
-            >
-              <ArrowLeft aria-hidden className="size-5" />
-            </Link>
-            <h1 className="min-w-0 flex-1 text-base leading-6 font-semibold">
+          {tab === "chat" ? (
+            <header className="flex min-w-0 items-center gap-1 px-1.5 py-1">
+              <Link
+                to="/code"
+                onClick={backLinkClick(back)}
+                aria-label="Back to sessions"
+                title="Back to sessions"
+                className={buttonClasses("ghost", "md", "size-11 px-0")}
+              >
+                <ArrowLeft aria-hidden className="size-5" />
+              </Link>
+              <h1 className="min-w-0 flex-1 text-base leading-6 font-semibold">
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  onClick={() => setInfoOpen(true)}
+                  className="tap block w-full truncate text-left"
+                >
+                  {session.title}
+                </button>
+              </h1>
+              <StatusChip kind="runtime" value={session.runtime} size="sm" className="shrink-0" />
               <button
                 type="button"
-                aria-haspopup="dialog"
-                onClick={() => setInfoOpen(true)}
-                className="tap block w-full truncate text-left"
+                data-testid="session-panel-button"
+                aria-label={
+                  changed > 0
+                    ? `Changes and details, ${changed} changed ${changed === 1 ? "file" : "files"}`
+                    : "Changes and details"
+                }
+                title="Changes and details"
+                onClick={() => setTab("changes")}
+                className={buttonClasses("ghost", "md", "h-11 min-w-11 shrink-0 gap-1 px-2")}
               >
-                {session.title}
+                <FileDiff aria-hidden className="size-5" />
+                {changed > 0 && (
+                  <span aria-hidden className="text-xs text-muted tabular-nums">
+                    {changed}
+                  </span>
+                )}
               </button>
-            </h1>
-            <StatusChip kind="runtime" value={session.runtime} size="sm" className="shrink-0" />
-            <Menu
-              label="Session actions"
-              items={menuItems}
-              trigger={(p) => (
-                <IconButton
-                  {...p}
-                  label="More actions"
-                  icon={<EllipsisVertical className="size-5" />}
-                />
+              <Menu
+                label="Session actions"
+                items={menuItems}
+                trigger={(p) => (
+                  <IconButton
+                    {...p}
+                    label="More actions"
+                    icon={<EllipsisVertical className="size-5" />}
+                  />
+                )}
+              />
+            </header>
+          ) : (
+            <header className="flex min-w-0 items-center gap-1 px-1.5 py-1">
+              <button
+                type="button"
+                aria-label={
+                  pending.length > 0
+                    ? `Back to chat, ${pending.length} pending ${pending.length === 1 ? "question" : "questions"}`
+                    : "Back to chat"
+                }
+                title="Back to chat"
+                onClick={() => setTab("chat")}
+                className={buttonClasses("ghost", "md", "relative size-11 shrink-0 px-0")}
+              >
+                <ArrowLeft aria-hidden className="size-5" />
+                {pending.length > 0 && (
+                  <span
+                    aria-hidden
+                    className="absolute top-2 right-2 size-2 rounded-full bg-warning"
+                  />
+                )}
+              </button>
+              {tab === "terminal" ? (
+                <h1 className="min-w-0 flex-1 truncate text-base leading-6 font-semibold">
+                  Terminal
+                </h1>
+              ) : (
+                <div className="min-w-0 flex-1 pr-1.5" data-testid="session-panel-tabs">
+                  <SegmentedControl<MobileTab>
+                    label="Session panel"
+                    block
+                    value={tab}
+                    onChange={setTab}
+                    options={[
+                      {
+                        value: "changes",
+                        label: "Changes",
+                        badge:
+                          changed > 0 ? (
+                            <CountBadge count={changed} label="changed files" tone="neutral" />
+                          ) : undefined,
+                      },
+                      ...(github.snapshot?.pullRequest || tab === "pr"
+                        ? [{ value: "pr" as const, label: "PR" }]
+                        : []),
+                      { value: "details", label: "Details" },
+                    ]}
+                  />
+                </div>
               )}
-            />
-          </header>
-          <div className="px-3 pb-1.5" data-testid="mobile-tabs">
-            <SegmentedControl<MobileTab>
-              label="Session view"
-              block
-              value={tab}
-              onChange={setTab}
-              options={[
-                {
-                  value: "chat",
-                  label: "Chat",
-                  badge:
-                    pending.length > 0 ? (
-                      <>
-                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-warning" />
-                        <span className="sr-only">
-                          {pending.length} pending {pending.length === 1 ? "question" : "questions"}
-                        </span>
-                      </>
-                    ) : undefined,
-                },
-                {
-                  value: "changes",
-                  label: "Changes",
-                  badge: <CountBadge count={changed} label="changed files" tone="neutral" />,
-                },
-                { value: "details", label: "Details" },
-                ...(github.snapshot?.pullRequest ? [{ value: "pr" as const, label: "PR" }] : []),
-                ...(canUseTerminal(session, ctx.host)
-                  ? [{ value: "terminal" as const, label: "Terminal" }]
-                  : []),
-              ]}
-            />
-          </div>
+            </header>
+          )}
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <section

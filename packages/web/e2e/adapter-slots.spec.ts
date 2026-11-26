@@ -1,4 +1,4 @@
-import { createSession, expect, test, viewportOf } from "./support";
+import { backToChat, createSession, expect, openSessionPanel, test, viewportOf } from "./support";
 
 test("session-scoped slots, palette and namespaced form", async ({
   page,
@@ -49,11 +49,11 @@ test("session-scoped slots, palette and namespaced form", async ({
         .getByRole("button", { name: "Close" })
         .click();
   } else {
-    await page.getByTestId("mobile-tabs").getByRole("radio", { name: "Details" }).click();
+    await openSessionPanel(page, "Details");
     const mobilePanels = page.getByRole("region", { name: "Session panels" });
     await expect(mobilePanels.getByText("Portable frame: Fixture slots active")).toBeVisible();
     await expect(mobilePanels.locator("iframe")).toHaveCount(0);
-    await page.getByTestId("mobile-tabs").getByRole("radio", { name: "Chat" }).click();
+    await backToChat(page);
   }
   await expect(page.getByLabel("Adapter pills")).toContainText("Slots ready");
   await expect(page.getByTestId("notice-card")).toContainText("Slots custom card");
@@ -90,7 +90,7 @@ test("session-scoped slots, palette and namespaced form", async ({
       page.getByTestId("inspector").getByRole("tab", { name: "Slots frame" }),
     ).toHaveCount(0);
   } else {
-    await page.getByTestId("mobile-tabs").getByRole("radio", { name: "Details" }).click();
+    await openSessionPanel(page, "Details");
     await expect(page.getByRole("region", { name: "Session panels" })).toHaveCount(0);
   }
 });

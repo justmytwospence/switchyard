@@ -1,5 +1,13 @@
 import type { SessionAdaptersResult, TranscriptItem } from "@switchyard/protocol";
-import { createSession, expect, poll, test, viewportOf } from "./support";
+import {
+  backToChat,
+  createSession,
+  expect,
+  openSessionPanel,
+  poll,
+  test,
+  viewportOf,
+} from "./support";
 
 const staleMessage = "This extension view changed. Reopen it before trying again.";
 
@@ -18,7 +26,7 @@ test("session inspection, readiness reason and safe reload preserve the draft", 
   const draft = page.getByTestId("composer").getByRole("textbox", { name: "Message to Pi" });
   await draft.fill("A draft that must survive adapter reload");
   if (viewportOf(info) === "mobile") {
-    await page.getByTestId("mobile-tabs").getByRole("radio", { name: "Details" }).click();
+    await openSessionPanel(page, "Details");
   } else {
     if (viewportOf(info) === "compact")
       await page.getByRole("button", { name: "Show inspector" }).click();
@@ -62,7 +70,7 @@ test("session inspection, readiness reason and safe reload preserve the draft", 
   // Cleared fixture contributions stay removed after replacement.
   if (viewportOf(info) === "mobile") {
     await expect(page.getByRole("region", { name: "Session panels" })).toHaveCount(0);
-    await page.getByTestId("mobile-tabs").getByRole("radio", { name: "Chat" }).click();
+    await backToChat(page);
   } else {
     await expect(
       page.getByTestId("inspector").getByRole("tab", { name: "Slots details" }),
@@ -197,8 +205,7 @@ test("old hosts have no session reload control or speculative inspection request
     return route.abort();
   });
   await page.goto(`/code/${id}?tab=extensions`);
-  if (viewportOf(info) === "mobile")
-    await page.getByTestId("mobile-tabs").getByRole("radio", { name: "Details" }).click();
+  if (viewportOf(info) === "mobile") await openSessionPanel(page, "Details");
   await expect(
     page.getByText("This host does not support adapter development.", { exact: false }),
   ).toBeVisible();

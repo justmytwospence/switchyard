@@ -128,8 +128,11 @@ const card = (page: Page, id: string) => page.locator(`[data-task-id="${id}"]`);
 const panel = (page: Page) => page.getByRole("region", { name: "Pull request", exact: true });
 
 async function selectInspector(page: Page, mobile: boolean, tab: "PR" | "Details") {
-  if (mobile) await page.getByRole("radio", { name: tab, exact: true }).click();
-  else await page.getByTestId("inspector").getByRole("tab", { name: tab, exact: true }).click();
+  if (mobile) {
+    await page.getByRole("radio", { name: tab, exact: true }).click();
+    // Switching is a navigation: wait for it before counting polls.
+    await expect(page.getByRole("region", { name: tab, exact: true })).toBeVisible();
+  } else await page.getByTestId("inspector").getByRole("tab", { name: tab, exact: true }).click();
 }
 
 async function visibility(page: Page, value: "hidden" | "visible") {
@@ -347,7 +350,7 @@ test.describe("phase three real-stack verification (only model and gh are fake)"
     await selectInspector(page, isMobile, "PR");
     await expect.poll(() => refreshes).toBe(unselected + 1);
     await expect(refresh).toBeEnabled();
-    if (isMobile) await page.getByRole("radio", { name: "Chat", exact: true }).click();
+    if (isMobile) await page.getByRole("button", { name: /^Back to chat/ }).click();
     else if (viewportOf(info) === "compact")
       await page
         .getByRole("dialog", { name: "Inspector", exact: true })

@@ -385,7 +385,7 @@ New session flow: prompt first ("What should Pi do?", optional), then Project, W
 
 ### Conversation header
 
-Show session title, project/branch, host, runtime status, and automation-control state.
+One row: the session title, then runtime status and automation-control state, then branch, host, issue and project as the width allows (what does not fit is in the inspector's Details and in Session info), then the actions.
 
 Actions:
 
@@ -451,20 +451,15 @@ Review comments can be collected and sent as one follow-up. Do not silently send
 
 One primary surface at a time. No miniature desktop sidebars.
 
-Header:
+The chat fills the screen. Header, one row:
 
 - Back to session list.
-- Session title.
+- Session title (tap for the session's facts).
 - Status.
-- Overflow menu.
+- A button with the changed-file count, which opens the panel.
+- Overflow menu, which also opens the Terminal.
 
-A compact metadata row shows project, branch, host, and automation state; expandable for details.
-
-View switcher:
-
-- Chat.
-- Changes.
-- Details.
+The panel covers the chat and holds Changes, PR (when the branch has one) and Details behind one switcher. Its header has Back to chat, marked when a question is waiting. Opening the panel or the Terminal is a history entry, so Back returns to the chat; a `?tab=` link opens the panel directly.
 
 ### Chat
 

@@ -549,9 +549,10 @@ export function Composer({
       <div className="mx-auto flex w-full max-w-[80ch] min-w-0 flex-col gap-2">
         {dock?.({ collapsed: mobile && focused })}
 
-        {(ctx.workspace || pillPanels.length > 0) && (
+        {((ctx.workspace && !mobile) || pillPanels.length > 0) && (
           <div data-testid="tracker-bar" className="flex h-7 min-w-0 items-center gap-1.5">
-            {ctx.workspace && openInspector && (
+            {/* A phone has this in its header. */}
+            {ctx.workspace && openInspector && !mobile && (
               <button
                 type="button"
                 data-testid="changes-pill"

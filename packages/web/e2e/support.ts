@@ -114,3 +114,18 @@ export async function createTask(
 export function uid(info: TestInfo): string {
   return `${info.project.name.split("-")[0]}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 }
+
+/** Phone: open the panel over the chat (Changes), then pick one of its tabs. */
+export async function openSessionPanel(page: Page, tab: "Changes" | "Details" | "PR" = "Changes") {
+  const tabs = page.getByTestId("session-panel-tabs");
+  const button = page.getByTestId("session-panel-button");
+  // A `?tab=` link opens the panel by itself.
+  await expect(tabs.or(button)).toBeVisible();
+  if (!(await tabs.isVisible())) await button.click();
+  await tabs.getByRole("radio", { name: tab }).click();
+}
+
+/** Phone: leave the panel for the chat. */
+export async function backToChat(page: Page) {
+  await page.getByRole("button", { name: /^Back to chat/ }).click();
+}

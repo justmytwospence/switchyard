@@ -212,72 +212,39 @@ export function ConversationHeader({
       : []),
     ...sessionMenuItems(ctx, actions, Object.values(scopes)),
   ];
+  // One row: what does not fit is in the inspector's Details and in Session info.
+  const wide = (min: number) => width === 0 || width >= min;
   return (
     <header
       ref={ref}
-      className="flex min-w-0 shrink-0 flex-col gap-1.5 border-b border-border bg-surface px-4 py-2.5"
+      className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border bg-surface px-4 py-2"
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <h1 className="min-w-0 flex-1 truncate text-base font-semibold" title={session.title}>
-          {session.title}
-        </h1>
-        {task && !narrow && (
-          <Link
-            to={`/tasks/${encodeURIComponent(task.id)}`}
-            className={buttonClasses("ghost", "sm")}
-            title={`Open linked task: ${task.title}`}
-          >
-            <SquareKanban aria-hidden className="size-4" />
-            <span className="hidden xl:inline">Open linked task</span>
-            <span className="xl:hidden">Task</span>
-          </Link>
+      <h1
+        className="min-w-24 flex-[1_1_16rem] truncate text-base font-semibold"
+        title={session.title}
+      >
+        {session.title}
+      </h1>
+      <div
+        data-testid="session-meta"
+        className="flex min-w-0 shrink items-center justify-end gap-x-3"
+      >
+        <StatusChip kind="runtime" value={session.runtime} size="sm" className="shrink-0" />
+        <ControlChip ctx={ctx} className="shrink-0" />
+        {wide(900) && (
+          <span className="max-w-32 min-w-0 truncate text-xs text-muted">
+            {project?.name ?? "No project"}
+          </span>
         )}
-        {surface && (
-          <SegmentedControl<Surface>
-            label="Session surface"
-            value={surface.value}
-            onChange={surface.onChange}
-            options={[
-              { value: "chat", label: "Chat" },
-              { value: "terminal", label: "Terminal" },
-            ]}
-          />
+        {wide(560) && (
+          <span className="inline-flex max-w-44 min-w-0 items-center gap-1 text-xs text-muted">
+            <GitBranch aria-hidden className="size-3.5 shrink-0" />
+            <span className="sr-only">Branch </span>
+            <span className="truncate font-mono">{workspaceLabel(workspace, session.cwd)}</span>
+          </span>
         )}
-        <Menu
-          label="Session menu"
-          items={menuItems}
-          trigger={(p) => (
-            <IconButton
-              {...p}
-              label="Session menu"
-              icon={<EllipsisVertical className="size-4" />}
-            />
-          )}
-        />
-        <IconButton
-          label={inspector.label}
-          aria-expanded={inspector.open}
-          icon={
-            inspector.open ? (
-              <PanelRightClose className="size-4" />
-            ) : (
-              <PanelRightOpen className="size-4" />
-            )
-          }
-          onClick={inspector.toggle}
-        />
-      </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-        <StatusChip kind="runtime" value={session.runtime} size="sm" />
-        <ControlChip ctx={ctx} />
-        <span className="min-w-0 truncate text-xs text-muted">{project?.name ?? "No project"}</span>
-        <span className="inline-flex min-w-0 items-center gap-1 text-xs text-muted">
-          <GitBranch aria-hidden className="size-3.5 shrink-0" />
-          <span className="sr-only">Branch </span>
-          <span className="truncate font-mono">{workspaceLabel(workspace, session.cwd)}</span>
-        </span>
-        <HostChip ctx={ctx} />
-        {place.issue && (
+        {(wide(760) || ctx.link !== "connected") && <HostChip ctx={ctx} />}
+        {place.issue && wide(760) && (
           <a
             data-testid="session-issue"
             href={place.issue.url}
@@ -300,6 +267,46 @@ export function ConversationHeader({
           </span>
         )}
       </div>
+      {task && !narrow && (
+        <Link
+          to={`/tasks/${encodeURIComponent(task.id)}`}
+          className={buttonClasses("ghost", "sm")}
+          title={`Open linked task: ${task.title}`}
+        >
+          <SquareKanban aria-hidden className="size-4" />
+          Task
+        </Link>
+      )}
+      {surface && (
+        <SegmentedControl<Surface>
+          label="Session surface"
+          value={surface.value}
+          onChange={surface.onChange}
+          options={[
+            { value: "chat", label: "Chat" },
+            { value: "terminal", label: "Terminal" },
+          ]}
+        />
+      )}
+      <Menu
+        label="Session menu"
+        items={menuItems}
+        trigger={(p) => (
+          <IconButton {...p} label="Session menu" icon={<EllipsisVertical className="size-4" />} />
+        )}
+      />
+      <IconButton
+        label={inspector.label}
+        aria-expanded={inspector.open}
+        icon={
+          inspector.open ? (
+            <PanelRightClose className="size-4" />
+          ) : (
+            <PanelRightOpen className="size-4" />
+          )
+        }
+        onClick={inspector.toggle}
+      />
     </header>
   );
 }
