@@ -385,7 +385,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
 
   const views = program
     .command("views")
-    .description("Views: named session filters for TUI clients");
+    .description("Views: named sets of projects and pins that surfaces show");
   const collect = (v: string, prev: string[] = []) => [...prev, v];
   connectionOptions(views.command("list").description("List views"))
     .option("--json", "JSON output")
@@ -394,14 +394,12 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--mode <mode>", "all (matching or pinned) or pinned (pinned only)")
     .option("--project <project>", "limit to a project (repeatable)", collect)
     .option("--host <host>", "limit to a host (repeatable)", collect)
-    .option("--client <id>", "collect sessions started in this client, e.g. herdr:default")
     .action((name, o) =>
       viewsCreate(ctx, name, {
         ...connFlags(o),
         mode: o.mode,
         project: o.project,
         host: o.host,
-        client: o.client,
       }),
     );
   connectionOptions(views.command("edit <view>").description("Change a view"))
@@ -411,8 +409,6 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--host <host>", "limit to a host (repeatable)", collect)
     .option("--any-project", "remove the project limit")
     .option("--any-host", "remove the host limit")
-    .option("--client <id>", "collect sessions started in this client, e.g. herdr:default")
-    .option("--no-client", "stop collecting sessions from a client")
     .action((ref, o) =>
       viewsEdit(ctx, ref, {
         ...connFlags(o),
@@ -422,8 +418,6 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
         host: o.host,
         anyProject: o.anyProject,
         anyHost: o.anyHost,
-        client: typeof o.client === "string" ? o.client : undefined,
-        noClient: o.client === false,
       }),
     );
   connectionOptions(views.command("delete <view>").description("Delete a view")).action((ref, o) =>

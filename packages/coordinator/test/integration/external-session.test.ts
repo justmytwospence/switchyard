@@ -32,15 +32,14 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
     await env?.dispose();
   });
 
-  it("enrols, belongs to its surface's view, answers prompts and stops on quit", async () => {
+  it("enrols, joins its project's views, answers prompts and stops on quit", async () => {
     env = await Integration.create({ terminalSessions: true });
     const { terminal } = env.devices!;
     const client = `herdr:daily@${hostname()}`;
     const view = await env.ok("POST", "/api/views", {
       as: terminal,
-      body: { name: "daily", mode: "pinned", clientId: client },
+      body: { name: "work", projectIds: [env.project.id] },
     });
-    expect(view.clientId).toBe(client);
 
     const cwd = join(env.repo!.path, "src");
     mkdirSync(cwd, { recursive: true });
@@ -68,7 +67,6 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
     expect(s.projectId).toBe(env.project.id);
     expect(s.workspaceId).not.toBeNull();
     expect(s.external).toEqual({ client });
-    expect(s.startedIn).toBe(client);
     const workspaces = Object.fromEntries(env.c.store.workspaces.list().map((w) => [w.id, w]));
     expect(sessionInView(env.c.store.views.require(view.id), s, workspaces)).toBe(true);
 

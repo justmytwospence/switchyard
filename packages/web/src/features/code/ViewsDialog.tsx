@@ -14,7 +14,7 @@ import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { shownIn, viewSource } from "../views/describe";
 import { useViewDescriber } from "../views/ViewSelect";
 
-/** A view's source (what decides its sessions) and the terminals it is shown in. */
+/** What a view contains and the terminals it is shown in. */
 function ViewAbout({
   view,
   describe,
@@ -34,7 +34,7 @@ function ViewAbout({
       data-testid="view-about"
       className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md bg-surface-2 px-3 py-2 text-sm"
     >
-      <dt className="text-muted">Source</dt>
+      <dt className="text-muted">Contains</dt>
       <dd className="flex min-w-0 flex-col gap-0.5">
         <span>{describe(view)}</span>
         {source === "tracker" && (
@@ -45,16 +45,11 @@ function ViewAbout({
             </TextLink>
           </span>
         )}
-        {source === "client" && (
-          <span className="text-muted">
-            Sessions join as they start there. Nothing is opened in that terminal.
-          </span>
-        )}
       </dd>
       <dt className="text-muted">Shown in</dt>
       <dd className="flex min-w-0 flex-col gap-0.5">
         {shown ?? <span>No terminal.</span>}
-        {!shown && source !== "client" && (
+        {!shown && (
           <>
             <span className="text-muted">To show it in herdr:</span>
             <code className="block break-all text-xs">

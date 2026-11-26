@@ -11,7 +11,7 @@ import { defaultStateDir } from "./state-dir.js";
 
 type Env = Record<string, string | undefined>;
 
-/** The client this Pi runs in, as a view client id (`herdr:<session>@<machine>`), or null. */
+/** The terminal this Pi runs in (`herdr:<session>@<machine>`), or null. */
 export function clientId(env: Env, host: string = hostname()): string | null {
   if (env.HERDR_ENV !== "1") return null;
   const fromSocket = /\/sessions\/([^/]+)\/herdr\.sock$/.exec(env.HERDR_SOCKET_PATH ?? "")?.[1];

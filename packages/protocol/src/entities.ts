@@ -257,7 +257,7 @@ export const ViewClient = z.object({
 });
 export type ViewClient = z.infer<typeof ViewClient>;
 
-/** A saved filter over branches and sessions, plus pins. Surfaces bind to one. */
+/** A named part of your work: a set of projects (or a tracker's) plus pins. Surfaces bind to one. */
 export const View = z.object({
   id: Id,
   name: z.string().min(1).max(60),
@@ -269,11 +269,6 @@ export const View = z.object({
   clients: z.array(ViewClient).default([]),
   /** A tracker keeps this view's projects (see docs/trackers.md). */
   trackerId: z.string().nullable().optional(),
-  /**
-   * The source surface (`herdr:<session>@<machine>`): sessions started in it
-   * (`Session.startedIn`) belong to this view.
-   */
-  clientId: z.string().min(1).max(200).nullable().optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -377,8 +372,6 @@ export const Session = z.object({
   parentSessionId: Id.nullable().optional(),
   /** Chosen as its branch's primary session (coordinator-owned); without one the primary is derived. */
   primary: z.boolean().optional(),
-  /** The surface this Pi was started in, e.g. `herdr:default@mac` (coordinator-owned, set once). */
-  startedIn: z.string().min(1).max(200).nullable().optional(),
   /** Set when the session finished or failed with nobody viewing it; cleared when viewed (coordinator-owned). */
   unreadSince: Iso.nullable().optional(),
   /** Identity of the adapter presentation currently installed on the host. */

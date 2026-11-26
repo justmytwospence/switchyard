@@ -9,30 +9,16 @@ import {
   type View,
 } from "@switchyard/protocol";
 
-/** What decides a view's members: a GitHub tracker, a source surface, or the view's own filter. */
-export type ViewSource = "tracker" | "client" | "manual";
+/** What decides a view's members: a GitHub tracker, or the view's own filters and pins. */
+export type ViewSource = "tracker" | "manual";
 
 export function viewSource(v: View): ViewSource {
-  if (v.trackerId) return "tracker";
-  if (v.clientId) return "client";
-  return "manual";
+  return v.trackerId ? "tracker" : "manual";
 }
 
-/** `herdr:default@mac-pro` -> `herdr default on mac-pro`; anything else unchanged. */
-export function clientLabel(id: string): string {
-  const m = /^([a-z]+):([^@]+)@(.+)$/.exec(id);
-  return m ? `${m[1]} ${m[2]} on ${m[3]}` : id;
-}
-
-/** The option text in view selectors: the name plus where its sessions come from. */
+/** The option text in view selectors: the name, marked when a tracker keeps it. */
 export function viewOptionLabel(v: View): string {
-  const source = viewSource(v);
-  if (source === "tracker") return `${v.name} · GitHub`;
-  if (source === "client") {
-    const m = /^([a-z]+):([^@]+)/.exec(v.clientId ?? "");
-    return m ? `${v.name} · ${m[1]} ${m[2]}` : `${v.name} · terminal`;
-  }
-  return v.name;
+  return viewSource(v) === "tracker" ? `${v.name} · GitHub` : v.name;
 }
 
 function names(ids: string[], byId: Record<string, { name: string }>): string {
@@ -80,7 +66,6 @@ export function describeView(
     const board = t.board ? ` (board #${t.board.projectNumber})` : "";
     return `Issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}, and live sessions there${paused}`;
   }
-  if (source === "client") return `Pi you start in ${clientLabel(v.clientId ?? "")}`;
   if (v.mode === "pinned") return "Only sessions you pin";
   const projectNames = v.projectIds ? names(v.projectIds, ctx.projects) : "";
   const hostNames = v.hostIds ? names(v.hostIds, ctx.hosts) : "";
@@ -107,7 +92,7 @@ export type ViewEmptyFilter = "active" | "attention" | "all";
 
 /**
  * Title and explanation for a selected view with nothing to list. `source` is describeView's
- * text; `origin` is this deployment's host name.
+ * text (what the view contains); `origin` is this deployment's host name.
  */
 export function emptyViewState(
   v: View,
@@ -121,14 +106,12 @@ export function emptyViewState(
         : `No sessions in ${v.name}`;
   const source = viewSource(v);
   let description: string;
-  if (source === "client" && v.sessionIds.length === 0) {
-    description = `A Pi you start in ${clientLabel(v.clientId ?? "")} joins this view once it enrols with a host agent connected to ${opts.origin}.`;
-  } else if (source === "tracker") {
+  if (source === "tracker") {
     description = `This view shows sessions on ${v.name}'s issues and live sessions in its repositories. Issues that are not started are on the Board.`;
   } else if (source === "manual" && v.mode === "pinned") {
     description = `This view holds only sessions you pin. Pin one from its menu: Pin to ${v.name}.`;
   } else {
-    description = `This view's source: ${opts.source}.`;
+    description = `This view contains: ${opts.source}.`;
   }
   return { title, description };
 }

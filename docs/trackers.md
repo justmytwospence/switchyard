@@ -8,7 +8,7 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
  GitHub Projects)       its worktrees)                      filters)         herdr, tmux)
 ```
 
-Trackers and surfaces never talk to each other; both meet at branches and sessions. A view is a saved filter with one source: your own filters and pins, a tracker, or a terminal ([terminal-sessions.md](terminal-sessions.md#views-and-surfaces)). See [model.md](model.md) for the whole model.
+Trackers and surfaces never talk to each other; both meet at branches and sessions. A view is a named part of your work: projects you choose and pins, or a tracker's issues ([terminal-sessions.md](terminal-sessions.md#views-and-surfaces)). See [model.md](model.md) for the whole model.
 
 | Concept | What it is | Who owns the truth |
 |---|---|---|
@@ -62,7 +62,7 @@ switchyard trackers create personal --host nuc --owner justmytwospence \
 
 ### In the web app
 
-Settings > Trackers shows each tracker as a card: its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, its issue count, and links that open its view on Sessions or the Board. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** and **Delete** change or remove it (its issues are removed, its view stays as an ordinary view). The view selector on Sessions and the Board names each view's source, such as `fieldgoal · GitHub`. Edit has "Repositories of other owners", the same as `--also`.
+Settings > Trackers shows each tracker as a card: its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, its issue count, and links that open its view on Sessions or the Board. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** and **Delete** change or remove it (its issues are removed, its view stays as an ordinary view). The view selector on Sessions and the Board marks a tracker's view, such as `fieldgoal · GitHub`. Edit has "Repositories of other owners", the same as `--also`.
 
 A tracker keeps a view of its own name pointed at the projects in its owner and its other repositories (an existing view of that name is adopted). Its project list is the tracker's; hosts and pins stay editable. The view holds the sessions on branches linked to the tracker's issues, in any state, plus any session in its repositories that is live right now; a stopped session with no issue is not in it. With that view selected, the Board can show the Projects board's own columns instead of stages. A herdr or tmux session bound to the view mirrors the same sessions: a stopped session with no issue leaves it. Bind a herdr session to it with `switchyard herdr pair --session <name> --view <name>`.
 

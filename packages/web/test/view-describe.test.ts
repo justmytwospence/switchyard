@@ -1,7 +1,6 @@
 import type { Surface, Tracker, View } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
-  clientLabel,
   describeView,
   emptyViewState,
   shownIn,
@@ -55,18 +54,11 @@ const ctx = { trackers: [tracker()], projects, hosts };
 describe("view descriptions", () => {
   it("names the source", () => {
     expect(viewSource(view({ trackerId: "trk_1" }))).toBe("tracker");
-    expect(viewSource(view({ clientId: "herdr:default@mac" }))).toBe("client");
     expect(viewSource(view())).toBe("manual");
   });
 
-  it("labels clients and options", () => {
-    expect(clientLabel("herdr:default@mac-pro")).toBe("herdr default on mac-pro");
-    expect(clientLabel("odd")).toBe("odd");
+  it("labels options", () => {
     expect(viewOptionLabel(view({ name: "vo", trackerId: "trk_1" }))).toBe("vo · GitHub");
-    expect(viewOptionLabel(view({ name: "daily", clientId: "herdr:default@mac" }))).toBe(
-      "daily · herdr default",
-    );
-    expect(viewOptionLabel(view({ name: "daily", clientId: "?" }))).toBe("daily · terminal");
     expect(viewOptionLabel(view())).toBe("work");
   });
 
@@ -142,10 +134,7 @@ describe("view descriptions", () => {
     );
   });
 
-  it("describes client and pinned views", () => {
-    expect(describeView(view({ clientId: "herdr:default@mac" }), ctx)).toBe(
-      "Pi you start in herdr default on mac",
-    );
+  it("describes pinned and filtered views", () => {
     expect(describeView(view({ mode: "pinned", sessionIds: ["s"] }), ctx)).toBe(
       "Only sessions you pin",
     );
@@ -202,7 +191,7 @@ describe("view descriptions", () => {
     ).toBe("herdr vo on mac, tmux main on NUC");
   });
 
-  it("explains an empty view by its source", () => {
+  it("explains an empty view", () => {
     const opts = { filter: "all" as const, source: "Every session", origin: "dev.example" };
     expect(emptyViewState(view(), { ...opts, filter: "attention" }).title).toBe(
       "Nothing needs your input in work",
@@ -211,18 +200,10 @@ describe("view descriptions", () => {
       "No active sessions in work",
     );
     expect(emptyViewState(view(), opts).title).toBe("No sessions in work");
-    const term = view({ mode: "pinned", clientId: "herdr:default@mac-pro" });
-    expect(emptyViewState(term, opts).description).toBe(
-      "A Pi you start in herdr default on mac-pro joins this view once it enrols with a host agent connected to dev.example.",
-    );
-    expect(
-      emptyViewState({ ...term, sessionIds: ["s"] }, { ...opts, source: "Pi you start in x" })
-        .description,
-    ).toBe("This view's source: Pi you start in x.");
     expect(emptyViewState(view({ mode: "pinned" }), opts).description).toBe(
       "This view holds only sessions you pin. Pin one from its menu: Pin to work.",
     );
-    expect(emptyViewState(view(), opts).description).toBe("This view's source: Every session.");
+    expect(emptyViewState(view(), opts).description).toBe("This view contains: Every session.");
     expect(emptyViewState(view({ trackerId: "trk_1", name: "vo" }), opts).description).toBe(
       "This view shows sessions on vo's issues and live sessions in its repositories. Issues that are not started are on the Board.",
     );

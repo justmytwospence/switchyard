@@ -1167,7 +1167,6 @@ export class HostHub {
     if (((finished && produced) || failed) && !next.unreadSince && !this.beingViewed(id)) {
       next.unreadSince = this.store.nowIso();
     }
-    if (next.external?.client && !next.startedIn) next.startedIn = next.external.client;
     if (existing && JSON.stringify(existing) === JSON.stringify(next)) return;
     this.store.putSession(next);
     if (partial.bridge !== undefined) {

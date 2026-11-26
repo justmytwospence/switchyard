@@ -58,12 +58,12 @@ function workspaceOf(ws: WorkspaceLookup, id: string) {
   return ws instanceof Map ? ws.get(id) : ws[id];
 }
 
-/** Why a session is in a view: pinned, started in its source, on a tracker's issue, live, or by the filters. */
-export type ViewReason = "pinned" | "client" | "issue" | "live" | "filter";
+/** Why a session is in a view: pinned, on a tracker's issue, live, or by the filters. */
+export type ViewReason = "pinned" | "issue" | "live" | "filter";
 
 type ViewSession = Pick<
   Session,
-  "id" | "projectId" | "workspaceId" | "hostId" | "archivedAt" | "startedIn" | "runtime"
+  "id" | "projectId" | "workspaceId" | "hostId" | "archivedAt" | "runtime"
 >;
 
 /** Why a session is in a view; null when it is not. See `sessionInView`. */
@@ -75,7 +75,6 @@ export function sessionViewReason(
 ): ViewReason | null {
   if (s.archivedAt !== null) return null;
   if (view.sessionIds.includes(s.id)) return "pinned";
-  if (view.clientId && s.startedIn === view.clientId) return "client";
   if (view.mode === "pinned") return null;
   const projectId =
     s.projectId ??

@@ -9,7 +9,7 @@ import {
   sessionViewReason,
   taskInView,
   trackerScope,
-  type View,
+  View,
 } from "../src/index.js";
 
 const NOW = Date.parse("2026-11-03T00:00:00Z");
@@ -60,12 +60,8 @@ describe("sessionInView", () => {
   it("filters by host", () => {
     expect(sessionInView(view({ hostIds: ["hst_2"] }), s(), {})).toBe(false);
   });
-  it("a session started in the view's source surface is in it, also in pinned mode", () => {
-    const src = "herdr:default@mac";
-    const started = s({ startedIn: src });
-    expect(sessionInView(view({ mode: "pinned", clientId: src }), started, {})).toBe(true);
-    expect(sessionInView(view({ hostIds: ["hst_2"], clientId: src }), started, {})).toBe(true);
-    expect(sessionInView(view({ mode: "pinned", clientId: src }), s(), {})).toBe(false);
+  it("drops a retired clientId from a stored view", () => {
+    expect("clientId" in View.parse({ ...view(), clientId: "herdr:x@mac" })).toBe(false);
   });
   it("a pin beats the filters", () => {
     expect(
@@ -138,13 +134,6 @@ describe("tracker views", () => {
     expect(sessionViewReason(v, s({ workspaceId: "wsp_2" }), ws, scope)).toBe("live");
     expect(sessionViewReason(v, s({ ...stopped, workspaceId: "wsp_2" }), ws, scope)).toBeNull();
     expect(sessionViewReason(view(), s(stopped), ws)).toBe("filter");
-    expect(
-      sessionViewReason(
-        view({ mode: "pinned", clientId: "herdr:x" }),
-        s({ startedIn: "herdr:x" }),
-        ws,
-      ),
-    ).toBe("client");
   });
   it("scopeHasWorkspace matches by id or branch", () => {
     const scope = trackerScope(v, [issue({ workspaceId: "wsp_9", branches: ["feat/x"] })])!;

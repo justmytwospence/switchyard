@@ -20,6 +20,52 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("020 removes view sources and startedIn, keeping pins", () => {
+    const db = dbAt(19);
+    const view = db.prepare("INSERT INTO views (id, name, json, created_at) VALUES (?, ?, ?, ?)");
+    view.run(
+      "viw_1",
+      "daily",
+      JSON.stringify({
+        id: "viw_1",
+        mode: "pinned",
+        sessionIds: ["ses_1"],
+        clientId: "herdr:default@mac",
+      }),
+      "2026",
+    );
+    view.run("viw_2", "other", JSON.stringify({ id: "viw_2", clientId: null }), "2026");
+    db.prepare(
+      "INSERT INTO sessions (id, host_id, runtime, last_activity_at, json) VALUES (?, ?, ?, ?, ?)",
+    ).run(
+      "ses_1",
+      "hst_1",
+      "idle",
+      "2026",
+      JSON.stringify({
+        id: "ses_1",
+        startedIn: "herdr:default@mac",
+        external: { client: "herdr:default@mac" },
+      }),
+    );
+    migrate(db);
+    const json = (table: "views" | "sessions", id: string) =>
+      JSON.parse(
+        (db.prepare(`SELECT json FROM ${table} WHERE id = ?`).get(id) as { json: string }).json,
+      );
+    expect(json("views", "viw_1")).toEqual({
+      id: "viw_1",
+      mode: "pinned",
+      sessionIds: ["ses_1"],
+    });
+    expect("clientId" in json("views", "viw_2")).toBe(false);
+    expect(json("sessions", "ses_1")).toEqual({
+      id: "ses_1",
+      external: { client: "herdr:default@mac" },
+    });
+    db.close();
+  });
+
   it("017 adds surfaces and empties view clients", () => {
     const db = dbAt(16);
     db.prepare("INSERT INTO views (id, name, json, created_at) VALUES (?, ?, ?, ?)").run(
@@ -39,7 +85,7 @@ describe("coordinator migrations", () => {
     db.close();
   });
 
-  it("016 backfills subagent parents and startedIn", () => {
+  it("016 backfills subagent parents", () => {
     const db = dbAt(15);
     const put = db.prepare(
       "INSERT INTO sessions (id, host_id, runtime, last_activity_at, json) VALUES (?, ?, ?, ?, ?)",
@@ -68,7 +114,7 @@ describe("coordinator migrations", () => {
       );
     expect(json("ses_sub").parentSessionId).toBe("ses_parent");
     expect(json("ses_parent").parentSessionId).toBeUndefined();
-    expect(json("ses_ext").startedIn).toBe("herdr:default@mac");
+    expect(json("ses_ext").startedIn).toBeUndefined();
     db.close();
   });
 

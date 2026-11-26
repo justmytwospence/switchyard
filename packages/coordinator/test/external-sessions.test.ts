@@ -34,14 +34,19 @@ afterEach(async () => {
 });
 
 describe("sessions a host announces from your terminal", () => {
-  it("map to the workspace containing their cwd and belong to their surface's view", async () => {
+  it("map to the workspace containing their cwd and join views by project, not by terminal", async () => {
     const client = "herdr:daily@mac";
-    const view = await h.t.admin("POST", "/api/views", {
+    const legacy = await h.t.admin("POST", "/api/views", {
       name: "daily",
       mode: "pinned",
       clientId: client,
     });
-    expect(view.status).toBe(201);
+    expect(legacy.status).toBe(201);
+    expect(legacy.body.clientId).toBeUndefined();
+    const byProject = await h.t.admin("POST", "/api/views", {
+      name: "work",
+      projectIds: [h.project.id],
+    });
     const other = await h.t.admin("POST", "/api/views", { name: "other", mode: "pinned" });
     await h.host.event(
       "session.updated",
@@ -57,11 +62,12 @@ describe("sessions a host announces from your terminal", () => {
     const s = h.t.c.store.sessions.require("ses_ext");
     const ws = h.t.c.store.workspaceByPath(h.creds.hostId, ROOT)!;
     expect(s).toMatchObject({ workspaceId: ws.id, projectId: h.project.id, external: { client } });
-    expect(s.startedIn).toBe(client);
+    expect("startedIn" in s).toBe(false);
     const workspaces = Object.fromEntries(h.t.c.store.workspaces.list().map((w) => [w.id, w]));
-    expect(sessionInView(h.t.c.store.views.require(view.body.id), s, workspaces)).toBe(true);
-    expect(sessionInView(h.t.c.store.views.require(other.body.id), s, workspaces)).toBe(false);
-    expect(h.t.c.store.views.require(view.body.id).sessionIds).toEqual([]);
+    const inView = (id: string) => sessionInView(h.t.c.store.views.require(id), s, workspaces);
+    expect(inView(byProject.body.id)).toBe(true);
+    expect(inView(legacy.body.id)).toBe(false);
+    expect(inView(other.body.id)).toBe(false);
   });
 
   it("leave a cwd outside every workspace without a project", async () => {

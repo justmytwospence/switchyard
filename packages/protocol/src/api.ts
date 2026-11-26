@@ -607,7 +607,6 @@ export const ViewInput = View.pick({
   mode: true,
   projectIds: true,
   hostIds: true,
-  clientId: true,
 }).partial({
   mode: true,
   projectIds: true,

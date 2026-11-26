@@ -44,7 +44,7 @@ Sessions started anywhere else (the web app, your phone, automations) appear her
 
 `SWITCHYARD_VIEW` binds the paired session to a view (`switchyard views create`); the session is then a surface of that view. Surfaces sharing a view mirror each other, herdr and tmux alike, and a close archives the session everywhere. New tabs are only offered the picker in spaces the mirror owns, so pairing your default session leaves your own spaces alone.
 
-A herdr session can also be a view's source instead of its mirror. Leave it unpaired and create a view with `--client herdr:<session>`: Pi you start by hand in it [enrols](../../docs/terminal-sessions.md#sessions-you-start-yourself) and belongs to that view, while Switchyard opens nothing in the session. Use one herdr session per mirrored view, for example `fieldgoal` and `vo`, and keep your daily one as a source.
+You do not have to pair a herdr session to use it with Switchyard. In an unpaired session, Pi you start by hand [enrols](../../docs/terminal-sessions.md#sessions-you-start-yourself) and shows in the web app like any other session, in every view that holds its project, while Switchyard opens nothing in the session. Work in one herdr session for everything, keep a paired session per view (for example `fieldgoal` and `vo`), or do both.
 
 ## Files
 

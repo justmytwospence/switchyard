@@ -749,27 +749,11 @@ test.describe("desktop coding view", () => {
     await nav.getByRole("button", { name: "Edit", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Edit view" });
     const about = dialog.getByTestId("view-about");
-    await expect(about).toContainText("Source");
+    await expect(about).toContainText("Contains");
     await expect(about).toContainText("Shown in");
     await expect(about).toContainText("No terminal.");
     await expect(dialog.getByLabel("Sessions", { exact: true })).toHaveValue("pinned");
     await dialog.getByRole("button", { name: "Cancel" }).click();
-
-    const t = await api("POST", "/api/views", {
-      name: `term-${uid(info)}`,
-      mode: "pinned",
-      clientId: "herdr:e2e@box",
-    });
-    await nav.getByLabel("View", { exact: true }).selectOption(t.id);
-    await expect(nav.getByText("Pi you start in herdr e2e on box", { exact: true })).toBeVisible();
-    await expect(
-      nav.getByText("joins this view once it enrols with a host agent connected to"),
-    ).toBeVisible();
-    await nav.getByRole("button", { name: "Edit", exact: true }).click();
-    await expect(dialog.getByLabel("Sessions", { exact: true })).toHaveCount(0);
-    await expect(dialog.getByRole("group", { name: /Projects/ })).toHaveCount(0);
-    await dialog.getByRole("button", { name: "Cancel" }).click();
     await api("DELETE", `/api/views/${v.id}`);
-    await api("DELETE", `/api/views/${t.id}`);
   });
 });
