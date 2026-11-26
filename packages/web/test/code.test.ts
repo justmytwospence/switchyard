@@ -51,10 +51,12 @@ import {
   outputPreview,
   parseClientCommand,
   parseDataUrl,
+  pendingTitles,
   piControlsAvailable,
   pillModelLabel,
   projectIdOfGroup,
   queuedMessages,
+  rowPreview,
   STATUS_BUCKETS,
   scopeNote,
   sendModes,
@@ -1093,6 +1095,47 @@ describe("model controls", () => {
     expect(piControlsAvailable(host("h", { capabilities: caps }), { reason: "x" })).toBe(false);
     expect(piControlsAvailable(host("h"), null)).toBe(false);
     expect(piControlsAvailable(undefined, null)).toBe(false);
+  });
+});
+
+describe("rowPreview", () => {
+  const s = (patch: Partial<Session>) => session("s", patch);
+  it("says what a session waits for before what it last said", () => {
+    expect(rowPreview(s({ lastAssistantText: "Done." }), "Pick a fruit")).toBe(
+      "Asks: Pick a fruit",
+    );
+    expect(rowPreview(s({ runtime: "failed", runtimeDetail: "exit 1\nstack" }), null)).toBe(
+      "exit 1",
+    );
+    expect(rowPreview(s({ runtime: "failed", runtimeDetail: null }), null)).toBe(
+      "Pi exited with an error",
+    );
+    expect(rowPreview(s({ compacting: true, lastAssistantText: "x" }), null)).toBe(
+      "Compacting context…",
+    );
+  });
+  it("uses the first line of the last reply as plain text", () => {
+    expect(rowPreview(s({ lastAssistantText: "\n## **Fixed** the `cart`\n\nMore." }), null)).toBe(
+      "Fixed the cart",
+    );
+    expect(rowPreview(s({ lastAssistantText: "---\n- one  item" }), null)).toBe("one item");
+    expect(rowPreview(s({ lastAssistantText: "x".repeat(200) }), null)).toHaveLength(140);
+    expect(rowPreview(s({ lastAssistantText: null }), null)).toBeNull();
+    expect(rowPreview(s({ runtime: "interrupted", runtimeDetail: null }), null)).toBeNull();
+  });
+});
+
+describe("pendingTitles", () => {
+  it("keeps each session's oldest pending question", () => {
+    const titles = pendingTitles({
+      a: interaction("a", { title: "newer", createdAt: "2026-01-02T00:00:00Z" }),
+      b: interaction("b", { title: "older", createdAt: "2026-01-01T00:00:00Z" }),
+      c: interaction("c", { title: "done", state: "resolved" }),
+      d: interaction("d", { sessionId: "ses_2", title: "other" }),
+    });
+    expect(titles.get("ses_1")).toBe("older");
+    expect(titles.get("ses_2")).toBe("other");
+    expect(titles.size).toBe(2);
   });
 });
 

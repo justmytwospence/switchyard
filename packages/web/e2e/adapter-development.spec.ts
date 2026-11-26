@@ -3,6 +3,7 @@ import {
   backToChat,
   createSession,
   expect,
+  openExtensions,
   openSessionPanel,
   poll,
   test,
@@ -30,11 +31,9 @@ test("session inspection, readiness reason and safe reload preserve the draft", 
   } else {
     if (viewportOf(info) === "compact")
       await page.getByRole("button", { name: "Show inspector" }).click();
-    await page
-      .getByTestId("inspector")
-      .getByRole("tab", { name: /Extensions/ })
-      .click();
+    await page.getByTestId("inspector").getByRole("tab", { name: "Details", exact: true }).click();
   }
+  await openExtensions(page);
   const inspection = page.getByRole("region", { name: "Session adapters", exact: true });
   await expect(inspection).toContainText("Catalog: active");
   await expect(inspection).toContainText("Runtime: active");
@@ -205,7 +204,10 @@ test("old hosts have no session reload control or speculative inspection request
     return route.abort();
   });
   await page.goto(`/code/${id}?tab=extensions`);
-  if (viewportOf(info) === "mobile") await openSessionPanel(page, "Details");
+  if (viewportOf(info) === "mobile") {
+    await openSessionPanel(page, "Details");
+    await openExtensions(page);
+  }
   await expect(
     page.getByText("This host does not support adapter development.", { exact: false }),
   ).toBeVisible();

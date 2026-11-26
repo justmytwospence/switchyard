@@ -371,7 +371,11 @@ At compact widths, inspector overlays or replaces conversation temporarily; do n
 
 ### Navigator
 
-Every row is a branch (a project on a branch, see [model.md](model.md)) and shows its primary session. The branch's other sessions nest under it behind a "+N" toggle, which opens on its own when one of them needs input or is selected; the same branch on two hosts is one row. Layouts, chosen from View options (persisted per device):
+Every row is a branch (a project on a branch, see [model.md](model.md)) and shows its primary session. The branch's other sessions nest under it behind a "+N" toggle, which opens on its own when one of them needs input or is selected; the same branch on two hosts is one row.
+
+A row is two lines. First: a status mark (an icon whose shape says idle, running, needs input, ready to review, failed or stopped, with the word as its tooltip and spoken label), the title, and the time of the last activity. Second: where it belongs (issue, where it runs, project and branch as the layout needs), the adapters' badges (`session.badge`), and a preview in one line: the question it asks, why it failed or stopped, else the first line of Pi's last reply. The second line is always there, so a preview or badge arriving never moves the list. The phone session list uses the same row.
+
+Layouts, chosen from View options (persisted per device):
 
 - **Projects** (default on desktop): project → branches. Each row shows its branch unless it is the main checkout. A worktree with no session is not listed here; it is on the Board with Start session.
 - **Recent**: one list, branches needing input first, then by last activity, with project and branch on each row.
@@ -435,16 +439,15 @@ Tabs:
 
 - Changes: the diff against the base branch, with the branch's commits; pick one commit or only uncommitted work to narrow it.
 - Files.
-- Task.
-- Extensions.
+- Details.
+- PR, when the branch has one.
+- One tab per adapter panel placed in the inspector.
 
 Changes: changed-file list, added/deleted counts, selected diff, refresh state, review comments.
 
 Files: read-only browsing in v1.
 
-Task: objective, criteria, dependencies, limits, run history, takeover controls.
-
-Extensions: registered panels and adapter compatibility diagnostics.
+Details: objective, criteria, dependencies, limits, run history, takeover controls; then the extensions' own panels, and an Extensions line that opens the adapter compatibility diagnostics (loaded when opened; `?tab=extensions` opens it).
 
 Review comments can be collected and sent as one follow-up. Do not silently send each comment immediately.
 
@@ -492,7 +495,7 @@ Use unified diff on mobile. Horizontal scrolling is confined to code blocks, not
 
 ### Details
 
-Task criteria, host/workspace, subagents, limits, automation state, and extension panels.
+Task criteria, host/workspace, subagents, limits, automation state, extension panels, and an Extensions line that opens the adapter diagnostics.
 
 Take over, Return to automation, and Stop are separate labeled actions.
 
@@ -622,7 +625,7 @@ A board notification links directly to task detail or its pending interaction, n
 
 Grouped by Needs input, Failed, Ready for review.
 
-Each item shows project/task/session, reason, age, and direct action.
+Each item shows project/task/session, reason, age, and direct action. A pending question is answered in place and looks as it does in a session's dock: its title once, then the form (several questions one at a time). Number keys do not answer here, because several questions share the page.
 
 Resolving a question updates the same runtime interaction. Acknowledging a notification does not resolve the underlying task.
 

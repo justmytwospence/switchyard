@@ -24,10 +24,7 @@ test("session-scoped slots, palette and namespaced form", async ({
     await page.getByTestId("inspector").getByLabel("Fixture note").fill("from panel");
     await page.getByTestId("inspector").getByRole("button", { name: "Save note" }).click();
     await expect(page.getByLabel("Adapter footer")).toContainText("from panel");
-    await page
-      .getByTestId("inspector")
-      .getByRole("tab", { name: /Extensions/ })
-      .click();
+    await page.getByTestId("inspector").getByRole("tab", { name: "Details", exact: true }).click();
     await expect(
       page
         .getByTestId("inspector")

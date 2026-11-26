@@ -2,12 +2,12 @@ import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { CountBadge } from "../../components/ui/Badge";
 import { TabPanel, Tabs } from "../../components/ui/Tabs";
 import { cn } from "../../lib/cn";
-import { useContributions, usePanels } from "../../sync/store";
+import { useContributions } from "../../sync/store";
 import { AdapterPanel } from "./AdapterPanel";
 import { adapterTabId } from "./adapterIdentity";
 import { ChangesTab, useWorkspaceDiff } from "./Changes";
 import type { InspectorTab } from "./context";
-import { ExtensionsSection, TaskSection } from "./Details";
+import { ExtensionsDisclosure, TaskSection } from "./Details";
 import { FilesTab } from "./Files";
 import type { SessionContext } from "./hooks";
 import { GitHubStatus, PullRequest } from "./PullRequest";
@@ -27,7 +27,7 @@ export interface InspectorProps {
   hideTitle?: boolean;
 }
 
-/** Inspector: Changes, Files (read-only), Details, PR and Extensions. */
+/** Inspector: Changes, Files (read-only), Details (with the extensions) and PR. */
 export function Inspector({
   ctx,
   github,
@@ -40,7 +40,8 @@ export function Inspector({
   hideTitle,
 }: InspectorProps) {
   const prefix = useId();
-  const panels = usePanels(ctx.session.id).filter((p) => !p.contribution);
+  // `?tab=extensions` (older links) is Details with its Extensions line open.
+  const shown: InspectorTab = tab === "extensions" ? "task" : tab;
   const allContributions = useContributions(ctx.session.id);
   const contributions = useMemo(
     () => allContributions.filter((p) => p.contribution?.placement === "session.panel"),
@@ -48,8 +49,8 @@ export function Inspector({
   );
   const changed = ctx.workspace?.git.changedFiles ?? 0;
   const diff = useWorkspaceDiff(ctx);
-  const [visited, setVisited] = useState<Set<InspectorTab>>(() => new Set([tab]));
-  useEffect(() => setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab))), [tab]);
+  const [visited, setVisited] = useState<Set<InspectorTab>>(() => new Set([shown]));
+  useEffect(() => setVisited((v) => (v.has(shown) ? v : new Set(v).add(shown))), [shown]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: discard previously mounted panes when changing sessions
   useEffect(() => setVisited(new Set(["changes"])), [ctx.session.id]);
   useEffect(() => {
@@ -65,11 +66,11 @@ export function Inspector({
         <div className="flex flex-col gap-4">
           <GitHubStatus ctx={ctx} state={github} onOpen={() => onTab("pr")} />
           <TaskSection ctx={ctx} actions={actions} />
+          <ExtensionsDisclosure ctx={ctx} open={tab === "extensions"} />
         </div>
       ),
     },
     { id: "pr", body: <PullRequest ctx={ctx} state={github} active={visible && tab === "pr"} /> },
-    { id: "extensions", body: <ExtensionsSection ctx={ctx} /> },
     ...contributions.map((panel) => ({
       id: adapterTabId(panel),
       body: <AdapterPanel ctx={ctx} panel={panel} allowFrame />,
@@ -87,7 +88,7 @@ export function Inspector({
       <Tabs
         idPrefix={prefix}
         label="Inspector"
-        value={tab}
+        value={shown}
         onChange={(t) => onTab(t as InspectorTab)}
         className="shrink-0 px-2"
         scrollable
@@ -100,11 +101,6 @@ export function Inspector({
           { id: "files", label: "Files" },
           { id: "task", label: "Details" },
           ...(github.snapshot?.pullRequest ? [{ id: "pr", label: "PR" }] : []),
-          {
-            id: "extensions",
-            label: "Extensions",
-            badge: <CountBadge count={panels.length} label="panels" tone="neutral" />,
-          },
           ...contributions.map((p) => ({ id: adapterTabId(p), label: p.title })),
         ]}
       />
@@ -113,13 +109,13 @@ export function Inspector({
           key={`${ctx.session.id}:${p.id}`}
           idPrefix={prefix}
           id={p.id}
-          hidden={tab !== p.id}
+          hidden={shown !== p.id}
           className={cn(
             "relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain",
             p.flush ? "p-0" : "p-3",
           )}
         >
-          {(tab === p.id || visited.has(p.id)) && p.body}
+          {(shown === p.id || visited.has(p.id)) && p.body}
         </TabPanel>
       ))}
     </aside>

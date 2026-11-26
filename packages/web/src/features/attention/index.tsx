@@ -273,6 +273,10 @@ export function AttentionRow({ item }: { item: AttentionItem }) {
         interaction && interaction.state === "pending" ? (
           <InteractionCard
             flush
+            // The row already says Needs input: the question shows as it does in a session's dock.
+            mode={isDocumentPresentation(interaction.presentation) ? "card" : "dock"}
+            keys={false}
+            className="w-full"
             interaction={interaction}
             readOnlyReason={
               hostOffline

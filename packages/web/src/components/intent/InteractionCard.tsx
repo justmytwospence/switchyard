@@ -31,6 +31,8 @@ export interface InteractionCardProps {
    * controls above the composer, `reader` a plan's text in the transcript.
    */
   mode?: "card" | "dock" | "reader";
+  /** dock mode: number keys may answer a question (off where several questions share a page). */
+  keys?: boolean;
   /** dock mode: DOM id of the plan's text in the transcript, for Plan start. */
   planAnchorId?: string;
   /** Stick the document header to the top of its scroller (false when the page scrolls). */
@@ -76,6 +78,7 @@ export function InteractionCard({
   sticky,
   flush,
   mode = "card",
+  keys = true,
   planAnchorId,
 }: InteractionCardProps) {
   const upsert = useSyncStore((s) => s.upsertInteraction);
@@ -226,7 +229,9 @@ export function InteractionCard({
             busy={busy}
             disabled={!!readOnlyReason}
             dock={
-              dock ? { title: interaction.title, keys: interaction.kind === "question" } : undefined
+              dock
+                ? { title: interaction.title, keys: keys && interaction.kind === "question" }
+                : undefined
             }
           />
           {!readOnlyReason && !hasInteractive(interaction.presentation) && (

@@ -129,3 +129,10 @@ export async function openSessionPanel(page: Page, tab: "Changes" | "Details" | 
 export async function backToChat(page: Page) {
   await page.getByRole("button", { name: /^Back to chat/ }).click();
 }
+
+/** Open the Extensions line in Details (desktop: the inspector's Details tab; phone: the panel). */
+export async function openExtensions(page: Page) {
+  const box = page.getByTestId("extensions").filter({ visible: true });
+  await expect(box).toBeVisible();
+  if ((await box.getAttribute("open")) === null) await box.locator("> summary").click();
+}

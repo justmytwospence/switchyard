@@ -1,6 +1,6 @@
 import type { AdapterInfo, Run, Task } from "@switchyard/protocol";
-import { Bot, CircleCheck, Hand, Square, SquareKanban } from "lucide-react";
-import type { ReactNode } from "react";
+import { Bot, ChevronRight, CircleCheck, Hand, Square, SquareKanban } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Markdown } from "../../components/intent/Markdown";
 import { Button, buttonClasses } from "../../components/ui/Button";
@@ -291,21 +291,59 @@ function AdapterRow({ a }: { a: AdapterInfo }) {
   );
 }
 
-/** Extension panels, adapter compatibility and diagnostics. */
-export function ExtensionsSection({ ctx }: { ctx: SessionContext }) {
+/**
+ * What a session's extensions add to Details: their panels as they are, and the adapter
+ * diagnostics behind one line, loaded when it is opened (`open`: a link asked for them).
+ */
+export function ExtensionsDisclosure({
+  ctx,
+  open: asked = false,
+}: {
+  ctx: SessionContext;
+  open?: boolean;
+}) {
   const panels = usePanels(ctx.session.id).filter((p) => !p.contribution);
+  const [open, setOpen] = useState(asked);
+  useEffect(() => {
+    if (asked) setOpen(true);
+  }, [asked]);
+  return (
+    <>
+      {panels.length > 0 && (
+        <Section title="Panels">
+          {panels.map((p) => (
+            <AdapterPanel key={`${p.adapterId}:${p.slot}`} ctx={ctx} panel={p} allowFrame />
+          ))}
+        </Section>
+      )}
+      <details
+        data-testid="extensions"
+        open={open}
+        onToggle={(e) => setOpen(e.currentTarget.open)}
+        className="group min-w-0"
+      >
+        <summary className="tap flex cursor-pointer list-none items-center gap-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            aria-hidden
+            className="size-4 shrink-0 text-subtle transition-transform group-open:rotate-90"
+          />
+          Extensions
+        </summary>
+        {open && (
+          <div className="mt-2">
+            <ExtensionDiagnostics ctx={ctx} />
+          </div>
+        )}
+      </details>
+    </>
+  );
+}
+
+/** Adapter compatibility and diagnostics. */
+function ExtensionDiagnostics({ ctx }: { ctx: SessionContext }) {
   const caps = ctx.host?.capabilities;
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <Section title="Panels">
-        {panels.length === 0 ? (
-          <p className="text-sm text-muted">No extension panels for this session.</p>
-        ) : (
-          panels.map((p) => (
-            <AdapterPanel key={`${p.adapterId}:${p.slot}`} ctx={ctx} panel={p} allowFrame />
-          ))
-        )}
-      </Section>
       <AdapterDiagnostics ctx={ctx} />
       {!caps?.adapterDevelopment && (
         <Section title={`Host catalog on ${ctx.hostName} (not session runtime)`}>
@@ -485,9 +523,7 @@ export function MobileDetails({
           </div>
         </Section>
       )}
-      <Section title="Extensions">
-        <ExtensionsSection ctx={ctx} />
-      </Section>
+      <ExtensionsDisclosure ctx={ctx} />
     </div>
   );
 }

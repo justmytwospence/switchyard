@@ -255,6 +255,46 @@ export function statusBucket(s: Session, attention: boolean): StatusBucket {
   return "idle";
 }
 
+/**
+ * One line for a session's row saying what it last did or is waiting for: the question it asks,
+ * why it failed or stopped, else the first line of Pi's last reply. Null when there is nothing.
+ */
+export function rowPreview(
+  s: Pick<Session, "runtime" | "runtimeDetail" | "lastAssistantText" | "compacting">,
+  pendingTitle: string | null,
+): string | null {
+  const clip = (t: string) => (t.length > 140 ? `${t.slice(0, 139)}…` : t);
+  if (pendingTitle?.trim()) return clip(`Asks: ${pendingTitle.trim()}`);
+  const detail = s.runtimeDetail?.trim().split("\n")[0]?.trim();
+  if (s.runtime === "failed") return clip(detail || "Pi exited with an error");
+  if (s.runtime === "starting") return clip(detail || "Starting Pi…");
+  if (s.runtime === "interrupted" && detail) return clip(detail);
+  if (s.compacting) return "Compacting context…";
+  for (const raw of (s.lastAssistantText ?? "").split("\n")) {
+    // Markdown markers say nothing in one line of plain text.
+    const line = raw
+      .replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|>\s*|\d+[.)]\s+)/, "")
+      .replace(/[*_`]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (line && !/^[-=|:\s]+$/.test(line)) return clip(line);
+  }
+  return null;
+}
+
+/** The title of each session's oldest pending question. */
+export function pendingTitles(
+  interactions: Record<string, Pick<Interaction, "sessionId" | "state" | "title" | "createdAt">>,
+): Map<string, string> {
+  const oldest = new Map<string, { title: string; at: string }>();
+  for (const i of Object.values(interactions)) {
+    if (i.state !== "pending") continue;
+    const cur = oldest.get(i.sessionId);
+    if (!cur || i.createdAt < cur.at) oldest.set(i.sessionId, { title: i.title, at: i.createdAt });
+  }
+  return new Map([...oldest].map(([id, v]) => [id, v.title]));
+}
+
 /** A branch's row: its primary session, with the branch's other sessions nested. */
 export interface NavRow {
   session: Session;

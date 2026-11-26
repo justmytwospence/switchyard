@@ -16,9 +16,11 @@ import {
 import { type CSSProperties, type ReactNode, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
+import { TONE_TEXT } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
+import { Spinner } from "../../components/ui/Spinner";
 import {
   REVIEW_STATUS,
   RUNTIME_STATUS,
@@ -30,7 +32,7 @@ import { TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
-import { useHosts, useProjects, useSyncStore } from "../../sync/store";
+import { useHosts, useProjects, useSessionBadges, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
 import { emptyScopeState, scopeOptionLabel } from "../scopes/describe";
 import { ScopeDialog } from "../scopes/ScopeDialog";
@@ -61,7 +63,9 @@ import {
   navRowCount,
   navTreeIsEmpty,
   normalizeLayout,
+  pendingTitles,
   projectIdOfGroup,
+  rowPreview,
 } from "./model";
 import { useSelectedScope } from "./scopes";
 
@@ -288,7 +292,9 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         : prefs.filter === "attention"
           ? "No input needed"
           : "Not active";
-  const rowProps = { selectedId, screen, scopeName, outsideLabel };
+  const badges = useSessionBadges();
+  const pending = useMemo(() => pendingTitles(interactions), [interactions]);
+  const rowProps = { selectedId, screen, scopeName, outsideLabel, badges, pendingTitles: pending };
   const groupProps = {
     collapsed,
     toggle,
@@ -789,6 +795,39 @@ interface RowProps {
   scopeName: string | null;
   /** The marker on the open session's row when a filter excludes it. */
   outsideLabel: (r: NavOutside) => string;
+  /** `session.badge` contributions per session. */
+  badges: ReturnType<typeof useSessionBadges>;
+  /** The oldest pending question of each session. */
+  pendingTitles: Map<string, string>;
+}
+
+const BADGE_TONE = {
+  default: "text-text",
+  muted: "text-muted",
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-danger",
+} as const;
+
+const NO_BADGES: ReturnType<typeof useSessionBadges>[string] = [];
+
+/** A row's state as a mark: the icon's shape and a spoken label, colour only reinforcing. */
+function StatusMark({ status }: { status: StatusInfo }) {
+  const Icon = status.icon;
+  return (
+    <span
+      data-testid="row-status"
+      title={status.label}
+      className={cn("inline-flex size-3.5 shrink-0 items-center", TONE_TEXT[status.tone])}
+    >
+      {status.spin ? (
+        <Spinner className="size-3.5" />
+      ) : (
+        <Icon aria-hidden className={cn("size-3.5", status.pulse && "animate-pulse")} />
+      )}
+      <span className="sr-only">{status.label}</span>
+    </span>
+  );
 }
 
 function GroupNode({
@@ -901,9 +940,10 @@ function SessionRow({
   const { selectedId, screen, scopeName, outsideLabel } = rowProps;
   const { session, attention } = row;
   const selected = session.id === selectedId;
-  const context = [formatRelative(session.lastActivityAt), row.project, row.branch]
-    .filter(Boolean)
-    .join(" · ");
+  const context = [row.project, row.branch].filter(Boolean).join(" · ");
+  const status = rowStatusFor(row);
+  const preview = rowPreview(session, rowProps.pendingTitles.get(session.id) ?? null);
+  const badges = rowProps.badges[session.id] ?? NO_BADGES;
   const count = row.others.length;
   const open =
     count > 0 &&
@@ -928,6 +968,7 @@ function SessionRow({
           )}
         >
           <span className="flex min-w-0 items-center gap-1.5">
+            <StatusMark status={status} />
             <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
             {needsInput && session.runtime !== "waiting_input" && (
               <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
@@ -935,9 +976,12 @@ function SessionRow({
                 Needs input
               </span>
             )}
+            <span className="shrink-0 text-xs text-subtle tabular-nums">
+              {formatRelative(session.lastActivityAt)}
+            </span>
           </span>
-          <span className="flex min-w-0 items-center gap-x-1.5">
-            <StatusChip kind="custom" status={rowStatusFor(row)} size="sm" />
+          {/* Always one line tall, so a preview or badge arriving never moves the list. */}
+          <span className="flex min-h-4 min-w-0 items-center gap-x-1.5 pl-5">
             {nested && (
               <span className="shrink-0 text-xs text-muted">
                 {row.role === "subagent" ? "Subagent" : "Extra"}
@@ -985,8 +1029,28 @@ function SessionRow({
                 <span className="truncate">{row.where.label}</span>
               </span>
             )}
-            {/* The context gives way first, so where it runs stays readable. */}
-            <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted">{context}</span>
+            {badges.map((b) => (
+              <span
+                key={`${b.adapterId}:${b.id}`}
+                data-testid="row-badge"
+                className={cn("max-w-24 shrink-0 truncate text-xs", BADGE_TONE[b.tone ?? "muted"])}
+                title={b.text}
+              >
+                {b.text}
+              </span>
+            ))}
+            {context && (
+              <span className="max-w-[45%] min-w-0 shrink-0 truncate text-xs text-muted">
+                {context}
+              </span>
+            )}
+            {/* The preview gives way first, so where it runs stays readable. */}
+            <span
+              data-testid="row-preview"
+              className="min-w-0 flex-1 basis-0 truncate text-xs text-subtle"
+            >
+              {preview}
+            </span>
           </span>
         </Link>
         {count > 0 && (
