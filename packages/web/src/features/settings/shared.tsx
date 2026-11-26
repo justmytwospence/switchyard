@@ -16,6 +16,7 @@ import {
   Server,
   ShieldCheck,
   SlidersHorizontal,
+  SquareTerminal,
   Stethoscope,
   TriangleAlert,
 } from "lucide-react";
@@ -75,6 +76,13 @@ export const SECTIONS: SectionDef[] = [
     label: "Hosts",
     description: "Execution hosts, capabilities and versions",
     icon: Server,
+    group: "Infrastructure",
+  },
+  {
+    path: "terminals",
+    label: "Terminals",
+    description: "herdr and tmux sessions, and what each mirrors",
+    icon: SquareTerminal,
     group: "Infrastructure",
   },
   {

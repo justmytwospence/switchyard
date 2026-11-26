@@ -757,7 +757,7 @@ test.describe("desktop coding view", () => {
     const dialog = page.getByRole("dialog", { name: "Edit view" });
     const about = dialog.getByTestId("view-about");
     await expect(about).toContainText("Contains");
-    await expect(about).toContainText("Shown in");
+    await expect(about).toContainText("Mirrored in");
     await expect(about).toContainText("No terminal.");
     await expect(dialog.getByLabel("Sessions", { exact: true })).toHaveValue("pinned");
     await dialog.getByRole("button", { name: "Cancel" }).click();

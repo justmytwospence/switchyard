@@ -19,6 +19,7 @@ import { ProjectDetail } from "./ProjectDetail";
 import { ProjectCreate, ProjectsSection } from "./ProjectsSection";
 import { SignInSection } from "./SignInSection";
 import { SECTION_GROUPS, settingsPath } from "./shared";
+import { TerminalsSection } from "./TerminalsSection";
 import { TrackersSection } from "./TrackersSection";
 
 /**
@@ -46,6 +47,7 @@ export default function SettingsView() {
       <Route path="trackers" element={<TrackersSection />} />
       <Route path="profiles" element={<ProfilesSection />} />
       <Route path="policies" element={<PoliciesSection />} />
+      <Route path="terminals" element={<TerminalsSection />} />
       <Route path="adapters" element={<AdaptersSection />} />
       <Route path="notifications" element={<NotificationsSection />} />
       <Route path="backups" element={<BackupsSection />} />
