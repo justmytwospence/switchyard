@@ -1,0 +1,36 @@
+/* Starlight theme in the landing page's palette: dark-first, blue and green from the logo. */
+:root {
+  --sl-color-accent-low: #0c2a4d;
+  --sl-color-accent: #3b82f6;
+  --sl-color-accent-high: #bfdbfe;
+  --sl-color-white: #e6edf3;
+  --sl-color-gray-1: #c9d4df;
+  --sl-color-gray-2: #a3b1c0;
+  --sl-color-gray-3: #8b98a8;
+  --sl-color-gray-4: #4a5767;
+  --sl-color-gray-5: #1f2a36;
+  --sl-color-gray-6: #111821;
+  --sl-color-black: #0b0f14;
+  --sl-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+:root[data-theme="light"] {
+  --sl-color-accent-low: #dbeafe;
+  --sl-color-accent: #1d4ed8;
+  --sl-color-accent-high: #1e3a8a;
+  --sl-color-white: #0b1320;
+  --sl-color-gray-1: #1f2937;
+  --sl-color-gray-2: #374151;
+  --sl-color-gray-3: #57606a;
+  --sl-color-gray-4: #8c959f;
+  --sl-color-gray-5: #d8dee4;
+  --sl-color-gray-6: #eef1f4;
+  --sl-color-gray-7: #f6f8fa;
+  --sl-color-black: #ffffff;
+}
+.sl-markdown-content .table-scroll {
+  overflow-x: auto;
+}
+.sl-markdown-content .table-scroll > table {
+  display: table;
+  overflow: visible;
+}
