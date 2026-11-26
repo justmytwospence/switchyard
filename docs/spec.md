@@ -138,7 +138,7 @@ The coordinator needs neither the host home mount nor Docker socket.
 | Interaction    | Session, ID/revision, payload, allowed responses, resolution                   |
 | Attention item | Session/task, reason, severity, acknowledgment                                 |
 | Device         | Identity, credentials, presence, push subscription, revocation                 |
-| Surface        | herdr/tmux session id, device, optional host, bound view, last report          |
+| Terminal       | herdr/tmux session id, device, optional host, recorded binding (none, all, view), shown sessions, last report |
 
 A branch (project + branch name) is derived from workspaces, sessions and tracked issues and never stored; a session may be its branch's chosen primary ([model.md](model.md)).
 

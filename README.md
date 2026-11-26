@@ -37,7 +37,7 @@ There are three kinds of parts:
 
 - **The coordinator** is the one always-on service. It keeps tasks, schedules, notifications, devices and the shared view of every session, and it decides what runs where. It never runs an agent and never holds your provider credentials, so it can live anywhere: a container, a small server, or your laptop.
 - **Hosts** are your machines. A host agent runs Pi as your OS user, with your repositories, worktrees, Pi packages and model logins, and connects *outbound* to the coordinator. A host needs no open ports, and a laptop can come and go: its sessions keep running while the coordinator is down, and the events catch up when it returns.
-- **Clients** show views: a view is a saved filter over branches, and a terminal mirror (herdr, tmux) is a surface bound to one view. The web app works on desktop and as an installed app on a phone; in a terminal you get Pi's own TUI for any session (`switchyard tui`, or a whole herdr session mirroring Switchyard), and the scriptable CLI works over the same API. Any client can watch, answer and steer a session; none of them owns it.
+- **Clients** show views: a view is a saved filter over branches, and a terminal (a herdr or tmux session) can mirror one view, everything, or nothing. The web app works on desktop and as an installed app on a phone; in a terminal you get Pi's own TUI for any session (`switchyard tui`, or a whole herdr session mirroring Switchyard), and the scriptable CLI works over the same API. Any client can watch, answer and steer a session; none of them owns it.
 
 For a single machine, `switchyard up` runs the coordinator and a host in one process. For more, run the coordinator as a server and enroll each machine as a host. The protocol is the same either way.
 
@@ -107,7 +107,7 @@ sequenceDiagram
 | **Stage** | Where a branch is: Not started, Working, In review, Merged |
 | **View** | A named part of your work: a set of projects (yours, or a tracker's) and pins, optionally limited to hosts |
 | **Device** | A signed-in client: a browser, an installed web app or a terminal |
-| **Surface** | Where you look at sessions: the web app, the phone, or a herdr or tmux session, which shows one view under the device it is signed in with |
+| **Terminal** | A herdr or tmux session: it holds Pi you start there by hand, and mirrors nothing, everything or one view, a tab per active branch |
 | **Task** | A unit of dispatched work, with an objective and acceptance criteria, on the task board |
 | **Run** | One attempt at a task, carried out in a session |
 | **Adapter** | Code that renders a specific Pi plugin's questions and state as structured UI |
@@ -166,13 +166,13 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.7.0`
 
 | Guide | Covers |
 |---|---|
-| [Model](docs/model.md) | Branches, sessions, trackers, views, devices and surfaces, and how they fit together |
+| [Model](docs/model.md) | Branches, sessions, trackers, views, devices and terminals, and how they fit together |
 | [Trackers](docs/trackers.md) | GitHub issues, worktrees for their branches, Projects board write-back |
 | [Deployment](docs/deployment.md) | Single machine, server, reverse proxies, VPNs, hosts, environment reference, privilege model |
 | [Sign-in and devices](docs/auth.md) | The owner model, single sign-on, passkeys, terminal approval, single sign-on, host enrollment, revocation |
 | [CLI](docs/cli.md) | Every `switchyard` command and credentials |
 | [Keyboard shortcuts](docs/keyboard-shortcuts.md) | Vim-style app navigation, palette controls and the `?` help sheet |
-| [Terminal sessions](docs/terminal-sessions.md) | Pi's own TUI for every session, from any terminal, and the herdr integration |
+| [TUI sessions and terminals](docs/terminal-sessions.md) | Pi's own TUI for every session, from any terminal; herdr and tmux sessions as terminals that mirror views |
 | [Operations](docs/operations.md) | Backup, restore, migrations, retention, logs, health, diagnostics |
 | [Policies](docs/policies.md) | Agent tools, guardrails, approvals and budgets |
 | [GitHub](docs/github.md) | Host authentication, PR review and merge, issue tasks |

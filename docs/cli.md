@@ -12,10 +12,11 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `host pi-extension` | Print the extension path a Pi you start yourself loads to appear in Switchyard ([terminal-sessions.md](terminal-sessions.md#sessions-you-start-yourself)) |
 | `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it (`status --instance <name>` with `--config` and `--state-dir` for a second agent) |
 | `login` | Sign this terminal in by approving a code in a browser (`--coordinator`, `--name`, `--open`/`--no-open`; `--token <link>` from `pair` instead) |
-| `tui <sessionId>` | Open a terminal session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
-| `herdr daemon` / `pane` / `new` / `status` / `pair` | The herdr integration: mirror Switchyard into a paired herdr session, a space per workspace and a tab per session ([integrations/herdr](../integrations/herdr/README.md)); `pair` writes the env file that pairs a herdr session (default: the unnamed one), optionally bound to a view |
-| `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux integration: mirror Switchyard into a paired tmux session, a window per session ([integrations/tmux](../integrations/tmux/README.md)) |
-| `views list` / `create` / `edit` / `delete` / `pin` / `unpin` | Views: named parts of your work (projects, hosts, pins) that herdr and tmux surfaces bind to with `SWITCHYARD_VIEW`, and the web navigator and Board can select. `list` shows the surfaces each view is OPEN IN |
+| `tui <sessionId>` | Open a TUI session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
+| `terminals list` / `bind` / `forget` | Terminals: the herdr and tmux sessions Switchyard knows about. `bind <terminal> --all \| --view <name> \| --none` records what one mirrors (`herdr:<session>` or `tmux:<session>` on this machine, or a full id `herdr:<session>@<machine>`); `forget` drops one ([terminal-sessions.md](terminal-sessions.md#views-and-terminals)) |
+| `herdr daemon` / `pane` / `new` / `status` / `pair` | The herdr integration: mirror Switchyard into a herdr session, a space per workspace and a tab per active branch ([integrations/herdr](../integrations/herdr/README.md)); `pair` writes the env file (how to run switchyard, which client.json) and records `--view`, `--all` or `--none` |
+| `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux integration: mirror Switchyard into a tmux session, a window per active branch ([integrations/tmux](../integrations/tmux/README.md)) |
+| `views list` / `create` / `edit` / `delete` / `pin` / `unpin` | Views: named parts of your work (projects, hosts, pins) that terminals can mirror, and the web navigator and Board can select. `list` shows the terminals MIRRORED IN each |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
 | `trackers list` / `create` / `edit` / `delete` / `sync` | GitHub trackers: sync assigned issues, or a board's open issues, into tracked issues and worktrees, optionally with a Projects board ([trackers.md](trackers.md)) |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
@@ -25,7 +26,7 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 
 List commands accept `--json`.
 
-The three `switchyard_*` agent tools are Pi tools, not shell commands. Policy approvals use the existing interaction-answer API; a terminal session shows the Switchyard approval URL. See [policies.md](policies.md). GitHub uses `gh` on the workspace host, not a Switchyard CLI credential; see [github.md](github.md).
+The three `switchyard_*` agent tools are Pi tools, not shell commands. Policy approvals use the existing interaction-answer API; a TUI session shows the Switchyard approval URL. See [policies.md](policies.md). GitHub uses `gh` on the workspace host, not a Switchyard CLI credential; see [github.md](github.md).
 
 ## Credentials
 
@@ -54,7 +55,7 @@ The full table, with defaults, is in [deployment.md](deployment.md#environment-r
 | `SWITCHYARD_ADMIN_TOKEN` | `pair` and local work commands |
 | `SWITCHYARD_URL`, `SWITCHYARD_TOKEN` | Work commands |
 | `SWITCHYARD_CLIENT_CONFIG` | Work commands and `login`: use this client.json instead of `~/.config/switchyard/client.json` |
-| `SWITCHYARD_TERMINAL_SESSIONS` | The host agent: `0` runs sessions headless instead of as [terminal sessions](terminal-sessions.md) (the default) |
+| `SWITCHYARD_TERMINAL_SESSIONS` | The host agent: `0` runs sessions headless instead of as [TUI sessions](terminal-sessions.md) (the default) |
 
 ## Pi terminal
 
