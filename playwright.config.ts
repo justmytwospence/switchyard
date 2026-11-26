@@ -30,6 +30,7 @@ export default defineConfig({
       testMatch: [
         "code-desktop.spec.ts",
         "board-desktop.spec.ts",
+        "navigator-header.spec.ts",
         "shared.spec.ts",
         "keyboard-layers.spec.ts",
         "keyboard-navigation.spec.ts",
@@ -41,6 +42,7 @@ export default defineConfig({
       testMatch: [
         "board-mobile.spec.ts",
         "code-mobile.spec.ts",
+        "navigator-header.spec.ts",
         "board-hierarchy.spec.ts",
         "board-navigation-regression.spec.ts",
         "shared.spec.ts",
