@@ -7,7 +7,7 @@ import type {
   View,
   Workspace,
 } from "@switchyard/protocol";
-import { findView, sessionInView, trackerScope } from "@switchyard/protocol";
+import { sessionInView, trackerScope } from "@switchyard/protocol";
 import { SwitchyardClient } from "@switchyard/terminal";
 import { CliError, type ConnectionFlags, resolveConnection } from "../config.js";
 import type { Ctx } from "../context.js";
@@ -112,14 +112,4 @@ export function lingeringSessions(st: MirrorState, view: View | null): Set<strin
     if (sessionInView(view, { ...s, runtime: "idle" }, workspaces, scope)) out.add(s.id);
   }
   return out;
-}
-
-/** The view a client is bound to by name or id; unbound mirrors everything. */
-export function resolveBoundView(
-  st: Pick<MirrorState, "views">,
-  ref: string | undefined,
-): { view: View | null; missing: boolean } {
-  if (!ref) return { view: null, missing: false };
-  const view = findView(st.views, ref);
-  return view ? { view, missing: false } : { view: null, missing: true };
 }
