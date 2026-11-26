@@ -14,7 +14,7 @@ import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { shownIn, viewSource } from "../views/describe";
 import { useViewDescriber } from "../views/ViewSelect";
 
-/** What a view contains and the terminals it is shown in. */
+/** What a view contains and the terminals that mirror it. */
 function ViewAbout({
   view,
   describe,
@@ -46,14 +46,20 @@ function ViewAbout({
           </span>
         )}
       </dd>
-      <dt className="text-muted">Shown in</dt>
+      <dt className="text-muted">Mirrored in</dt>
       <dd className="flex min-w-0 flex-col gap-0.5">
         {shown ?? <span>No terminal.</span>}
         {!shown && (
           <>
-            <span className="text-muted">To show it in herdr:</span>
+            <span className="text-muted">
+              To mirror it in herdr, choose it in{" "}
+              <TextLink to={ROUTES.settings("terminals")} onClick={onNavigate}>
+                Settings › Terminals
+              </TextLink>
+              , or run:
+            </span>
             <code className="block break-all text-xs">
-              switchyard herdr pair --session {session} --view {view.name}
+              switchyard terminals bind herdr:{session} --view {view.name}
             </code>
           </>
         )}
@@ -257,7 +263,7 @@ export function ViewsDialog({
         open={open && confirmDelete}
         onClose={() => setConfirmDelete(false)}
         title="Delete this view?"
-        description="Sessions are not affected. Terminals showing it stop mirroring and keep their tabs."
+        description="Sessions are not affected. Terminals mirroring it then mirror nothing and keep their tabs."
         confirmLabel="Delete view"
         busy={busy}
         error={error}
