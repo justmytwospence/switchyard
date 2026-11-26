@@ -21,7 +21,6 @@ import type { SessionContext } from "./hooks";
 import { useMutation } from "./hooks";
 import { isBusy, isLive } from "./model";
 import { SessionInfoDialog } from "./SessionInfoDialog";
-import { useSelectedView } from "./views";
 
 export interface SessionActions {
   canTakeover: boolean;
@@ -69,9 +68,7 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
     null,
   );
   const [title, setTitle] = useState(session.title);
-  const [selectedView] = useSelectedView();
   const link = useIssueLink(session.provenance === "subagent" ? null : ctx.workspace);
-  const views = useSyncStore((st) => st.views);
   const attention = useSyncStore((st) => st.attention);
   const inputAttention = useMemo(
     () =>
@@ -276,7 +273,6 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
                 projectId: session.projectId!,
                 workspace: { existingId: session.workspaceId! },
                 prompt: "",
-                ...(selectedView && views[selectedView] ? { viewId: selectedView } : {}),
               })
               .then((s) => {
                 useSyncStore.getState().upsertSessionIfMissing(s);

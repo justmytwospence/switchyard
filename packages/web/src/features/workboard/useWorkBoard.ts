@@ -96,20 +96,17 @@ export function useWorkBoard(): WorkBoard {
   );
   const navigate = useNavigate();
   const go = (id: string) => navigate(`/code/${encodeURIComponent(id)}`, { state: BACK_STATE });
-  const viewArg = view ? { viewId: view.id } : {};
 
   const activate = async (card: BoardCard) => {
     try {
       if (card.sessionId) return go(card.sessionId);
-      if (!card.branch && card.issue)
-        return go((await openIssue(card.issue.id, viewArg)).session.id);
+      if (!card.branch && card.issue) return go((await openIssue(card.issue.id)).session.id);
       const b = card.branch;
       if (b?.projectId && b.branch) {
         const r = await codeApi.openBranch({
           projectId: b.projectId,
           branch: b.branch,
           ...(b.placements[0] ? { hostId: b.placements[0].hostId } : {}),
-          ...viewArg,
         });
         useSyncStore.getState().upsertSessionIfMissing(r.session);
         go(r.session.id);
@@ -123,7 +120,7 @@ export function useWorkBoard(): WorkBoard {
     if (!canDrop(card, column, mode, tracker).ok) return;
     try {
       if (mode === "stage") {
-        if (card.issue) go((await openIssue(card.issue.id, viewArg)).session.id);
+        if (card.issue) go((await openIssue(card.issue.id)).session.id);
         return;
       }
       if (card.issue && card.issue.board?.statusOptionId !== column.id) {

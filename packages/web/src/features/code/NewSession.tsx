@@ -304,7 +304,6 @@ export function NewSessionFlow({
   const knownViews = useSyncStore((st) => st.views);
   const issues = useSyncStore((st) => st.issues);
   const view = (selectedView ? knownViews[selectedView] : null) ?? null;
-  const viewId = view?.id ?? null;
   const hostsById = useSyncStore((st) => st.hosts);
   const [storedWhere] = useSelectedWhere();
   const where = effectiveWhere(storedWhere, hostsById);
@@ -351,7 +350,6 @@ export function NewSessionFlow({
           hostId: f.hostId,
           prompt: f.prompt,
           ...(f.profileId ? { profileId: f.profileId } : {}),
-          ...(viewId ? { viewId } : {}),
         });
         if (r.created) rememberInitialPrompt(r.session.id, f.prompt);
         else if (f.prompt.trim() && !loadDraft(r.session.id).trim())
@@ -374,7 +372,6 @@ export function NewSessionFlow({
         profileId: f.profileId || null,
         prompt: f.prompt,
         ...(f.title.trim() ? { title: f.title.trim() } : {}),
-        ...(viewId ? { viewId } : {}),
       });
       useSyncStore.getState().upsertSessionIfMissing(s);
       rememberInitialPrompt(s.id, f.prompt);

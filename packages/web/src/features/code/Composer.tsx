@@ -62,7 +62,6 @@ import { SlashCompletions, SlashPicker } from "./SlashPicker";
 import { rememberInitialPrompt } from "./startingPrompts";
 import { useArgumentCompletions } from "./useArgumentCompletions";
 import { useSessionCommands } from "./useSessionCommands";
-import { useSelectedView } from "./views";
 
 export interface ComposerProps {
   ctx: SessionContext;
@@ -174,8 +173,6 @@ export function Composer({
   const commandProblem = clientCmd
     ? clientCommandProblem(clientCmd, running, !!session.nativeHandle)
     : null;
-  const [selectedView] = useSelectedView();
-  const views = useSyncStore((st) => st.views);
   const usage = useSyncStore((st) => sessionUsage(session, st.hosts[session.hostId]));
   const openSession = (id: string) => navigate(`/code/${encodeURIComponent(id)}`);
   const startNew = async (prompt: string): Promise<Session> => {
@@ -186,7 +183,6 @@ export function Composer({
       projectId: session.projectId,
       workspace: { existingId: session.workspaceId },
       prompt,
-      ...(selectedView && views[selectedView] ? { viewId: selectedView } : {}),
     });
     useSyncStore.getState().upsertSessionIfMissing(s);
     if (prompt) rememberInitialPrompt(s.id, prompt);

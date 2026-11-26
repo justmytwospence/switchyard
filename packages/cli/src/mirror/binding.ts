@@ -15,6 +15,21 @@ export function viewOrMissing(st: Pick<MirrorState, "views">, ref: string): View
   return findView(st.views, ref) ?? "missing";
 }
 
+/**
+ * After starting a session from a bound terminal: the coordinator pins it to the view only when
+ * the view would not show it otherwise. Say so, or return null when it was not pinned.
+ */
+export async function pinNote(
+  api: Pick<ApiClient, "get">,
+  view: Pick<View, "id">,
+  sessionId: string,
+): Promise<string | null> {
+  const views = await api.get<View[]>("/api/views").catch(() => null);
+  const v = views?.find((x) => x.id === view.id);
+  if (!v?.sessionIds.includes(sessionId)) return null;
+  return `Pinned to view "${v.name}": it would not show there otherwise. Unpin it from the session menu.`;
+}
+
 export function noViewMessage(kind: "herdr" | "tmux", name: string): string {
   return `This ${kind} session has no Switchyard view. Create a view named "${name}" in Switchyard to mirror it.`;
 }
