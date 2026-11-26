@@ -1,6 +1,6 @@
 {
   "name": "@switchyard/pi-runtime",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "license": "MIT",
   "private": true,
   "type": "module",

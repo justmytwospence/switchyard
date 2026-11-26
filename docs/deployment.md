@@ -60,7 +60,7 @@ docker compose up -d
 docker compose exec switchyard switchyard pair   # localhost only; otherwise configure single sign-on first
 ```
 
-[`deploy/compose.yaml`](../deploy/compose.yaml) uses `ghcr.io/justmytwospence/switchyard:0.18.0` (multi-arch, `node:26-bookworm-slim`, runs as the `node` user), mounts `./data` at `/data` and has a `HEALTHCHECK` on `/healthz`. If the package is not public, `docker login ghcr.io` with a token that can read packages first. The compose file publishes the port on `127.0.0.1` only, for a proxy on the same machine; change it to `7400:7400` to serve plain HTTP on every interface, or remove it if the proxy shares a Docker network.
+[`deploy/compose.yaml`](../deploy/compose.yaml) uses `ghcr.io/justmytwospence/switchyard:0.18.1` (multi-arch, `node:26-bookworm-slim`, runs as the `node` user), mounts `./data` at `/data` and has a `HEALTHCHECK` on `/healthz`. If the package is not public, `docker login ghcr.io` with a token that can read packages first. The compose file publishes the port on `127.0.0.1` only, for a proxy on the same machine; change it to `7400:7400` to serve plain HTTP on every interface, or remove it if the proxy shares a Docker network.
 
 Single sign-on is required unless the public URL is localhost: declare an OIDC owner in the environment ([auth.md](auth.md#single-sign-on-oidc)). On localhost, `switchyard pair` prints a single-use sign-in link. To run without Docker, use `switchyard coordinator start` with the same variables.
 
