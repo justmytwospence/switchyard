@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const LAUNCHER = fileURLToPath(
-  new URL("../../../integrations/herdr/switchyard-herdr.sh", import.meta.url),
+  new URL("../../../modules/herdr/switchyard-herdr.sh", import.meta.url),
 );
 
 let home: string;

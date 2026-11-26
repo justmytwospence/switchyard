@@ -31,7 +31,7 @@ switchyard tui <session id>       # Ctrl+] detaches; the session keeps running
 
 `tui` resumes a stopped session first. Several viewers can watch the same session; they share one terminal size. By default the smallest attached viewer sets it (a phone viewer shrinks every other viewer); set `SWITCHYARD_TERMINAL_SIZING=latest` in the host agent's environment for the old behavior, where the last viewer to attach or resize wins. It applies to terminals started afterwards. Quitting Pi in the terminal (`/quit`, Ctrl+D) stops the session, and the next prompt or `tui` resumes it.
 
-The herdr integration in [`integrations/herdr/`](../integrations/herdr/README.md) turns a herdr session into a mirror: a space per workspace and a tab per active branch, showing Pi's own TUI in each. Sessions without a TUI are left out of it.
+The herdr integration in [`modules/herdr/`](../modules/herdr/README.md) turns a herdr session into a mirror: a space per workspace and a tab per active branch, showing Pi's own TUI in each. Sessions without a TUI are left out of it.
 
 Policy approval requests show a Switchyard URL in Pi; answer through the existing web interaction flow, not a native terminal policy picker. A healthy approval wait can outlast 30 seconds, but loss of coordinator communication fails closed. Older live holders may lack the current bridge and remain unprotected until explicitly reloaded or restarted; see [policies.md](policies.md).
 
@@ -72,7 +72,7 @@ Closing a primary's tab archives the session everywhere (a running session is re
 
 The session in the focused pane or window of an attached terminal (a herdr client or tmux client on that session) counts as viewed, as in the web app: it is not marked unread when it finishes, and notifications for it stay inline. The plugin refreshes this every 15 seconds while something is focused.
 
-`switchyard views list` shows the terminals mirroring each view, the web navigator and Board say where a view is mirrored, and Settings > Devices lists each device's terminals. Use one herdr session for everything, a terminal per view, or both. See the [herdr](../integrations/herdr/README.md) and [tmux](../integrations/tmux/README.md) integrations, and [model.md](model.md).
+`switchyard views list` shows the terminals mirroring each view, the web navigator and Board say where a view is mirrored, and Settings > Devices lists each device's terminals. Use one herdr session for everything, a terminal per view, or both. See the [herdr](../modules/herdr/README.md) and [tmux](../modules/tmux/README.md) integrations, and [model.md](model.md).
 
 ### From 0.19
 

@@ -44,7 +44,7 @@ Sessions started anywhere else (the web app, your phone, automations) appear her
 ## Setup
 
 1. Sign this machine's CLI in to the coordinator: `switchyard login --coordinator <url>` (approve the code in a signed-in browser). Set `SWITCHYARD_CLIENT_CONFIG` to keep a separate login per coordinator.
-2. Link or install the plugin: `herdr plugin link <repo>/integrations/herdr`. Its startup hook starts the daemon in every herdr session (it stays quiet where the CLI is not signed in).
+2. Link or install the plugin: `herdr plugin link <repo>/modules/herdr`. Its startup hook starts the daemon in every herdr session (it stays quiet where the CLI is not signed in).
 3. Choose what a session mirrors: `switchyard terminals bind herdr:<session> --all` (or `--view <name>`), or `switchyard herdr pair [--session <name>] [--view <name> | --all]`, which also writes an env file (below).
 4. Start it: `herdr` for `default`, or `herdr --session <name>`.
 

@@ -27,7 +27,7 @@ Sessions started anywhere else (the web app, herdr, your phone) appear here with
 ## Setup
 
 1. Sign this machine's CLI in: `switchyard login --coordinator <url>`.
-2. Load the plugin: with TPM, `set -g @plugin '<repo>/integrations/tmux'`; otherwise `run-shell <repo>/integrations/tmux/switchyard.tmux` in `.tmux.conf`. It starts the daemon in every tmux session (quiet where the CLI is not signed in).
+2. Load the plugin: with TPM, `set -g @plugin '<repo>/modules/tmux'`; otherwise `run-shell <repo>/modules/tmux/switchyard.tmux` in `.tmux.conf`. It starts the daemon in every tmux session (quiet where the CLI is not signed in).
 3. Choose what a session mirrors: `switchyard terminals bind tmux:work --view work`, or `switchyard tmux pair --session work --view work`, which also writes `~/.config/switchyard-tmux/work.env` (`--cli` and `--client-config` set `SWITCHYARD_CLI` and `SWITCHYARD_CLIENT_CONFIG`; the file is only needed for those).
 4. Start the session: `tmux new-session -s work`.
 

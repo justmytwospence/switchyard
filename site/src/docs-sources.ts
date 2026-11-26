@@ -37,7 +37,7 @@ const doc = (name: string, title?: string): DocSource => ({
 
 /**
  * Every page of the docs, in sidebar order. scripts/check-links.mjs fails the build when a file in
- * docs/ or an integration README is missing here.
+ * docs/ or a module README is missing here.
  */
 export const SIDEBAR: Group[] = [
   { label: "Start here", items: [doc("getting-started"), doc("model")] },
@@ -46,8 +46,8 @@ export const SIDEBAR: Group[] = [
     items: [
       doc("trackers"),
       doc("terminal-sessions"),
-      { path: "integrations/herdr/README.md", slug: "docs/herdr", title: "herdr" },
-      { path: "integrations/tmux/README.md", slug: "docs/tmux", title: "tmux" },
+      { path: "modules/herdr/README.md", slug: "docs/herdr", title: "herdr" },
+      { path: "modules/tmux/README.md", slug: "docs/tmux", title: "tmux" },
       doc("github"),
       doc("policies"),
       doc("keyboard-shortcuts"),

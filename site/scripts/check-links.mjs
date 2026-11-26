@@ -14,7 +14,7 @@ const docs = [
   ...readdirSync(join(REPO_ROOT, "docs"))
     .filter((f) => f.endsWith(".md"))
     .map((f) => `docs/${f}`),
-  ...readdirSync(join(REPO_ROOT, "integrations")).map((d) => `integrations/${d}/README.md`),
+  ...readdirSync(join(REPO_ROOT, "modules")).map((d) => `modules/${d}/README.md`),
 ];
 for (const doc of docs) {
   if (!listed.has(doc)) problems.push(`${doc} is not in src/docs-sources.ts`);

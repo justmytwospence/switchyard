@@ -241,6 +241,6 @@ export async function tmuxPair(ctx: Ctx, flags: PairFlags): Promise<void> {
   const path = writePairFile(ctx, "tmux", session, flags);
   ctx.out(`Wrote ${path}`);
   await pairBinding(ctx, "tmux", session, flags);
-  ctx.out("Load the plugin in .tmux.conf: run-shell <repo>/integrations/tmux/switchyard.tmux");
+  ctx.out("Load the plugin in .tmux.conf: run-shell <repo>/modules/tmux/switchyard.tmux");
   ctx.out(`Then start it with: tmux new-session -s ${session}`);
 }

@@ -45,7 +45,7 @@ switchyard login --coordinator http://localhost:7400
 switchyard tui <session id>       # Ctrl+] detaches; the session keeps running
 ```
 
-With the herdr plugin linked (`herdr plugin link <repo>/integrations/herdr`), every herdr session is a Switchyard **terminal**: Pi you start in it by hand shows up in Switchyard, and the session mirrors nothing until you choose. Bind it to everything or to one view with `switchyard terminals bind herdr:<session> --all` (or `--view <name>`), or in Settings › Terminals, and it shows a space per workspace and a tab per active branch, in sync with the web app. tmux works the same way. See [TUI sessions and terminals](terminal-sessions.md) and the [herdr](../integrations/herdr/README.md) and [tmux](../integrations/tmux/README.md) integrations.
+With the herdr plugin linked (`herdr plugin link <repo>/modules/herdr`), every herdr session is a Switchyard **terminal**: Pi you start in it by hand shows up in Switchyard, and the session mirrors nothing until you choose. Bind it to everything or to one view with `switchyard terminals bind herdr:<session> --all` (or `--view <name>`), or in Settings › Terminals, and it shows a space per workspace and a tab per active branch, in sync with the web app. tmux works the same way. See [TUI sessions and terminals](terminal-sessions.md) and the [herdr](../modules/herdr/README.md) and [tmux](../modules/tmux/README.md) integrations.
 
 ## Next
 

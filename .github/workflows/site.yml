@@ -8,7 +8,7 @@ on:
     paths:
       - site/**
       - docs/**
-      - integrations/*/README.md
+      - modules/*/README.md
       - package.json
       - scripts/build-npm.mjs
       - .github/workflows/site.yml
@@ -16,7 +16,7 @@ on:
     paths:
       - site/**
       - docs/**
-      - integrations/*/README.md
+      - modules/*/README.md
       - package.json
       - scripts/build-npm.mjs
       - .github/workflows/site.yml

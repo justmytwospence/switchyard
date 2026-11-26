@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const LAUNCHER = fileURLToPath(
-  new URL("../../../integrations/tmux/switchyard-tmux.sh", import.meta.url),
+  new URL("../../../modules/tmux/switchyard-tmux.sh", import.meta.url),
 );
 
 let home: string;
