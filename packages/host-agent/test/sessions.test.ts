@@ -634,6 +634,37 @@ describe("host agent with real Pi", () => {
     await h.coord.ok({ type: "session.stop", sessionId: id });
   });
 
+  it("expires an unanswered terminal-only dialog when Pi exits", async () => {
+    const id = sid();
+    await startSession(h, id, h.pi!.cwd);
+    await h.coord.ok({
+      type: "session.prompt",
+      sessionId: id,
+      text: "open custom ui",
+      images: [],
+      mode: "prompt",
+      origin: "human",
+      controlRevision: 1,
+    });
+    await h.coord.waitEvent(isSettled(id), 30000, "custom settled");
+    await waitFor(() => interactions(h, id).length > 0, 10000, "unsupported interaction");
+    const i = interactions(h, id)[0]!;
+    expect(i).toMatchObject({ state: "unsupported", resolution: null });
+    await h.coord.ok({ type: "session.stop", sessionId: id });
+    await waitFor(
+      () => interactions(h, id).some((x) => x.id === i.id && x.state === "expired"),
+      10000,
+      "dialog expired",
+    );
+    expect(interactions(h, id).at(-1)).toMatchObject({
+      id: i.id,
+      state: "expired",
+      revision: i.revision + 1,
+      resolution: { by: "host", summary: "Pi exited before this question was answered" },
+    });
+    expect(h.agent.supervisor.pendingInteractions(id)).toEqual([]);
+  });
+
   it("maps notify/setStatus/setWidget to notices and generic panels", async () => {
     const id = sid();
     await startSession(h, id, h.pi!.cwd, { initialPrompt: "set status please" });
