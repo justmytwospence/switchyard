@@ -29,6 +29,8 @@ export interface Prefs {
   sendWithEnter: boolean;
   /** How much tool activity the transcript shows. */
   transcriptDetail: "detailed" | "normal" | "summary";
+  /** What Send does while Pi works: queue the message, or steer now. */
+  followUpMode: "queue" | "steer";
   /** Navigation-only Vim shortcuts; text editing and terminal input remain native. */
   vimNavigation: boolean;
   /** Free-form per-view filter state, keyed by view (e.g. "board", "navigator"). */
@@ -77,6 +79,7 @@ export const usePrefs = create<PrefsStore>()(
       railExpanded: false,
       sendWithEnter: defaultSendWithEnter(),
       transcriptDetail: "normal",
+      followUpMode: "queue",
       vimNavigation: true,
       filters: {},
       set: (key, value) => set({ [key]: value } as Partial<Prefs>),

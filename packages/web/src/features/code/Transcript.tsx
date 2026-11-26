@@ -22,6 +22,7 @@ import {
   foldTimeline,
   interactionDomId,
   isBusy,
+  transcriptEntries,
   workingSince,
 } from "./model";
 import { ReplySelectionMenu } from "./ReplySelection";
@@ -50,15 +51,13 @@ const SPACING = { none: "", tight: "mt-0.5", normal: "mt-3", turn: "mt-6" } as c
 
 export interface TranscriptProps {
   sessionId: string;
-  draftEmpty: boolean;
-  onUseSuggestion: (text: string) => void;
   /** Answer controls hidden with this reason (read-only view, host offline). */
   interactionReadOnly: string | null;
   /** `?interaction=<id>` deep link: scroll to and highlight it once. */
   focusInteractionId: string | null;
   className?: string;
   /** Rendered under the transcript, above the composer (the session status bar). */
-  footer?: (api: { openFirstPending: () => void }) => ReactNode;
+  footer?: ReactNode;
   /** False while the transcript is hidden (mobile tabs); restores the scroll position when shown. */
   active?: boolean;
   /** Quote or comment on selected reply text. */
@@ -74,8 +73,6 @@ export interface TranscriptProps {
  */
 export function Transcript({
   sessionId,
-  draftEmpty,
-  onUseSuggestion,
   interactionReadOnly,
   focusInteractionId,
   className,
@@ -95,7 +92,15 @@ export function Transcript({
   const level = usePrefs((s) => s.transcriptDetail);
   const busy = session ? isBusy(session) : false;
   const entries = useMemo(
-    () => foldTimeline(buildTimeline(t.items, streams, pending), busy, level),
+    () =>
+      foldTimeline(
+        // A pending question is in the dock; only a plan's text keeps a row here.
+        transcriptEntries(buildTimeline(t.items, streams, pending), pending, (i) =>
+          isDocumentPresentation(i.presentation),
+        ),
+        busy,
+        level,
+      ),
     [t.items, streams, pending, level, busy],
   );
   // The Working line ends the transcript unless a folded running turn already says it.
@@ -173,6 +178,28 @@ export function Transcript({
     }
   }, [entries.length, lastKey, firstKey, streamSize, t.loaded, working]);
 
+  // Keep the bottom in view when the scroller changes height (the dock appears, the phone keyboard
+  // opens). A plan awaiting approval shows its start, not its end.
+  const planLast = useRef(false);
+  const lastEntry = entries[entries.length - 1];
+  const lastAskedId =
+    lastEntry?.type === "interaction"
+      ? lastEntry.interaction.id
+      : lastEntry?.type === "item" && lastEntry.item.kind === "interaction"
+        ? lastEntry.item.data.interactionId
+        : null;
+  const lastAsked = lastAskedId ? pending.find((i) => i.id === lastAskedId) : undefined;
+  planLast.current = !!lastAsked && isDocumentPresentation(lastAsked.presentation);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (atBottomRef.current && !planLast.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Showing the Chat tab again: back to the bottom, or to where the reader was.
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -211,6 +238,8 @@ export function Transcript({
     }
     handled.current = focusInteractionId;
     olderAttempts.current = 0;
+    // A pending question is in the dock, outside this scroller: nothing to scroll to.
+    if (!scrollRef.current?.contains(target)) return;
     atBottomRef.current = false;
     setAtBottom(false);
     setBaselineKey(lastKey);
@@ -230,23 +259,6 @@ export function Transcript({
     setAtBottom(true);
     setBaselineKey(null);
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  };
-
-  const openFirstPending = () => {
-    const first = pending[0];
-    if (!first) return;
-    const el = document.getElementById(interactionDomId(first.id));
-    if (!el) return;
-    atBottomRef.current = false;
-    setAtBottom(false);
-    setBaselineKey(lastKey);
-    if (scrollRef.current) scrollWithin(scrollRef.current, el, true);
-    setHighlight(first.id);
-    // Move focus to the first control of the question for keyboard users.
-    const control = el.querySelector<HTMLElement>(
-      "input, select, textarea, button:not([disabled])",
-    );
-    (control ?? el).focus({ preventScroll: true });
   };
 
   const unseen = atBottom ? 0 : countAfter(entries, baselineKey);
@@ -312,8 +324,6 @@ export function Transcript({
                         startAt={entry.startAt}
                         sessionId={sessionId}
                         interactionReadOnly={interactionReadOnly}
-                        draftEmpty={draftEmpty}
-                        onUseSuggestion={onUseSuggestion}
                         highlightInteractionId={highlight}
                       />
                     ) : (
@@ -321,8 +331,6 @@ export function Transcript({
                         entry={entry}
                         sessionId={sessionId}
                         interactionReadOnly={interactionReadOnly}
-                        draftEmpty={draftEmpty}
-                        onUseSuggestion={onUseSuggestion}
                         highlightInteractionId={highlight}
                       />
                     )}
@@ -371,7 +379,7 @@ export function Transcript({
           </div>
         )}
       </div>
-      {footer?.({ openFirstPending })}
+      {footer}
     </div>
   );
 }

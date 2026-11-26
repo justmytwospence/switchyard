@@ -187,6 +187,9 @@ test.describe("mobile coding view", () => {
       return list.length > 0;
     });
     await page.goto(`/code/${id}`);
+    // The question is docked above the composer, not in the transcript.
+    await expect(page.getByTestId("request-dock")).toBeVisible();
+    await expect(page.getByTestId("transcript").getByTestId("interaction-card")).toHaveCount(0);
     const card = page.getByTestId("interaction-card").first();
     await expect(card).toContainText("Which toppings do you want?");
     // Structured options, not "1,3".
@@ -331,11 +334,11 @@ test.describe("mobile coding view", () => {
     expect((await sent).postDataJSON().level).toBe("high");
     await noOverflow();
 
-    // The slim context bar has a touch-sized hit area.
+    // The context ring is thumb-sized and opens the usage panel.
     const context = page.getByTestId("composer").getByRole("button", { name: /^Context/ });
-    const cb = (await context.boundingBox())!;
-    await page.touchscreen.tap(cb.x + cb.width / 2, cb.y - 10);
-    await expect(page.getByRole("menu", { name: "Context" })).toBeVisible();
+    expect((await context.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await context.tap();
+    await expect(page.getByRole("dialog", { name: "Context" })).toBeVisible();
   });
 
   test("Back from a deep-linked session replaces history instead of looping", async ({

@@ -4,6 +4,7 @@ import {
   buildValues,
   chooseSelect,
   chooseSelectOther,
+  fieldAnswered,
   initialFormState,
   toggleMulti,
   validateForm,
@@ -77,5 +78,20 @@ describe("FormRenderer logic", () => {
     st = { ...st, q1: chooseSelect(st.q1!, "Pear") };
     expect(visibleFields(fields, st).map((f) => f.name)).toEqual(["q1", "q2", "why"]);
     expect(buildValues(fields, st).why).toBe("because");
+  });
+
+  it("knows whether a field has an answer", () => {
+    const [select, multi, text] = fields as [Field, Field, Field];
+    let st = initialFormState(fields);
+    expect(fieldAnswered(select, st.q1)).toBe(false);
+    expect(fieldAnswered(multi, st.q2)).toBe(false);
+    expect(fieldAnswered(text, st.why)).toBe(true);
+    expect(fieldAnswered(text, { ...st.why!, text: "  " })).toBe(false);
+    expect(fieldAnswered(text, undefined)).toBe(false);
+    st = { ...st, q1: chooseSelectOther(st.q1!) };
+    expect(fieldAnswered(select, st.q1)).toBe(false);
+    expect(fieldAnswered(select, { ...st.q1!, otherText: "Kiwi" })).toBe(true);
+    expect(fieldAnswered(select, chooseSelect(st.q1!, "Apple"))).toBe(true);
+    expect(fieldAnswered(multi, toggleMulti(st.q2!, "A"))).toBe(true);
   });
 });

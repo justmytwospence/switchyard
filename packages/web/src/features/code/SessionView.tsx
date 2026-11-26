@@ -21,8 +21,9 @@ import { ConversationHeader, sessionMenuItems } from "./ConversationHeader";
 import { CodeContext, type CodeViewContext, type InspectorTab } from "./context";
 import { MobileDetails, SessionFacts } from "./Details";
 import type { SessionContext } from "./hooks";
-import { isSubagentView, SUBAGENT_READ_ONLY } from "./model";
+import { currentSuggestion, isSubagentView, SUBAGENT_READ_ONLY } from "./model";
 import { PullRequest } from "./PullRequest";
+import { RequestDock } from "./RequestDock";
 import type { SessionActions } from "./SessionActions";
 import { SessionStatusBar } from "./SessionStatusBar";
 import { canUseTerminal, useSessionSurface } from "./surface";
@@ -50,13 +51,12 @@ function useSubagentRefresh(session: Session) {
 function useComposerDraft(sessionId: string) {
   const [draft, setDraft, clearDraft] = useDraft(sessionId);
   const replyNotes = useReplyNotes(sessionId);
-  const onUseSuggestion = (text: string) => {
-    // Never overwrite a non-empty draft.
-    if (draft.trim() === "") setDraft(text);
-  };
+  // Read from the store without loading: the transcript component loads it.
+  const items = useSyncStore((s) => s.transcripts[sessionId]?.items);
+  const suggestion = useMemo(() => currentSuggestion(items ?? []), [items]);
   const onQuote = (q: string) => setDraft(appendQuote(draft, q));
   const onComment = (quote: string, comment: string) => replyNotes.add({ quote, comment });
-  return { draft, setDraft, clearDraft, onUseSuggestion, replyNotes, onQuote, onComment };
+  return { draft, setDraft, clearDraft, suggestion, replyNotes, onQuote, onComment };
 }
 
 /** Desktop/compact conversation pane: header, banners, transcript and composer. */
@@ -129,15 +129,11 @@ export function Conversation({
         <>
           <Transcript
             sessionId={ctx.session.id}
-            draftEmpty={d.draft.trim() === ""}
-            onUseSuggestion={d.onUseSuggestion}
             onQuote={d.onQuote}
             onComment={d.onComment}
             interactionReadOnly={interactionReadOnly(ctx)}
             focusInteractionId={focusInteractionId}
-            footer={({ openFirstPending }) => (
-              <SessionStatusBar ctx={ctx} actions={actions} onAnswer={openFirstPending} />
-            )}
+            footer={<SessionStatusBar ctx={ctx} actions={actions} />}
           />
           <Composer
             ctx={ctx}
@@ -146,6 +142,16 @@ export function Conversation({
             clearDraft={d.clearDraft}
             replyNotes={d.replyNotes}
             mobile={false}
+            suggestion={d.suggestion}
+            stop={{ can: actions.canStop, busy: actions.busy.stop, request: actions.requestStop }}
+            dock={({ collapsed }) => (
+              <RequestDock
+                sessionId={ctx.session.id}
+                readOnlyReason={interactionReadOnly(ctx)}
+                focusInteractionId={focusInteractionId}
+                collapsed={collapsed}
+              />
+            )}
           />
         </>
       )}
@@ -311,16 +317,12 @@ export function MobileSession({
           >
             <Transcript
               sessionId={session.id}
-              draftEmpty={d.draft.trim() === ""}
-              onUseSuggestion={d.onUseSuggestion}
               onQuote={d.onQuote}
               onComment={d.onComment}
               interactionReadOnly={interactionReadOnly(ctx)}
               focusInteractionId={focusInteractionId}
               active={tab === "chat"}
-              footer={({ openFirstPending }) => (
-                <SessionStatusBar ctx={ctx} actions={actions} onAnswer={openFirstPending} />
-              )}
+              footer={<SessionStatusBar ctx={ctx} actions={actions} />}
             />
             <Composer
               ctx={ctx}
@@ -329,6 +331,16 @@ export function MobileSession({
               clearDraft={d.clearDraft}
               replyNotes={d.replyNotes}
               mobile
+              suggestion={d.suggestion}
+              stop={{ can: actions.canStop, busy: actions.busy.stop, request: actions.requestStop }}
+              dock={({ collapsed }) => (
+                <RequestDock
+                  sessionId={session.id}
+                  readOnlyReason={interactionReadOnly(ctx)}
+                  focusInteractionId={focusInteractionId}
+                  collapsed={collapsed}
+                />
+              )}
             />
           </section>
           <section

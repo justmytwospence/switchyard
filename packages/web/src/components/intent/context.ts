@@ -13,6 +13,8 @@ export interface IntentHandlers {
   busy?: boolean;
   /** Read-only (already answered, expired, read-only session). */
   disabled?: boolean;
+  /** Rendered in the request dock, whose header already shows this title. */
+  dock?: { title: string };
 }
 
 export const IntentContext = createContext<IntentHandlers>({});

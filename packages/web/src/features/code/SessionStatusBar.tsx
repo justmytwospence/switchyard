@@ -7,7 +7,6 @@ import {
   Eye,
   Hand,
   type LucideIcon,
-  MessageCircleQuestion,
   Play,
   ServerOff,
   Square,
@@ -16,7 +15,6 @@ import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { TextLink } from "../../components/ui/TextLink";
 import { cn } from "../../lib/cn";
-import { usePendingInteractions } from "../../sync/store";
 import { protectionLabel } from "../settings/policyLogic";
 import { type SessionContext, useNow } from "./hooks";
 import { type SessionStatus, type SessionStatusAction, sessionStatus } from "./model";
@@ -26,7 +24,6 @@ const ICON: Record<SessionStatus["kind"], LucideIcon> = {
   subagent: Eye,
   archived: Archive,
   host: ServerOff,
-  answer: MessageCircleQuestion,
   failed: CircleX,
   interrupted: CirclePause,
   stopped: Square,
@@ -37,7 +34,6 @@ const ICON: Record<SessionStatus["kind"], LucideIcon> = {
 };
 const ACTION_ICON: Record<SessionStatusAction, LucideIcon> = {
   unarchive: ArchiveRestore,
-  answer: MessageCircleQuestion,
   resume: Play,
   takeover: Hand,
   return: Bot,
@@ -53,13 +49,10 @@ const TONE = {
 export function SessionStatusBar({
   ctx,
   actions,
-  onAnswer,
 }: {
   ctx: SessionContext;
   actions: SessionActions;
-  onAnswer: () => void;
 }) {
-  const pending = usePendingInteractions(ctx.session.id);
   const now = useNow(ctx.link === "unreachable", 30_000);
   const status = sessionStatus({
     session: ctx.session,
@@ -67,7 +60,6 @@ export function SessionStatusBar({
     hostName: ctx.hostName,
     hostLastSeenAt: ctx.host?.lastSeenAt,
     control: ctx.control,
-    pending,
     canResume: actions.canResume,
     now,
   });
@@ -79,7 +71,6 @@ export function SessionStatusBar({
     act &&
     {
       unarchive: actions.unarchive,
-      answer: onAnswer,
       resume: actions.resume,
       takeover: actions.takeover,
       return: actions.returnToAutomation,
@@ -87,7 +78,6 @@ export function SessionStatusBar({
   const busy = act
     ? {
         unarchive: actions.busy.unarchive,
-        answer: false,
         resume: actions.busy.resume,
         takeover: actions.busy.takeover,
         return: actions.busy.ret,

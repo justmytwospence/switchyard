@@ -1,25 +1,29 @@
 import { type CommandView, isLiveRuntime, type Session } from "@switchyard/protocol";
 import {
+  ArrowUp,
   Camera,
+  FileDiff,
   ImagePlus,
-  ListPlus,
   Mic,
   MicOff,
-  Navigation,
-  Paperclip,
-  SendHorizontal,
+  Plus,
   Slash,
+  Square,
+  Wand2,
   X,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useHideBottomNav } from "../../app/chrome";
 import { Button } from "../../components/ui/Button";
 import { copyText } from "../../components/ui/Copy";
 import { IconButton } from "../../components/ui/IconButton";
+import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { Dialog, Sheet } from "../../components/ui/Overlay";
+import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { applyReplyNotes, type ReplyNotes } from "../../drafts";
 import { cn } from "../../lib/cn";
@@ -28,11 +32,12 @@ import { errorMessage } from "../../sync/api";
 import { useContributions, useSyncStore } from "../../sync/store";
 import { paletteNavigationDelta } from "../palette/shortcuts";
 import { AdapterCommandDialog, type AdapterCommandRequest } from "./AdapterCommandDialog";
-import { AdapterSlot } from "./AdapterSlots";
+import { AdapterSlot, useAdapterSlot } from "./AdapterSlots";
 import { adapterCommandError, adapterCommandName } from "./adapterIdentity";
 import { codeApi, type PromptMode } from "./api";
 import { applyPrefill, canNavigate, useOpenBranch } from "./branching";
 import { CommandViewDrawer } from "./CommandViewDrawer";
+import { useCodeContext } from "./context";
 import { spliceAtCaret, useDictation } from "./dictation";
 import type { SessionContext } from "./hooks";
 import { ImageEditor } from "./ImageEditor";
@@ -50,12 +55,14 @@ import {
   modelSummary,
   parseClientCommand,
   piControlsAvailable,
+  queuedMessages,
   readImageFile,
   SUBAGENT_READ_ONLY,
   sendModes,
+  sendPlan,
   sessionUsage,
 } from "./model";
-import { ContextMeter, EffortControl, ModelControl, UsageMeter } from "./PiControls";
+import { ContextRing, EffortControl, ModelControl } from "./PiControls";
 import { ResumeDialog, TreeDialog } from "./SessionCommandDialogs";
 import { SessionInfoDialog } from "./SessionInfoDialog";
 import { SlashCompletions, SlashPicker } from "./SlashPicker";
@@ -71,15 +78,28 @@ export interface ComposerProps {
   replyNotes?: ReplyNotes;
   mobile: boolean;
   className?: string;
+  /** The pending-question dock, above the input. `collapsed`: show only its title. */
+  dock?: (state: { collapsed: boolean }) => ReactNode;
+  /** Pi's suggested next message, offered while the draft is empty. */
+  suggestion?: string | null;
+  /** Stop the run: the round button while Pi works with an empty draft. */
+  stop?: { can: boolean; busy: boolean; request: () => void };
 }
 
 const AUTOMATION_WARNING = "Automation is active; take over to stop automatic continuations";
 
+const SEND_LABEL = { prompt: "Send", followUp: "Queue message", steer: "Steer" } as const;
+const ROUND =
+  "tap inline-flex size-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-55";
+
 /**
- * Multiline composer. Desktop: Enter sends, Shift+Enter is a newline
- * (configurable). Mobile: Return is a newline and Send is explicit. While Pi is
- * running it offers "Steer" (only when the runtime supports it) and "Queue
- * follow-up". The draft is cleared only after the coordinator acknowledged.
+ * Multiline composer: one card with the draft and one row of controls. Desktop: Enter sends,
+ * Shift+Enter is a newline (configurable). Mobile: Return is a newline and Send is explicit.
+ * One round button: Send when Pi is idle; while Pi works, Stop with an empty draft, and with a
+ * draft Send in the device's mode (queue, or steer where the runtime supports it) with a small
+ * Stop beside it. Cmd/Ctrl+Enter and the + menu send the other way. The pending question, the
+ * tracker row and the queued messages sit above the card. The draft is cleared only after the
+ * coordinator acknowledged.
  */
 export function Composer({
   ctx,
@@ -89,6 +109,9 @@ export function Composer({
   replyNotes,
   mobile,
   className,
+  dock,
+  suggestion,
+  stop,
 }: ComposerProps) {
   const { session, host } = ctx;
   const sendWithEnter = usePrefs((s) => s.sendWithEnter);
@@ -96,9 +119,11 @@ export function Composer({
   const [busy, setBusy] = useState<PromptMode | null>(null);
   const [error, setError] = useState<{ error: unknown; mode: PromptMode } | null>(null);
   const [focused, setFocused] = useState(false);
-  const [attachSheet, setAttachSheet] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [commandSheet, setCommandSheet] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const { openInspector } = useCodeContext();
+  const pillPanels = useAdapterSlot(session.id, "composer.pill");
   const CommandSurface = mobile ? Sheet : Dialog;
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [active, setActive] = useState(0);
@@ -280,8 +305,6 @@ export function Composer({
       setSlashDismissed(false);
       if (res?.result?.view) setView(res.result.view);
       if (res?.automationActive) toast.info(AUTOMATION_WARNING);
-      else if (mode === "followUp") toast.success("Follow-up queued");
-      else if (mode === "steer") toast.success("Steering message sent");
     } catch (e) {
       setError({ error: e, mode });
     } finally {
@@ -353,13 +376,9 @@ export function Composer({
     }
   };
 
-  const primaryMode: PromptMode | null = modes.prompt
-    ? "prompt"
-    : modes.followUp
-      ? "followUp"
-      : modes.steer
-        ? "steer"
-        : null;
+  const followUpMode = usePrefs((st) => st.followUpMode);
+  const plan = sendPlan(modes, followUpMode);
+  const primaryMode: PromptMode | null = plan.primary;
 
   const addFiles = async (files: FileList | File[] | null) => {
     if (!files) return;
@@ -426,7 +445,96 @@ export function Composer({
         </span>
       </>
     ) : null;
-  const queued = session.queue.steering.length + session.queue.followUp.length;
+  const hasContent = !noText || attachments.length > 0;
+  const showStop = running && !hasContent && !!stop?.can;
+  const queue = queuedMessages(session.queue);
+  const hasNotes = !!replyNotes && replyNotes.notes.length > 0;
+  const showSuggestion = !!suggestion && draft.trim() === "" && !session.readOnly;
+  const changed = ctx.workspace?.git.changedFiles ?? 0;
+  const placeholder = session.readOnly
+    ? SUBAGENT_READ_ONLY
+    : !running
+      ? "Message Pi… (/ for commands)"
+      : primaryMode === "followUp"
+        ? "Queue a message for when Pi finishes…"
+        : primaryMode === "steer"
+          ? "Steer Pi now…"
+          : "Pi is working…";
+  const sendTitle = !running
+    ? sendWithEnter
+      ? "Send (Enter)"
+      : "Send (Ctrl+Enter)"
+    : `${SEND_LABEL[primaryMode ?? "prompt"]}${
+        plan.alternate && !mobile
+          ? ` · ${sendWithEnter ? "Cmd/Ctrl+Enter" : "Cmd/Ctrl+Shift+Enter"} ${
+              plan.alternate === "steer" ? "steers now" : "queues it"
+            }`
+          : ""
+      }`;
+  const openCommands = () => {
+    if (mobile) {
+      setCommandSheet(true);
+      return;
+    }
+    if (draft.trim() === "") {
+      setDraft("/");
+      setSlashDismissed(false);
+      textRef.current?.focus();
+      return;
+    }
+    if (/^\/\S*$/.test(draft)) {
+      setSlashDismissed(false);
+      textRef.current?.focus();
+      return;
+    }
+    setCommandSheet(true);
+  };
+  const alternate = plan.alternate;
+  const addItems: MenuItem[] = [
+    {
+      id: "images",
+      label: mobile ? "Photos" : "Images",
+      hint: "Up to 10 MB each",
+      icon: <ImagePlus className="size-4" />,
+      onSelect: () => fileRef.current?.click(),
+    },
+    ...(mobile
+      ? [
+          {
+            id: "camera",
+            label: "Take photo",
+            icon: <Camera className="size-4" />,
+            onSelect: () => cameraRef.current?.click(),
+          },
+        ]
+      : []),
+    ...(mobile && dictation.supported && !dictation.listening
+      ? [
+          {
+            id: "dictate",
+            label: "Dictate",
+            icon: <Mic className="size-4" />,
+            onSelect: () => dictation.start(),
+          },
+        ]
+      : []),
+    {
+      id: "commands",
+      label: "Commands",
+      icon: <Slash className="size-4" />,
+      onSelect: openCommands,
+    },
+    ...(alternate && !noText
+      ? [
+          {
+            id: "alternate",
+            label: alternate === "steer" ? "Steer now" : "Queue for later",
+            icon: <ArrowUp className="size-4" />,
+            onSelect: () => void send(alternate),
+          },
+        ]
+      : []),
+  ];
 
   return (
     <section
@@ -438,390 +546,410 @@ export function Composer({
         className,
       )}
     >
-      <div className="flex w-full min-w-0 flex-col gap-2">
-        {controls && session.model && (
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <ContextMeter session={session} enabled={controls} />
-            </div>
-            {usage && <UsageMeter usage={usage} />}
+      <div className="mx-auto flex w-full max-w-[80ch] min-w-0 flex-col gap-2">
+        {dock?.({ collapsed: mobile && focused })}
+
+        {(ctx.workspace || pillPanels.length > 0) && (
+          <div data-testid="tracker-bar" className="flex h-7 min-w-0 items-center gap-1.5">
+            {ctx.workspace && openInspector && (
+              <button
+                type="button"
+                data-testid="changes-pill"
+                onClick={() => openInspector("changes")}
+                className="relative inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border px-2 text-xs text-muted hover:bg-surface-2 before:absolute before:inset-x-0 before:-inset-y-2.5 before:content-['']"
+              >
+                <FileDiff aria-hidden className="size-3.5 shrink-0" />
+                {/* Uncommitted files at the last refresh: Changes also lists commits, so zero says nothing. */}
+                {changed > 0 ? `${changed} changed` : "Changes"}
+              </button>
+            )}
+            <AdapterSlot sessionId={session.id} placement="composer.pill" />
           </div>
         )}
-        {queued > 0 && (
-          <p className="text-xs text-muted">
-            {session.queue.steering.length > 0 &&
-              `${session.queue.steering.length} steering message${session.queue.steering.length === 1 ? "" : "s"} pending. `}
-            {session.queue.followUp.length > 0 &&
-              `${session.queue.followUp.length} follow-up${session.queue.followUp.length === 1 ? "" : "s"} queued.`}
-          </p>
+
+        {queue.length > 0 && (
+          <div className="flex min-w-0 flex-col gap-1">
+            <ul
+              aria-label="Queued messages"
+              data-testid="queued-messages"
+              className="flex min-w-0 flex-col gap-1"
+            >
+              {(queueOpen ? queue : queue.slice(0, 3)).map((q, i) => (
+                <li
+                  // biome-ignore lint/suspicious/noArrayIndexKey: queued messages are positional
+                  key={i}
+                  className="flex min-w-0 items-baseline gap-2 rounded-md bg-surface-2 px-2.5 py-1 text-xs"
+                >
+                  <span className="shrink-0 text-subtle">{q.kind}</span>
+                  <span className="min-w-0 truncate" title={q.text}>
+                    {q.text}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {queue.length > 3 && (
+              <TextLink size="xs" onClick={() => setQueueOpen((v) => !v)}>
+                {queueOpen ? "Show fewer" : `Show ${queue.length - 3} more`}
+              </TextLink>
+            )}
+          </div>
         )}
 
-        {replyNotes && replyNotes.notes.length > 0 && (
-          <ul aria-label="Comments on the reply" className="flex flex-wrap gap-2">
-            {replyNotes.notes.map((n) => (
-              <li
-                key={n.id}
-                className="flex max-w-full items-center gap-1 rounded-md border border-border bg-surface-2 py-1 pr-1 pl-2 text-xs"
-              >
-                <span className="min-w-0 truncate">
-                  <span className="text-muted">&ldquo;{n.quote.trim().slice(0, 40)}&rdquo;</span>{" "}
-                  {n.comment.trim().slice(0, 40)}
-                </span>
-                <IconButton
-                  size="sm"
-                  label="Remove comment"
-                  icon={<X className="size-3.5" />}
-                  onClick={() => replyNotes.remove(n.id)}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {attachments.map((a) =>
-          a.id === editing ? (
-            <ImageEditor
-              key={a.id}
-              attachment={a}
-              open
-              mobile={mobile}
-              onClose={() => setEditing(null)}
-              onDone={(next) => {
-                setAttachments((p) => p.map((x) => (x.id === a.id ? next : x)));
-                setEditing(null);
-              }}
-            />
-          ) : null,
-        )}
-        {attachments.length > 0 && (
-          <ul aria-label="Attachments" className="flex flex-wrap gap-2">
-            {attachments.map((a) => (
-              <li
+        <div
+          data-testid="composer-card"
+          className="flex min-w-0 flex-col rounded-xl border border-border bg-bg has-[textarea:focus]:border-accent"
+        >
+          {attachments.map((a) =>
+            a.id === editing ? (
+              <ImageEditor
                 key={a.id}
-                className="relative flex items-center gap-2 rounded-md border border-border bg-surface-2 py-1 pr-1 pl-1"
-              >
+                attachment={a}
+                open
+                mobile={mobile}
+                onClose={() => setEditing(null)}
+                onDone={(next) => {
+                  setAttachments((p) => p.map((x) => (x.id === a.id ? next : x)));
+                  setEditing(null);
+                }}
+              />
+            ) : null,
+          )}
+          {(hasNotes || attachments.length > 0 || showSuggestion) && (
+            <div className="flex min-w-0 flex-col gap-2 px-2.5 pt-2.5">
+              {replyNotes && replyNotes.notes.length > 0 && (
+                <ul aria-label="Comments on the reply" className="flex flex-wrap gap-2">
+                  {replyNotes.notes.map((n) => (
+                    <li
+                      key={n.id}
+                      className="flex max-w-full items-center gap-1 rounded-md border border-border bg-surface-2 py-1 pr-1 pl-2 text-xs"
+                    >
+                      <span className="min-w-0 truncate">
+                        <span className="text-muted">
+                          &ldquo;{n.quote.trim().slice(0, 40)}&rdquo;
+                        </span>{" "}
+                        {n.comment.trim().slice(0, 40)}
+                      </span>
+                      <IconButton
+                        size="sm"
+                        label="Remove comment"
+                        icon={<X className="size-3.5" />}
+                        onClick={() => replyNotes.remove(n.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {attachments.length > 0 && (
+                <ul aria-label="Attachments" className="flex flex-wrap gap-2">
+                  {attachments.map((a) => (
+                    <li
+                      key={a.id}
+                      className="relative flex items-center gap-2 rounded-md border border-border bg-surface-2 py-1 pr-1 pl-1"
+                    >
+                      <button
+                        type="button"
+                        aria-label={`Mark up ${a.name}`}
+                        className="tap rounded"
+                        onClick={() => setEditing(a.id)}
+                      >
+                        <img
+                          src={`data:${a.mimeType};base64,${a.data}`}
+                          alt=""
+                          className="size-9 rounded object-cover"
+                        />
+                      </button>
+                      <span className="max-w-32 truncate text-xs">{a.name}</span>
+                      <IconButton
+                        size="sm"
+                        label={`Remove ${a.name}`}
+                        icon={<X className="size-3.5" />}
+                        onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {showSuggestion && suggestion && (
                 <button
                   type="button"
-                  aria-label={`Mark up ${a.name}`}
-                  className="tap rounded"
-                  onClick={() => setEditing(a.id)}
+                  data-testid="suggestion-chip"
+                  title={suggestion}
+                  onClick={() => {
+                    setDraft(suggestion);
+                    textRef.current?.focus();
+                  }}
+                  className="tap flex max-w-full min-w-0 items-center gap-1.5 self-start rounded-md border border-dashed border-border-strong px-2 py-1 text-left text-xs text-muted hover:bg-surface-2"
                 >
-                  <img
-                    src={`data:${a.mimeType};base64,${a.data}`}
-                    alt=""
-                    className="size-9 rounded object-cover"
-                  />
+                  <Wand2 aria-hidden className="size-3.5 shrink-0" />
+                  <span className="sr-only">Use suggested message: </span>
+                  <span className="min-w-0 truncate">{suggestion}</span>
                 </button>
-                <span className="max-w-32 truncate text-xs">{a.name}</span>
-                <IconButton
-                  size="sm"
-                  label={`Remove ${a.name}`}
-                  icon={<X className="size-3.5" />}
-                  onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="relative min-w-0">
-          {completing && (
-            <SlashCompletions
-              className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-1 shadow-pop"
-              id={`${hintId}-args`}
-              items={completions.items}
-              active={Math.min(active, completions.items.length - 1)}
-              onPick={applyItem}
-              onHover={setActive}
-            />
-          )}
-          {slashOpen && controls && (
-            <SlashPicker
-              className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-1 shadow-pop"
-              id={`${hintId}-cmds`}
-              entries={shown}
-              active={active}
-              onPick={pick}
-              onHover={setActive}
-              status={
-                cmdLoading && commands.length === 0
-                  ? "Loading Pi's commands…"
-                  : cmdError
-                    ? `Pi's commands could not be loaded: ${errorMessage(cmdError)}`
-                    : shown.length === 0
-                      ? "No matching command; Enter sends the text to Pi"
-                      : null
-              }
-            />
-          )}
-          {argHint && (
-            <p
-              data-testid="command-args-hint"
-              className="absolute bottom-full left-0 z-10 mb-1 rounded-md bg-surface px-2 py-0.5 font-mono text-xs text-muted"
-            >
-              /{argHint.name} {argHint.hint}
-            </p>
-          )}
-          {slashOpen && !controls && (
-            <SlashHint
-              className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-3 shadow-pop"
-              onClose={() => setSlashDismissed(true)}
-            />
-          )}
-          <label htmlFor={`${hintId}-input`} className="sr-only">
-            Message to Pi
-          </label>
-          <TextArea
-            id={`${hintId}-input`}
-            data-keyboard-composer
-            ref={textRef}
-            value={draft}
-            minRows={mobile ? 1 : 2}
-            maxHeight="33vh"
-            disabled={session.readOnly}
-            {...(slashOpen && controls
-              ? {
-                  role: "combobox" as const,
-                  "aria-autocomplete": "list" as const,
-                  "aria-expanded": true,
-                  "aria-controls": `${hintId}-cmds`,
-                  "aria-activedescendant": shown.length ? `${hintId}-cmds-${active}` : undefined,
-                }
-              : {})}
-            aria-describedby={sendReason ? `${hintId}-reason` : undefined}
-            placeholder={
-              session.readOnly
-                ? SUBAGENT_READ_ONLY
-                : running
-                  ? "Steer Pi or queue a follow-up…"
-                  : "Message Pi… (/ for commands)"
-            }
-            onChange={(e) => {
-              setDraft(e.target.value);
-              if (!e.target.value.startsWith("/")) setSlashDismissed(false);
-            }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onPaste={(e) => {
-              const files = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
-              if (files.length) {
-                e.preventDefault();
-                void addFiles(files);
-              }
-            }}
-            enterKeyHint={mobile ? "enter" : "send"}
-            onKeyDown={(e) => {
-              const delta =
-                e.key === "ArrowDown" ||
-                e.key === "ArrowUp" ||
-                (usePrefs.getState().vimNavigation && !e.nativeEvent.isComposing)
-                  ? paletteNavigationDelta(e)
-                  : 0;
-              if (completing) {
-                const n = completions.items.length;
-                if (delta) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setActive((a) => (a + delta + n) % n);
-                  return;
-                }
-                if (
-                  e.key === "Tab" ||
-                  (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing)
-                ) {
-                  e.preventDefault();
-                  applyItem(completions.items[Math.min(active, n - 1)]!.value);
-                  return;
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setArgsDismissed(true);
-                  return;
-                }
-              }
-              if (slashOpen && controls && shown.length > 0) {
-                if (delta) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const n = shown.length;
-                  setActive((a) => (a + delta + n) % n);
-                  return;
-                }
-                if (
-                  e.key === "Tab" ||
-                  (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing)
-                ) {
-                  e.preventDefault();
-                  pick(shown[Math.min(active, shown.length - 1)]!);
-                  return;
-                }
-              }
-              if (e.key === "Escape" && slashOpen) {
-                e.preventDefault();
-                setSlashDismissed(true);
-                return;
-              }
-              if (e.key !== "Enter" || e.nativeEvent.isComposing || mobile) return;
-              const wantsSend = sendWithEnter ? !e.shiftKey : e.metaKey || e.ctrlKey;
-              if (!wantsSend) return;
-              e.preventDefault();
-              if (primaryMode) void send(primaryMode);
-            }}
-          />
-        </div>
-
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={(e) => {
-              void addFiles(e.target.files);
-              e.target.value = "";
-              setAttachSheet(false);
-            }}
-          />
-          <input
-            ref={cameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            onChange={(e) => {
-              void addFiles(e.target.files);
-              e.target.value = "";
-              setAttachSheet(false);
-            }}
-          />
-          <IconButton
-            label="Attach images"
-            icon={<Paperclip className="size-4" />}
-            disabled={session.readOnly}
-            onClick={() => (mobile ? setAttachSheet(true) : fileRef.current?.click())}
-          />
-          <IconButton
-            label="Commands"
-            icon={<Slash className="size-4" />}
-            disabled={session.readOnly}
-            onClick={() => {
-              if (mobile) {
-                setCommandSheet(true);
-                return;
-              }
-              if (draft.trim() === "") {
-                setDraft("/");
-                setSlashDismissed(false);
-                textRef.current?.focus();
-                return;
-              }
-              if (/^\/\S*$/.test(draft)) {
-                setSlashDismissed(false);
-                textRef.current?.focus();
-                return;
-              }
-              setCommandSheet(true);
-            }}
-          />
-          {dictation.supported && (
-            <IconButton
-              label={dictation.listening ? "Stop dictation" : "Dictate"}
-              icon={
-                dictation.listening ? <MicOff className="size-4" /> : <Mic className="size-4" />
-              }
-              variant={dictation.listening ? "danger" : "ghost"}
-              aria-pressed={dictation.listening}
-              disabled={session.readOnly}
-              onPointerDown={(e) => e.preventDefault()}
-              onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
-            />
-          )}
-          {pills ? (
-            <div
-              data-testid="session-controls"
-              className="flex min-w-0 flex-1 items-center gap-1 max-md:overflow-hidden"
-            >
-              {pills}
-              <AdapterSlot sessionId={session.id} placement="composer.pill" />
+              )}
             </div>
-          ) : (
-            <>
-              <AdapterSlot sessionId={session.id} placement="composer.pill" />
-              <span
-                className="hidden min-w-0 flex-1 truncate text-xs text-muted sm:inline"
-                title="Profile, model and effort come from the session's Pi profile (Settings › Profiles). They apply when a session starts."
+          )}
+
+          <div className="relative min-w-0">
+            {completing && (
+              <SlashCompletions
+                className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-1 shadow-pop"
+                id={`${hintId}-args`}
+                items={completions.items}
+                active={Math.min(active, completions.items.length - 1)}
+                onPick={applyItem}
+                onHover={setActive}
+              />
+            )}
+            {slashOpen && controls && (
+              <SlashPicker
+                className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-1 shadow-pop"
+                id={`${hintId}-cmds`}
+                entries={shown}
+                active={active}
+                onPick={pick}
+                onHover={setActive}
+                status={
+                  cmdLoading && commands.length === 0
+                    ? "Loading Pi's commands…"
+                    : cmdError
+                      ? `Pi's commands could not be loaded: ${errorMessage(cmdError)}`
+                      : shown.length === 0
+                        ? "No matching command; Enter sends the text to Pi"
+                        : null
+                }
+              />
+            )}
+            {argHint && (
+              <p
+                data-testid="command-args-hint"
+                className="absolute bottom-full left-0 z-10 mb-1 rounded-md bg-surface px-2 py-0.5 font-mono text-xs text-muted"
               >
-                {modelSummary(session)}
-              </span>
-              <span className="min-w-0 flex-1 sm:hidden" />
-            </>
-          )}
-          {!mobile && !running && (
-            <span className="hidden text-xs text-subtle lg:inline">
-              {sendWithEnter ? "Enter to send · Shift+Enter for newline" : "Ctrl+Enter to send"}
-            </span>
-          )}
-          {running ? (
-            <>
-              {modes.steer && (
-                <Button
-                  size="sm"
-                  className="shrink-0"
-                  icon={<Navigation className="size-3.5" />}
-                  busy={busy === "steer"}
-                  disabled={
-                    !!block || noText || !!commandProblem || (busy !== null && busy !== "steer")
+                /{argHint.name} {argHint.hint}
+              </p>
+            )}
+            {slashOpen && !controls && (
+              <SlashHint
+                className="absolute bottom-full left-0 z-20 mb-1 w-full rounded-lg border border-border bg-surface p-3 shadow-pop"
+                onClose={() => setSlashDismissed(true)}
+              />
+            )}
+            <label htmlFor={`${hintId}-input`} className="sr-only">
+              Message to Pi
+            </label>
+            <TextArea
+              id={`${hintId}-input`}
+              data-keyboard-composer
+              ref={textRef}
+              bare
+              value={draft}
+              minRows={mobile ? 1 : 2}
+              maxHeight="33vh"
+              disabled={session.readOnly}
+              {...(slashOpen && controls
+                ? {
+                    role: "combobox" as const,
+                    "aria-autocomplete": "list" as const,
+                    "aria-expanded": true,
+                    "aria-controls": `${hintId}-cmds`,
+                    "aria-activedescendant": shown.length ? `${hintId}-cmds-${active}` : undefined,
                   }
-                  onClick={() => void send("steer")}
-                  {...tapToSend(
-                    "steer",
-                    !block && !noText && !commandProblem && (busy === null || busy === "steer"),
-                  )}
-                >
-                  <span className="max-[379px]:sr-only">Steer</span>
-                </Button>
-              )}
-              {modes.followUp && (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  className="shrink-0"
-                  icon={<ListPlus className="size-3.5" />}
-                  busy={busy === "followUp"}
-                  disabled={
-                    !!block || noText || !!commandProblem || (busy !== null && busy !== "followUp")
+                : {})}
+              aria-describedby={sendReason ? `${hintId}-reason` : undefined}
+              placeholder={placeholder}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                if (!e.target.value.startsWith("/")) setSlashDismissed(false);
+              }}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onPaste={(e) => {
+                const files = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+                if (files.length) {
+                  e.preventDefault();
+                  void addFiles(files);
+                }
+              }}
+              enterKeyHint={mobile ? "enter" : "send"}
+              onKeyDown={(e) => {
+                const delta =
+                  e.key === "ArrowDown" ||
+                  e.key === "ArrowUp" ||
+                  (usePrefs.getState().vimNavigation && !e.nativeEvent.isComposing)
+                    ? paletteNavigationDelta(e)
+                    : 0;
+                if (completing) {
+                  const n = completions.items.length;
+                  if (delta) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setActive((a) => (a + delta + n) % n);
+                    return;
                   }
-                  onClick={() => void send("followUp")}
-                  {...tapToSend(
-                    "followUp",
-                    !block && !noText && !commandProblem && (busy === null || busy === "followUp"),
-                  )}
-                >
-                  <span className="max-[379px]:hidden">Queue follow-up</span>
-                  <span className="min-[380px]:hidden">Queue</span>
-                </Button>
+                  if (
+                    e.key === "Tab" ||
+                    (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing)
+                  ) {
+                    e.preventDefault();
+                    applyItem(completions.items[Math.min(active, n - 1)]!.value);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setArgsDismissed(true);
+                    return;
+                  }
+                }
+                if (slashOpen && controls && shown.length > 0) {
+                  if (delta) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const n = shown.length;
+                    setActive((a) => (a + delta + n) % n);
+                    return;
+                  }
+                  if (
+                    e.key === "Tab" ||
+                    (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing)
+                  ) {
+                    e.preventDefault();
+                    pick(shown[Math.min(active, shown.length - 1)]!);
+                    return;
+                  }
+                }
+                if (e.key === "Escape" && slashOpen) {
+                  e.preventDefault();
+                  setSlashDismissed(true);
+                  return;
+                }
+                if (e.key !== "Enter" || e.nativeEvent.isComposing || mobile) return;
+                const mod = e.metaKey || e.ctrlKey;
+                const wantsSend = sendWithEnter ? !e.shiftKey || mod : mod;
+                if (!wantsSend) return;
+                e.preventDefault();
+                // The modifier sends the other way while Pi works (steer instead of queue, or back).
+                const other = sendWithEnter ? mod : mod && e.shiftKey;
+                const mode = other && plan.alternate ? plan.alternate : primaryMode;
+                if (mode) void send(mode);
+              }}
+            />
+          </div>
+
+          <div className="flex min-w-0 items-center gap-1.5 px-1.5 pb-1.5">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                void addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(e) => {
+                void addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <Menu
+              side="top"
+              align="start"
+              label="Add"
+              items={addItems}
+              trigger={(p) => (
+                <IconButton
+                  {...p}
+                  label="Add"
+                  icon={<Plus className="size-4" />}
+                  disabled={session.readOnly}
+                />
               )}
-            </>
-          ) : (
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<SendHorizontal className="size-3.5" />}
-              busy={busy === "prompt"}
-              disabled={!!block || noText || !!commandProblem}
-              onClick={() => void send("prompt")}
-              {...tapToSend("prompt", !block && !noText && !commandProblem && busy === null)}
-            >
-              Send
-            </Button>
-          )}
+            />
+            {dictation.supported && (!mobile || dictation.listening) && (
+              <IconButton
+                label={dictation.listening ? "Stop dictation" : "Dictate"}
+                icon={
+                  dictation.listening ? <MicOff className="size-4" /> : <Mic className="size-4" />
+                }
+                variant={dictation.listening ? "danger" : "ghost"}
+                aria-pressed={dictation.listening}
+                disabled={session.readOnly}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
+              />
+            )}
+            {pills ? (
+              <div
+                data-testid="session-controls"
+                className="flex min-w-0 flex-1 items-center gap-1 max-md:overflow-hidden"
+              >
+                {pills}
+              </div>
+            ) : (
+              <>
+                <span
+                  className="hidden min-w-0 flex-1 truncate text-xs text-muted sm:inline"
+                  title="Profile, model and effort come from the session's Pi profile (Settings › Profiles). They apply when a session starts."
+                >
+                  {modelSummary(session)}
+                </span>
+                <span className="min-w-0 flex-1 sm:hidden" />
+              </>
+            )}
+            {controls && session.model && (
+              <ContextRing session={session} enabled={controls} usage={usage} mobile={mobile} />
+            )}
+            {running && hasContent && stop?.can && (
+              <IconButton
+                size="sm"
+                label="Stop"
+                disabled={stop.busy}
+                onClick={stop.request}
+                icon={<Square className="size-3.5 fill-current" />}
+              />
+            )}
+            {showStop && stop ? (
+              <button
+                type="button"
+                aria-label="Stop"
+                title="Stop"
+                disabled={stop.busy}
+                onClick={stop.request}
+                className={cn(
+                  ROUND,
+                  "border border-border-strong bg-surface-2 text-text hover:bg-border",
+                )}
+              >
+                <Square aria-hidden className="size-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="send"
+                aria-label={SEND_LABEL[primaryMode ?? "prompt"]}
+                title={sendTitle}
+                aria-busy={busy !== null || undefined}
+                disabled={!!block || noText || !!commandProblem || !primaryMode || busy !== null}
+                onClick={() => primaryMode && void send(primaryMode)}
+                {...(primaryMode
+                  ? tapToSend(primaryMode, !block && !noText && !commandProblem && busy === null)
+                  : {})}
+                className={cn(ROUND, "bg-accent text-accent-fg hover:bg-accent-hover")}
+              >
+                {busy !== null ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <ArrowUp aria-hidden className="size-4" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
-        {running && !modes.steer && host?.capabilities && (
-          <p className="text-xs text-muted">
-            Immediate steering is not supported by this runtime; messages are queued as follow-ups.
-          </p>
-        )}
         {dictation.listening && (
           <p className="text-xs text-muted" aria-live="polite">
             Listening… {dictation.interim}
@@ -855,25 +983,6 @@ export function Composer({
           if (textRef.current?.value === request.draft) clearDraft();
         }}
       />
-      <Sheet open={attachSheet} onClose={() => setAttachSheet(false)} title="Attach images">
-        <div className="flex flex-col gap-2">
-          <Button
-            block
-            icon={<ImagePlus className="size-4" />}
-            onClick={() => fileRef.current?.click()}
-          >
-            Choose photos
-          </Button>
-          <Button
-            block
-            icon={<Camera className="size-4" />}
-            onClick={() => cameraRef.current?.click()}
-          >
-            Take photo
-          </Button>
-          <p className="text-xs text-muted">Images up to 10 MB are sent with your next message.</p>
-        </div>
-      </Sheet>
       <CommandSurface open={commandSheet} onClose={() => setCommandSheet(false)} title="Commands">
         {controls ? (
           <SlashPicker

@@ -11,6 +11,7 @@ import {
   chooseSelectOther,
   type FieldState,
   type FormState,
+  fieldAnswered,
   initialFormState,
   toggleMulti,
   validateForm,
@@ -28,16 +29,22 @@ export interface FormRendererProps {
  * Structured question form. Selects render as radio cards, multiselects as
  * toggle cards (never comma-separated entry), `allowOther` adds a free-text
  * option, `showIf` hides dependent fields (omitted from the values).
- * Submits `{kind: "form", values}` through the IntentContext.
+ * Submits `{kind: "form", values}` through the IntentContext. In the request dock a form with
+ * several questions shows one at a time, with numbered step chips.
  */
 export function FormRenderer({ node, className }: FormRendererProps) {
-  const { onRespond, busy, disabled } = useIntent();
+  const { onRespond, busy, disabled, dock } = useIntent();
   const [state, setState] = useState<FormState>(() => initialFormState(node.fields));
   const [attempted, setAttempted] = useState(false);
+  const [step, setStep] = useState(0);
   const visible = useMemo(() => visibleFields(node.fields, state), [node.fields, state]);
   const errors = useMemo(() => validateForm(node.fields, state), [node.fields, state]);
   const locked = disabled || busy;
   const setField = (name: string, fs: FieldState) => setState((s) => ({ ...s, [name]: fs }));
+  const stepped = !!dock && visible.length > 1;
+  const at = Math.min(step, visible.length - 1);
+  const last = at === visible.length - 1;
+  const shown = stepped ? visible.slice(at, at + 1) : visible;
 
   return (
     <form
@@ -45,12 +52,55 @@ export function FormRenderer({ node, className }: FormRendererProps) {
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
+        // Enter in a text field of an earlier step moves on instead of submitting.
+        if (stepped && !last) {
+          setStep(at + 1);
+          return;
+        }
         setAttempted(true);
-        if (Object.keys(errors).length > 0 || locked) return;
+        if (Object.keys(errors).length > 0) {
+          if (stepped)
+            setStep(
+              Math.max(
+                0,
+                visible.findIndex((f) => errors[f.name]),
+              ),
+            );
+          return;
+        }
+        if (locked) return;
         onRespond?.({ kind: "form", values: buildValues(node.fields, state) });
       }}
     >
-      {visible.map((f) => (
+      {stepped && (
+        <ol aria-label="Questions" className="flex flex-wrap items-center gap-1">
+          {visible.map((f, i) => (
+            <li key={f.name}>
+              <button
+                type="button"
+                aria-current={i === at ? "step" : undefined}
+                aria-label={`Question ${i + 1} of ${visible.length}: ${f.label}`}
+                onClick={() => setStep(i)}
+                className={cn(
+                  "tap inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-1.5 text-xs tabular-nums",
+                  i === at
+                    ? "border-accent bg-accent-soft text-text"
+                    : attempted && errors[f.name]
+                      ? "border-danger text-danger"
+                      : "border-border text-muted hover:bg-surface-2",
+                )}
+              >
+                {i !== at && fieldAnswered(f, state[f.name]) ? (
+                  <Check aria-hidden className="size-3" />
+                ) : (
+                  i + 1
+                )}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {shown.map((f) => (
         <FieldView
           key={f.name}
           field={f}
@@ -58,13 +108,25 @@ export function FormRenderer({ node, className }: FormRendererProps) {
           onChange={(fs) => setField(f.name, fs)}
           error={attempted ? errors[f.name] : undefined}
           disabled={locked}
+          hideLabel={!!dock && f.label.trim() === dock.title.trim()}
         />
       ))}
       {!disabled && (
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" variant="primary" busy={busy}>
-            {node.submitLabel || "Submit"}
-          </Button>
+          {stepped && at > 0 && (
+            <Button type="button" variant="secondary" onClick={() => setStep(at - 1)}>
+              Back
+            </Button>
+          )}
+          {stepped && !last ? (
+            <Button type="button" variant="primary" onClick={() => setStep(at + 1)}>
+              Next
+            </Button>
+          ) : (
+            <Button type="submit" variant="primary" busy={busy}>
+              {node.submitLabel || "Submit"}
+            </Button>
+          )}
           <Button
             type="button"
             variant="secondary"
@@ -90,12 +152,15 @@ function FieldView({
   onChange,
   error,
   disabled,
+  hideLabel,
 }: {
   field: Field;
   state: FieldState;
   onChange: (s: FieldState) => void;
   error?: string;
   disabled?: boolean;
+  /** The surrounding dock already shows this label as its title. */
+  hideLabel?: boolean;
 }) {
   const id = useId();
   const errId = `${id}-err`;
@@ -110,7 +175,7 @@ function FieldView({
     };
     return (
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={id} className="text-sm font-medium">
+        <label htmlFor={id} className={hideLabel ? "sr-only" : "text-sm font-medium"}>
           {field.label}
         </label>
         {field.multiline ? (
@@ -153,10 +218,11 @@ function FieldView({
       aria-describedby={error ? errId : undefined}
       aria-invalid={!!error || undefined}
     >
-      <legend className="mb-2 text-sm font-medium">
+      <legend className={hideLabel ? "sr-only" : "mb-2 text-sm font-medium"}>
         {field.label}
-        {hint && <span className="ml-2 font-normal text-muted">{hint}</span>}
+        {hint && !hideLabel && <span className="ml-2 font-normal text-muted">{hint}</span>}
       </legend>
+      {hint && hideLabel && <p className="text-sm text-muted">{hint}</p>}
       <div className="grid gap-2">
         {field.options.map((o) => (
           <OptionCard

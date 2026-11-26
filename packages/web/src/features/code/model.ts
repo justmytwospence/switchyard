@@ -934,7 +934,6 @@ export type SessionStatusKind =
   | "subagent"
   | "archived"
   | "host"
-  | "answer"
   | "failed"
   | "interrupted"
   | "stopped"
@@ -942,7 +941,7 @@ export type SessionStatusKind =
   | "compacting"
   | "automation"
   | "human";
-export type SessionStatusAction = "unarchive" | "answer" | "resume" | "takeover" | "return";
+export type SessionStatusAction = "unarchive" | "resume" | "takeover" | "return";
 
 export interface SessionStatus {
   kind: SessionStatusKind;
@@ -960,8 +959,8 @@ export const HOST_OFFLINE_DANGER_MS = 5 * 60_000;
 
 /**
  * The one status line above the composer: what most needs the user, in priority order
- * (subagent, archived, host, question, failed, interrupted, stopped, starting, compacting,
- * automation, human control). Null when nothing needs saying.
+ * (subagent, archived, host, failed, interrupted, stopped, starting, compacting, automation,
+ * human control). Null when nothing needs saying. A pending question is in the request dock.
  */
 export function sessionStatus(input: {
   session: Session;
@@ -969,11 +968,10 @@ export function sessionStatus(input: {
   hostName: string;
   hostLastSeenAt: string | null | undefined;
   control: AutomationControl;
-  pending: Pick<Interaction, "title">[];
   canResume: boolean;
   now: number;
 }): SessionStatus | null {
-  const { session: s, hostLink: link, hostName, pending } = input;
+  const { session: s, hostLink: link, hostName } = input;
   const resume = input.canResume ? { kind: "resume" as const, label: "Resume" } : null;
   if (s.readOnly)
     return { kind: "subagent", tone: "neutral", text: SUBAGENT_READ_ONLY, action: null };
@@ -1004,17 +1002,6 @@ export function sessionStatus(input: {
           text: `Host ${hostName} is offline. Showing the last known transcript; sending resumes when it reconnects.`,
           action: null,
         };
-  }
-  if (pending.length > 0) {
-    return {
-      kind: "answer",
-      tone: "warning",
-      text:
-        pending.length === 1
-          ? `Needs input: ${pending[0]!.title}`
-          : `${pending.length} questions need input`,
-      action: { kind: "answer", label: "Answer" },
-    };
   }
   if (s.runtime === "failed") {
     return {
@@ -1108,6 +1095,37 @@ export function sendModes(
   };
 }
 
+export type SendMode = "prompt" | "steer" | "followUp";
+
+/** What Send does, and the other mode while Pi works when the runtime has both. */
+export function sendPlan(
+  modes: SendModes,
+  whileWorking: "queue" | "steer",
+): { primary: SendMode | null; alternate: SendMode | null } {
+  if (modes.prompt) return { primary: "prompt", alternate: null };
+  const primary: SendMode | null =
+    whileWorking === "steer" && modes.steer
+      ? "steer"
+      : modes.followUp
+        ? "followUp"
+        : modes.steer
+          ? "steer"
+          : null;
+  const alternate: SendMode | null =
+    modes.steer && modes.followUp ? (primary === "steer" ? "followUp" : "steer") : null;
+  return { primary, alternate };
+}
+
+/** Queued messages in delivery order: steering first, then follow-ups. */
+export function queuedMessages(
+  queue: Session["queue"],
+): { kind: "Steering" | "Queued"; text: string }[] {
+  return [
+    ...queue.steering.map((text) => ({ kind: "Steering" as const, text })),
+    ...queue.followUp.map((text) => ({ kind: "Queued" as const, text })),
+  ];
+}
+
 /* ------------------------------------------------------------------ */
 /* Transcript timeline                                                 */
 /* ------------------------------------------------------------------ */
@@ -1167,6 +1185,36 @@ export function buildTimeline(
     out.push({ type: "interaction", key: `interaction:${i.id}`, interaction: i });
   }
   return out;
+}
+
+/**
+ * The entries the transcript draws. A pending interaction is answered in the dock, so its row is
+ * dropped unless `keepsRow` says it still has one (a plan's text). Suggestions show in the composer.
+ */
+export function transcriptEntries(
+  entries: TimelineEntry[],
+  pending: Interaction[],
+  keepsRow: (i: Interaction) => boolean,
+): TimelineEntry[] {
+  const docked = new Set(pending.filter((i) => !keepsRow(i)).map((i) => i.id));
+  return entries.filter((e) => {
+    if (e.type === "interaction") return !docked.has(e.interaction.id);
+    if (e.type !== "item") return true;
+    if (e.item.kind === "interaction") return !docked.has(e.item.data.interactionId);
+    return !(e.item.kind === "system" && e.item.data.suggestion === true);
+  });
+}
+
+/** Pi's latest suggested next message, while no message of yours follows it. */
+export function currentSuggestion(items: TranscriptItem[]): string | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]!;
+    if (item.kind === "user") return null;
+    if (item.kind === "system" && item.data.suggestion === true) {
+      return item.data.text.trim() || null;
+    }
+  }
+  return null;
 }
 
 /** How much tool activity the transcript shows (Settings > This device). */

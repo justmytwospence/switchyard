@@ -50,6 +50,14 @@ export function fieldValue(field: Field, st: FieldState | undefined): FormValue 
   }
 }
 
+/** True when the field has something to submit (a choice, text, or "Other" with text). */
+export function fieldAnswered(field: Field, st: FieldState | undefined): boolean {
+  const v = fieldValue(field, st);
+  if (typeof v === "string") return v.trim() !== "";
+  if (Array.isArray(v)) return v.length > 0;
+  return !!v && typeof v === "object" && v.other.trim() !== "";
+}
+
 /**
  * Visible fields in order. `showIf` refers to an earlier field, so visibility
  * is evaluated against the values of fields that are themselves visible.

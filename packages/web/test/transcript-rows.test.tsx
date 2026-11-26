@@ -29,8 +29,6 @@ const entry = (item: TranscriptItem): TimelineEntry => ({
 const rest = {
   sessionId: "s",
   interactionReadOnly: null,
-  draftEmpty: true,
-  onUseSuggestion: () => {},
   highlightInteractionId: null,
 };
 

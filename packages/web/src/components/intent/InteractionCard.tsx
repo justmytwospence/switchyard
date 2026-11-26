@@ -24,8 +24,15 @@ export interface InteractionCardProps {
   className?: string;
   /** Called after the coordinator acknowledged an answer. */
   onAnswered?: (interaction: Interaction) => void;
-  /** DOM id (the "Needs input" strip scrolls to it). */
+  /** DOM id (deep links scroll to it). */
   id?: string;
+  /**
+   * `card` (default) is the whole question. The session view splits it: `dock` is the answer
+   * controls above the composer, `reader` a plan's text in the transcript.
+   */
+  mode?: "card" | "dock" | "reader";
+  /** dock mode: DOM id of the plan's text in the transcript, for Plan start. */
+  planAnchorId?: string;
   /** Stick the document header to the top of its scroller (false when the page scrolls). */
   sticky?: boolean;
   /** The page itself scrolls (no padded scroller): pin the header and bar flush. */
@@ -49,7 +56,7 @@ function hasInteractive(node: UINode): boolean {
   }
 }
 
-function byLabel(by: string): string {
+export function byLabel(by: string): string {
   if (by === "host") return "the host";
   if (by === "pi") return "Pi";
   return "a device";
@@ -68,6 +75,8 @@ export function InteractionCard({
   id,
   sticky,
   flush,
+  mode = "card",
+  planAnchorId,
 }: InteractionCardProps) {
   const upsert = useSyncStore((s) => s.upsertInteraction);
   const [busy, setBusy] = useState(false);
@@ -155,6 +164,9 @@ export function InteractionCard({
         onRespond={(r) => void respond(r)}
         busy={busy}
         disabled={!!readOnlyReason}
+        disabledReason={readOnlyReason ?? null}
+        part={mode === "reader" ? "reader" : mode === "dock" ? "answers" : "all"}
+        planAnchorId={planAnchorId}
         mobile={bp === "mobile"}
         sticky={sticky ?? true}
         flush={flush ?? false}
@@ -163,20 +175,25 @@ export function InteractionCard({
     );
   }
 
+  const dock = mode === "dock";
   return (
     <article
       id={id}
       aria-label={`Question: ${interaction.title}`}
       className={cn(
-        "flex min-w-0 flex-col gap-3 border-l-2 py-1 pl-3",
-        pending ? "border-warning" : "border-border",
+        dock ? "flex min-w-0 flex-col gap-2" : "flex min-w-0 flex-col gap-3 border-l-2 py-1 pl-3",
+        !dock && (pending ? "border-warning" : "border-border"),
         className,
       )}
     >
-      <header className="flex min-w-0 flex-wrap items-start gap-2">
-        <h3 className="min-w-0 flex-1 text-sm font-semibold break-words">{interaction.title}</h3>
-        <StatusChip kind="interaction" value={interaction.state} size="sm" />
-      </header>
+      {dock ? (
+        <h3 className="text-sm font-semibold break-words">{interaction.title}</h3>
+      ) : (
+        <header className="flex min-w-0 flex-wrap items-start gap-2">
+          <h3 className="min-w-0 flex-1 text-sm font-semibold break-words">{interaction.title}</h3>
+          <StatusChip kind="interaction" value={interaction.state} size="sm" />
+        </header>
+      )}
 
       {alreadyAnswered && (
         <p role="status" className="rounded-md bg-surface-2 px-3 py-2 text-sm">
@@ -208,6 +225,7 @@ export function InteractionCard({
             onRespond={(r) => void respond(r)}
             busy={busy}
             disabled={!!readOnlyReason}
+            dock={dock ? { title: interaction.title } : undefined}
           />
           {!readOnlyReason && !hasInteractive(interaction.presentation) && (
             <div>
@@ -436,6 +454,9 @@ function useActiveSection(ids: string[], root: React.RefObject<HTMLElement | nul
  * it, the question labels the answers, revisions come first. Phone: compact header, prose, a bar
  * with the answers pinned to the bottom. Desktop: a section outline beside prose at a readable
  * measure, and a wrapping bar of answers. The bar hides while the inline options are on screen.
+ *
+ * `part` splits it for the session view: `reader` is the text alone (in the transcript) and
+ * `answers` the question with its options (in the request dock).
  */
 function DocumentInteraction({
   id,
@@ -444,6 +465,9 @@ function DocumentInteraction({
   onRespond,
   busy,
   disabled,
+  disabledReason,
+  part,
+  planAnchorId,
   mobile,
   sticky,
   flush,
@@ -455,6 +479,9 @@ function DocumentInteraction({
   onRespond: (r: InteractionResponse) => void;
   busy: boolean;
   disabled: boolean;
+  disabledReason: string | null;
+  part: "all" | "reader" | "answers";
+  planAnchorId?: string;
   mobile: boolean;
   sticky: boolean;
   flush: boolean;
@@ -492,6 +519,119 @@ function DocumentInteraction({
   const showBar = !disabled && !optionsVisible;
   const wrapBtn = "h-auto! min-h-9 min-w-0 py-1.5 text-left leading-tight whitespace-normal!";
   const jump = (el: HTMLElement | null) => scrollTo(el, "start");
+  // The dock's answers have no text of their own: Plan start goes to the reader in the transcript.
+  const anchor = () =>
+    part === "answers"
+      ? planAnchorId
+        ? document.getElementById(planAnchorId)
+        : null
+      : startRef.current;
+  const planStart = part !== "answers" || planAnchorId !== undefined;
+  const barContent = mobile ? (
+    <>
+      {planStart && (
+        <IconButton
+          label="Plan start"
+          icon={<ArrowUp className="size-4" />}
+          variant="secondary"
+          onClick={() => jump(anchor())}
+        />
+      )}
+      {options.length > 2 ? (
+        <>
+          <Button
+            variant="primary"
+            disabled={busy}
+            className={cn(wrapBtn, "flex-1")}
+            onClick={() => answer(options[0]!.id)}
+          >
+            {options[0]!.label}
+          </Button>
+          <Button variant="secondary" onClick={() => setSheet(true)}>
+            More ({options.length - 1})
+          </Button>
+        </>
+      ) : (
+        options.map((o, i) => (
+          <Button
+            key={o.id}
+            variant={variant(i, o.tone)}
+            disabled={busy}
+            className={cn(wrapBtn, "flex-1")}
+            onClick={() => answer(o.id)}
+          >
+            {o.label}
+          </Button>
+        ))
+      )}
+    </>
+  ) : (
+    <>
+      <span className="max-w-[16rem] min-w-0 shrink truncate text-sm font-medium" title={question}>
+        {question}
+      </span>
+      <div className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2">
+        {options.map((o, i) => (
+          <Button
+            key={o.id}
+            variant={variant(i, o.tone)}
+            disabled={busy}
+            className={cn(wrapBtn, "w-full md:text-center")}
+            onClick={() => answer(o.id)}
+          >
+            {o.label}
+          </Button>
+        ))}
+      </div>
+      {planStart && (
+        <IconButton
+          label="Plan start"
+          icon={<ArrowUp className="size-4" />}
+          variant="secondary"
+          size="sm"
+          onClick={() => jump(anchor())}
+        />
+      )}
+    </>
+  );
+  const moreSheet = (
+    <Sheet open={sheet} onClose={() => setSheet(false)} title={question}>
+      <div className="flex flex-col gap-2">
+        {options.map((o, i) => (
+          <Button
+            key={o.id}
+            block
+            variant={variant(i, o.tone)}
+            disabled={busy}
+            className={wrapBtn}
+            onClick={() => answer(o.id)}
+          >
+            {o.label}
+          </Button>
+        ))}
+      </div>
+    </Sheet>
+  );
+  if (part === "answers") {
+    return (
+      <article
+        aria-label={`Question: ${question}`}
+        data-testid="plan-answers"
+        className={cn("flex min-w-0 flex-col gap-2", className)}
+      >
+        {mobile && <p className="text-sm font-medium">{question}</p>}
+        {disabledReason ? (
+          <p className="text-sm text-muted">{disabledReason}</p>
+        ) : (
+          <div data-testid="answer-bar" className="flex min-w-0 items-center gap-2 md:gap-3">
+            {barContent}
+          </div>
+        )}
+        {moreSheet}
+      </article>
+    );
+  }
+  const reader = part === "reader";
   return (
     <article
       id={id}
@@ -512,7 +652,7 @@ function DocumentInteraction({
         <h3 className="min-w-0 flex-1 truncate text-[15px] leading-snug font-semibold md:text-sm">
           {title}
         </h3>
-        {mobile && (
+        {mobile && !reader && (
           <StatusChip
             kind="interaction"
             value={interaction.state}
@@ -520,7 +660,7 @@ function DocumentInteraction({
             className="[&>span]:sr-only"
           />
         )}
-        {!disabled && !optionsVisible && (
+        {!reader && !disabled && !optionsVisible && (
           <TextLink
             size="xs"
             className="shrink-0"
@@ -577,39 +717,41 @@ function DocumentInteraction({
           </div>
         </div>
       </div>
-      <section
-        ref={optionsRef}
-        data-testid="plan-options"
-        aria-label={question}
-        className="border-t border-border px-4 py-3 md:px-6"
-      >
-        <p className="mb-2 text-sm font-medium">{question}</p>
-        {!disabled && (
-          <div className="flex min-w-0 flex-col gap-2 md:flex-row md:flex-wrap">
-            {options.map((o, i) => (
-              <Button
-                key={o.id}
-                variant={variant(i, o.tone)}
-                size="md"
-                disabled={busy}
-                className={cn(wrapBtn, "md:text-center")}
-                onClick={() => answer(o.id)}
-              >
-                {o.label}
-              </Button>
-            ))}
-          </div>
-        )}
-        <TextLink
-          size="xs"
-          className="mt-2"
-          icon={<ArrowUp aria-hidden className="size-3.5" />}
-          onClick={() => jump(startRef.current)}
+      {!reader && (
+        <section
+          ref={optionsRef}
+          data-testid="plan-options"
+          aria-label={question}
+          className="border-t border-border px-4 py-3 md:px-6"
         >
-          Back to the plan start
-        </TextLink>
-      </section>
-      {showBar && (
+          <p className="mb-2 text-sm font-medium">{question}</p>
+          {!disabled && (
+            <div className="flex min-w-0 flex-col gap-2 md:flex-row md:flex-wrap">
+              {options.map((o, i) => (
+                <Button
+                  key={o.id}
+                  variant={variant(i, o.tone)}
+                  size="md"
+                  disabled={busy}
+                  className={cn(wrapBtn, "md:text-center")}
+                  onClick={() => answer(o.id)}
+                >
+                  {o.label}
+                </Button>
+              ))}
+            </div>
+          )}
+          <TextLink
+            size="xs"
+            className="mt-2"
+            icon={<ArrowUp aria-hidden className="size-3.5" />}
+            onClick={() => jump(startRef.current)}
+          >
+            Back to the plan start
+          </TextLink>
+        </section>
+      )}
+      {!reader && showBar && (
         <div
           data-testid="answer-bar"
           className={cn(
@@ -617,90 +759,10 @@ function DocumentInteraction({
             sticky && !flush ? "sticky -bottom-3" : "sticky bottom-0",
           )}
         >
-          {mobile ? (
-            <>
-              <IconButton
-                label="Plan start"
-                icon={<ArrowUp className="size-4" />}
-                variant="secondary"
-                onClick={() => jump(startRef.current)}
-              />
-              {options.length > 2 ? (
-                <>
-                  <Button
-                    variant="primary"
-                    disabled={busy}
-                    className={cn(wrapBtn, "flex-1")}
-                    onClick={() => answer(options[0]!.id)}
-                  >
-                    {options[0]!.label}
-                  </Button>
-                  <Button variant="secondary" onClick={() => setSheet(true)}>
-                    More ({options.length - 1})
-                  </Button>
-                </>
-              ) : (
-                options.map((o, i) => (
-                  <Button
-                    key={o.id}
-                    variant={variant(i, o.tone)}
-                    disabled={busy}
-                    className={cn(wrapBtn, "flex-1")}
-                    onClick={() => answer(o.id)}
-                  >
-                    {o.label}
-                  </Button>
-                ))
-              )}
-            </>
-          ) : (
-            <>
-              <span
-                className="max-w-[16rem] min-w-0 shrink truncate text-sm font-medium"
-                title={question}
-              >
-                {question}
-              </span>
-              <div className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2">
-                {options.map((o, i) => (
-                  <Button
-                    key={o.id}
-                    variant={variant(i, o.tone)}
-                    disabled={busy}
-                    className={cn(wrapBtn, "w-full md:text-center")}
-                    onClick={() => answer(o.id)}
-                  >
-                    {o.label}
-                  </Button>
-                ))}
-              </div>
-              <IconButton
-                label="Plan start"
-                icon={<ArrowUp className="size-4" />}
-                variant="secondary"
-                size="sm"
-                onClick={() => jump(startRef.current)}
-              />
-            </>
-          )}
+          {barContent}
         </div>
       )}
-      <Sheet open={sheet} onClose={() => setSheet(false)} title={question}>
-        <div className="flex flex-col gap-2">
-          {options.map((o, i) => (
-            <Button
-              key={o.id}
-              block
-              variant={variant(i, o.tone)}
-              disabled={busy}
-              className={wrapBtn}
-              onClick={() => answer(o.id)}
-            >
-              {o.label}
-            </Button>
-          ))}
-        </div>
-      </Sheet>
+      {!reader && moreSheet}
     </article>
   );
 }

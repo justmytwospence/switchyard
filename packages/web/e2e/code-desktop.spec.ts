@@ -234,26 +234,57 @@ test.describe("desktop coding view", () => {
     await expect(transcript.getByText("Received: Another message while reading")).toBeInViewport();
   });
 
-  test("the status bar's Answer opens the first question", async ({ page, state }) => {
+  test("A pending question is docked above the composer", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.question}`);
-    const strip = page.locator('[data-testid="session-status"][data-kind="answer"]');
-    await expect(strip).toContainText("Needs input: Pick a fruit");
-    // While waiting for input, Stop is the secondary action.
-    const stop = page.getByTestId("conversation").getByRole("button", { name: "Stop" });
-    await expect(stop).toBeVisible();
-    await expect(stop).not.toHaveClass(/bg-danger/);
-    // Scroll the question away, then use the status bar.
-    await page.getByTestId("transcript").evaluate((el) => {
+    const dock = page.getByTestId("request-dock");
+    await expect(dock).toContainText("Pick a fruit");
+    await expect(page.locator('[data-testid="session-status"][data-kind="answer"]')).toHaveCount(0);
+    // The question is not in the transcript, so scrolling leaves it in place.
+    const transcript = page.getByTestId("transcript");
+    await expect(transcript.getByTestId("interaction-card")).toHaveCount(0);
+    const card = dock.getByTestId("interaction-card").first();
+    await expect(card.getByRole("radio", { name: "Apple" })).toBeVisible();
+    await transcript.evaluate((el) => {
       el.scrollTop = 0;
     });
-    await strip.getByRole("button", { name: "Answer" }).click();
-    const card = page.getByTestId("interaction-card").first();
     await expect(card).toBeInViewport();
-    const focusedIn = await page.evaluate(
-      () => document.activeElement?.closest('[data-testid="interaction-card"]') !== null,
+    // While Pi waits with an empty draft the round button stops the run; it is the only Stop.
+    const composer = page.getByTestId("composer");
+    await expect(composer.getByRole("button", { name: "Stop" })).toBeVisible();
+    await expect(
+      page.getByTestId("conversation").getByRole("button", { name: "Stop" }),
+    ).toHaveCount(1);
+    const box = page.getByLabel("Message to Pi");
+    await box.fill("later");
+    await expect(composer.getByRole("button", { name: "Queue message" })).toBeVisible();
+    await expect(composer.getByRole("button", { name: "Stop" })).toBeVisible();
+    await box.fill("");
+  });
+
+  test("While Pi works, Send queues and the message is listed", async ({
+    page,
+    state,
+    api,
+  }, info) => {
+    const id = await createSession(
+      api,
+      state,
+      `Queue ${uid(info)}`,
+      "ASK-FRUIT please",
+      (s) => s.runtime === "waiting_input",
     );
-    expect(focusedIn).toBe(true);
-    await expect(card.getByRole("radio", { name: "Apple" })).toBeVisible();
+    const prompts = promptRequests(page, id);
+    await page.goto(`/code/${id}`);
+    const composer = page.getByTestId("composer");
+    const box = page.getByLabel("Message to Pi");
+    const text = `queued ${uid(info)}`;
+    await expect(composer.getByRole("button", { name: "Stop" })).toBeVisible();
+    await box.fill(text);
+    await composer.getByRole("button", { name: "Queue message" }).click();
+    await expect.poll(() => prompts.length).toBe(1);
+    expect(prompts[0]!.postDataJSON().mode).toBe("followUp");
+    await expect(box).toHaveValue("");
+    await expect(page.getByTestId("queued-messages")).toContainText(text, { timeout: 15_000 });
   });
 
   test("archived session: one status bar, Unarchive, then Resume", async ({
@@ -359,16 +390,21 @@ test.describe("desktop coding view", () => {
     await expect(box).toHaveAttribute("placeholder", "Message Pi… (/ for commands)");
   });
 
-  test("Commands button starts a command only in an empty draft", async ({ page, state }) => {
+  test("Commands in the Add menu start a command only in an empty draft", async ({
+    page,
+    state,
+  }) => {
     await page.goto(`/code/${state.sessions.long}`);
     const composer = page.getByTestId("composer");
     const box = page.getByLabel("Message to Pi");
     await box.fill("");
-    await composer.getByRole("button", { name: "Commands" }).click();
+    await composer.getByRole("button", { name: "Add" }).click();
+    await page.getByRole("menuitem", { name: "Commands" }).click();
     await expect(box).toHaveValue("/");
     await expect(page.getByRole("listbox", { name: "Commands" })).toBeVisible();
     await box.fill("keep this text");
-    await composer.getByRole("button", { name: "Commands" }).click();
+    await composer.getByRole("button", { name: "Add" }).click();
+    await page.getByRole("menuitem", { name: "Commands" }).click();
     await expect(box).toHaveValue("keep this text");
     await expect(page.getByRole("dialog", { name: "Commands" })).toBeVisible();
     await page

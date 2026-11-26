@@ -391,7 +391,7 @@ Actions:
 
 - Open linked task.
 - Take over / Return to automation.
-- Stop, when running.
+- Stop, when running: in the session menu. The composer's round button is the primary Stop.
 - Session menu: rename, archive, primary session of this branch, new session in this branch, pin to a scope, link to issue / unlink from #N (a worktree branch and a not-started issue), native-session information.
 
 Attach is navigation to this view, not an action that creates a process.
@@ -408,17 +408,21 @@ A finished turn folds its tool calls, thinking and interim text into one line (`
 
 Maintain scroll position when the user reads history. Show "Jump to latest" with unseen-event count; do not pull the viewport downward.
 
-Pending interactions appear inline and in a persistent "Needs input" strip linking to the first unanswered item.
+A pending question, approval or plan answer is not in the transcript: it is docked above the composer. A plan awaiting approval keeps its text in the transcript and its answers in the dock. Once answered, the transcript shows one line where it was asked: the question and the answer.
 
 Subagents appear as linked rows/cards with status. Opening one uses the same session interface where supported.
 
 ### Composer
 
-Multiline draft, attachments, slash-command picker, profile/model/effort controls where supported.
+One card with one row of controls under the draft: a `+` menu (images, commands, and on a phone the camera and dictation), dictation on desktop, the model and effort pills where the host supports them, a context ring, and one round button.
 
-Desktop Enter sends; Shift+Enter adds newline. Allow configuration.
+The round button sends when Pi is idle. While Pi works it is Stop when the draft is empty, and Send with a small Stop beside it when there is a draft. Settings > This device > While Pi is working chooses what Send does then: Queue (the default: Pi reads the message when the turn ends) or Steer (delivered between tool calls, only when the runtime supports it). Cmd/Ctrl+Enter, or the `+` menu, does the other. Unsupported steering is never offered.
 
-While running, distinguish "Steer" from "Queue follow-up" according to runtime capabilities. Do not label unsupported immediate steering as available.
+Desktop Enter sends; Shift+Enter adds a newline. Allow configuration.
+
+The context ring shows how full the context is and opens the context tokens, the session's tokens and cost, the subscription limits and Compact now.
+
+Above the card, top to bottom: the pending question (Needs input) with its form or answers, one at a time with a pager when several wait; a tracker row with a Changes pill (the count of uncommitted files when there are any; it opens Changes) and the adapters' pills (each opens its panel); and the queued messages, steering first. A suggested next message from Pi is a chip in the card that fills an empty draft.
 
 Show takeover state clearly.
 
@@ -472,9 +476,9 @@ Composer remains above the keyboard, grows to approximately one-third of viewpor
 
 Mobile Return inserts a newline; use an explicit Send button.
 
-Attachments and commands open bottom sheets.
+Photos, the camera, dictation and commands are in the `+` menu.
 
-Structured questions render as full-width cards or sheets with visible submit/cancel behavior. Multi-select must not require entering comma-separated numbers when an adapter supplies structured options.
+A pending question is docked above the composer with visible submit and cancel. It scrolls inside the dock past 45% of the screen height and folds to its title while you type a message. A form with several questions shows one at a time, with numbered step chips. Multi-select must not require entering comma-separated numbers when an adapter supplies structured options.
 
 ### Changes
 

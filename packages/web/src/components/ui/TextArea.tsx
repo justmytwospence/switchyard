@@ -20,11 +20,13 @@ export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
   maxHeight?: string;
   /** Minimum rows (default 1). */
   minRows?: number;
+  /** No border or background of its own: the control sits inside a card. */
+  bare?: boolean;
 }
 
 /** Auto-growing textarea that scrolls internally past `maxHeight`. */
 export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextArea(
-  { maxHeight = "33vh", minRows = 1, className, value, style, ...rest },
+  { maxHeight = "33vh", minRows = 1, bare, className, value, style, ...rest },
   ref,
 ) {
   const inner = useRef<HTMLTextAreaElement | null>(null);
@@ -51,7 +53,9 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
       style={{ maxHeight, ...style }}
       className={cn(
         "block w-full resize-none overflow-y-auto px-3 py-2",
-        CONTROL_CLASSES,
+        bare
+          ? "bg-transparent text-base text-text outline-none placeholder:text-subtle md:text-sm disabled:cursor-not-allowed disabled:opacity-55"
+          : CONTROL_CLASSES,
         className,
       )}
       {...rest}

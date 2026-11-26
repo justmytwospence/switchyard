@@ -129,8 +129,6 @@ describe("adapter generation compatibility", () => {
         }}
         sessionId="s"
         interactionReadOnly={null}
-        draftEmpty
-        onUseSuggestion={() => {}}
         highlightInteractionId={null}
       />,
     );

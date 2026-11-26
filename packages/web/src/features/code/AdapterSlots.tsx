@@ -1,7 +1,9 @@
 import type { ContributionPlacement, Panel } from "@switchyard/protocol";
+import { useState } from "react";
+import { Popover } from "../../components/ui/Popover";
 import { useContributions, useSyncStore } from "../../sync/store";
 import { AdapterPanel } from "./AdapterPanel";
-import { useSessionContext } from "./hooks";
+import { type SessionContext, useSessionContext } from "./hooks";
 
 export function useAdapterSlot(
   sessionId: string | null | undefined,
@@ -26,16 +28,14 @@ export function AdapterSlot({
     return (
       <section
         aria-label="Adapter pills"
-        className="flex min-w-0 items-center gap-1 overflow-x-auto"
+        className="flex min-w-0 items-center gap-1.5 overflow-x-auto"
       >
         {panels.map((p) => (
-          <span
+          <AdapterPill
             key={JSON.stringify([p.adapterId, p.contribution?.id])}
-            title={p.title}
-            className="max-w-36 min-w-0 truncate rounded border border-border px-2 py-1 text-xs"
-          >
-            {p.node?.t === "text" ? p.node.text : p.node?.t === "progress" ? p.node.label : p.title}
-          </span>
+            ctx={ctx}
+            panel={p}
+          />
         ))}
       </section>
     );
@@ -48,5 +48,39 @@ export function AdapterSlot({
         <AdapterPanel key={JSON.stringify([p.adapterId, p.contribution?.id])} ctx={ctx} panel={p} />
       ))}
     </section>
+  );
+}
+
+/** One adapter pill in the composer's tracker row: its short text, and its whole panel on demand. */
+function AdapterPill({ ctx, panel }: { ctx: SessionContext; panel: Panel }) {
+  const [open, setOpen] = useState(false);
+  const text =
+    panel.node?.t === "text"
+      ? panel.node.text
+      : panel.node?.t === "progress"
+        ? panel.node.label
+        : panel.title;
+  return (
+    // Fixed positioning: the row scrolls sideways and would clip an anchored panel.
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      side="top"
+      align="start"
+      label={panel.title}
+      fitViewport
+      trigger={(p) => (
+        <button
+          type="button"
+          {...p}
+          title={panel.title}
+          className="relative inline-flex h-6 max-w-44 min-w-0 shrink-0 items-center rounded-full border border-border px-2 text-xs text-muted hover:bg-surface-2 before:absolute before:inset-x-0 before:-inset-y-2.5 before:content-['']"
+        >
+          <span className="min-w-0 truncate">{text}</span>
+        </button>
+      )}
+    >
+      <AdapterPanel ctx={ctx} panel={panel} />
+    </Popover>
   );
 }

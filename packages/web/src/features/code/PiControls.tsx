@@ -2,10 +2,10 @@ import type { ProviderUsage, Session, SessionModel, ThinkingLevel } from "@switc
 import { Brain, Check, Cpu, Shrink } from "lucide-react";
 import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
-import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { Sheet } from "../../components/ui/Overlay";
 import { Popover } from "../../components/ui/Popover";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { Spinner } from "../../components/ui/Spinner";
 import { ErrorState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
@@ -29,6 +29,9 @@ interface PillProps {
   label: string;
   ariaLabel: string;
   disabled?: boolean;
+  /** Show only the icon (a phone's narrow row); the label stays for assistive technology. */
+  iconOnly?: boolean;
+  title?: string;
   className?: string;
   ref?: Ref<HTMLButtonElement>;
   onClick: () => void;
@@ -36,14 +39,25 @@ interface PillProps {
 }
 
 /** Compact chip for the composer's action row (44 px tall on touch screens via `.tap`). */
-function ControlPill({ icon, label, ariaLabel, disabled, className, ...trigger }: PillProps) {
+function ControlPill({
+  icon,
+  label,
+  ariaLabel,
+  disabled,
+  iconOnly,
+  title,
+  className,
+  ...trigger
+}: PillProps) {
   return (
     <button
       type="button"
       disabled={disabled}
       aria-label={ariaLabel}
+      title={title}
       className={cn(
-        "tap inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md bg-surface-2 px-2.5 text-xs font-medium text-text transition-colors hover:bg-border disabled:opacity-55",
+        "tap inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md bg-surface-2 text-xs font-medium text-text transition-colors hover:bg-border disabled:opacity-55",
+        iconOnly ? "w-8 justify-center px-0" : "px-2.5",
         className,
       )}
       {...trigger}
@@ -51,7 +65,7 @@ function ControlPill({ icon, label, ariaLabel, disabled, className, ...trigger }
       <span aria-hidden className="shrink-0 text-muted">
         {icon}
       </span>
-      <span className="min-w-0 truncate">{label}</span>
+      <span className={iconOnly ? "sr-only" : "min-w-0 truncate"}>{label}</span>
     </button>
   );
 }
@@ -389,6 +403,8 @@ export function EffortControl({
     label: draft.level,
     ariaLabel: `Effort: ${draft.level}`,
     disabled: !enabled,
+    iconOnly: mobile,
+    title: `Effort: ${draft.level}`,
     className: "shrink-0 capitalize",
   };
   return (
@@ -413,39 +429,22 @@ const USAGE_TONE = {
   danger: "text-danger",
 } as const;
 
-/** Subscription limits of the session's provider: "5h 63% · wk 19%" (used). */
-export function UsageMeter({ usage }: { usage: ProviderUsage }) {
-  if (usage.status === "error") return null;
-  if (usage.status !== "available") {
-    return (
-      <span title={usage.message ?? undefined} className="text-[11px] leading-4 text-muted">
-        Usage unavailable
-      </span>
-    );
-  }
-  if (usage.windows.length === 0) return null;
-  const label = { five_hour: "5h", weekly: "wk" } as const;
-  const title = usage.windows
-    .map(
-      (w) =>
-        `${w.id === "five_hour" ? "Session limit" : "Weekly limit"} ${Math.round(w.usedPct)}% used, resets ${formatRelative(w.resetsAt)}`,
-    )
-    .join("; ");
-  return (
-    <span title={title} className="text-[11px] leading-4 tabular-nums" data-testid="usage-meter">
-      {usage.windows.map((w, i) => (
-        <span key={w.id}>
-          {i > 0 && <span className="text-muted"> · </span>}
-          <span className={USAGE_TONE[usageTone(w.usedPct)]}>
-            {label[w.id]} {Math.round(w.usedPct)}%
-          </span>
-        </span>
-      ))}
-    </span>
-  );
-}
-
-export function ContextMeter({ session, enabled }: { session: Session; enabled: boolean }) {
+/**
+ * How full the context is, as a ring. It opens the context tokens, the session's tokens and cost,
+ * the provider's subscription limits and Compact now. A dot marks a limit that is nearly used up.
+ */
+export function ContextRing({
+  session,
+  enabled,
+  usage,
+  mobile,
+}: {
+  session: Session;
+  enabled: boolean;
+  usage: ProviderUsage | null;
+  mobile: boolean;
+}) {
+  const [open, setOpen] = useState(false);
   const meter = contextMeter(session);
   if (!meter) return null;
   const busy = isBusy(session);
@@ -456,34 +455,31 @@ export function ContextMeter({ session, enabled }: { session: Session; enabled: 
       : busy
         ? "Wait for the run to finish"
         : undefined;
-  const items: (MenuItem | { id: string; heading: string })[] = [
-    { id: "detail", heading: meter.detail },
-    {
-      id: "compact",
-      label: "Compact now",
-      icon: <Shrink className="size-4" />,
-      disabled: !!hint,
-      hint,
-      onSelect: () => {
-        codeApi.compact(session.id).then(
-          () => toast.success("Compacting context"),
-          (e) => toast.error(errorMessage(e)),
-        );
-      },
-    },
-  ];
-  const fill = { danger: "bg-danger", warning: "bg-warning", muted: "bg-subtle" }[meter.tone];
+  const pct = Math.min(100, Math.max(0, meter.percent ?? 0));
+  const circumference = 2 * Math.PI * 7;
+  const tone = { danger: "text-danger", warning: "text-warning", muted: "text-muted" }[meter.tone];
+  const windows = usage?.status === "available" ? usage.windows : [];
+  const limitTone = usageTone(windows.reduce((m, w) => Math.max(m, w.usedPct), 0));
+  const stats = session.stats;
+  const spent = [
+    stats?.tokens != null ? `${stats.tokens.toLocaleString("en-US")} tokens` : null,
+    stats?.costUsd != null ? `$${stats.costUsd.toFixed(2)}` : null,
+  ].filter((x): x is string => x !== null);
+  const heading = "text-xs font-medium text-muted";
   return (
-    <Menu
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
       side="top"
-      align="start"
+      align="end"
       label="Context"
-      items={items}
-      className="w-full"
+      className="w-72"
+      fitViewport={mobile}
       trigger={(p) => (
         <button
           type="button"
           {...p}
+          data-testid="context-ring"
           aria-label={
             session.compacting
               ? "Context compacting"
@@ -494,19 +490,100 @@ export function ContextMeter({ session, enabled }: { session: Session; enabled: 
           title={
             session.compacting ? meter.detail : `Context ${meter.label} used · ${meter.detail}`
           }
-          className="relative flex w-full items-center gap-2 py-0.5 text-[11px] leading-4 text-muted transition-colors before:absolute before:inset-x-0 before:-top-3 before:bottom-0 before:content-[''] hover:text-text [@media(pointer:coarse)]:before:-top-6"
+          className="tap relative inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
-          <span className="h-[3px] flex-1 overflow-hidden rounded-full bg-surface-2">
+          {session.compacting ? (
+            <Spinner className="size-4" />
+          ) : (
+            <svg viewBox="0 0 20 20" aria-hidden className={cn("size-5 -rotate-90", tone)}>
+              <circle
+                cx="10"
+                cy="10"
+                r="7"
+                fill="none"
+                stroke="currentColor"
+                strokeOpacity="0.25"
+                strokeWidth="2.5"
+              />
+              <circle
+                cx="10"
+                cy="10"
+                r="7"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={circumference * (1 - pct / 100)}
+              />
+            </svg>
+          )}
+          {limitTone !== "neutral" && (
             <span
-              className={cn("block h-full rounded-full transition-[width]", fill)}
-              style={{ width: `${Math.min(100, meter.percent ?? 0)}%` }}
+              aria-hidden
+              className={cn(
+                "absolute top-1 right-1 size-1.5 rounded-full",
+                limitTone === "danger" ? "bg-danger" : "bg-warning",
+              )}
             />
-          </span>
-          <span className="tabular-nums">
-            {session.compacting ? meter.label : `Context ${meter.label}`}
-          </span>
+          )}
         </button>
       )}
-    />
+    >
+      <div className="flex min-w-0 flex-col gap-3 text-sm">
+        <section>
+          <h3 className={heading}>Context</h3>
+          <p className="tabular-nums">
+            {session.compacting
+              ? "Compacting…"
+              : meter.percent === null
+                ? "Not known yet"
+                : `${meter.label} used`}
+          </p>
+          <p className="text-xs text-muted">{meter.detail}</p>
+        </section>
+        {spent.length > 0 && (
+          <section>
+            <h3 className={heading}>This session</h3>
+            <p className="text-xs text-muted tabular-nums">{spent.join(" · ")}</p>
+          </section>
+        )}
+        {usage && usage.status !== "error" && (
+          <section data-testid="usage-meter">
+            <h3 className={heading}>Subscription limits</h3>
+            {usage.status !== "available" ? (
+              <p className="text-xs text-muted">{usage.message ?? "Usage unavailable"}</p>
+            ) : (
+              usage.windows.map((w) => (
+                <p
+                  key={w.id}
+                  className={cn("text-xs tabular-nums", USAGE_TONE[usageTone(w.usedPct)])}
+                >
+                  {w.id === "five_hour" ? "Session limit" : "Weekly limit"} {Math.round(w.usedPct)}%
+                  used, resets {formatRelative(w.resetsAt)}
+                </p>
+              ))
+            )}
+          </section>
+        )}
+        <div>
+          <Button
+            size="sm"
+            icon={<Shrink className="size-3.5" />}
+            disabled={!!hint}
+            onClick={() => {
+              setOpen(false);
+              codeApi.compact(session.id).then(
+                () => toast.success("Compacting context"),
+                (e) => toast.error(errorMessage(e)),
+              );
+            }}
+          >
+            Compact now
+          </Button>
+          {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
+        </div>
+      </div>
+    </Popover>
   );
 }

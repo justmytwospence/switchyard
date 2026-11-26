@@ -4,29 +4,30 @@ import {
   CircleAlert,
   CircleCheck,
   CircleX,
-  Copy,
   FileCode,
   Info,
   LoaderCircle,
-  type LucideIcon,
+  MessageCircleQuestion,
   Network,
   TriangleAlert,
-  Wand2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { CodeBlock } from "../../components/intent/CodeBlock";
 import { DiffView } from "../../components/intent/DiffView";
-import { InteractionCard } from "../../components/intent/InteractionCard";
+import {
+  byLabel,
+  InteractionCard,
+  isDocumentPresentation,
+} from "../../components/intent/InteractionCard";
 import { Markdown } from "../../components/intent/Markdown";
 import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
-import { Button } from "../../components/ui/Button";
-import { copyText } from "../../components/ui/Copy";
+import { isUnsupported } from "../../components/intent/unsupported";
 import { Sheet } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
 import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
-import { formatDuration, formatTime } from "../../lib/time";
+import { formatDuration, formatRelative, formatTime } from "../../lib/time";
 import { useSmoothText } from "../../lib/useSmoothText";
 import { errorMessage } from "../../sync/api";
 import type { StreamBuffer } from "../../sync/store";
@@ -52,8 +53,6 @@ export interface TimelineRowProps {
   sessionId: string;
   /** Answer controls are hidden with this explanation (read-only view, host offline). */
   interactionReadOnly: string | null;
-  draftEmpty: boolean;
-  onUseSuggestion: (text: string) => void;
   highlightInteractionId: string | null;
 }
 
@@ -172,14 +171,8 @@ export function TimelineRow(props: TimelineRowProps & { quiet?: boolean }) {
         <NoticeItem level={item.data.level} text={item.data.text} repeat={entry.repeat ?? 1} />
       );
     case "system":
-      return (
-        <SystemItem
-          text={item.data.text}
-          suggestion={item.data.suggestion === true}
-          draftEmpty={props.draftEmpty}
-          onUse={props.onUseSuggestion}
-        />
-      );
+      // A suggested next message is offered in the composer, not here.
+      return item.data.suggestion === true ? null : <SystemItem text={item.data.text} />;
     case "subagent":
       return <SubagentRow data={item.data} />;
     case "interaction":
@@ -191,15 +184,6 @@ export function TimelineRow(props: TimelineRowProps & { quiet?: boolean }) {
         />
       );
   }
-}
-
-function RowLabel({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
-  return (
-    <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted">
-      <Icon aria-hidden className="size-3.5 shrink-0" />
-      {children}
-    </div>
-  );
 }
 
 /** A message longer than this folds to eight lines behind "Show full message". */
@@ -715,44 +699,8 @@ function NoticeItem({
   );
 }
 
-function SystemItem({
-  text,
-  suggestion,
-  draftEmpty,
-  onUse,
-}: {
-  text: string;
-  suggestion: boolean;
-  draftEmpty: boolean;
-  onUse: (text: string) => void;
-}) {
-  if (!suggestion) {
-    return <p className="px-1 text-xs break-words whitespace-pre-wrap text-muted">{text}</p>;
-  }
-  return (
-    <div className="min-w-0 rounded-md border border-dashed border-border-strong px-3 py-2">
-      <RowLabel icon={Wand2}>Suggested next message</RowLabel>
-      <p className="text-sm break-words whitespace-pre-wrap">{text}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={!draftEmpty} onClick={() => onUse(text)}>
-          Use suggestion
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          icon={<Copy className="size-3.5" />}
-          onClick={() => void copyText(text, "Copied")}
-        >
-          Copy
-        </Button>
-        {!draftEmpty && (
-          <span className="text-xs text-muted">
-            Your draft is not empty; clear it to use this suggestion.
-          </span>
-        )}
-      </div>
-    </div>
-  );
+function SystemItem({ text }: { text: string }) {
+  return <p className="px-1 text-xs break-words whitespace-pre-wrap text-muted">{text}</p>;
 }
 
 function SubagentRow({ data }: { data: Extract<TranscriptItem, { kind: "subagent" }>["data"] }) {
@@ -822,9 +770,14 @@ function InteractionEntry({
   readOnly: string | null;
   highlight: boolean;
 }) {
+  const pending = interaction.state === "pending";
+  const unsupported = isUnsupported(interaction);
+  // A pending question is answered in the dock; only a plan's text stays here.
+  if (pending && !unsupported && !isDocumentPresentation(interaction.presentation)) return null;
+  const card = pending || unsupported;
   return (
     <div
-      data-testid="interaction-card"
+      data-testid={card ? "interaction-card" : "interaction-outcome"}
       data-interaction-id={interaction.id}
       data-state={interaction.state}
       className={cn(
@@ -832,14 +785,38 @@ function InteractionEntry({
         highlight && "ring-2 ring-accent ring-offset-2 ring-offset-bg",
       )}
     >
-      <InteractionCard
-        id={interactionDomId(interaction.id)}
-        interaction={interaction}
-        readOnlyReason={
-          interaction.state === "pending" || interaction.state === "unsupported" ? readOnly : null
-        }
-        className="w-full"
-      />
+      {card ? (
+        <InteractionCard
+          id={interactionDomId(interaction.id)}
+          interaction={interaction}
+          mode={pending && !unsupported ? "reader" : "card"}
+          readOnlyReason={
+            interaction.state === "pending" || interaction.state === "unsupported" ? readOnly : null
+          }
+          className="w-full"
+        />
+      ) : (
+        <InteractionOutcome id={interactionDomId(interaction.id)} interaction={interaction} />
+      )}
+    </div>
+  );
+}
+
+/** An answered or closed question: one line where it was asked. */
+function InteractionOutcome({ id, interaction }: { id: string; interaction: Interaction }) {
+  const r = interaction.resolution;
+  const outcome = r ? r.summary : interaction.state === "expired" ? "expired" : "canceled";
+  const title = r
+    ? `${interaction.state === "resolved" ? "Answered" : "Closed"} by ${byLabel(r.by)} ${formatRelative(r.at)}`
+    : undefined;
+  return (
+    <div id={id} className="flex min-w-0 items-start gap-1.5 px-1 text-sm">
+      <MessageCircleQuestion aria-hidden className="mt-0.5 size-3.5 shrink-0 text-subtle" />
+      <p className="min-w-0 break-words text-muted" title={title}>
+        <span className="sr-only">Question: </span>
+        {interaction.title}
+        <span className="text-text"> · {outcome}</span>
+      </p>
     </div>
   );
 }

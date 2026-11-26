@@ -23,6 +23,7 @@ import {
   composerBlockReason,
   contextMeter,
   countAfter,
+  currentSuggestion,
   effortIndex,
   entrySpacing,
   type FoldedEntry,
@@ -53,9 +54,11 @@ import {
   piControlsAvailable,
   pillModelLabel,
   projectIdOfGroup,
+  queuedMessages,
   STATUS_BUCKETS,
   scopeNote,
   sendModes,
+  sendPlan,
   sessionPlace,
   sessionStatus,
   sessionUsage,
@@ -64,6 +67,7 @@ import {
   TERMINAL_COMMANDS,
   type TimelineEntry,
   type TranscriptDetail,
+  transcriptEntries,
   uniqueBranch,
   workingSince,
   worktreePath,
@@ -1098,7 +1102,6 @@ describe("session status bar", () => {
     hostName: "mac",
     hostLastSeenAt: T0 as string | null,
     control: "none" as const,
-    pending: [] as { title: string }[],
     canResume: false,
     now: Date.parse(T0),
   };
@@ -1114,13 +1117,8 @@ describe("session status bar", () => {
     const archived = st({ archivedAt: T0 }, { hostLink: "unreachable" });
     expect(archived?.kind).toBe("archived");
     expect(archived?.action?.kind).toBe("unarchive");
-    const host = st({}, { hostLink: "reconnecting", pending: [{ title: "Q" }] });
+    const host = st({}, { hostLink: "reconnecting" });
     expect(host).toMatchObject({ kind: "host", tone: "warning", pending: true });
-    const one = st({}, { control: "automation", pending: [{ title: "Pick a fruit" }] });
-    expect(one).toMatchObject({ kind: "answer", text: "Needs input: Pick a fruit" });
-    expect(st({}, { pending: [{ title: "a" }, { title: "b" }] })?.text).toBe(
-      "2 questions need input",
-    );
   });
 
   it("an unreachable host turns danger after five minutes or when last seen is unknown", () => {
@@ -1731,5 +1729,103 @@ describe("prefillDecision", () => {
     expect(prefillDecision("  \n", "hi")).toBe("set");
     expect(prefillDecision("typing", "hi")).toBe("kept");
     expect(prefillDecision("", null)).toBe("none");
+  });
+});
+
+describe("sendPlan", () => {
+  it("sends a prompt when idle, with no alternate", () => {
+    expect(sendPlan({ prompt: true, steer: false, followUp: false }, "queue")).toEqual({
+      primary: "prompt",
+      alternate: null,
+    });
+  });
+  it("follows the preference while Pi works and offers the other mode", () => {
+    const both = { prompt: false, steer: true, followUp: true };
+    expect(sendPlan(both, "queue")).toEqual({ primary: "followUp", alternate: "steer" });
+    expect(sendPlan(both, "steer")).toEqual({ primary: "steer", alternate: "followUp" });
+  });
+  it("never offers a mode the runtime lacks", () => {
+    expect(sendPlan({ prompt: false, steer: false, followUp: true }, "steer")).toEqual({
+      primary: "followUp",
+      alternate: null,
+    });
+    expect(sendPlan({ prompt: false, steer: false, followUp: false }, "queue")).toEqual({
+      primary: null,
+      alternate: null,
+    });
+  });
+});
+
+describe("queuedMessages", () => {
+  it("lists steering messages first, each with its kind", () => {
+    expect(queuedMessages({ steering: ["now"], followUp: ["later", "last"] })).toEqual([
+      { kind: "Steering", text: "now" },
+      { kind: "Queued", text: "later" },
+      { kind: "Queued", text: "last" },
+    ]);
+    expect(queuedMessages({ steering: [], followUp: [] })).toEqual([]);
+  });
+});
+
+describe("suggestions and docked interactions", () => {
+  const at = "2026-11-01T10:00:00.000Z";
+  const base = { sessionId: "ses_1", at };
+  const user = (id: string, order: number): TranscriptItem => ({
+    ...base,
+    id,
+    order,
+    kind: "user",
+    data: { text: "go" },
+  });
+  const system = (id: string, order: number, text: string, suggestion = true): TranscriptItem => ({
+    ...base,
+    id,
+    order,
+    kind: "system",
+    data: suggestion ? { text, suggestion: true } : { text },
+  });
+  const asked = (id: string, order: number, interactionId: string): TranscriptItem => ({
+    ...base,
+    id,
+    order,
+    kind: "interaction",
+    data: { interactionId },
+  });
+  const entry = (item: TranscriptItem): TimelineEntry => ({
+    type: "item",
+    key: item.id,
+    item,
+    stream: null,
+  });
+
+  it("currentSuggestion returns the last suggestion until you reply", () => {
+    expect(currentSuggestion([])).toBeNull();
+    expect(currentSuggestion([user("u", 1), system("a", 2, "first"), system("b", 3, "next")])).toBe(
+      "next",
+    );
+    expect(currentSuggestion([system("a", 1, "old"), user("u", 2)])).toBeNull();
+    expect(currentSuggestion([user("u", 1), system("a", 2, "   ")])).toBeNull();
+    expect(currentSuggestion([user("u", 1), system("a", 2, "note", false)])).toBeNull();
+  });
+
+  it("transcriptEntries drops what the dock and the composer show", () => {
+    const pending = interaction("int_p");
+    const entries: TimelineEntry[] = [
+      entry(asked("i1", 1, "int_p")),
+      entry(asked("i2", 2, "int_d")),
+      entry(system("s1", 3, "try this")),
+      entry(system("s2", 4, "plain note", false)),
+      { type: "interaction", key: "interaction:int_p", interaction: pending },
+    ];
+    expect(transcriptEntries(entries, [pending], () => false).map((e) => e.key)).toEqual([
+      "i2",
+      "s2",
+    ]);
+    expect(transcriptEntries(entries, [pending], () => true).map((e) => e.key)).toEqual([
+      "i1",
+      "i2",
+      "s2",
+      "interaction:int_p",
+    ]);
   });
 });

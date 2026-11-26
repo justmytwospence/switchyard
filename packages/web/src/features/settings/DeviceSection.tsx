@@ -12,6 +12,7 @@ import { KeyValues, SectionPage } from "./shared";
 export function DeviceSection() {
   const sendWithEnter = usePrefs((s) => s.sendWithEnter);
   const transcriptDetail = usePrefs((s) => s.transcriptDetail);
+  const followUpMode = usePrefs((s) => s.followUpMode);
   const setPref = usePrefs((s) => s.set);
   const bp = useBreakpoint();
   const coarse = useCoarsePointer();
@@ -36,6 +37,25 @@ export function DeviceSection() {
             On mobile, Return always inserts a newline and messages are sent with the Send button.
             {bp === "mobile" || coarse ? " That applies on this device now." : ""}
           </p>
+          <RadioCards
+            legend="While Pi is working"
+            value={followUpMode}
+            onChange={(v) => setPref("followUpMode", v)}
+            hint="Cmd/Ctrl+Enter, or the + menu, does the other."
+            options={[
+              {
+                value: "queue",
+                label: "Queue",
+                explanation: "Send queues your message. Pi reads it when the current turn ends.",
+              },
+              {
+                value: "steer",
+                label: "Steer",
+                explanation:
+                  "Send delivers your message now, between Pi's tool calls, when the session supports it.",
+              },
+            ]}
+          />
         </div>
       </Card>
       <Card title="Transcript">

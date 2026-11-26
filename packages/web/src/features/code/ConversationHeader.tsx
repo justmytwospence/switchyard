@@ -20,7 +20,7 @@ import {
   Unlink2,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router";
-import { Button, buttonClasses } from "../../components/ui/Button";
+import { buttonClasses } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
@@ -198,6 +198,18 @@ export function ConversationHeader({
           },
         ]
       : []),
+    // The composer has the Stop button; this one also works in the Terminal surface.
+    ...(actions.canStop
+      ? [
+          {
+            id: "stop",
+            label: "Stop",
+            icon: <Square className="size-4" />,
+            danger: true,
+            onSelect: actions.requestStop,
+          },
+        ]
+      : []),
     ...sessionMenuItems(ctx, actions, Object.values(scopes)),
   ];
   return (
@@ -219,17 +231,6 @@ export function ConversationHeader({
             <span className="hidden xl:inline">Open linked task</span>
             <span className="xl:hidden">Task</span>
           </Link>
-        )}
-        {actions.canStop && (
-          <Button
-            size="sm"
-            variant={session.runtime === "waiting_input" ? "secondary" : "danger"}
-            icon={<Square className="size-3.5" />}
-            busy={actions.busy.stop}
-            onClick={actions.requestStop}
-          >
-            Stop
-          </Button>
         )}
         {surface && (
           <SegmentedControl<Surface>
