@@ -44,6 +44,8 @@ A view never depends on the terminal a session was started in or is shown in, so
 - **The same branch on two hosts is one branch.** Each host keeps its own workspace with its own git state; the branch shows the host where its primary session runs. The Where layout splits it per host.
 - **Trackers decorate branches.** An issue with a branch shows its issue, pull request and board column on that branch. An issue with no branch waits in the Board's Not started column; starting it makes the branch, its worktree on the project's default host, and an idle session.
 - **A tracker's view is its issues' work.** It holds the sessions on branches linked to the tracker's issues, whatever their state, plus any session in the tracker's repositories that is live right now. A stopped session with no issue is not in it; it is under All sessions.
+- **Needs input is a question you can still answer.** When a session's Pi stops, its open questions expire and its "Needs input" clears, whatever raised them. Other attention (failed, ready to review) keeps its own label and does not keep a stopped session under Active. Clear a flag by hand from the session menu (Clear Needs input) or the Attention page (Clear).
+- **A pin is membership only.** Pinning a session adds it to a view; it does not keep the session from being archived, and archiving it removes its pins. Starting a session with a view selected in the web app does not pin it; starting one from a herdr or tmux session bound to a view pins it only when the view would not show it otherwise, and says so.
 - **A view decides which branches you see; a surface decides where.** Every surface bound to a view shows the same sessions, and the web app and phone select a view of their own. Closing a tab in one surface archives the session everywhere.
 - **Where a session runs is a fact on the session, not a view.** A Pi you start in your own terminal shows its terminal on its row and under Details (Runs in), with the same label ("herdr default on Mac", through the host's Switchyard name), and belongs to the same views as any other session in its project. Where you look at a view (Shown in, in the view's Edit dialog) is a surface, a separate fact. A herdr session you only work in by hand needs no view and no pairing.
 - **Cleanup follows the branch.** When the pull request merges and the worktree is clean and idle, its sessions are archived and the worktree removed (with "Remove merged worktrees" on).
@@ -56,6 +58,7 @@ A view never depends on the terminal a session was started in or is shown in, so
 |---|---|
 | Not started: a tracked issue with no branch, or a worktree with no session | Board only (Not started, or Working with Start session) |
 | Active: its session is live (starting, idle, running, waiting for input) | Sessions and Board |
+| Needs input: its live session has a question you can still answer (a dialog, a plan to approve, an adapter's question) | Sessions under Active and Needs input, Attention, and Board |
 | Stopped: its session is stopped, failed or interrupted | Sessions under All, and Board. In a tracker's view, only when its branch is linked to one of the tracker's issues or the session is pinned |
 
 Create is always **Start session**; **Open** goes to a session that exists; **Resume** restarts a stopped one.
