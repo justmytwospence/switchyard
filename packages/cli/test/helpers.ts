@@ -27,7 +27,8 @@ export function stubFetch(routes: Record<string, Handler>) {
     calls.push(call);
     const h = routes[`${method} ${u.pathname}`];
     if (!h) {
-      return new Response(JSON.stringify({ error: { code: "not_found", message: "no route" } }), {
+      const message = `No route ${method} ${u.pathname}`;
+      return new Response(JSON.stringify({ error: { code: "not_found", message } }), {
         status: 404,
       });
     }

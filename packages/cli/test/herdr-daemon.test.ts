@@ -188,9 +188,9 @@ function setup(sessions: Session[]) {
 }
 
 describe("MirrorDaemon", () => {
-  it("is idle while no view matches its name", async () => {
+  it("is idle while it mirrors nothing", async () => {
     const { herdr, daemon, logs, bound } = setup([session("ses_1")]);
-    bound.value = "missing";
+    bound.value = "off";
     await daemon.reconcile();
     await daemon.reconcile();
     expect(herdr.requests).toEqual([]);

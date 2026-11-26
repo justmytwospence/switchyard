@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { View } from "@switchyard/protocol";
 import type { ApiClient } from "@switchyard/terminal";
 import { archiveSession, renameSession } from "../mirror/actions.js";
+import type { Bound } from "../mirror/binding.js";
 import { viewedSessions } from "../mirror/state.js";
 import { type HerdrCall, type HerdrSubscription, type herdrSubscribe, nextSeq } from "./client.js";
 import {
@@ -34,10 +34,8 @@ export interface DaemonDeps {
   /** Switchyard's state, null until the first sync. */
   state: () => MirrorState | null;
   onStateChange: (fn: () => void) => () => void;
-  /** The bound view: null when unbound, "missing" when it names a view that does not exist. */
-  view?: () => View | null | "missing";
-  /** The name the daemon looks for, for its log line. */
-  viewName?: string;
+  /** What it mirrors: a view, null for everything, "off" for nothing (idle). */
+  view?: () => Bound;
   /** `<state>/<herdr session>`: spaces.json and the fallback space directory. */
   stateDir: string;
   /** Stable launcher for typed commands and resume commands. */
@@ -201,8 +199,8 @@ export class MirrorDaemon {
     if (!st) return [];
     const { call, log } = this.deps;
     const bound = this.deps.view?.() ?? null;
-    if (bound === "missing") {
-      if (!this.viewMissingLogged) log(`no view named "${this.deps.viewName ?? ""}"; idle`);
+    if (bound === "off") {
+      if (!this.viewMissingLogged) log("mirrors nothing; idle");
       this.viewMissingLogged = true;
       return [];
     }
@@ -396,7 +394,7 @@ export class MirrorDaemon {
     const st = this.deps.state();
     if (!st) return;
     const bound = this.deps.view?.() ?? null;
-    if (bound === "missing") return;
+    if (bound === "off") return;
     const mirrored = new Map(viewedSessions(st, bound).map((s) => [s.id, s]));
     switch (data.type) {
       case "tab_closed": {

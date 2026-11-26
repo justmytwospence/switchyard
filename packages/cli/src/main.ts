@@ -16,6 +16,7 @@ import { herdrDaemon, herdrNew, herdrPair, herdrPane, herdrStatus } from "./comm
 import { hostBackup, hostEnroll, hostPiExtension, hostRun, hostStatus } from "./commands/host.js";
 import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
 import { installService } from "./commands/service.js";
+import { terminalsBind, terminalsForget, terminalsList } from "./commands/terminals.js";
 import { tmuxDaemon, tmuxNew, tmuxPair, tmuxPane, tmuxStatus } from "./commands/tmux.js";
 import {
   trackersCreate,
@@ -327,7 +328,9 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .command("pair")
     .description("Pair a herdr session (default: the unnamed one) with Switchyard")
     .option("--session <name>", "herdr session name (default: default)")
-    .option("--view <name>", "view to mirror (default: every session)")
+    .option("--view <name>", "mirror this view (recorded with the coordinator)")
+    .option("--all", "mirror every session")
+    .option("--none", "mirror nothing")
     .option("--cli <command>", "how to run switchyard")
     .option("--client-config <path>", "client.json to use")
     .option("--force", "replace an existing pairing")
@@ -335,6 +338,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
       await herdrPair(ctx, {
         session: o.session,
         view: o.view,
+        all: o.all,
+        none: o.none,
         cli: o.cli,
         clientConfig: o.clientConfig,
         force: o.force,
@@ -369,7 +374,9 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .command("pair")
     .description("Pair a tmux session (default: switchyard) with Switchyard")
     .option("--session <name>", "tmux session name (default: switchyard)")
-    .option("--view <name>", "view to mirror (default: every session)")
+    .option("--view <name>", "mirror this view (recorded with the coordinator)")
+    .option("--all", "mirror every session")
+    .option("--none", "mirror nothing")
     .option("--cli <command>", "how to run switchyard")
     .option("--client-config <path>", "client.json to use")
     .option("--force", "replace an existing pairing")
@@ -377,15 +384,38 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
       await tmuxPair(ctx, {
         session: o.session,
         view: o.view,
+        all: o.all,
+        none: o.none,
         cli: o.cli,
         clientConfig: o.clientConfig,
         force: o.force,
       });
     });
 
+  const terminals = program
+    .command("terminals")
+    .description("Terminals: herdr and tmux sessions, and what each one mirrors");
+  connectionOptions(terminals.command("list").description("List terminals"))
+    .option("--json", "JSON output")
+    .action((o) => terminalsList(ctx, { ...connFlags(o), json: o.json }));
+  connectionOptions(
+    terminals
+      .command("bind <terminal>")
+      .description("Choose what a terminal mirrors (herdr:<session>, tmux:<session> or a full id)"),
+  )
+    .option("--view <name>", "a view")
+    .option("--all", "every session")
+    .option("--none", "nothing")
+    .action((ref, o) =>
+      terminalsBind(ctx, ref, { ...connFlags(o), view: o.view, all: o.all, none: o.none }),
+    );
+  connectionOptions(
+    terminals.command("forget <terminal>").description("Forget a terminal and its binding"),
+  ).action((ref, o) => terminalsForget(ctx, ref, connFlags(o)));
+
   const views = program
     .command("views")
-    .description("Views: named sets of projects and pins that surfaces show");
+    .description("Views: named sets of projects and pins that terminals can mirror");
   const collect = (v: string, prev: string[] = []) => [...prev, v];
   connectionOptions(views.command("list").description("List views"))
     .option("--json", "JSON output")
