@@ -377,7 +377,7 @@ Every row is a branch (a project on a branch, see [model.md](model.md)) and show
 
 Subagent sessions are nested under the session that started them and hidden unless "Show subagents" is on. View options also choose a sort per layout (Recent activity, Newest, Name, Status; defaults: Projects and Hosts by name, Recent and Status by activity), applied to groups and rows, with rows needing input first unless turned off. Rows show title, textual status, last activity, and attention indicator. A row on an issue's branch shows `#N`. In a tracker's view, a session that is there only while live shows "No issue". The open session always keeps its row, marked "Not in <view>" when the selected view excludes it. The status summary counts the selected view's sessions.
 
-Provide search, active/all filter, view options, collapse controls, and New session.
+Provide search, active/all filter, view options, collapse controls, and New session. Beside the view selector, a Where selector (Anywhere, a terminal, a host) limits the list to sessions running there; it is offered when a Pi runs in a terminal of yours or there are several hosts, is kept per browser, and combines with the view. A terminal lists only Pi running in it now.
 
 Empty state: "Add a project" and "Connect a host," based on what is missing.
 

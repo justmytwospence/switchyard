@@ -31,6 +31,7 @@ import { formatDuration } from "../../lib/time";
 import { PANE_LIMITS } from "../../prefs";
 import { isBusyRuntime, isLiveRuntime, sessionsNeedingAttention } from "../../sync/selectors";
 import type { StreamBuffer } from "../../sync/store";
+import { sessionIsWhere, type Where } from "../views/where";
 
 /**
  * Pure helpers for the Code feature (navigator tree, composer state,
@@ -326,6 +327,8 @@ export interface NavOptions {
   needsInputFirst?: boolean;
   /** Only sessions in this view. */
   view?: View | null;
+  /** Only sessions running there. */
+  where?: Where | null;
   /** The open session: always listed. */
   keepId?: string | null;
 }
@@ -479,6 +482,7 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       ? sessionViewReason(opts.view, parent ?? s, input.workspaces, scope)
       : "filter";
     if (reason === null && !keep) continue;
+    if (!keep && !sessionIsWhere(opts.where, parent ?? s)) continue;
     const needs = attn.has(s.id);
     if (!keep && opts.filter === "active" && !isLive(s) && !needs) continue;
     if (!keep && opts.filter === "attention" && !needs) continue;

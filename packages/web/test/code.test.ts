@@ -216,6 +216,29 @@ describe("navigator tree", () => {
     expect(ids(tree)).toEqual(["a"]);
   });
 
+  it("filters by where a session runs and keeps the open session", () => {
+    const where = {
+      ...input,
+      sessions: {
+        ...input.sessions,
+        a: { ...input.sessions.a!, external: { client: "herdr:x@m" } },
+      },
+    };
+    const here = buildNavTree(where, {
+      filter: "all",
+      query: "",
+      where: { kind: "terminal", id: "herdr:x@m" },
+    });
+    expect(ids(here)).toEqual(["a"]);
+    const elsewhere = buildNavTree(where, {
+      filter: "all",
+      query: "",
+      where: { kind: "host", id: "hst_2" },
+      keepId: "b",
+    });
+    expect(ids(elsewhere)).toEqual(["b"]);
+  });
+
   it("Projects shows the host on each row when a project spans hosts", () => {
     const tree = buildNavTree(
       {

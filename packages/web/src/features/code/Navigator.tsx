@@ -35,6 +35,8 @@ import { usePalette } from "../palette/registry";
 import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import { emptyViewState, shownIn } from "../views/describe";
 import { useViewDescriber, ViewSelect } from "../views/ViewSelect";
+import { WhereSelect } from "../views/WhereSelect";
+import { sessionIsWhere, useSelectedWhere, whereLabel } from "../views/where";
 import { AdapterSlot } from "./AdapterSlots";
 import {
   buildNavTree,
@@ -113,6 +115,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const hostsMap = useSyncStore((s) => s.hosts);
   const { views, describe: describeView } = useViewDescriber();
   const [selectedViewId, setSelectedViewId] = useSelectedView();
+  const [where, setWhere] = useSelectedWhere();
   const [editingView, setEditingView] = useState<string | "new" | null>(null);
   const view = (selectedViewId ? views[selectedViewId] : null) ?? null;
   const surfaces = useSyncStore((s) => s.surfaces);
@@ -134,6 +137,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           sort,
           needsInputFirst: prefs.needsInputFirst,
           view,
+          where,
           keepId: selectedId,
         },
       ),
@@ -153,6 +157,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       sort,
       prefs.needsInputFirst,
       view,
+      where,
     ],
   );
   const navigate = useNavigate();
@@ -164,11 +169,12 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         (s) =>
           s.archivedAt === null &&
           s.provenance !== "subagent" &&
-          (!view || sessionInView(view, s, workspaces, scope)),
+          (!view || sessionInView(view, s, workspaces, scope)) &&
+          sessionIsWhere(where, s),
       )
       .map((session) => ({ session, bucket: statusBucket(session, attn.has(session.id)) }));
     return statusSummary(rows);
-  }, [sessions, attention, interactions, view, workspaces, issues]);
+  }, [sessions, attention, interactions, view, where, workspaces, issues]);
   const collapsed = new Set(prefs.collapsed);
   const toggle = (key: string) => {
     const next = new Set(collapsed);
@@ -296,6 +302,27 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         description={`Nothing matches "${prefs.query}".`}
         action={{ label: "Clear search", onClick: () => setPrefs({ ...prefs, query: "" }) }}
       />
+    ) : where ? (
+      <>
+        {keptRow}
+        <EmptyState
+          title={
+            prefs.filter === "attention"
+              ? `Nothing needs your input in ${whereLabel(where, hostsMap)}`
+              : prefs.filter === "active"
+                ? `No active sessions in ${whereLabel(where, hostsMap)}`
+                : `No sessions in ${whereLabel(where, hostsMap)}`
+          }
+          description={
+            where.kind === "terminal"
+              ? "A terminal lists the Pi running in it now. Sessions that ended there are under Anywhere."
+              : view
+                ? `No session in ${view.name} runs on this host.`
+                : "No session runs on this host."
+          }
+          action={{ label: "Anywhere", onClick: () => setWhere(null) }}
+        />
+      </>
     ) : view ? (
       <>
         {keptRow}
@@ -462,6 +489,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           {view && <p className="truncate text-subtle text-xs">{describeView(view)}</p>}
           {shownText && <p className="truncate text-subtle text-xs">Shown in: {shownText}</p>}
         </div>
+        <WhereSelect />
         <ViewsDialog
           editing={editingView}
           onClose={() => setEditingView(null)}

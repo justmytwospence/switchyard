@@ -19,7 +19,7 @@ Every component answers one of three questions:
 | Where does it run? | Host, workspace (the checkout), and the Pi process in its terminal |
 | Where do you look at it? | Device and **surface**: the web app, the phone, a herdr or tmux session. Each shows everything or one view |
 
-A view never depends on the terminal a session was started in or is shown in, so a session is in the same views on every surface. One herdr session can show everything, a herdr session per view can each show a part, or both: the views are the same either way.
+A view never depends on the terminal a session was started in or is shown in, so a session is in the same views on every surface. The Sessions page filters by the second question separately: **Where** narrows to a terminal (the Pi running in that herdr session now) or a host, and combines with the selected view. One herdr session can show everything, a herdr session per view can each show a part, or both: the views are the same either way.
 
 ## The components
 
