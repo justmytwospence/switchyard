@@ -53,7 +53,7 @@ switchyard scopes create apps --project web --project api
 A GitHub source uses a host's `gh` login, like the rest of [GitHub](github.md). For a Projects board, the login also needs the project permission: `gh auth refresh -h github.com -s project`. The source's host is only where `gh` runs; work happens on each project's default host.
 
 1. Add the repositories as projects (Settings > Projects) on the hosts that will run the work, and turn on the two project settings if you want them.
-2. Create the scope in Settings > Scopes (New GitHub scope), or with the CLI:
+2. Create the scope in Settings > Scopes (New scope, then GitHub issues), or with the CLI:
 
    ```sh
    switchyard scopes create work --github-host laptop --owner acme
@@ -64,7 +64,7 @@ A GitHub source uses a host's `gh` login, like the rest of [GitHub](github.md). 
    `--repo owner/name` (repeatable) limits it to some repositories. `--status-field` names the board's status field (default `Status`). `--also owner/name` (repeatable) adds a repository of another owner, for work that lives outside the organization: its project joins the scope and your assigned issues there are tracked too. An issue belongs to one scope, so do not cover the same repository with two GitHub scopes.
 3. `switchyard scopes sync <name>` syncs now; otherwise every GitHub scope syncs every two minutes. `switchyard scopes list` shows the last sync and error.
 
-`switchyard scopes edit <name>` changes either part. On a scope of projects you choose, `--github-host` with `--owner` adds a source (Connect GitHub in the web app); `--no-github` removes one: its issues leave the Board and the scope keeps its current projects as your own list.
+`switchyard scopes edit <name>` changes either part. On a scope of projects you choose, `--github-host` with `--owner` adds a source (in the web app: Edit, then GitHub issues); `--no-github` removes one: its issues leave the Board and the scope keeps its current projects as your own list.
 
 ### Following a board
 
@@ -84,12 +84,12 @@ switchyard scopes create personal --github-host server --owner your-login \
 
 ### In the web app
 
-Settings > Scopes shows each scope as a card, with links that select it on Sessions or the Board.
+Settings > Scopes shows each scope as a card: what it contains, where it is mirrored, and links that select it on Sessions or the Board.
 
-- A scope of projects you choose shows what it contains, how many sessions are pinned and where it is mirrored. **Edit** changes its name, mode and projects; **Connect GitHub** gives it a source; **Delete** removes it.
-- A GitHub scope shows its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, and its issue count. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** changes the source; **Disconnect GitHub** removes the source and keeps the scope; **Delete** removes the scope and its issues.
+- A GitHub scope adds its owner and repositories, the host and GitHub user, the board and how it moves cards, the last sync with the issue count and any error. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once.
+- **Delete** removes the scope; for a GitHub scope, also its issues.
 
-**New scope** makes a scope of projects you choose, and **New GitHub scope** one with a source. The scope selector on Sessions and the Board marks a GitHub scope, such as `work · GitHub`; the pencil beside it opens the same Edit dialog. With a GitHub scope selected, the Board can show the Projects board's own columns instead of stages. Deleting a scope does not touch its sessions; clients that mirrored it mirror nothing until you bind them again.
+**New scope** and **Edit** open one form: a name and what the scope contains (projects you choose, pins only, or GitHub issues). Choosing GitHub issues on an existing scope connects it; choosing another option on a GitHub scope disconnects it, which removes its issues from the Board and keeps the scope. The scope selector on Sessions and the Board marks a GitHub scope, such as `work · GitHub`; the pencil beside it opens the same form, and the Sessions menu ends with "New scope…". With a GitHub scope selected, the Board can show the Projects board's own columns instead of stages. Deleting a scope does not touch its sessions; clients that mirrored it mirror nothing until you bind them again.
 
 ## Watching only
 

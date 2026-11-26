@@ -33,6 +33,7 @@ import { useFilter } from "../../prefs";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
 import { emptyScopeState, scopeOptionLabel } from "../scopes/describe";
+import { ScopeDialog } from "../scopes/ScopeDialog";
 import { useScopeDescriber } from "../scopes/ScopeSelect";
 import {
   effectiveWhere,
@@ -62,7 +63,6 @@ import {
   normalizeLayout,
   projectIdOfGroup,
 } from "./model";
-import { ScopeDialog } from "./ScopeDialog";
 import { useSelectedScope } from "./scopes";
 
 interface NavPrefs {
@@ -499,6 +499,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
                 scope={scope}
                 title={scope ? describeScope(scope) : undefined}
                 onChange={setSelectedScopeId}
+                onNew={() => setEditingScope("new")}
               />
               <IconButton
                 size="sm"
@@ -655,11 +656,13 @@ function ViewFilter({
   scope,
   title,
   onChange,
+  onNew,
 }: {
   scopes: Record<string, Scope>;
   scope: Scope | null;
   title?: string;
   onChange: (id: string | null) => void;
+  onNew: () => void;
 }) {
   const id = useId();
   return (
@@ -676,7 +679,9 @@ function ViewFilter({
           id={id}
           value={scope?.id ?? ""}
           title={title}
-          onChange={(e) => onChange(e.target.value || null)}
+          onChange={(e) =>
+            e.target.value === "__new" ? onNew() : onChange(e.target.value || null)
+          }
           className={cn(
             "tap h-8 min-w-0 max-w-full cursor-pointer appearance-none truncate rounded-md bg-transparent pr-5 pl-1 font-medium outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent",
             scope ? "text-accent" : "text-text",
@@ -688,6 +693,7 @@ function ViewFilter({
               {scopeOptionLabel(v)}
             </option>
           ))}
+          <option value="__new">New scope…</option>
         </select>
         <ChevronDown
           aria-hidden

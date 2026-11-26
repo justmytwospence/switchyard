@@ -11,7 +11,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
@@ -22,6 +22,7 @@ import { Field, FieldError } from "../../components/ui/Field";
 import { IconButton } from "../../components/ui/IconButton";
 import { ConfirmDialog } from "../../components/ui/Overlay";
 import { PriorityIcon, PrioritySelect } from "../../components/ui/Priority";
+import { RadioCards } from "../../components/ui/RadioCards";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { Select } from "../../components/ui/Select";
 import { Switch } from "../../components/ui/Switch";
@@ -1005,55 +1006,6 @@ function TemplateSection({ draft, update, err }: SectionProps) {
         )}
       </Field>
     </Card>
-  );
-}
-
-function RadioCards<T extends string>({
-  legend,
-  value,
-  options,
-  onChange,
-  hint,
-}: {
-  legend: string;
-  value: T;
-  options: { value: T; label: string; explanation: string }[];
-  onChange: (v: T) => void;
-  hint?: ReactNode;
-}) {
-  const name = useId();
-  return (
-    <fieldset className="flex min-w-0 flex-col gap-2">
-      <legend className="mb-1 text-sm font-medium">{legend}</legend>
-      <div className="grid min-w-0 gap-2 sm:grid-cols-3">
-        {options.map((o) => (
-          <label
-            key={o.value}
-            className={cn(
-              "tap flex min-w-0 cursor-pointer items-start gap-2 rounded-md border p-2.5 text-sm",
-              "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-1",
-              value === o.value
-                ? "border-accent bg-accent-soft"
-                : "border-border hover:bg-surface-2",
-            )}
-          >
-            <input
-              type="radio"
-              name={name}
-              value={o.value}
-              checked={value === o.value}
-              onChange={() => onChange(o.value)}
-              className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]"
-            />
-            <span className="min-w-0">
-              <span className="block font-medium">{o.label}</span>
-              <span className="block text-xs text-muted">{o.explanation}</span>
-            </span>
-          </label>
-        ))}
-      </div>
-      {hint && <p className="text-xs text-muted">{hint}</p>}
-    </fieldset>
   );
 }
 

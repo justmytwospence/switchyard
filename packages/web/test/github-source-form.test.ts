@@ -5,7 +5,7 @@ import {
   draftOf,
   sourceFacts,
   validateDraft,
-} from "../src/features/settings/githubSourceLogic";
+} from "../src/features/scopes/githubSourceLogic";
 
 const T = "2026-11-02T10:00:00.000Z";
 const source = (over: Partial<GitHubSource> = {}): GitHubSource => ({
@@ -80,7 +80,7 @@ describe("GitHub scope form", () => {
       },
     });
     expect(bodyOf(draftOf(ranked, "h")).source.board?.priorityField).toBe("Priority");
-    expect(sourceFacts(ranked.source!, "Mac")[4]).toEqual([
+    expect(sourceFacts(ranked.source!, "Mac")[2]).toEqual([
       "Board",
       "#1, field Status, priority Priority",
     ]);
@@ -136,9 +136,7 @@ describe("GitHub scope form", () => {
   it("states the facts", () => {
     expect(sourceFacts(source(), "Mac")).toEqual([
       ["GitHub", "VO-Health: VO-Health/datasync"],
-      ["Follows", "Issues assigned to me"],
-      ["Signed in as", "me"],
-      ["Host", "Mac"],
+      ["Host", "Mac, signed in to GitHub as me"],
       ["Board", "#1, field Status"],
       ["Moves cards", 'To "In Progress" when work starts'],
     ]);
@@ -151,19 +149,14 @@ describe("GitHub scope form", () => {
     ).toEqual(["GitHub", "VO-Health (all repositories), plus other/lib"]);
     expect(plain).toEqual([
       ["GitHub", "VO-Health (all repositories)"],
-      ["Follows", "Issues assigned to you"],
-      ["Signed in as", "Not synced yet"],
-      ["Host", "Mac"],
-      ["Board", "None"],
-      ["Moves cards", "Off"],
+      ["Host", "Mac, not synced yet"],
     ]);
     const board = { projectNumber: 4, statusField: "Status", onStart: null, onReview: null };
     const facts = sourceFacts(
       source({ follow: "board", board: { ...board, backlog: ["Backlog"] } }),
       "Mac",
     );
-    expect(facts[1]).toEqual(["Follows", "Every open issue on the board"]);
-    expect(facts[4]).toEqual(["Board", "#4, field Status; hides Backlog until started"]);
+    expect(facts[2]).toEqual(["Board", "#4, field Status; hides Backlog until started"]);
     expect(
       sourceFacts(
         source({
@@ -171,7 +164,7 @@ describe("GitHub scope form", () => {
           board: { projectNumber: 1, statusField: "Status", onStart: null, onReview: "Review" },
         }),
         "Mac",
-      )[5],
+      )[3],
     ).toEqual(["Moves cards", 'To "Review" when a pull request opens; never shared cards']);
   });
 });

@@ -25,6 +25,7 @@ export {
 } from "./Overlay";
 export { Popover, type PopoverProps } from "./Popover";
 export { PRIORITY_INFO, PriorityIcon, PriorityLabel, PrioritySelect } from "./Priority";
+export { type RadioCardOption, RadioCards } from "./RadioCards";
 export { SegmentedControl, type SegmentOption } from "./SegmentedControl";
 export { Select, type SelectProps } from "./Select";
 export { Spinner } from "./Spinner";

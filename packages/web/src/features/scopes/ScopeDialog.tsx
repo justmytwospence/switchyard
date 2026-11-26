@@ -1,18 +1,30 @@
 import type { Scope } from "@switchyard/protocol";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { ROUTES } from "../../app/routes";
 import { Button } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
 import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
-import { Select } from "../../components/ui/Select";
+import { RadioCards } from "../../components/ui/RadioCards";
 import { ErrorState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { TextLink } from "../../components/ui/TextLink";
+import { toast } from "../../components/ui/Toast";
 import { apiDelete, apiPatch, apiPost, errorMessage, isApiError } from "../../sync/api";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
-import { scopeSourceKind, shownIn } from "../scopes/describe";
-import { useScopeDescriber } from "../scopes/ScopeSelect";
+import { shownIn } from "./describe";
+import { GitHubSourceFields } from "./GitHubSourceFields";
+import type { GitHubSourceDraft } from "./githubSourceLogic";
+import { useScopeDescriber } from "./ScopeSelect";
+import {
+  CONTENTS_OPTIONS,
+  disconnects,
+  type ScopeDraft,
+  type ScopeDraftErrors,
+  scopeBodyOf,
+  scopeDraftOf,
+  validateScopeDraft,
+} from "./scopeFormLogic";
 
 /** What a scope contains and the clients that mirror it. */
 function ScopeAbout({
@@ -24,7 +36,6 @@ function ScopeAbout({
   describe: (v: Scope) => string;
   onNavigate: () => void;
 }) {
-  const source = scopeSourceKind(scope);
   const clients = useSyncStore((s) => s.clients);
   const hosts = useSyncStore((s) => s.hosts);
   const shown = shownIn(scope, Object.values(clients), hosts);
@@ -35,17 +46,7 @@ function ScopeAbout({
       className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md bg-surface-2 px-3 py-2 text-sm"
     >
       <dt className="text-muted">Contains</dt>
-      <dd className="flex min-w-0 flex-col gap-0.5">
-        <span>{describe(scope)}</span>
-        {source === "github" && (
-          <span className="text-muted">
-            Its projects are kept by GitHub.{" "}
-            <TextLink to={ROUTES.settings("scopes")} onClick={onNavigate}>
-              Open Scopes
-            </TextLink>
-          </span>
-        )}
-      </dd>
+      <dd className="min-w-0">{describe(scope)}</dd>
       <dt className="text-muted">Mirrored in</dt>
       <dd className="flex min-w-0 flex-col gap-0.5">
         {shown ?? <span>No client.</span>}
@@ -84,47 +85,47 @@ export function ScopeDialog({
   editing: string | "new" | null;
   onClose: () => void;
   onSaved: (id: string) => void;
-  onDeleted?: () => void;
 }) {
   const { scopes, describe } = useScopeDescriber();
   const projects = useProjects();
   const hosts = useHosts();
-  const [current, setCurrent] = useState<string | "new" | null>(editing);
-  const scope: Scope | null = current && current !== "new" ? (scopes[current] ?? null) : null;
-  const [name, setName] = useState("");
-  const [mode, setMode] = useState<"all" | "pinned">("all");
-  const [projectIds, setProjectIds] = useState<string[]>([]);
-  const [hostIds, setHostIds] = useState<string[]>([]);
+  const issues = useSyncStore((s) => s.issues);
+  const defaultHost = (hosts.find((h) => h.connectivity === "connected") ?? hosts[0])?.id ?? "";
+  const scope: Scope | null = editing && editing !== "new" ? (scopes[editing] ?? null) : null;
+  const key = editing ?? "closed";
+  const [draftKey, setDraftKey] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ScopeDraft>(() => scopeDraftOf(null, defaultHost));
+  const [errors, setErrors] = useState<ScopeDraftErrors>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const source = scope ? scopeSourceKind(scope) : "manual";
-
-  useEffect(() => {
-    setCurrent(editing);
-  }, [editing]);
-  useEffect(() => {
-    setName(scope?.name ?? "");
-    setMode(scope?.mode ?? "all");
-    setProjectIds(scope?.projectIds ?? []);
-    setHostIds(scope?.hostIds ?? []);
+  if (draftKey !== key) {
+    setDraftKey(key);
+    setDraft(scopeDraftOf(scope, defaultHost));
+    setErrors({});
     setError(null);
-  }, [scope]);
+    setConfirmDelete(false);
+  }
+  const columns = useMemo(() => {
+    if (!scope) return [];
+    const withBoard = Object.values(issues).find((x) => x.scopeId === scope.id && x.board);
+    return withBoard?.board?.options.map((o) => o.name) ?? [];
+  }, [issues, scope]);
+  const setGithub = <K extends keyof GitHubSourceDraft>(k: K, v: GitHubSourceDraft[K]) =>
+    setDraft((d) => ({ ...d, github: { ...d.github, [k]: v } }));
 
   const save = async () => {
+    const found = validateScopeDraft(draft);
+    setErrors(found);
+    if (Object.keys(found).length > 0) return;
     setBusy(true);
     setError(null);
-    const body = {
-      name: name.trim(),
-      ...(source === "manual" ? { mode } : {}),
-      // A GitHub scope: GitHub keeps the projects.
-      ...(scope?.source ? {} : { projectIds: projectIds.length ? projectIds : null }),
-      hostIds: hostIds.length ? hostIds : null,
-    };
+    const body = scopeBodyOf(draft, scope);
     try {
       const saved = scope
         ? await apiPatch<Scope>(`/api/scopes/${encodeURIComponent(scope.id)}`, body)
         : await apiPost<Scope>("/api/scopes", body);
+      toast.success(`Scope ${saved.name} saved`);
       onSaved(saved.id);
       onClose();
     } catch (e) {
@@ -138,6 +139,7 @@ export function ScopeDialog({
     setBusy(true);
     try {
       await apiDelete(`/api/scopes/${encodeURIComponent(scope.id)}`);
+      toast.success(`Scope ${scope.name} deleted`);
       setConfirmDelete(false);
       onClose();
     } catch (e) {
@@ -147,8 +149,8 @@ export function ScopeDialog({
     }
   };
 
-  const nameError = isApiError(error, "conflict") ? errorMessage(error) : null;
-  const open = current !== null;
+  const conflict = isApiError(error, "conflict") ? errorMessage(error) : null;
+  const open = editing !== null;
   return (
     <>
       <Dialog
@@ -167,92 +169,84 @@ export function ScopeDialog({
             <Button
               variant="primary"
               busy={busy}
-              disabled={!name.trim()}
+              disabled={!draft.name.trim()}
               onClick={() => void save()}
             >
-              Save
+              {disconnects(draft, scope) ? "Save and disconnect GitHub" : "Save"}
             </Button>
           </>
         }
       >
-        <div className="flex flex-col gap-3">
-          {Object.keys(scopes).length > 0 && (
-            <Field label="Scope" id="sy-scope-pick">
-              {(p) => (
-                <Select
-                  {...p}
-                  value={current ?? ""}
-                  onChange={(e) => setCurrent(e.target.value || "new")}
-                >
-                  <option value="new">New scope</option>
-                  {Object.values(scopes).map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          )}
+        <div data-testid="scope-form" className="flex flex-col gap-3">
           {scope && <ScopeAbout scope={scope} describe={describe} onNavigate={onClose} />}
-          <Field label="Name" id="sy-scope-name" error={nameError}>
+          <Field label="Name" id="sy-scope-name" error={errors.name ?? conflict}>
             {(p) => (
               <TextInput
                 {...p}
-                value={name}
+                value={draft.name}
                 maxLength={60}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
             )}
           </Field>
-          {source === "manual" && (
-            <Field label="Sessions" id="sy-scope-mode">
-              {(p) => (
-                <Select
-                  {...p}
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as "all" | "pinned")}
-                >
-                  <option value="all">Matching the filters below, plus any you pin</option>
-                  <option value="pinned">Only sessions you pin</option>
-                </Select>
-              )}
-            </Field>
+          <RadioCards
+            legend="Contains"
+            columns={1}
+            value={draft.contents}
+            options={CONTENTS_OPTIONS}
+            onChange={(contents) => setDraft({ ...draft, contents })}
+          />
+          {disconnects(draft, scope) && (
+            <p
+              role="status"
+              className="rounded-md border border-border bg-warning-soft px-3 py-2 text-sm"
+            >
+              Saving disconnects GitHub: this scope's issues leave the Board. Its sessions and
+              worktrees stay.
+            </p>
           )}
-          {mode === "all" && (
-            <>
-              <fieldset className="flex flex-col gap-1">
-                <legend className="text-sm font-medium">
-                  {scope?.source ? "Projects (kept by GitHub)" : "Projects (none checked: any)"}
-                </legend>
-                {projects.map((p) => (
-                  <Checkbox
-                    key={p.id}
-                    label={p.name}
-                    disabled={!!scope?.source}
-                    checked={projectIds.includes(p.id)}
-                    onChange={(on) => setProjectIds(toggle(projectIds, p.id, on))}
-                  />
-                ))}
-              </fieldset>
-              {/* Where sessions run is the navigator's Where filter; only scopes that already
-                  limit hosts keep this, so they can be changed or cleared. */}
-              {!!scope?.hostIds?.length && (
-                <fieldset className="flex flex-col gap-1">
-                  <legend className="text-sm font-medium">Hosts (none checked: any)</legend>
-                  {hosts.map((h) => (
-                    <Checkbox
-                      key={h.id}
-                      label={h.name}
-                      checked={hostIds.includes(h.id)}
-                      onChange={(on) => setHostIds(toggle(hostIds, h.id, on))}
-                    />
-                  ))}
-                </fieldset>
-              )}
-            </>
+          {draft.contents === "projects" && (
+            <fieldset className="flex flex-col gap-1">
+              <legend className="text-sm font-medium">Projects (none checked: any)</legend>
+              {projects.map((p) => (
+                <Checkbox
+                  key={p.id}
+                  label={p.name}
+                  checked={draft.projectIds.includes(p.id)}
+                  onChange={(on) =>
+                    setDraft({ ...draft, projectIds: toggle(draft.projectIds, p.id, on) })
+                  }
+                />
+              ))}
+            </fieldset>
           )}
-          {error !== null && !nameError && (
+          {draft.contents === "github" && (
+            <GitHubSourceFields
+              draft={draft.github}
+              errors={errors}
+              set={setGithub}
+              hosts={hosts}
+              columns={columns}
+            />
+          )}
+          {/* Where sessions run is the navigator's Where filter; only scopes that already
+              limit hosts keep this, so they can be changed or cleared. */}
+          {draft.contents !== "pins" && !!scope?.hostIds?.length && (
+            <fieldset className="flex flex-col gap-1">
+              <legend className="text-sm font-medium">Hosts (none checked: any)</legend>
+              {hosts.map((h) => (
+                <Checkbox
+                  key={h.id}
+                  label={h.name}
+                  checked={draft.hostIds.includes(h.id)}
+                  onChange={(on) =>
+                    setDraft({ ...draft, hostIds: toggle(draft.hostIds, h.id, on) })
+                  }
+                />
+              ))}
+            </fieldset>
+          )}
+          {error !== null && !conflict && (
             <ErrorState compact title="Could not save" error={errorMessage(error)} />
           )}
         </div>

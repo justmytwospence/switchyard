@@ -2,7 +2,7 @@ import { expect, test, uid } from "./support";
 
 test.describe("settings scopes", () => {
   test(
-    "creates, edits, disconnects and deletes a GitHub scope",
+    "creates, edits, disconnects, reconnects and deletes a GitHub scope",
     { tag: "@smoke" },
     async ({ page, signIn, api }, info) => {
       await signIn();
@@ -10,33 +10,59 @@ test.describe("settings scopes", () => {
       await page.goto("/settings/scopes");
       const section = page.getByTestId("scopes-section");
       await expect(section.getByRole("heading", { name: "Scopes" }).first()).toBeVisible();
-      await section.getByRole("button", { name: "New GitHub scope" }).first().click();
-      const form = page.getByTestId("github-source-form");
-      await form.getByLabel("Name", { exact: true }).fill(name);
+      await section.getByRole("button", { name: "New scope" }).first().click();
+      const dialog = page.getByRole("dialog", { name: "New scope" });
+      await dialog.getByLabel("Name", { exact: true }).fill(name);
+      await dialog.getByRole("radio", { name: /^GitHub issues/ }).check();
+      const form = dialog.getByTestId("github-source-form");
       await form.getByLabel("GitHub owner", { exact: true }).fill("acme");
-      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await dialog.getByRole("button", { name: "Save", exact: true }).click();
       const card = section.getByRole("region", { name });
       await expect(card).toBeVisible();
       await expect(card).toContainText("acme (all repositories)");
 
       await card.getByRole("button", { name: "Edit" }).click();
-      await form.getByLabel("Name", { exact: true }).fill(`${name}-x`);
-      await form.getByLabel(/^Repositories of other owners/).fill("other/lib");
-      await page.getByRole("button", { name: "Save", exact: true }).click();
+      const edit = page.getByRole("dialog", { name: "Edit scope" });
+      await edit.getByLabel("Name", { exact: true }).fill(`${name}-x`);
+      await edit
+        .getByTestId("github-source-form")
+        .getByLabel(/^Repositories of other owners/)
+        .fill("other/lib");
+      await edit.getByRole("button", { name: "Save", exact: true }).click();
       const renamed = section.getByRole("region", { name: `${name}-x` });
       await expect(renamed).toBeVisible();
       await expect(renamed).toContainText("plus other/lib");
 
-      // Disconnecting GitHub keeps the scope, as one of projects you choose.
-      await renamed.getByRole("button", { name: "Disconnect GitHub" }).click();
-      await page
-        .getByRole("dialog", { name: "Disconnect GitHub from this scope?" })
-        .getByRole("button", { name: "Disconnect GitHub" })
-        .click();
-      await expect(renamed.getByRole("button", { name: "Connect GitHub" })).toBeVisible();
+      // Choosing another kind disconnects GitHub and keeps the scope.
+      await renamed.getByRole("button", { name: "Edit" }).click();
+      await edit.getByRole("radio", { name: /^Pins only/ }).check();
+      await expect(edit.getByText("Saving disconnects GitHub", { exact: false })).toBeVisible();
+      await edit.getByRole("button", { name: "Save and disconnect GitHub" }).click();
       await expect(renamed).not.toContainText("plus other/lib");
-      const kept = await api<{ name: string; source: unknown }[]>("GET", "/api/scopes");
-      expect(kept.find((s) => s.name === `${name}-x`)?.source).toBeNull();
+      const kept = await api<{ name: string; source: unknown; mode: string }[]>(
+        "GET",
+        "/api/scopes",
+      );
+      const keptScope = kept.find((s) => s.name === `${name}-x`);
+      expect(keptScope?.source).toBeNull();
+      expect(keptScope?.mode).toBe("pinned");
+
+      // And choosing GitHub issues connects it again, as a scope of mode all.
+      await renamed.getByRole("button", { name: "Edit" }).click();
+      await edit.getByRole("radio", { name: /^GitHub issues/ }).check();
+      await edit
+        .getByTestId("github-source-form")
+        .getByLabel("GitHub owner", { exact: true })
+        .fill("acme");
+      await edit.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(renamed).toContainText("acme (all repositories)");
+      const again = await api<{ name: string; source: { owner: string } | null; mode: string }[]>(
+        "GET",
+        "/api/scopes",
+      );
+      const connected = again.find((s) => s.name === `${name}-x`);
+      expect(connected?.source?.owner).toBe("acme");
+      expect(connected?.mode).toBe("all");
 
       await renamed.getByRole("button", { name: "Delete" }).click();
       await page.getByRole("button", { name: "Delete scope" }).click();
@@ -45,6 +71,16 @@ test.describe("settings scopes", () => {
       expect(left.some((s) => s.name.startsWith(name))).toBe(false);
     },
   );
+
+  test("the Sessions scope menu ends with New scope", async ({ page, signIn }, info) => {
+    test.skip(info.project.name !== "desktop-1440x900", "desktop project only");
+    await signIn();
+    await page.goto("/code");
+    const select = page.getByTestId("navigator").getByLabel("Scope", { exact: true });
+    await select.selectOption({ label: "New scope…" });
+    await expect(page.getByRole("dialog", { name: "New scope" })).toBeVisible();
+    await expect(select).toHaveValue("");
+  });
 
   test("the old Settings links land on Scopes and Clients", async ({ page, signIn }) => {
     await signIn();

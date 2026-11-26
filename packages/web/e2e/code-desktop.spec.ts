@@ -760,7 +760,7 @@ test.describe("desktop coding view", () => {
     await expect(about).toContainText("Contains");
     await expect(about).toContainText("Mirrored in");
     await expect(about).toContainText("No client.");
-    await expect(dialog.getByLabel("Sessions", { exact: true })).toHaveValue("pinned");
+    await expect(dialog.getByRole("radio", { name: /^Pins only/ })).toBeChecked();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await api("DELETE", `/api/scopes/${v.id}`);
   });

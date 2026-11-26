@@ -11,6 +11,7 @@ import {
 
 /** The GitHub scope form's fields, as typed. */
 export interface GitHubSourceDraft {
+  /** Overlaid by the scope form's name (scopeFormLogic.ts). */
   name: string;
   hostId: string;
   owner: string;
@@ -157,7 +158,7 @@ export function sourceFacts(t: GitHubSource, hostName: string): [string, string]
     if (parts.length === 0) return "On, but no columns are set";
     return `${parts.join(", ")}${t.moveShared ? "" : "; never shared cards"}`;
   })();
-  return [
+  const rows: [string, string][] = [
     [
       "GitHub",
       `${t.owner}${t.repositories ? `: ${t.repositories.join(", ")}` : " (all repositories)"}${
@@ -165,21 +166,18 @@ export function sourceFacts(t: GitHubSource, hostName: string): [string, string]
       }`,
     ],
     [
-      "Follows",
-      sourceFollow(t) === "board"
-        ? "Every open issue on the board"
-        : `Issues assigned to ${t.login ?? "you"}`,
+      "Host",
+      t.login ? `${hostName}, signed in to GitHub as ${t.login}` : `${hostName}, not synced yet`,
     ],
-    ["Signed in as", t.login ?? "Not synced yet"],
-    ["Host", hostName],
-    [
-      "Board",
-      t.board
-        ? `#${t.board.projectNumber}, field ${t.board.statusField}${
-            t.board.priorityField ? `, priority ${t.board.priorityField}` : ""
-          }${sourceBacklog(t).length ? `; hides ${sourceBacklog(t).join(", ")} until started` : ""}`
-        : "None",
-    ],
-    ["Moves cards", moves],
   ];
+  if (t.board) {
+    rows.push([
+      "Board",
+      `#${t.board.projectNumber}, field ${t.board.statusField}${
+        t.board.priorityField ? `, priority ${t.board.priorityField}` : ""
+      }${sourceBacklog(t).length ? `; hides ${sourceBacklog(t).join(", ")} until started` : ""}`,
+    ]);
+    rows.push(["Moves cards", moves]);
+  }
+  return rows;
 }
