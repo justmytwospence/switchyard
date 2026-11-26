@@ -21,6 +21,7 @@ import { loadDraft, setDraftNow } from "../../drafts";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
 import { useProjects, useSyncStore } from "../../sync/store";
+import { effectiveWhere, useSelectedWhere, whereLabel } from "../views/where";
 import { openIssue } from "../workboard/api";
 import { codeApi } from "./api";
 import {
@@ -43,7 +44,13 @@ const NEW = "__new";
 /** Workspace option prefix: start this issue (its branch, worktree and session). */
 const ISSUE = "issue:";
 
-function useNewSessionForm(open: boolean, initialProjectId: string | null, view: View | null) {
+function useNewSessionForm(
+  open: boolean,
+  initialProjectId: string | null,
+  view: View | null,
+  /** The host to start on when the project has a checkout there and it is online (a host Where). */
+  preferHostId: string | null = null,
+) {
   const allProjects = useProjects();
   const viewProjectIds = view && view.mode === "all" ? view.projectIds : null;
   const projects = useMemo(
@@ -115,7 +122,8 @@ function useNewSessionForm(open: boolean, initialProjectId: string | null, view:
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-default when the flow opens or the project changes
   useEffect(() => {
     if (!open || !project) return;
-    const d = newSessionDefaults(project, projectCheckouts, projectWorkspaces, hosts);
+    const prefer = preferHostId && hostOnline(hosts[preferHostId]) ? preferHostId : undefined;
+    const d = newSessionDefaults(project, projectCheckouts, projectWorkspaces, hosts, prefer);
     setHostId(d.hostId);
     setWorkspaceId(d.workspaceId ?? NEW);
     setCheckoutId(d.checkoutId ?? "");
@@ -297,7 +305,10 @@ export function NewSessionFlow({
   const issues = useSyncStore((st) => st.issues);
   const view = (selectedView ? knownViews[selectedView] : null) ?? null;
   const viewId = view?.id ?? null;
-  const f = useNewSessionForm(open, projectId, view);
+  const hostsById = useSyncStore((st) => st.hosts);
+  const [storedWhere] = useSelectedWhere();
+  const where = effectiveWhere(storedWhere, hostsById);
+  const f = useNewSessionForm(open, projectId, view, where?.kind === "host" ? where.id : null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -626,6 +637,13 @@ export function NewSessionFlow({
             </div>
           )}
         </div>
+        {where && f.hostId && (where.kind === "terminal" || where.id !== f.hostId) && (
+          <p data-testid="new-session-where" className="text-xs text-muted">
+            {where.kind === "terminal"
+              ? `Switchyard holds this session, not ${whereLabel(where, hostsById)}: it is not listed while Where is set there.`
+              : `It runs on ${hostsById[f.hostId]?.name ?? "another host"}, not ${whereLabel(where, hostsById)}: it is not listed while Where is set there.`}
+          </p>
+        )}
         {leaves && view && (
           <p data-testid="new-session-leaves" className="text-xs text-muted">
             This session has no issue: it leaves {view.name} when it stops.{" "}
