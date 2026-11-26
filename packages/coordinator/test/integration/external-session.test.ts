@@ -54,6 +54,7 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
         SWITCHYARD_ENROLL_STATE_DIR: env.stateDir,
         HERDR_ENV: "1",
         HERDR_SOCKET_PATH: "/h/sessions/daily/herdr.sock",
+        HERDR_PANE_ID: "w1:p2",
       } as Record<string, string>,
     });
 
@@ -67,6 +68,7 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
     expect(s.projectId).toBe(env.project.id);
     expect(s.workspaceId).not.toBeNull();
     expect(s.external).toEqual({ client });
+    expect(s.place).toEqual({ terminalId: client, pane: "w1:p2" });
     const workspaces = Object.fromEntries(env.c.store.workspaces.list().map((w) => [w.id, w]));
     expect(sessionInView(env.c.store.views.require(view.id), s, workspaces)).toBe(true);
 
@@ -86,5 +88,10 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
 
     proc.write("/quit\r");
     await env.waitSession(s.id, (x) => x.runtime === "stopped", "stopped after /quit");
+    // Where it ran stays known after it stops, so a mirror there opens no tab for it.
+    expect(env.c.store.sessions.require(s.id)).toMatchObject({
+      external: null,
+      place: { terminalId: client, pane: "w1:p2" },
+    });
   });
 });

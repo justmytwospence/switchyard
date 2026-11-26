@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -11,12 +12,44 @@ import { defaultStateDir } from "./state-dir.js";
 
 type Env = Record<string, string | undefined>;
 
-/** The terminal this Pi runs in (`herdr:<session>@<machine>`), or null. */
-export function clientId(env: Env, host: string = hostname()): string | null {
-  if (env.HERDR_ENV !== "1") return null;
-  const fromSocket = /\/sessions\/([^/]+)\/herdr\.sock$/.exec(env.HERDR_SOCKET_PATH ?? "")?.[1];
-  const name = fromSocket || env.HERDR_SESSION?.trim() || "default";
-  return `herdr:${name}@${host}`;
+/** The tmux session this process runs in (`TMUX`), or null. */
+function tmuxSessionName(env: Env): string | null {
+  if (!env.TMUX) return null;
+  try {
+    const pane = env.TMUX_PANE ? ["-t", env.TMUX_PANE] : [];
+    const name = execFileSync("tmux", ["display-message", "-p", ...pane, "#S"], {
+      encoding: "utf8",
+      timeout: 2000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The terminal this Pi runs in, as Switchyard names terminals (`herdr:<session>@<machine>` or
+ * `tmux:<session>@<machine>`), or null. herdr wins when both are set (herdr inside tmux).
+ */
+export function clientId(
+  env: Env,
+  host: string = hostname(),
+  tmuxName: (env: Env) => string | null = tmuxSessionName,
+): string | null {
+  if (env.HERDR_ENV === "1") {
+    const fromSocket = /\/sessions\/([^/]+)\/herdr\.sock$/.exec(env.HERDR_SOCKET_PATH ?? "")?.[1];
+    const name = fromSocket || env.HERDR_SESSION?.trim() || "default";
+    return `herdr:${name}@${host}`;
+  }
+  const tmux = tmuxName(env);
+  return tmux ? `tmux:${tmux}@${host}` : null;
+}
+
+/** The pane this Pi runs in, in its terminal's ids (`w1:p2`, `%3`), or null. */
+export function paneId(env: Env): string | null {
+  if (env.HERDR_ENV === "1") return env.HERDR_PANE_ID?.trim() || null;
+  return env.TMUX ? env.TMUX_PANE?.trim() || null : null;
 }
 
 /**
@@ -36,6 +69,8 @@ export interface EnrollMeta {
   pid: number;
   cwd: string;
   client: string | null;
+  /** The pane in `client` (absent from older extensions). */
+  pane?: string | null;
   sessionId: string;
   sessionFile: string;
   startedAt: string;
@@ -55,6 +90,7 @@ export function isEnrollMeta(v: unknown): v is EnrollMeta {
     typeof m.cwd === "string" &&
     m.cwd.startsWith("/") &&
     (m.client === null || typeof m.client === "string") &&
+    (m.pane === undefined || m.pane === null || typeof m.pane === "string") &&
     typeof m.sessionId === "string" &&
     m.sessionId.length > 0 &&
     typeof m.sessionFile === "string" &&

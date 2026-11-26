@@ -94,6 +94,7 @@ export type AgentRequestHandler = (
 /** Session fields the host is authoritative for; the rest belong to the coordinator. */
 const HOST_SESSION_FIELDS = [
   "external",
+  "place",
   "title",
   "subtitle",
   "cwd",

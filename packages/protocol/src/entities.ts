@@ -386,6 +386,17 @@ export const Session = z.object({
     .object({ client: z.string().min(1).max(200).nullable() })
     .nullable()
     .optional(),
+  /**
+   * Where this Pi last ran by hand (host-owned): the terminal (`herdr:<s>@<m>`, `tmux:<s>@<m>`)
+   * and pane. Kept after it stops; cleared once Switchyard starts it. Older hosts omit it.
+   */
+  place: z
+    .object({
+      terminalId: z.string().min(1).max(200),
+      pane: z.string().min(1).max(200).nullable(),
+    })
+    .nullable()
+    .optional(),
   /** The session this subagent was started by (coordinator-owned). */
   parentSessionId: Id.nullable().optional(),
   /** Chosen as its branch's primary session (coordinator-owned); without one the primary is derived. */

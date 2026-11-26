@@ -1,4 +1,5 @@
 import type { Host, Session } from "@switchyard/protocol";
+import { isLiveRuntime } from "@switchyard/protocol";
 import { useFilter } from "../../prefs";
 
 /**
@@ -87,10 +88,21 @@ export function sessionWhereToken(
   return multiHost ? { kind: "host", label: hostName } : null;
 }
 
-/** Details' "Runs in" line for a Pi started by hand; null for a session Switchyard holds. */
-export function runsIn(s: WhereSession, hostName: string): string | null {
-  if (!s.external) return null;
-  return s.external.client
-    ? `${terminalLabel(s.external.client, hostName)} (your terminal)`
-    : `Your terminal on ${hostName}`;
+/**
+ * Details' "Runs in" line for a Pi started by hand: the terminal it runs in now, or the one it
+ * last ran in after it stopped (until Switchyard starts it). Null for a session Switchyard holds.
+ */
+export function runsIn(
+  s: WhereSession & Partial<Pick<Session, "place" | "runtime">>,
+  hostName: string,
+): string | null {
+  if (s.external) {
+    return s.external.client
+      ? `${terminalLabel(s.external.client, hostName)} (your terminal)`
+      : `Your terminal on ${hostName}`;
+  }
+  if (s.place && s.runtime !== undefined && !isLiveRuntime(s.runtime)) {
+    return `Last run by hand in ${terminalLabel(s.place.terminalId, hostName)}`;
+  }
+  return null;
 }

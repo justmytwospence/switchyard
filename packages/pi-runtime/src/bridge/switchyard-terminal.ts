@@ -27,7 +27,7 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { fileURLToPath } from "node:url";
 import { createAgentChannel } from "./agent-channel.js";
 import { registerAgentTools } from "./agent-tools.js";
-import { clientId, type EnrollMeta, enrollRuntimeDir, metaPath } from "./enroll.js";
+import { clientId, type EnrollMeta, enrollRuntimeDir, metaPath, paneId } from "./enroll.js";
 import { LineSplitter } from "./lines.js";
 import { createMessageDelivery } from "./message-delivery.js";
 import { modelInfo } from "./pi-model.js";
@@ -916,6 +916,7 @@ export default function switchyardTerminal(pi: any): void {
       pid: process.pid,
       cwd: ctx.cwd ?? process.cwd(),
       client: clientId(process.env),
+      pane: paneId(process.env),
       sessionId: ctx.sessionManager.getSessionId(),
       sessionFile: file,
       startedAt,

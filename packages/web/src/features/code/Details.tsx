@@ -356,7 +356,7 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
         {ctx.link !== "connected" && ` (${ctx.link})`}
         {host?.piVersion && ` · Pi ${host.piVersion}`}
       </dd>
-      {session.external && (
+      {runsIn(session, ctx.hostName) && (
         <>
           <dt className="text-muted">Runs in</dt>
           <dd className="min-w-0 break-words">{runsIn(session, ctx.hostName)}</dd>
