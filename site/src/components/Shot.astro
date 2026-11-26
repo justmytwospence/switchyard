@@ -1,0 +1,32 @@
+---
+/**
+ * A product screenshot in light and dark, from src/assets/screens (written by capture/capture.ts).
+ * Both are optimized; CSS shows the one that matches the page's theme, and the hidden one is
+ * never fetched because it is lazy and not displayed.
+ */
+import { Image } from "astro:assets";
+import type { ImageMetadata } from "astro";
+
+interface Props {
+  name: string;
+  alt: string;
+  class?: string;
+  widths?: number[];
+  sizes: string;
+  eager?: boolean;
+}
+
+const { name, alt, class: className, widths = [480, 800, 1200, 1600], sizes, eager } = Astro.props;
+const all = import.meta.glob<{ default: ImageMetadata }>("../assets/screens/*.png", {
+  eager: true,
+});
+const pick = (scheme: string) => {
+  const found = all[`../assets/screens/${name}-${scheme}.png`];
+  if (!found) throw new Error(`Missing screenshot ${name}-${scheme}.png: run the capture script`);
+  return found.default;
+};
+---
+<span class:list={["shot", className]}>
+  <Image class="when-light" src={pick("light")} alt={alt} widths={widths} sizes={sizes} format="webp" loading={eager ? "eager" : "lazy"} />
+  <Image class="when-dark" src={pick("dark")} alt={alt} widths={widths} sizes={sizes} format="webp" loading={eager ? "eager" : "lazy"} />
+</span>
