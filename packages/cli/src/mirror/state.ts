@@ -3,6 +3,7 @@ import type {
   Host,
   Project,
   Session,
+  Terminal,
   TrackedIssue,
   View,
   Workspace,
@@ -25,6 +26,8 @@ export interface MirrorState {
   views: View[];
   /** Tracked issues (decide a tracker view's sessions); absent in older fixtures. */
   issues?: TrackedIssue[];
+  /** Terminals and their recorded bindings; absent in older fixtures. */
+  terminals?: Terminal[];
 }
 
 export type AgentState = "idle" | "working" | "blocked";
@@ -89,6 +92,7 @@ export function mirrorStateOf(client: SwitchyardClient): MirrorState {
     checkouts: Object.values(s.checkouts),
     views: Object.values(s.views),
     issues: Object.values(s.issues ?? {}),
+    terminals: Object.values(s.terminals ?? {}),
   };
 }
 

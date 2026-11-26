@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
-import type { Session } from "@switchyard/protocol";
+import type { Session, View } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags, localHostId, resolveConnection } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
 import {
@@ -21,9 +21,10 @@ import {
   stableLauncherPath,
   writeStableLauncher,
 } from "../herdr/util.js";
-import { bindingRef, trackPresence, viewOrMissing } from "../mirror/binding.js";
+import { pickerBinding, syncTerminal, terminalId } from "../mirror/binding.js";
 import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
 import type { Env } from "../paths.js";
+import { bindingFromFlags, mirrorText, recordBinding } from "./terminals.js";
 
 export { herdrNew } from "../herdr/new-session.js";
 export { herdrPane } from "../herdr/pane.js";
@@ -71,7 +72,9 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
   const logFile = join(dir, "daemon.log");
   const socket = herdrSocketPath(env);
   const call: HerdrCall = (method, params) => herdrCall(method, params, socket);
-  const ref = bindingRef(env, herdrSessionName(env));
+  const name = herdrSessionName(env);
+  const machine = hostname();
+  const id = terminalId("herdr", name, machine);
 
   if (flags.once) {
     const { client, state } = await loadMirrorState(ctx, flags);
@@ -82,8 +85,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
         api: client.api,
         state,
         onStateChange: () => () => {},
-        view: () => viewOrMissing(state(), ref),
-        viewName: ref,
+        view: () => pickerBinding(state(), env, id),
         stateDir: dir,
         launcherPath,
         log: () => {},
@@ -123,11 +125,26 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
   if (running && running !== process.pid && pidAlive(running)) return;
   writeFileSync(pidFile, String(process.pid));
   const log = (line: string) => ctx.out(`${new Date().toISOString()} ${line}`);
-  log(`daemon started (pid ${process.pid}, herdr session ${herdrSessionName(env)})`);
+  log(`daemon started (pid ${process.pid}, herdr session ${name})`);
   const { client } = await loadMirrorState(ctx, flags, 24 * 60 * 60_000);
   client.onLogout((reason) => {
     log(`signed out: ${reason}`);
     process.exit(1);
+  });
+  const terminal = syncTerminal({
+    api: client.api,
+    info: {
+      id,
+      kind: "herdr",
+      name,
+      machine,
+      hostId: localHostId(env, client.api.baseUrl),
+    },
+    state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
+    subscribe: (fn) => client.store.subscribe(fn),
+    env,
+    wasMirroring: ownsSpaces(dir),
+    log,
   });
   const daemon = new MirrorDaemon({
     call,
@@ -135,46 +152,42 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     api: client.api,
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
-    view: () => viewOrMissing(mirrorStateOf(client), ref),
-    viewName: ref,
+    view: () => terminal.binding(),
     stateDir: dir,
     launcherPath,
     log,
   });
   await daemon.start();
-  const name = herdrSessionName(env);
-  const machine = hostname();
-  const presence = trackPresence({
-    api: client.api,
-    getView: () => {
-      const v = viewOrMissing(mirrorStateOf(client), ref);
-      return v === "missing" ? null : v;
-    },
-    subscribe: (fn) => client.store.subscribe(fn),
-    surface: {
-      id: `herdr:${name}@${machine}`,
-      kind: "herdr",
-      name,
-      machine,
-      hostId: localHostId(env, client.api.baseUrl),
-    },
-    log,
-  });
-  const leave = () => void presence.stop().finally(() => process.exit(0));
+  const leave = () => void terminal.stop().finally(() => process.exit(0));
   process.once("SIGTERM", leave);
   process.once("SIGINT", leave);
   await new Promise(() => {});
 }
 
-export interface PairFlags {
+/** Whether the mirror in this state directory created spaces (it was mirroring a view). */
+export function ownsSpaces(dir: string): boolean {
+  try {
+    const raw = JSON.parse(readFileSync(join(dir, "spaces.json"), "utf8"));
+    return Object.keys(raw.spaces ?? {}).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export interface PairFlags extends ConnectionFlags {
   session?: string;
   view?: string;
+  all?: boolean;
+  none?: boolean;
   cli?: string;
   clientConfig?: string;
   force?: boolean;
 }
 
-/** Write `<config>/switchyard-<kind>/<session>.env`, which pairs a multiplexer session. */
+/**
+ * Write `<config>/switchyard-<kind>/<session>.env`: how this multiplexer session runs switchyard
+ * and which client.json it signs in with. What it mirrors is recorded with the coordinator.
+ */
 export function writePairFile(
   ctx: Ctx,
   kind: "herdr" | "tmux",
@@ -190,11 +203,36 @@ export function writePairFile(
   const lines = [
     flags.cli ? `SWITCHYARD_CLI=${q(flags.cli)}` : null,
     flags.clientConfig ? `SWITCHYARD_CLIENT_CONFIG=${q(flags.clientConfig)}` : null,
-    flags.view ? `SWITCHYARD_VIEW=${q(flags.view)}` : null,
   ].filter(Boolean);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${lines.join("\n")}${lines.length ? "\n" : ""}`, { mode: 0o600 });
   return path;
+}
+
+/**
+ * Record what a paired session mirrors when `--view`, `--all` or `--none` is given, signed in
+ * with the client.json the pairing names.
+ */
+export async function pairBinding(
+  ctx: Ctx,
+  kind: "herdr" | "tmux",
+  session: string,
+  flags: PairFlags,
+): Promise<void> {
+  if (flags.view === undefined && !flags.all && !flags.none) {
+    ctx.out(
+      `It mirrors nothing until you choose: switchyard terminals bind ${kind}:${session} --all (or --view <name>)`,
+    );
+    return;
+  }
+  const c: Ctx = flags.clientConfig
+    ? { ...ctx, paths: { ...ctx.paths, clientConfig: flags.clientConfig } }
+    : ctx;
+  const { api } = connect(c, flags);
+  const binding = await bindingFromFlags(api, flags);
+  const t = await recordBinding(api, terminalId(kind, session, hostname()), binding);
+  const views = await api.get<View[]>("/api/views");
+  ctx.out(`${t.id} mirrors ${mirrorText(t, views)}`);
 }
 
 /** `switchyard herdr pair`: pair a herdr session (default: the unnamed one) with Switchyard. */
@@ -202,6 +240,7 @@ export async function herdrPair(ctx: Ctx, flags: PairFlags): Promise<void> {
   const session = flags.session ?? "default";
   const path = writePairFile(ctx, "herdr", session, flags);
   ctx.out(`Wrote ${path}`);
+  await pairBinding(ctx, "herdr", session, flags);
   ctx.out(`Start it with: ${session === "default" ? "herdr" : `herdr --session ${session}`}`);
 }
 

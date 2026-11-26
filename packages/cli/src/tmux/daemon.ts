@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { View } from "@switchyard/protocol";
 import type { ApiClient } from "@switchyard/terminal";
 import { launcherCommand } from "../herdr/util.js";
 import { archiveSession, renameSession } from "../mirror/actions.js";
+import type { Bound } from "../mirror/binding.js";
 import { type MirrorState, PENDING_MS, viewedSessions } from "../mirror/state.js";
 import { type TmuxControl, type TmuxEvent, type TmuxRun, tmuxTarget } from "./client.js";
 import {
@@ -27,8 +27,8 @@ export interface TmuxDaemonDeps {
   session: string;
   state: () => MirrorState | null;
   onStateChange: (fn: () => void) => () => void;
-  /** The bound view for the tmux session's current name, or "missing" (idle). */
-  view?: (sessionName: string) => View | null | "missing";
+  /** What it mirrors: a view, null for everything, "off" for nothing (idle). */
+  view?: () => Bound;
   /** The session's current name (it can be renamed); defaults to `session`. */
   sessionName?: () => Promise<string>;
   stateDir: string;
@@ -192,10 +192,11 @@ export class TmuxDaemon {
     const st = this.deps.state();
     if (!st) return [];
     const { run, log } = this.deps;
-    const name = await this.currentName();
-    const bound = this.deps.view?.(name) ?? null;
-    if (bound === "missing") {
-      if (!this.viewMissingLogged) log(`no view named "${name}"; idle`);
+    // Refresh the session's name: an older coordinator still binds by it.
+    await this.currentName();
+    const bound = this.deps.view?.() ?? null;
+    if (bound === "off") {
+      if (!this.viewMissingLogged) log("mirrors nothing; idle");
       this.viewMissingLogged = true;
       return [];
     }
@@ -316,8 +317,8 @@ export class TmuxDaemon {
     }
     const st = this.deps.state();
     if (!st) return;
-    const bound = this.deps.view?.(await this.currentName()) ?? null;
-    if (bound === "missing") return;
+    const bound = this.deps.view?.() ?? null;
+    if (bound === "off") return;
     const mirrored = new Map(viewedSessions(st, bound).map((s) => [s.id, s]));
     if (e.type === "window-close") {
       if (this.closingByUs.has(e.windowId)) return;

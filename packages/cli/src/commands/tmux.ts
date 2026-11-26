@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Session } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags, localHostId } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
-import { bindingRef, trackPresence, viewOrMissing } from "../mirror/binding.js";
+import { pickerBinding, syncTerminal, terminalId } from "../mirror/binding.js";
 import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
 import { tmuxControl, tmuxRun, tmuxSessionName, tmuxTarget } from "../tmux/client.js";
 import { TmuxDaemon } from "../tmux/daemon.js";
@@ -17,7 +17,7 @@ import {
   tmuxStateDir,
   writeStableTmuxLauncher,
 } from "../tmux/util.js";
-import { daemonEnv, type PairFlags, writePairFile } from "./herdr.js";
+import { daemonEnv, type PairFlags, pairBinding, writePairFile } from "./herdr.js";
 
 export { tmuxNew } from "../tmux/new-session.js";
 export { tmuxPane } from "../tmux/pane.js";
@@ -61,8 +61,9 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   const dir = tmuxSessionStateDir(name0, env);
   const pidFile = join(dir, "daemon.pid");
   const logFile = join(dir, "daemon.log");
-  const viewOf = (st: ReturnType<typeof mirrorStateOf>, name: string) =>
-    viewOrMissing(st, bindingRef(env, name));
+  const machine = hostname();
+  // The terminal keeps the name the session had when the daemon started.
+  const id = terminalId("tmux", name0, machine);
 
   if (flags.once) {
     const { client, state } = await loadMirrorState(ctx, flags);
@@ -74,7 +75,7 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
         session,
         state,
         onStateChange: () => () => {},
-        view: (n) => viewOf(state(), n),
+        view: () => pickerBinding(state(), env, id),
         sessionName,
         stateDir: dir,
         launcherPath,
@@ -127,6 +128,22 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   });
   let currentName = name0;
   const trackedName = async () => (currentName = await sessionName());
+  const terminal = syncTerminal({
+    api: client.api,
+    info: {
+      id,
+      kind: "tmux",
+      name: name0,
+      machine,
+      hostId: localHostId(ctx.env, client.api.baseUrl),
+    },
+    state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
+    subscribe: (fn) => client.store.subscribe(fn),
+    env,
+    wasMirroring: ownsWindows(dir),
+    legacyName: () => currentName,
+    log,
+  });
   const daemon = new TmuxDaemon({
     run: tmuxRun,
     control: tmuxControl,
@@ -134,34 +151,27 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
     session,
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
-    view: (n) => viewOf(mirrorStateOf(client), n),
+    view: () => terminal.binding(),
     sessionName: trackedName,
     stateDir: dir,
     launcherPath,
     log,
   });
   await daemon.start();
-  const machine = hostname();
-  const presence = trackPresence({
-    api: client.api,
-    getView: () => {
-      const v = viewOf(mirrorStateOf(client), currentName);
-      return v === "missing" ? null : v;
-    },
-    subscribe: (fn) => client.store.subscribe(fn),
-    surface: {
-      id: `tmux:${name0}@${machine}`,
-      kind: "tmux",
-      name: name0,
-      machine,
-      hostId: localHostId(ctx.env, client.api.baseUrl),
-    },
-    log,
-  });
-  const leave = () => void presence.stop().finally(() => process.exit(0));
+  const leave = () => void terminal.stop().finally(() => process.exit(0));
   process.once("SIGTERM", leave);
   process.once("SIGINT", leave);
   await new Promise(() => {});
+}
+
+/** Whether the mirror in this state directory created windows (it was mirroring a view). */
+export function ownsWindows(dir: string): boolean {
+  try {
+    const raw = JSON.parse(readFileSync(join(dir, "windows.json"), "utf8"));
+    return Object.keys(raw.ownWindows ?? {}).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** `switchyard tmux status`: which window shows which session. */
@@ -199,6 +209,7 @@ export async function tmuxPair(ctx: Ctx, flags: PairFlags): Promise<void> {
   const session = flags.session ?? "switchyard";
   const path = writePairFile(ctx, "tmux", session, flags);
   ctx.out(`Wrote ${path}`);
+  await pairBinding(ctx, "tmux", session, flags);
   ctx.out("Load the plugin in .tmux.conf: run-shell <repo>/integrations/tmux/switchyard.tmux");
   ctx.out(`Then start it with: tmux new-session -s ${session}`);
 }
