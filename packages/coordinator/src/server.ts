@@ -36,7 +36,7 @@ import { registerStaticRoutes } from "./routes/static.js";
 import { registerSurfaceRoutes } from "./routes/surfaces.js";
 import { registerViewRoutes } from "./routes/views.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
-import { archiveEndedSessions } from "./session-retention.js";
+import { archiveEndedSessions, sweepStaleSessionState } from "./session-retention.js";
 import { type Clock, Store } from "./store.js";
 import { TerminalHub } from "./terminal-hub.js";
 import { TerminalLogins } from "./terminal-login.js";
@@ -385,6 +385,8 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
         try {
           const r = store.runRetention();
           if (r.deleted > 0) log.info(r, "event retention sweep");
+          const stale = sweepStaleSessionState(store, attention);
+          if (stale.sessions + stale.pins > 0) log.info(stale, "cleared stale questions and pins");
           const archived = archiveEndedSessions(store);
           if (archived.length > 0)
             log.info({ sessions: archived.length }, "archived ended sessions");

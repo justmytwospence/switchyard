@@ -1,4 +1,10 @@
-import { buildBranches, isLiveRuntime, type Session } from "@switchyard/protocol";
+import {
+  buildBranches,
+  INPUT_ATTENTION_REASONS,
+  isLiveRuntime,
+  type Session,
+} from "@switchyard/protocol";
+import type { AttentionService } from "./attention.js";
 import type { Store } from "./store.js";
 
 /** Ended sessions that are not their branch's primary are archived after this many days. */
@@ -58,4 +64,49 @@ export function archiveEndedSessions(store: Store, days = sessionArchiveDays(sto
 
 export function sessionArchiveDays(store: Store): number {
   return store.getSetting("sessionArchiveDays", DEFAULT_SESSION_ARCHIVE_DAYS);
+}
+
+/**
+ * Clear state left behind by older releases, at startup and with each retention sweep:
+ *
+ * - questions of sessions whose Pi is gone (a terminal-only dialog open when Pi exited, a question
+ *   an adapter raised): their interactions expire and their input attention is resolved, so they
+ *   no longer show "Needs input" or keep the session under Active or out of retention;
+ * - pins of archived (or deleted) sessions.
+ *
+ * Idempotent; writes go through the store, so clients see them as ordinary updates.
+ */
+export function sweepStaleSessionState(
+  store: Store,
+  attention: AttentionService,
+): { sessions: number; pins: number } {
+  return store.tx(() => {
+    const ids = new Set<string>();
+    const reasons = INPUT_ATTENTION_REASONS.map(() => "?").join(", ");
+    for (const a of store.attention.list(
+      `resolved_at IS NULL AND session_id IS NOT NULL AND reason IN (${reasons})`,
+      [...INPUT_ATTENTION_REASONS],
+    ))
+      ids.add(a.sessionId!);
+    for (const i of store.interactions.list("state IN ('pending', 'unsupported')"))
+      if (i.state === "pending" || i.resolution === null) ids.add(i.sessionId);
+    let sessions = 0;
+    for (const id of ids) {
+      const s = store.sessions.get(id);
+      if (s && isLiveRuntime(s.runtime)) continue;
+      const r = attention.endSessionInput(id);
+      if (r.interactions + r.attention > 0) sessions++;
+    }
+    let pins = 0;
+    for (const v of store.views.list()) {
+      const kept = v.sessionIds.filter((id) => {
+        const s = store.sessions.get(id);
+        return !!s && s.archivedAt === null;
+      });
+      if (kept.length === v.sessionIds.length) continue;
+      pins += v.sessionIds.length - kept.length;
+      store.putView({ ...v, sessionIds: kept, updatedAt: store.nowIso() });
+    }
+    return { sessions, pins };
+  });
 }
