@@ -17,6 +17,7 @@ import {
   useTranscript,
 } from "../../sync/store";
 import { protectionLabel } from "../settings/policyLogic";
+import { runsIn } from "../views/where";
 import { AdapterDiagnostics } from "./AdapterDiagnostics";
 import { AdapterPanel } from "./AdapterPanel";
 import { ControlChip } from "./ConversationHeader";
@@ -358,9 +359,7 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
       {session.external && (
         <>
           <dt className="text-muted">Runs in</dt>
-          <dd className="min-w-0 break-words">
-            Your terminal{session.external.client ? ` (${session.external.client})` : ""}
-          </dd>
+          <dd className="min-w-0 break-words">{runsIn(session, ctx.hostName)}</dd>
         </>
       )}
       <dt className="text-muted">Control</dt>

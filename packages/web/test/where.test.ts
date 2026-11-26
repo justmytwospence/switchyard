@@ -1,20 +1,31 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseWhere,
+  effectiveWhere,
+  liveHostIds,
+  runsIn,
+  sameWhere,
   sessionIsWhere,
+  sessionWhereToken,
   terminalLabel,
-  type Where,
-  whereKey,
+  terminalName,
   whereLabel,
-  whereOptions,
 } from "../src/features/views/where";
 
 describe("where", () => {
-  it("labels terminals and hosts", () => {
+  it("labels terminals through the host's Switchyard name, and hosts", () => {
+    expect(terminalName("herdr:default@mac-pro")).toBe("herdr default");
     expect(terminalLabel("herdr:default@mac-pro")).toBe("herdr default on mac-pro");
+    expect(terminalLabel("herdr:default@mac-pro", "Mac")).toBe("herdr default on Mac");
     expect(terminalLabel("odd")).toBe("odd");
-    expect(whereLabel({ kind: "host", id: "h1" }, { h1: { name: "NUC" } })).toBe("NUC");
+    const hosts = { h1: { name: "NUC" }, h2: { name: "Mac" } };
+    expect(whereLabel({ kind: "host", id: "h1" }, hosts)).toBe("NUC");
     expect(whereLabel({ kind: "host", id: "h9" }, {})).toBe("Unknown host");
+    expect(whereLabel({ kind: "terminal", id: "herdr:a@mac-pro", hostId: "h2" }, hosts)).toBe(
+      "herdr a on Mac",
+    );
+    expect(whereLabel({ kind: "terminal", id: "herdr:a@mac-pro" }, hosts)).toBe(
+      "herdr a on mac-pro",
+    );
   });
 
   it("matches by terminal or host", () => {
@@ -29,32 +40,48 @@ describe("where", () => {
     ).toBe(false);
   });
 
-  it("round-trips keys", () => {
-    const t: Where = { kind: "terminal", id: "herdr:default@mac-pro" };
-    const h: Where = { kind: "host", id: "hst_1" };
-    expect(parseWhere(whereKey(t))).toEqual(t);
-    expect(parseWhere(whereKey(h))).toEqual(h);
-    expect(parseWhere("")).toBeNull();
-    expect(parseWhere("x:1")).toBeNull();
+  it("never filters by a revoked host", () => {
+    const hosts = { h1: { name: "NUC", revokedAt: null }, h2: { name: "Old", revokedAt: "x" } };
+    expect(liveHostIds(hosts)).toEqual(["h1"]);
+    expect(effectiveWhere({ kind: "host", id: "h2" }, hosts)).toBeNull();
+    expect(effectiveWhere({ kind: "terminal", id: "t", hostId: "h2" }, hosts)).toBeNull();
+    expect(effectiveWhere({ kind: "host", id: "h1" }, hosts)).toEqual({ kind: "host", id: "h1" });
+    expect(effectiveWhere(null, hosts)).toBeNull();
   });
 
-  it("offers terminals in use, hosts only when several, and the selection", () => {
-    const sessions = [
-      { archivedAt: null, external: { client: "herdr:b@m" } },
-      { archivedAt: null, external: { client: "herdr:a@m" } },
-      { archivedAt: "x", external: { client: "herdr:z@m" } },
-      { archivedAt: null, external: null },
-    ];
-    const one = { h1: { name: "NUC" } };
-    const two = { h1: { name: "NUC" }, h2: { name: "Mac" } };
-    const ids = (w: Where[]) => w.map((x) => x.id);
-    const a = whereOptions(sessions, one, null);
-    expect(ids(a.terminals)).toEqual(["herdr:a@m", "herdr:b@m"]);
-    expect(a.hosts).toEqual([]);
-    expect(ids(whereOptions(sessions, two, null).hosts)).toEqual(["h2", "h1"]);
+  it("compares places by kind and id", () => {
+    expect(sameWhere({ kind: "host", id: "a" }, { kind: "host", id: "a" })).toBe(true);
     expect(
-      ids(whereOptions(sessions, one, { kind: "terminal", id: "herdr:gone@m" }).terminals),
-    ).toContain("herdr:gone@m");
-    expect(ids(whereOptions(sessions, one, { kind: "host", id: "h1" }).hosts)).toEqual(["h1"]);
+      sameWhere({ kind: "terminal", id: "a", hostId: "h" }, { kind: "terminal", id: "a" }),
+    ).toBe(true);
+    expect(sameWhere({ kind: "host", id: "a" }, { kind: "terminal", id: "a" })).toBe(false);
+    expect(sameWhere(null, { kind: "host", id: "a" })).toBe(false);
+  });
+
+  it("gives a row the terminal of a hand-started Pi, else the host when there are several", () => {
+    const ext = { hostId: "h1", external: { client: "herdr:default@mac-pro" } };
+    expect(sessionWhereToken(ext, "Mac", false)).toEqual({
+      kind: "terminal",
+      label: "herdr default on Mac",
+    });
+    const gone = { hostId: "h1", external: { client: null } };
+    expect(sessionWhereToken(gone, "Mac", false)).toEqual({ kind: "terminal", label: "Terminal" });
+    expect(sessionWhereToken(gone, "Mac", true)).toEqual({
+      kind: "terminal",
+      label: "Terminal on Mac",
+    });
+    const held = { hostId: "h1", external: null };
+    expect(sessionWhereToken(held, "Mac", false)).toBeNull();
+    expect(sessionWhereToken(held, "Mac", true)).toEqual({ kind: "host", label: "Mac" });
+  });
+
+  it("says in Details where a hand-started Pi runs, with the same label", () => {
+    expect(runsIn({ hostId: "h1", external: { client: "herdr:default@mac-pro" } }, "Mac")).toBe(
+      "herdr default on Mac (your terminal)",
+    );
+    expect(runsIn({ hostId: "h1", external: { client: null } }, "Mac")).toBe(
+      "Your terminal on Mac",
+    );
+    expect(runsIn({ hostId: "h1", external: null }, "Mac")).toBeNull();
   });
 });

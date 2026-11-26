@@ -1,23 +1,24 @@
-import { type Session, sessionInView, trackerScope } from "@switchyard/protocol";
+import type { Session, View } from "@switchyard/protocol";
 import {
   ChevronDown,
   ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
   FolderGit2,
+  Layers,
   MessageCircleQuestion,
+  Pencil,
   Plus,
   Search,
   Server,
   SlidersHorizontal,
+  SquareTerminal,
+  X,
 } from "lucide-react";
-import { type CSSProperties, type ReactNode, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
-import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import {
   REVIEW_STATUS,
   RUNTIME_STATUS,
@@ -31,12 +32,16 @@ import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
-import { usePalette } from "../palette/registry";
 import { ProjectSuggestions } from "../settings/ProjectSuggestions";
-import { emptyViewState, shownIn } from "../views/describe";
-import { useViewDescriber, ViewSelect } from "../views/ViewSelect";
-import { WhereSelect } from "../views/WhereSelect";
-import { sessionIsWhere, useSelectedWhere, whereLabel } from "../views/where";
+import { emptyViewState, viewOptionLabel } from "../views/describe";
+import { useViewDescriber } from "../views/ViewSelect";
+import {
+  effectiveWhere,
+  sameWhere,
+  useSelectedWhere,
+  type Where,
+  whereLabel,
+} from "../views/where";
 import { AdapterSlot } from "./AdapterSlots";
 import {
   buildNavTree,
@@ -46,17 +51,16 @@ import {
   type NavFilter,
   type NavGroup,
   type NavLayout,
+  type NavOutside,
   type NavRow,
   type NavSort,
   navGroupKeys,
+  navNeedsInput,
   navOutsideRow,
+  navRowCount,
   navTreeIsEmpty,
   normalizeLayout,
   projectIdOfGroup,
-  STATUS_BUCKETS,
-  sessionsNeedingAttention,
-  statusBucket,
-  statusSummary,
 } from "./model";
 import { ViewsDialog } from "./ViewsDialog";
 import { useSelectedView } from "./views";
@@ -115,41 +119,35 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const hostsMap = useSyncStore((s) => s.hosts);
   const { views, describe: describeView } = useViewDescriber();
   const [selectedViewId, setSelectedViewId] = useSelectedView();
-  const [where, setWhere] = useSelectedWhere();
+  const [storedWhere, setWhere] = useSelectedWhere();
+  const where = effectiveWhere(storedWhere, hostsMap);
   const [editingView, setEditingView] = useState<string | "new" | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const view = (selectedViewId ? views[selectedViewId] : null) ?? null;
-  const surfaces = useSyncStore((s) => s.surfaces);
-  const shownText = view ? shownIn(view, Object.values(surfaces), hostsMap) : null;
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
   const issues = useSyncStore((s) => s.issues);
   const hosts = useHosts();
   const projectList = useProjects();
+  const navInput = useMemo(
+    () => ({ projects, workspaces, sessions, hosts: hostsMap, attention, interactions, issues }),
+    [projects, workspaces, sessions, hostsMap, attention, interactions, issues],
+  );
+  const navOpts = {
+    query: prefs.query,
+    layout: prefs.layout,
+    showSubagents: prefs.showSubagents,
+    sort,
+    needsInputFirst: prefs.needsInputFirst,
+    view,
+    where,
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: navOpts is rebuilt each render from these
   const tree = useMemo(
-    () =>
-      buildNavTree(
-        { projects, workspaces, sessions, hosts: hostsMap, attention, interactions, issues },
-        {
-          filter: prefs.filter,
-          query: prefs.query,
-          layout: prefs.layout,
-          showSubagents: prefs.showSubagents,
-          sort,
-          needsInputFirst: prefs.needsInputFirst,
-          view,
-          where,
-          keepId: selectedId,
-        },
-      ),
+    () => buildNavTree(navInput, { ...navOpts, filter: prefs.filter, keepId: selectedId }),
     [
+      navInput,
       selectedId,
-      projects,
-      workspaces,
-      sessions,
-      hostsMap,
-      attention,
-      interactions,
-      issues,
       prefs.filter,
       prefs.query,
       prefs.layout,
@@ -157,24 +155,26 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       sort,
       prefs.needsInputFirst,
       view,
-      where,
+      where?.kind,
+      where?.id,
     ],
   );
+  const filterOptionValues: NavFilter[] = screen
+    ? ["active", "attention", "all"]
+    : ["active", "all"];
+  // The count on each filter is the branches it lists, so it always matches the rows.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: navOpts is rebuilt each render from these
+  const counts = useMemo(() => {
+    const out: Partial<Record<NavFilter, number>> = {};
+    for (const f of filterOptionValues) {
+      out[f] = navRowCount(
+        f === prefs.filter ? tree : buildNavTree(navInput, { ...navOpts, filter: f }),
+      );
+    }
+    return out;
+  }, [tree, screen]);
+  const needs = useMemo(() => navNeedsInput(tree), [tree]);
   const navigate = useNavigate();
-  const summary = useMemo(() => {
-    const attn = sessionsNeedingAttention(attention, interactions);
-    const scope = view ? trackerScope(view, Object.values(issues)) : null;
-    const rows = Object.values(sessions)
-      .filter(
-        (s) =>
-          s.archivedAt === null &&
-          s.provenance !== "subagent" &&
-          (!view || sessionInView(view, s, workspaces, scope)) &&
-          sessionIsWhere(where, s),
-      )
-      .map((session) => ({ session, bucket: statusBucket(session, attn.has(session.id)) }));
-    return statusSummary(rows);
-  }, [sessions, attention, interactions, view, where, workspaces, issues]);
   const collapsed = new Set(prefs.collapsed);
   const toggle = (key: string) => {
     const next = new Set(collapsed);
@@ -192,6 +192,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     },
   };
   const allKeys = navGroupKeys(tree);
+  const anyExpanded = allKeys.some((k) => !collapsed.has(k));
   const viewItems: (MenuItem | MenuHeading | "separator")[] = [
     { id: "layout-heading", heading: "Group branches" },
     ...NAV_LAYOUTS.map(
@@ -204,6 +205,15 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         onSelect: () => setPrefs({ ...prefs, layout: l.value }),
       }),
     ),
+    ...(allKeys.length > 0
+      ? [
+          {
+            id: "collapse-all",
+            label: anyExpanded ? "Collapse all" : "Expand all",
+            onSelect: () => setPrefs({ ...prefs, collapsed: anyExpanded ? allKeys : [] }),
+          } satisfies MenuItem,
+        ]
+      : []),
     "separator",
     { id: "sort-heading", heading: "Sort sessions" },
     ...NAV_SORTS.map(
@@ -233,24 +243,61 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       onSelect: () => setPrefs({ ...prefs, showSubagents: !prefs.showSubagents }),
     },
   ];
-  const anyExpanded = allKeys.some((k) => !collapsed.has(k));
 
-  const activeOption = {
-    value: "active" as const,
-    label: "Active",
-    title: "Live sessions, and stopped ones that need you",
+  const filterInfo: Record<NavFilter, { label: string; title?: string }> = {
+    active: { label: "Active", title: "Live sessions, and stopped ones that need you" },
+    attention: { label: "Needs input" },
+    all: {
+      label: "All",
+      title: view?.trackerId
+        ? `Adds stopped sessions on ${view.name}'s issues, and pinned ones`
+        : "Adds stopped sessions",
+    },
   };
-  const allOption = {
-    value: "all" as const,
-    label: "All",
-    title: view?.trackerId
-      ? `Adds stopped sessions on ${view.name}'s issues, and pinned ones`
-      : "Adds stopped sessions",
-  };
-  const filterOptions: { value: NavFilter; label: string; title?: string }[] = screen
-    ? [activeOption, { value: "attention", label: "Needs input" }, allOption]
-    : [activeOption, allOption];
+  const filterOptions = filterOptionValues.map((value) => ({
+    value,
+    ...filterInfo[value],
+    count: counts[value] ?? 0,
+  }));
   const viewName = view?.name ?? null;
+  const whereName = where ? whereLabel(where, hostsMap) : null;
+  const searchShown = !screen || searchOpen || prefs.query !== "";
+  // One Clear for all: shown once two filters are set (a single one has its own clear).
+  const activeFilters =
+    Number(!!view) +
+    Number(!!where) +
+    Number(prefs.query !== "") +
+    Number(prefs.filter === "attention");
+  const anyFilter = activeFilters >= 2;
+  const ready = hydrated && hosts.length > 0 && projectList.length > 0;
+  const clearFilters = () => {
+    setSelectedViewId(null);
+    setWhere(null);
+    setSearchOpen(false);
+    setPrefs({
+      ...prefs,
+      query: "",
+      filter: prefs.filter === "attention" ? "active" : prefs.filter,
+    });
+  };
+  const outsideLabel = (r: NavOutside): string =>
+    r === "view"
+      ? `Not in ${viewName ?? "this view"}`
+      : r === "where"
+        ? `Not in ${whereName ?? "this place"}`
+        : prefs.filter === "attention"
+          ? "No input needed"
+          : "Not active";
+  const rowProps = { selectedId, screen, viewName, outsideLabel };
+  const groupProps = {
+    collapsed,
+    toggle,
+    onNewSession,
+    expansion,
+    where,
+    setWhere,
+    ...rowProps,
+  };
 
   let body: ReactNode;
   if (!hydrated) {
@@ -273,29 +320,32 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     const first = hosts.find((h) => !h.revokedAt && h.connectivity === "connected");
     body = (
       <>
-        {first && <ProjectSuggestions host={first} compact />}
         <EmptyState
           icon={<FolderGit2 className="size-8" />}
           title="Add a project"
           description="Point Switchyard at a Git checkout on one of your hosts to start sessions there."
           action={{ label: "Add a project", to: "/settings/projects" }}
         />
+        {first && <ProjectSuggestions host={first} compact />}
       </>
     );
   } else if (navTreeIsEmpty(tree)) {
     const kept = navOutsideRow(tree);
-    const keptRow = kept && (
-      <ul aria-label="Open session" className="flex min-w-0 flex-col gap-0.5 pb-2">
-        <SessionRow
-          row={kept}
-          indent={0}
-          selectedId={selectedId}
-          screen={screen}
-          viewName={viewName}
-        />
-      </ul>
-    );
-    body = prefs.query ? (
+    const statusTitle = (what: string | null) => {
+      const inWhat = what ? ` in ${what}` : "";
+      return prefs.filter === "attention"
+        ? `Nothing needs your input${inWhat}`
+        : prefs.filter === "active"
+          ? `No active sessions${inWhat}`
+          : what
+            ? `No sessions${inWhat}`
+            : "No sessions yet";
+    };
+    const showAll =
+      prefs.filter !== "all"
+        ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
+        : undefined;
+    const empty = prefs.query ? (
       <EmptyState
         icon={<Search className="size-8" />}
         title="No matches"
@@ -303,77 +353,53 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         action={{ label: "Clear search", onClick: () => setPrefs({ ...prefs, query: "" }) }}
       />
     ) : where ? (
-      <>
-        {keptRow}
-        <EmptyState
-          title={
-            prefs.filter === "attention"
-              ? `Nothing needs your input in ${whereLabel(where, hostsMap)}`
-              : prefs.filter === "active"
-                ? `No active sessions in ${whereLabel(where, hostsMap)}`
-                : `No sessions in ${whereLabel(where, hostsMap)}`
-          }
-          description={
-            where.kind === "terminal"
-              ? "A terminal lists the Pi running in it now. Sessions that ended there are under Anywhere."
-              : view
-                ? `No session in ${view.name} runs on this host.`
-                : "No session runs on this host."
-          }
-          action={{ label: "Anywhere", onClick: () => setWhere(null) }}
-        />
-      </>
+      <EmptyState
+        title={statusTitle(whereName)}
+        description={
+          where.kind === "terminal"
+            ? "A terminal lists only the Pi running in it now: a session that ended there is not in it any more."
+            : view
+              ? `No session in ${view.name} runs on this host.`
+              : "No session runs on this host."
+        }
+        action={{ label: "Clear Where", onClick: () => setWhere(null) }}
+        secondaryAction={where.kind === "host" ? showAll : undefined}
+      />
     ) : view ? (
-      <>
-        {keptRow}
-        <EmptyState
-          {...emptyViewState(view, {
-            filter: prefs.filter,
-            source: describeView(view),
-            origin: window.location.host,
-          })}
-          action={{ label: "New session", onClick: () => onNewSession() }}
-          secondaryAction={
-            prefs.filter !== "all"
-              ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
-              : { label: "All sessions", onClick: () => setSelectedViewId(null) }
-          }
-        />
-      </>
+      <EmptyState
+        {...emptyViewState(view, {
+          filter: prefs.filter,
+          source: describeView(view),
+          origin: window.location.host,
+        })}
+        action={{ label: "New session", onClick: () => onNewSession() }}
+        secondaryAction={
+          showAll ?? { label: "All sessions", onClick: () => setSelectedViewId(null) }
+        }
+      />
     ) : (
+      <EmptyState
+        title={statusTitle(null)}
+        description="Start a session in one of your projects."
+        action={{ label: "New session", onClick: () => onNewSession() }}
+        secondaryAction={showAll}
+      />
+    );
+    body = (
       <>
-        {keptRow}
-        <EmptyState
-          title={
-            prefs.filter === "attention"
-              ? "Nothing needs your input"
-              : prefs.filter === "active"
-                ? "No active sessions"
-                : "No sessions yet"
-          }
-          description="Start a session in one of your projects."
-          action={{ label: "New session", onClick: () => onNewSession() }}
-          secondaryAction={
-            prefs.filter !== "all"
-              ? { label: "Show all", onClick: () => setPrefs({ ...prefs, filter: "all" }) }
-              : undefined
-          }
-        />
+        {empty}
+        {kept && (
+          <ul aria-label="Open session" className="flex min-w-0 flex-col gap-0.5 pb-2">
+            <SessionRow row={kept} indent={0} {...rowProps} />
+          </ul>
+        )}
       </>
     );
   } else if (prefs.layout === "recent") {
     body = (
       <ul aria-label="Recent sessions" className="flex min-w-0 flex-col gap-0.5 pb-4">
         {tree.rows.map((row) => (
-          <SessionRow
-            key={row.key}
-            row={row}
-            indent={0}
-            selectedId={selectedId}
-            screen={screen}
-            expansion={expansion}
-            viewName={viewName}
-          />
+          <SessionRow key={row.key} row={row} indent={0} expansion={expansion} {...rowProps} />
         ))}
       </ul>
     );
@@ -381,23 +407,12 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     body = (
       <ul
         aria-label={
-          prefs.layout === "hosts" ? "Hosts" : prefs.layout === "status" ? "Status" : "Projects"
+          prefs.layout === "where" ? "Where" : prefs.layout === "status" ? "Status" : "Projects"
         }
         className="flex min-w-0 flex-col gap-1 pb-4"
       >
         {tree.groups.map((g) => (
-          <GroupNode
-            key={g.key}
-            group={g}
-            depth={0}
-            collapsed={collapsed}
-            toggle={toggle}
-            selectedId={selectedId}
-            screen={screen}
-            onNewSession={onNewSession}
-            expansion={expansion}
-            viewName={viewName}
-          />
+          <GroupNode key={g.key} group={g} depth={0} {...groupProps} />
         ))}
       </ul>
     );
@@ -414,17 +429,28 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       style={style}
       className={cn("flex min-h-0 min-w-0 flex-col bg-surface", className)}
     >
-      <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 pt-3 pb-2">
-        <div className="flex items-center gap-2">
+      <div
+        data-testid="navigator-header"
+        className="@container flex shrink-0 flex-col gap-1.5 border-b border-border px-3 pt-3 pb-1.5"
+      >
+        <div className="flex min-w-0 items-center gap-2">
           <h2 className={cn("min-w-0 flex-1 font-semibold", screen ? "text-lg" : "text-sm")}>
             Sessions
           </h2>
-          <IconButton
-            data-testid="open-palette"
-            label={`Search (${isMac() ? "⌘K" : "Ctrl+K"})`}
-            icon={<Search className="size-4" />}
-            onClick={() => usePalette.getState().setOpen(true)}
-          />
+          {screen && ready && (
+            <IconButton
+              data-testid="toggle-search"
+              label="Search sessions"
+              aria-expanded={searchShown}
+              icon={<Search className="size-4" />}
+              onClick={() => {
+                if (searchShown) {
+                  setSearchOpen(false);
+                  if (prefs.query) setPrefs({ ...prefs, query: "" });
+                } else setSearchOpen(true);
+              }}
+            />
+          )}
           <Button
             data-testid="new-session"
             size="sm"
@@ -432,103 +458,127 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             icon={<Plus className="size-4" />}
             onClick={() => onNewSession()}
             disabled={!hydrated || hosts.length === 0 || projectList.length === 0}
+            title={
+              hydrated && hosts.length === 0
+                ? "Connect a host to start sessions"
+                : hydrated && projectList.length === 0
+                  ? "Add a project to start sessions"
+                  : undefined
+            }
           >
             New session
           </Button>
         </div>
-        {summary.length > 0 && (
-          <p
-            data-testid="status-summary"
-            className="flex flex-wrap items-center gap-x-1 text-xs text-muted"
+        {ready && searchShown && (
+          <div className="relative">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-subtle"
+            />
+            <TextInput
+              type="search"
+              aria-label="Search sessions"
+              data-keyboard-search
+              placeholder="Search sessions"
+              title={screen ? undefined : `Search everything: ${isMac() ? "⌘K" : "Ctrl+K"}`}
+              value={prefs.query}
+              autoFocus={screen && searchOpen && !prefs.query}
+              onChange={(e) => setPrefs({ ...prefs, query: e.target.value })}
+              className="pl-8"
+            />
+          </div>
+        )}
+        {ready && (
+          <div
+            data-testid="navigator-filters"
+            className="flex min-w-0 flex-wrap items-center gap-x-2"
           >
-            {summary.map((b, i) => (
-              <span key={b.bucket} className="inline-flex items-center gap-1">
-                {i > 0 && <span aria-hidden>·</span>}
+            <div className="flex min-w-0 flex-1 basis-48 items-center gap-0.5">
+              <ViewFilter
+                views={views}
+                view={view}
+                title={view ? describeView(view) : undefined}
+                onChange={setSelectedViewId}
+              />
+              <IconButton
+                size="sm"
+                label={view ? "Edit view" : "New view"}
+                icon={view ? <Pencil className="size-3.5" /> : <Plus className="size-4" />}
+                onClick={() => setEditingView(view?.id ?? "new")}
+              />
+              {!where && anyFilter && (
                 <button
                   type="button"
-                  className="tap rounded underline-offset-2 hover:underline"
-                  onClick={() =>
-                    navigate(`/code/${encodeURIComponent(b.first)}`, { state: BACK_STATE })
-                  }
+                  data-testid="clear-filters"
+                  onClick={clearFilters}
+                  className="tap ml-auto inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-xs font-medium text-accent hover:underline"
                 >
-                  {b.count} {STATUS_BUCKETS.find((x) => x.value === b.bucket)?.short}
+                  Clear
                 </button>
-              </span>
-            ))}
-          </p>
-        )}
-        {hydrated && (hosts.length === 0 || projectList.length === 0) && (
-          <p className="text-xs text-muted">
-            {hosts.length === 0
-              ? "Connect a host to start sessions."
-              : "Add a project to start sessions."}
-          </p>
-        )}
-        <div className="relative">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-subtle"
-          />
-          <TextInput
-            type="search"
-            aria-label="Search sessions"
-            data-keyboard-search
-            placeholder="Search sessions, branches"
-            value={prefs.query}
-            onChange={(e) => setPrefs({ ...prefs, query: e.target.value })}
-            className="pl-8"
-          />
-        </div>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <div className="flex min-w-0 items-center gap-1">
-            <ViewSelect allLabel="All sessions" className="min-w-0 flex-1" />
-            <Button onClick={() => setEditingView(view?.id ?? "new")}>
-              {view ? "Edit" : "New view"}
-            </Button>
+              )}
+            </div>
+            {where && whereName && (
+              <div className="flex min-w-0 flex-1 basis-48 items-center gap-0.5">
+                <WhereFilter value={whereName} onClear={() => setWhere(null)} />
+                {anyFilter && (
+                  <button
+                    type="button"
+                    data-testid="clear-filters"
+                    onClick={clearFilters}
+                    className="tap ml-auto inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-xs font-medium text-accent hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          {view && <p className="truncate text-subtle text-xs">{describeView(view)}</p>}
-          {shownText && <p className="truncate text-subtle text-xs">Shown in: {shownText}</p>}
-        </div>
-        <WhereSelect />
+        )}
         <ViewsDialog
           editing={editingView}
           onClose={() => setEditingView(null)}
           onSaved={(id) => setSelectedViewId(id)}
         />
-        <div className="flex min-w-0 items-center gap-1">
-          <SegmentedControl
-            label="Session filter"
-            options={filterOptions}
-            value={prefs.filter}
-            onChange={(v) => setPrefs({ ...prefs, filter: v })}
-            className="min-w-0 flex-1"
-            block
-          />
-          <Menu
-            label="View options"
-            items={viewItems}
-            trigger={(p) => (
-              <IconButton
-                {...p}
-                label="View options"
-                icon={<SlidersHorizontal className="size-4" />}
-              />
-            )}
-          />
-          {tree.groups.length > 0 && (
-            <IconButton
-              label={anyExpanded ? "Collapse all" : "Expand all"}
-              icon={
-                anyExpanded ? (
-                  <ChevronsDownUp className="size-4" />
-                ) : (
-                  <ChevronsUpDown className="size-4" />
-                )
-              }
-              onClick={() => setPrefs({ ...prefs, collapsed: anyExpanded ? allKeys : [] })}
+        {ready && (
+          <div className="flex min-w-0 items-center gap-1">
+            <QuietRadio
+              label="Session filter"
+              options={filterOptions}
+              value={prefs.filter}
+              onChange={(v) => setPrefs({ ...prefs, filter: v })}
             />
-          )}
-        </div>
+            {!screen && needs.count > 0 && needs.first && (
+              <button
+                type="button"
+                data-testid="needs-input-jump"
+                title="Open the latest session that needs your input"
+                aria-label={`${needs.count} need${needs.count === 1 ? "s" : ""} input: open the latest`}
+                onClick={() =>
+                  navigate(`/code/${encodeURIComponent(needs.first!)}`, { state: BACK_STATE })
+                }
+                // Only where it fits beside the counts; rows still mark what needs input.
+                className="tap hidden h-8 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium text-warning hover:bg-surface-2 @min-[14rem]:inline-flex"
+              >
+                <MessageCircleQuestion aria-hidden className="size-3.5" />
+                {needs.count}
+              </button>
+            )}
+            <div className="ml-auto shrink-0">
+              <Menu
+                label="View options"
+                items={viewItems}
+                trigger={(p) => (
+                  <IconButton
+                    {...p}
+                    size="sm"
+                    label="View options"
+                    icon={<SlidersHorizontal className="size-4" />}
+                  />
+                )}
+              />
+            </div>
+          </div>
+        )}
       </div>
       <AdapterSlot sessionId={selectedId} placement="sidebar.header" />
       <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 pt-2">
@@ -539,13 +589,160 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   );
 }
 
+/** Quiet text radios (no box): the chosen one is highlighted; each shows a plain count. */
+function QuietRadio<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: T; label: string; title?: string; count: number }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  const idx = options.findIndex((o) => o.value === value);
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="flex min-w-0 items-center gap-0.5"
+      onKeyDown={(e) => {
+        let next = -1;
+        if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % options.length;
+        else if (e.key === "ArrowLeft" || e.key === "ArrowUp")
+          next = (idx - 1 + options.length) % options.length;
+        if (next < 0) return;
+        e.preventDefault();
+        onChange(options[next]!.value);
+        e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+      }}
+    >
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          // biome-ignore lint/a11y/useSemanticElements: button-based radio group (WAI-ARIA radio pattern)
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            title={o.title}
+            tabIndex={on ? 0 : -1}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "tap inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-1.5 text-sm whitespace-nowrap",
+              on ? "bg-surface-2 font-medium text-text" : "text-muted hover:text-text",
+            )}
+          >
+            {o.label}
+            <span
+              data-testid={`filter-count-${o.value}`}
+              className="text-xs tabular-nums text-muted"
+            >
+              {o.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The view filter: a borderless labelled select, in the accent colour with a clear when set. */
+function ViewFilter({
+  views,
+  view,
+  title,
+  onChange,
+}: {
+  views: Record<string, View>;
+  view: View | null;
+  title?: string;
+  onChange: (id: string | null) => void;
+}) {
+  const id = useId();
+  return (
+    <div
+      data-testid="view-chip"
+      data-active={view ? "true" : undefined}
+      className="flex h-8 min-w-0 items-center gap-1.5 text-sm"
+    >
+      <label htmlFor={id} className="shrink-0 text-xs text-muted">
+        View
+      </label>
+      <span className="relative flex min-w-0 items-center">
+        <select
+          id={id}
+          value={view?.id ?? ""}
+          title={title}
+          onChange={(e) => onChange(e.target.value || null)}
+          className={cn(
+            "tap h-8 min-w-0 max-w-full cursor-pointer appearance-none truncate rounded-md bg-transparent pr-5 pl-1 font-medium outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent",
+            view ? "text-accent" : "text-text",
+          )}
+        >
+          <option value="">All sessions</option>
+          {Object.values(views).map((v) => (
+            <option key={v.id} value={v.id}>
+              {viewOptionLabel(v)}
+            </option>
+          ))}
+        </select>
+        <ChevronDown
+          aria-hidden
+          className="pointer-events-none absolute right-1 size-3.5 shrink-0 text-muted"
+        />
+      </span>
+      {view && (
+        <IconButton
+          size="sm"
+          label="Clear view"
+          icon={<X className="size-3.5" />}
+          onClick={() => onChange(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The set Where filter: label, the place in the accent colour, and a clear. */
+function WhereFilter({ value, onClear }: { value: string; onClear: () => void }) {
+  return (
+    <div
+      data-testid="where-chip"
+      data-active="true"
+      title={`Where: ${value}`}
+      className="flex h-8 min-w-0 items-center gap-1.5 text-sm"
+    >
+      <span className="shrink-0 text-xs text-muted">Where</span>
+      <span className="min-w-0 truncate pl-1 font-medium text-accent">{value}</span>
+      <IconButton
+        size="sm"
+        label="Clear Where"
+        icon={<X className="size-3.5" />}
+        onClick={onClear}
+      />
+    </div>
+  );
+}
+
+function GroupIcon({ group }: { group: NavGroup }) {
+  const cls = "size-3.5 shrink-0 text-muted";
+  if (group.kind === "host") return <Server aria-hidden className={cls} />;
+  if (group.kind === "terminal") return <SquareTerminal aria-hidden className={cls} />;
+  if (group.kind === "held") return <Layers aria-hidden className={cls} />;
+  if (group.kind === "project") return <FolderGit2 aria-hidden className={cls} />;
+  return null;
+}
+
 function GroupHeader({ group, depth, open }: { group: NavGroup; depth: number; open: boolean }) {
   const Chevron = open ? ChevronDown : ChevronRight;
   if (depth === 0) {
     return (
       <>
         <Chevron aria-hidden className="size-4 shrink-0 text-muted" />
-        {group.kind === "host" && <Server aria-hidden className="size-3.5 shrink-0 text-muted" />}
+        {group.kind === "host" && <GroupIcon group={group} />}
         <span className="min-w-0 flex-1 truncate">
           {group.label}
           {group.detail && (
@@ -565,8 +762,11 @@ function GroupHeader({ group, depth, open }: { group: NavGroup; depth: number; o
   return (
     <>
       <Chevron aria-hidden className="size-3.5 shrink-0 text-muted" />
-      <FolderGit2 aria-hidden className="size-3.5 shrink-0 text-muted" />
-      <span className="min-w-0 flex-1 truncate text-sm">{group.label}</span>
+      <GroupIcon group={group} />
+      <span className="min-w-0 flex-1 truncate text-sm">
+        {group.label}
+        {group.detail && <span className="ml-1.5 text-xs text-muted">{group.detail}</span>}
+      </span>
     </>
   );
 }
@@ -577,29 +777,37 @@ interface RowExpansion {
   toggleRow: (key: string) => void;
 }
 
+interface RowProps {
+  selectedId: string | null;
+  screen: boolean;
+  viewName: string | null;
+  /** The marker on the open session's row when a filter excludes it. */
+  outsideLabel: (r: NavOutside) => string;
+}
+
 function GroupNode({
   group,
   depth,
   collapsed,
   toggle,
-  selectedId,
-  screen,
   onNewSession,
   expansion,
-  viewName,
-}: {
+  where,
+  setWhere,
+  ...rowProps
+}: RowProps & {
   group: NavGroup;
   depth: number;
   collapsed: Set<string>;
   toggle: (key: string) => void;
-  selectedId: string | null;
-  screen: boolean;
   onNewSession: (projectId?: string) => void;
   expansion: RowExpansion;
-  viewName: string | null;
+  where: Where | null;
+  setWhere: (w: Where | null) => void;
 }) {
   const open = !collapsed.has(group.key);
   const pid = group.kind === "project" ? projectIdOfGroup(group.key) : null;
+  const only = group.where && !sameWhere(group.where, where) ? group.where : null;
   return (
     <li className="min-w-0">
       <div className="group/row flex min-w-0 items-center">
@@ -614,6 +822,18 @@ function GroupNode({
         >
           <GroupHeader group={group} depth={depth} open={open} />
         </button>
+        {only && (
+          <button
+            type="button"
+            data-testid="group-only"
+            aria-label={`Only ${group.label}`}
+            title={`Show only what runs ${only.kind === "host" ? "on" : "in"} ${group.label}`}
+            onClick={() => setWhere(only)}
+            className="tap shrink-0 rounded px-1.5 py-0.5 text-xs text-muted opacity-0 hover:bg-surface-2 hover:text-text focus-visible:opacity-100 group-hover/row:opacity-100 max-md:opacity-100"
+          >
+            Only this
+          </button>
+        )}
         {pid && (
           <IconButton
             size="sm"
@@ -636,11 +856,11 @@ function GroupNode({
               depth={depth + 1}
               collapsed={collapsed}
               toggle={toggle}
-              selectedId={selectedId}
-              screen={screen}
               onNewSession={onNewSession}
               expansion={expansion}
-              viewName={viewName}
+              where={where}
+              setWhere={setWhere}
+              {...rowProps}
             />
           ))}
           {group.rows.map((row) => (
@@ -648,10 +868,8 @@ function GroupNode({
               key={row.key}
               row={row}
               indent={depth === 0 ? 1 : 2}
-              selectedId={selectedId}
-              screen={screen}
               expansion={expansion}
-              viewName={viewName}
+              {...rowProps}
             />
           ))}
         </ul>
@@ -665,23 +883,19 @@ const INDENT = ["pl-2", "pl-7", "pl-9", "pl-11"] as const;
 function SessionRow({
   row,
   indent,
-  selectedId,
-  screen,
   expansion,
   nested = false,
-  viewName,
-}: {
+  ...rowProps
+}: RowProps & {
   row: NavRow;
   indent: 0 | 1 | 2 | 3;
-  selectedId: string | null;
-  screen: boolean;
   expansion?: RowExpansion;
   nested?: boolean;
-  viewName: string | null;
 }) {
+  const { selectedId, screen, viewName, outsideLabel } = rowProps;
   const { session, attention } = row;
   const selected = session.id === selectedId;
-  const context = [formatRelative(session.lastActivityAt), row.project, row.host, row.branch]
+  const context = [formatRelative(session.lastActivityAt), row.project, row.branch]
     .filter(Boolean)
     .join(" · ");
   const count = row.others.length;
@@ -738,11 +952,35 @@ function SessionRow({
               </span>
             )}
             {row.outside && (
-              <span data-testid="row-outside" className="shrink-0 text-xs text-subtle">
-                Not in {viewName ?? "this view"}
+              <span
+                data-testid="row-outside"
+                data-reason={row.outside}
+                className="shrink-0 text-xs text-subtle"
+                title="Listed because it is open"
+              >
+                {outsideLabel(row.outside)}
               </span>
             )}
-            <span className="min-w-0 truncate text-xs text-muted">{context}</span>
+            {row.where && (
+              <span
+                data-testid="row-where"
+                title={
+                  row.where.kind === "terminal"
+                    ? `Runs in ${row.where.label}`
+                    : `Runs on ${row.where.label}`
+                }
+                className="inline-flex min-w-0 items-center gap-0.5 text-xs text-muted"
+              >
+                {row.where.kind === "terminal" ? (
+                  <SquareTerminal aria-hidden className="size-3 shrink-0" />
+                ) : (
+                  <Server aria-hidden className="size-3 shrink-0" />
+                )}
+                <span className="truncate">{row.where.label}</span>
+              </span>
+            )}
+            {/* The context gives way first, so where it runs stays readable. */}
+            <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted">{context}</span>
           </span>
         </Link>
         {count > 0 && (
@@ -765,10 +1003,8 @@ function SessionRow({
               key={o.session.id}
               row={o}
               indent={Math.min(indent + 1, 3) as 0 | 1 | 2 | 3}
-              selectedId={selectedId}
-              screen={screen}
               nested
-              viewName={viewName}
+              {...rowProps}
             />
           ))}
         </ul>
