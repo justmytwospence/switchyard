@@ -2,7 +2,7 @@ import { Badge } from "../../components/ui/Badge";
 import { LoadingState } from "../../components/ui/states";
 import { Tabs } from "../../components/ui/Tabs";
 import { useFilter } from "../../prefs";
-import { ViewSelect } from "../views/ViewSelect";
+import { ScopeSelect } from "../scopes/ScopeSelect";
 import { BoardSearch } from "./BoardSearch";
 import type { WorkBoard } from "./useWorkBoard";
 import { BoardEmpty, ColumnsControl, EmptyWorktreesToggle } from "./WorkBoardDesktop";
@@ -16,7 +16,7 @@ export function WorkBoardMobile({ board }: { board: WorkBoard }) {
     <div data-testid="workboard" className="flex min-w-0 flex-col">
       <header className="sticky top-0 z-20 flex min-w-0 flex-col gap-2 border-b border-border bg-bg px-3 pb-2 safe-pt">
         <h1 className="flex h-12 items-center text-lg font-semibold">Board</h1>
-        <ViewSelect allLabel="All work" labelVisible />
+        <ScopeSelect allLabel="All work" labelVisible />
         <BoardSearch board={board} />
         <ColumnsControl board={board} block />
         <EmptyWorktreesToggle board={board} />

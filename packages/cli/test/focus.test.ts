@@ -30,7 +30,7 @@ describe("startFocusPresence", () => {
     const sent: Presence[] = [];
     let focused: string | null = "ses_1";
     const f = startFocusPresence({
-      terminalId: "herdr:vo@mac",
+      clientId: "herdr:vo@mac",
       send: (p) => {
         sent.push(p);
         return true;
@@ -44,7 +44,7 @@ describe("startFocusPresence", () => {
         foreground: true,
         interactedAt: null,
         viewing: { sessionId: "ses_1" },
-        terminalId: "herdr:vo@mac",
+        clientId: "herdr:vo@mac",
       },
     ]);
     f.check();
@@ -65,7 +65,7 @@ describe("startFocusPresence", () => {
     let up = false;
     const sent: Presence[] = [];
     const f = startFocusPresence({
-      terminalId: "tmux:w@m",
+      clientId: "tmux:w@m",
       send: (p) => {
         if (up) sent.push(p);
         return up;

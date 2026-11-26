@@ -1,4 +1,4 @@
-import type { Session, View } from "@switchyard/protocol";
+import type { Scope, Session } from "@switchyard/protocol";
 import {
   ChevronDown,
   ChevronRight,
@@ -32,16 +32,16 @@ import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { useHosts, useProjects, useSyncStore } from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
-import { ProjectSuggestions } from "../settings/ProjectSuggestions";
-import { emptyViewState, viewOptionLabel } from "../views/describe";
-import { useViewDescriber } from "../views/ViewSelect";
+import { emptyScopeState, scopeOptionLabel } from "../scopes/describe";
+import { useScopeDescriber } from "../scopes/ScopeSelect";
 import {
   effectiveWhere,
   sameWhere,
   useSelectedWhere,
   type Where,
   whereLabel,
-} from "../views/where";
+} from "../scopes/where";
+import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import { AdapterSlot } from "./AdapterSlots";
 import {
   buildNavTree,
@@ -62,8 +62,8 @@ import {
   normalizeLayout,
   projectIdOfGroup,
 } from "./model";
-import { ViewsDialog } from "./ViewsDialog";
-import { useSelectedView } from "./views";
+import { ScopeDialog } from "./ScopeDialog";
+import { useSelectedScope } from "./scopes";
 
 interface NavPrefs {
   filter: NavFilter;
@@ -117,13 +117,13 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const sessions = useSyncStore((s) => s.sessions);
   const sort = prefs.sorts?.[prefs.layout] ?? DEFAULT_SORT[prefs.layout];
   const hostsMap = useSyncStore((s) => s.hosts);
-  const { views, describe: describeView } = useViewDescriber();
-  const [selectedViewId, setSelectedViewId] = useSelectedView();
+  const { scopes, describe: describeScope } = useScopeDescriber();
+  const [selectedScopeId, setSelectedScopeId] = useSelectedScope();
   const [storedWhere, setWhere] = useSelectedWhere();
   const where = effectiveWhere(storedWhere, hostsMap);
-  const [editingView, setEditingView] = useState<string | "new" | null>(null);
+  const [editingScope, setEditingScope] = useState<string | "new" | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const view = (selectedViewId ? views[selectedViewId] : null) ?? null;
+  const scope = (selectedScopeId ? scopes[selectedScopeId] : null) ?? null;
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
   const issues = useSyncStore((s) => s.issues);
@@ -139,7 +139,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     showSubagents: prefs.showSubagents,
     sort,
     needsInputFirst: prefs.needsInputFirst,
-    view,
+    scope,
     where,
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: navOpts is rebuilt each render from these
@@ -154,7 +154,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       prefs.showSubagents,
       sort,
       prefs.needsInputFirst,
-      view,
+      scope,
       where?.kind,
       where?.id,
     ],
@@ -249,8 +249,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     attention: { label: "Needs input" },
     all: {
       label: "All",
-      title: view?.trackerId
-        ? `Adds stopped sessions on ${view.name}'s issues, and pinned ones`
+      title: scope?.source
+        ? `Adds stopped sessions on ${scope.name}'s issues, and pinned ones`
         : "Adds stopped sessions",
     },
   };
@@ -259,19 +259,19 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     ...filterInfo[value],
     count: counts[value] ?? 0,
   }));
-  const viewName = view?.name ?? null;
+  const scopeName = scope?.name ?? null;
   const whereName = where ? whereLabel(where, hostsMap) : null;
   const searchShown = !screen || searchOpen || prefs.query !== "";
   // One Clear for all: shown once two filters are set (a single one has its own clear).
   const activeFilters =
-    Number(!!view) +
+    Number(!!scope) +
     Number(!!where) +
     Number(prefs.query !== "") +
     Number(prefs.filter === "attention");
   const anyFilter = activeFilters >= 2;
   const ready = hydrated && hosts.length > 0 && projectList.length > 0;
   const clearFilters = () => {
-    setSelectedViewId(null);
+    setSelectedScopeId(null);
     setWhere(null);
     setSearchOpen(false);
     setPrefs({
@@ -281,14 +281,14 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     });
   };
   const outsideLabel = (r: NavOutside): string =>
-    r === "view"
-      ? `Not in ${viewName ?? "this view"}`
+    r === "scope"
+      ? `Not in ${scopeName ?? "this scope"}`
       : r === "where"
         ? `Not in ${whereName ?? "this place"}`
         : prefs.filter === "attention"
           ? "No input needed"
           : "Not active";
-  const rowProps = { selectedId, screen, viewName, outsideLabel };
+  const rowProps = { selectedId, screen, scopeName, outsideLabel };
   const groupProps = {
     collapsed,
     toggle,
@@ -356,25 +356,25 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       <EmptyState
         title={statusTitle(whereName)}
         description={
-          where.kind === "terminal"
-            ? "A terminal lists only the Pi running in it now: a session that ended there is not in it any more."
-            : view
-              ? `No session in ${view.name} runs on this host.`
+          where.kind === "client"
+            ? "A client lists only the Pi running in it now: a session that ended there is not in it any more."
+            : scope
+              ? `No session in ${scope.name} runs on this host.`
               : "No session runs on this host."
         }
         action={{ label: "Clear Where", onClick: () => setWhere(null) }}
         secondaryAction={where.kind === "host" ? showAll : undefined}
       />
-    ) : view ? (
+    ) : scope ? (
       <EmptyState
-        {...emptyViewState(view, {
+        {...emptyScopeState(scope, {
           filter: prefs.filter,
-          source: describeView(view),
+          source: describeScope(scope),
           origin: window.location.host,
         })}
         action={{ label: "New session", onClick: () => onNewSession() }}
         secondaryAction={
-          showAll ?? { label: "All sessions", onClick: () => setSelectedViewId(null) }
+          showAll ?? { label: "All sessions", onClick: () => setSelectedScopeId(null) }
         }
       />
     ) : (
@@ -495,16 +495,16 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           >
             <div className="flex min-w-0 flex-1 basis-48 items-center gap-0.5">
               <ViewFilter
-                views={views}
-                view={view}
-                title={view ? describeView(view) : undefined}
-                onChange={setSelectedViewId}
+                scopes={scopes}
+                scope={scope}
+                title={scope ? describeScope(scope) : undefined}
+                onChange={setSelectedScopeId}
               />
               <IconButton
                 size="sm"
-                label={view ? "Edit view" : "New view"}
-                icon={view ? <Pencil className="size-3.5" /> : <Plus className="size-4" />}
-                onClick={() => setEditingView(view?.id ?? "new")}
+                label={scope ? "Edit scope" : "New scope"}
+                icon={scope ? <Pencil className="size-3.5" /> : <Plus className="size-4" />}
+                onClick={() => setEditingScope(scope?.id ?? "new")}
               />
               {!where && anyFilter && (
                 <button
@@ -534,10 +534,10 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             )}
           </div>
         )}
-        <ViewsDialog
-          editing={editingView}
-          onClose={() => setEditingView(null)}
-          onSaved={(id) => setSelectedViewId(id)}
+        <ScopeDialog
+          editing={editingScope}
+          onClose={() => setEditingScope(null)}
+          onSaved={(id) => setSelectedScopeId(id)}
         />
         {ready && (
           <div className="flex min-w-0 items-center gap-1">
@@ -649,43 +649,43 @@ function QuietRadio<T extends string>({
   );
 }
 
-/** The view filter: a borderless labelled select, in the accent colour with a clear when set. */
+/** The scope filter: a borderless labelled select, in the accent colour with a clear when set. */
 function ViewFilter({
-  views,
-  view,
+  scopes,
+  scope,
   title,
   onChange,
 }: {
-  views: Record<string, View>;
-  view: View | null;
+  scopes: Record<string, Scope>;
+  scope: Scope | null;
   title?: string;
   onChange: (id: string | null) => void;
 }) {
   const id = useId();
   return (
     <div
-      data-testid="view-chip"
-      data-active={view ? "true" : undefined}
+      data-testid="scope-chip"
+      data-active={scope ? "true" : undefined}
       className="flex h-8 min-w-0 items-center gap-1.5 text-sm"
     >
       <label htmlFor={id} className="shrink-0 text-xs text-muted">
-        View
+        Scope
       </label>
       <span className="relative flex min-w-0 items-center">
         <select
           id={id}
-          value={view?.id ?? ""}
+          value={scope?.id ?? ""}
           title={title}
           onChange={(e) => onChange(e.target.value || null)}
           className={cn(
             "tap h-8 min-w-0 max-w-full cursor-pointer appearance-none truncate rounded-md bg-transparent pr-5 pl-1 font-medium outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent",
-            view ? "text-accent" : "text-text",
+            scope ? "text-accent" : "text-text",
           )}
         >
           <option value="">All sessions</option>
-          {Object.values(views).map((v) => (
+          {Object.values(scopes).map((v) => (
             <option key={v.id} value={v.id}>
-              {viewOptionLabel(v)}
+              {scopeOptionLabel(v)}
             </option>
           ))}
         </select>
@@ -694,10 +694,10 @@ function ViewFilter({
           className="pointer-events-none absolute right-1 size-3.5 shrink-0 text-muted"
         />
       </span>
-      {view && (
+      {scope && (
         <IconButton
           size="sm"
-          label="Clear view"
+          label="Clear scope"
           icon={<X className="size-3.5" />}
           onClick={() => onChange(null)}
         />
@@ -780,7 +780,7 @@ interface RowExpansion {
 interface RowProps {
   selectedId: string | null;
   screen: boolean;
-  viewName: string | null;
+  scopeName: string | null;
   /** The marker on the open session's row when a filter excludes it. */
   outsideLabel: (r: NavOutside) => string;
 }
@@ -892,7 +892,7 @@ function SessionRow({
   expansion?: RowExpansion;
   nested?: boolean;
 }) {
-  const { selectedId, screen, viewName, outsideLabel } = rowProps;
+  const { selectedId, screen, scopeName, outsideLabel } = rowProps;
   const { session, attention } = row;
   const selected = session.id === selectedId;
   const context = [formatRelative(session.lastActivityAt), row.project, row.branch]
@@ -946,7 +946,7 @@ function SessionRow({
               <span
                 data-testid="row-no-issue"
                 className="shrink-0 text-xs text-subtle"
-                title={`In ${viewName ?? "this view"} only while it is live. Pin it or link an issue to keep it.`}
+                title={`In ${scopeName ?? "this scope"} only while it is live. Pin it or link an issue to keep it.`}
               >
                 No issue
               </span>

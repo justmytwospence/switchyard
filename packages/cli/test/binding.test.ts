@@ -1,31 +1,25 @@
-import type { Terminal, View } from "@switchyard/protocol";
+import type { Client, Scope } from "@switchyard/protocol";
 import { ApiClient } from "@switchyard/terminal";
 import { describe, expect, it } from "vitest";
-import {
-  legacyBinding,
-  pickerBinding,
-  recordedBinding,
-  seedBinding,
-  syncTerminal,
-} from "../src/mirror/binding.js";
+import { pickerBinding, recordedBinding, seedBinding, syncClient } from "../src/mirror/binding.js";
 import { stubFetch } from "./helpers.js";
 
 const at = "2026-01-01T00:00:00.000Z";
-const view = (id: string, name: string): View => ({
+const scope = (id: string, name: string): Scope => ({
   id,
   name,
   mode: "all",
   projectIds: null,
   hostIds: null,
   sessionIds: [],
-  clients: [],
+  source: null,
   createdAt: at,
   updatedAt: at,
 });
-const WORK = view("viw_work", "work");
-const PERSONAL = view("viw_personal", "personal");
+const WORK = scope("viw_work", "work");
+const PERSONAL = scope("viw_personal", "personal");
 const ID = "herdr:personal@mac";
-const terminal = (over: Partial<Terminal> = {}): Terminal => ({
+const client = (over: Partial<Client> = {}): Client => ({
   id: ID,
   kind: "herdr",
   name: "personal",
@@ -33,7 +27,7 @@ const terminal = (over: Partial<Terminal> = {}): Terminal => ({
   deviceId: "dev_1",
   hostId: null,
   mirror: "none",
-  viewId: null,
+  scopeId: null,
   bindingSetAt: at,
   shows: [],
   lastSeenAt: at,
@@ -43,80 +37,68 @@ const terminal = (over: Partial<Terminal> = {}): Terminal => ({
 const tick = () => new Promise((r) => setTimeout(r, 10));
 
 describe("recordedBinding", () => {
-  const views = [WORK, PERSONAL];
+  const scopes = [WORK, PERSONAL];
   it("reads the recorded binding, never the name", () => {
-    expect(recordedBinding({ views, terminals: [] }, ID)).toBe("off");
-    expect(recordedBinding({ views, terminals: [terminal()] }, ID)).toBe("off");
-    expect(recordedBinding({ views, terminals: [terminal({ mirror: "all" })] }, ID)).toBeNull();
+    expect(recordedBinding({ scopes, clients: [] }, ID)).toBe("off");
+    expect(recordedBinding({ scopes, clients: [client()] }, ID)).toBe("off");
+    expect(recordedBinding({ scopes, clients: [client({ mirror: "all" })] }, ID)).toBeNull();
     expect(
-      recordedBinding({ views, terminals: [terminal({ mirror: "view", viewId: WORK.id })] }, ID),
+      recordedBinding({ scopes, clients: [client({ mirror: "scope", scopeId: WORK.id })] }, ID),
     ).toBe(WORK);
     expect(
-      recordedBinding({ views, terminals: [terminal({ mirror: "view", viewId: "viw_gone" })] }, ID),
+      recordedBinding({ scopes, clients: [client({ mirror: "scope", scopeId: "viw_gone" })] }, ID),
     ).toBe("off");
-  });
-
-  it("reads a record from before mirror existed by its view", () => {
-    const old = terminal({ viewId: WORK.id });
-    delete (old as Partial<Terminal>).mirror;
-    expect(recordedBinding({ views, terminals: [old] }, ID)).toBe(WORK);
   });
 });
 
 describe("seedBinding", () => {
-  const st = { views: [WORK, PERSONAL] };
+  const st = { scopes: [WORK, PERSONAL] };
   it("takes SWITCHYARD_VIEW, by name or id", () => {
     expect(seedBinding({ SWITCHYARD_VIEW: "work" }, "personal", st, false)).toEqual({
-      mirror: "view",
-      viewId: WORK.id,
+      mirror: "scope",
+      scopeId: WORK.id,
     });
     expect(seedBinding({ SWITCHYARD_VIEW: WORK.id }, "x", st, true)).toEqual({
-      mirror: "view",
-      viewId: WORK.id,
+      mirror: "scope",
+      scopeId: WORK.id,
     });
   });
 
-  it("waits while SWITCHYARD_VIEW names no view", () => {
+  it("waits while SWITCHYARD_VIEW names no scope", () => {
     expect(seedBinding({ SWITCHYARD_VIEW: "later" }, "personal", st, true)).toBeUndefined();
   });
 
-  it("takes the view named after the session only if it was mirroring", () => {
+  it("takes the scope named after the session only if it was mirroring", () => {
     expect(seedBinding({}, "personal", st, true)).toEqual({
-      mirror: "view",
-      viewId: PERSONAL.id,
+      mirror: "scope",
+      scopeId: PERSONAL.id,
     });
     expect(seedBinding({}, "personal", st, false)).toEqual({ mirror: "none" });
     expect(seedBinding({}, "default", st, true)).toEqual({ mirror: "none" });
   });
 });
 
-describe("pickerBinding and legacyBinding", () => {
+describe("pickerBinding", () => {
   it("uses the recorded binding when there is one, else SWITCHYARD_VIEW, never the name", () => {
-    const views = [WORK, PERSONAL];
-    expect(pickerBinding({ views, terminals: [terminal({ mirror: "all" })] }, {}, ID)).toBeNull();
-    expect(pickerBinding({ views, terminals: [] }, { SWITCHYARD_VIEW: "work" }, ID)).toBe(WORK);
-    expect(pickerBinding({ views, terminals: [] }, {}, ID)).toBe("off");
-  });
-
-  it("legacy: SWITCHYARD_VIEW, else the session's name", () => {
-    expect(legacyBinding({ views: [WORK, PERSONAL] }, {}, "personal")).toBe(PERSONAL);
-    expect(legacyBinding({ views: [WORK] }, { SWITCHYARD_VIEW: "work" }, "x")).toBe(WORK);
-    expect(legacyBinding({ views: [WORK] }, {}, "x")).toBe("off");
+    const scopes = [WORK, PERSONAL];
+    expect(pickerBinding({ scopes, clients: [client({ mirror: "all" })] }, {}, ID)).toBeNull();
+    expect(pickerBinding({ scopes, clients: [] }, { SWITCHYARD_VIEW: "work" }, ID)).toBe(WORK);
+    expect(pickerBinding({ scopes, clients: [] }, {}, ID)).toBe("off");
   });
 });
 
-describe("syncTerminal", () => {
+describe("syncClient", () => {
   const info = { id: ID, kind: "herdr" as const, name: "personal", machine: "mac", hostId: null };
-  const path = "PUT /api/terminals/herdr%3Apersonal%40mac";
+  const path = "PUT /api/clients/herdr%3Apersonal%40mac";
 
   it("reports with a seed until a binding is recorded, then without", async () => {
-    let st: { views: View[]; terminals: Terminal[] } = { views: [WORK], terminals: [] };
+    let st: { scopes: Scope[]; clients: Client[] } = { scopes: [WORK], clients: [] };
     const listeners: (() => void)[] = [];
     const { fetch, calls } = stubFetch({
-      [path]: (c) => terminal({ mirror: (c.body as any).seed?.mirror, viewId: WORK.id }),
+      [path]: (c) => client({ mirror: (c.body as any).seed?.mirror, scopeId: WORK.id }),
     });
     const api = new ApiClient({ coordinatorUrl: "http://coord", credential: "c", fetch });
-    const sync = syncTerminal({
+    const sync = syncClient({
       api,
       info,
       state: () => st,
@@ -136,10 +118,10 @@ describe("syncTerminal", () => {
       machine: "mac",
       hostId: null,
       shows: ["ses_1"],
-      seed: { mirror: "view", viewId: WORK.id },
+      seed: { mirror: "scope", scopeId: WORK.id },
     });
     expect(sync.binding()).toBe("off");
-    st = { views: [WORK], terminals: [terminal({ mirror: "view", viewId: WORK.id })] };
+    st = { scopes: [WORK], clients: [client({ mirror: "scope", scopeId: WORK.id })] };
     for (const l of listeners) l();
     expect(sync.binding()).toBe(WORK);
     sync.report();
@@ -148,29 +130,34 @@ describe("syncTerminal", () => {
     await sync.stop();
   });
 
-  it("falls back to 0.19 surfaces and name binding on a coordinator without terminals", async () => {
-    const { fetch, calls } = stubFetch({
-      "PUT /api/surfaces/herdr%3Apersonal%40mac": () => ({}),
-      "DELETE /api/surfaces/herdr%3Apersonal%40mac": () => ({ ok: true }),
-    });
+  it("an older coordinator logs once and mirrors nothing", async () => {
+    // No /api/clients route: the stub answers 404 "No route ...", as the coordinator does.
+    const { fetch, calls } = stubFetch({});
     const api = new ApiClient({ coordinatorUrl: "http://coord", credential: "c", fetch });
-    const sync = syncTerminal({
+    const lines: string[] = [];
+    const listeners: (() => void)[] = [];
+    const sync = syncClient({
       api,
       info,
-      state: () => ({ views: [PERSONAL] }),
-      subscribe: () => () => {},
-      env: {},
-      wasMirroring: false,
-      log: () => {},
+      state: () => ({ scopes: [PERSONAL], clients: [] }),
+      subscribe: (fn) => {
+        listeners.push(fn);
+        return () => {};
+      },
+      env: { SWITCHYARD_VIEW: "personal" },
+      wasMirroring: true,
+      log: (l) => lines.push(l),
     });
     await tick();
-    expect(sync.binding()).toBe(PERSONAL);
-    expect(calls.map((c) => `${c.method} ${c.path.split("/")[2]}`)).toEqual([
-      "PUT terminals",
-      "PUT surfaces",
+    expect(sync.binding()).toBe("off");
+    expect(lines).toEqual([
+      "this coordinator is older than this CLI (it has no clients): upgrade the coordinator",
     ]);
-    expect(calls[1]!.body).toMatchObject({ viewId: PERSONAL.id });
+    for (const l of listeners) l();
+    sync.report();
+    await tick();
+    expect(calls).toHaveLength(1);
+    expect(lines).toHaveLength(1);
     await sync.stop();
-    expect(calls.at(-1)!.method).toBe("DELETE");
   });
 });

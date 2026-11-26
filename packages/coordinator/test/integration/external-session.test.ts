@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Session, sessionInView } from "@switchyard/protocol";
+import { type Session, sessionInScope } from "@switchyard/protocol";
 import { piBin, skipRealPi } from "@switchyard/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import { Integration, steps, waitFor } from "./harness.js";
@@ -36,7 +36,7 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
     env = await Integration.create({ terminalSessions: true });
     const { terminal } = env.devices!;
     const client = `herdr:daily@${hostname()}`;
-    const view = await env.ok("POST", "/api/views", {
+    const view = await env.ok("POST", "/api/scopes", {
       as: terminal,
       body: { name: "work", projectIds: [env.project.id] },
     });
@@ -70,7 +70,7 @@ describe.skipIf(!supported)("a Pi started in your own terminal", { timeout: 180_
     expect(s.external).toEqual({ client });
     expect(s.place).toEqual({ terminalId: client, pane: "w1:p2" });
     const workspaces = Object.fromEntries(env.c.store.workspaces.list().map((w) => [w.id, w]));
-    expect(sessionInView(env.c.store.views.require(view.id), s, workspaces)).toBe(true);
+    expect(sessionInScope(env.c.store.scopes.require(view.id), s, workspaces)).toBe(true);
 
     await env.ok("POST", `/api/sessions/${s.id}/prompt`, {
       as: terminal,

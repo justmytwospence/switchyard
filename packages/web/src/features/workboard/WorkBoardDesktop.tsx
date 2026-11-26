@@ -16,13 +16,13 @@ import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
-import { ViewSelect } from "../views/ViewSelect";
+import { ScopeSelect } from "../scopes/ScopeSelect";
 import { BoardSearch } from "./BoardSearch";
 import type { BoardCard, BoardColumn } from "./model";
 import type { WorkBoard } from "./useWorkBoard";
 import { WorkCard } from "./WorkCard";
 
-/** Desktop and compact Board: one column per stage (or tracker board column); drag to move. */
+/** Desktop and compact Board: one column per stage (or GitHub board column); drag to move. */
 export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
   const colWidth = usePrefs((s) => s.paneSizes.boardColumn);
   const [active, setActive] = useState<{ card: BoardCard; from: BoardColumn } | null>(null);
@@ -48,12 +48,12 @@ export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
     <div data-testid="workboard" className="absolute inset-0 flex min-w-0 flex-col">
       <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
         <h1 className="mr-2 text-lg font-semibold">Board</h1>
-        <ViewSelect allLabel="All work" />
+        <ScopeSelect allLabel="All work" />
         <BoardSearch board={board} className="w-56 max-w-full" />
-        {board.trackerBoard && <ColumnsControl board={board} />}
+        {board.githubBoard && <ColumnsControl board={board} />}
         <EmptyWorktreesToggle board={board} />
-        {board.view && (
-          <p className="ml-auto truncate text-xs text-subtle">{board.describe(board.view)}</p>
+        {board.scope && (
+          <p className="ml-auto truncate text-xs text-subtle">{board.describe(board.scope)}</p>
         )}
       </header>
       {!board.hydrated ? (
@@ -135,7 +135,7 @@ export function EmptyWorktreesToggle({ board }: { board: WorkBoard }) {
 }
 
 export function ColumnsControl({ board, block }: { board: WorkBoard; block?: boolean }) {
-  if (!board.trackerBoard) return null;
+  if (!board.githubBoard) return null;
   return (
     <SegmentedControl
       label="Columns"
@@ -144,7 +144,7 @@ export function ColumnsControl({ board, block }: { board: WorkBoard; block?: boo
       onChange={(mode) => board.setPrefs({ ...board.prefs, mode })}
       options={[
         { value: "stage", label: "Stage" },
-        { value: "tracker", label: `${board.trackerBoard.tracker.name} board` },
+        { value: "github", label: `${board.githubBoard.scope.name} board` },
       ]}
     />
   );
@@ -154,13 +154,13 @@ export function BoardEmpty({ board }: { board: WorkBoard }) {
   return (
     <EmptyState
       icon={<SquareKanban className="size-8" />}
-      title={board.view ? "No branches in this view" : "No branches yet"}
+      title={board.scope ? "No branches in this scope" : "No branches yet"}
       description={
-        board.view
-          ? board.describe(board.view)
-          : "Start a session or a tracker issue and its branch appears here."
+        board.scope
+          ? board.describe(board.scope)
+          : "Start a session or an issue and its branch appears here."
       }
-      action={board.view ? { label: "All work", onClick: board.clearView } : undefined}
+      action={board.scope ? { label: "All work", onClick: board.clearScope } : undefined}
     />
   );
 }

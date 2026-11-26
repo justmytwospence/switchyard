@@ -19,24 +19,52 @@ import {
 } from "../src/sync/store";
 import { assistant, attention, ev, interaction, session, snapshot, task } from "./fixtures";
 
-describe("terminals", () => {
-  const t = { id: "herdr:vo@mac", kind: "herdr", name: "vo", machine: "mac", viewId: null };
-  it("reads terminals from a snapshot, or surfaces from an older coordinator", () => {
-    const s = applySnapshot(emptySyncData(), 1, snapshot({ terminals: [t as never] }));
-    expect(Object.keys(s.terminals)).toEqual(["herdr:vo@mac"]);
-    const { terminals: _, ...rest } = snapshot({});
-    const old = applySnapshot(emptySyncData(), 1, { ...rest, surfaces: [t as never] });
-    expect(Object.keys(old.terminals)).toEqual(["herdr:vo@mac"]);
+describe("scopes and clients", () => {
+  const c = {
+    id: "herdr:vo@mac",
+    kind: "herdr",
+    name: "vo",
+    machine: "mac",
+    mirror: "none",
+    scopeId: null,
+  };
+  const v = { id: "scp_1", name: "work", sessionIds: [], source: null };
+  it("reads scopes and clients from a snapshot", () => {
+    const s = applySnapshot(
+      emptySyncData(),
+      1,
+      snapshot({ clients: [c as never], scopes: [v as never] }),
+    );
+    expect(Object.keys(s.clients)).toEqual(["herdr:vo@mac"]);
+    expect(Object.keys(s.scopes)).toEqual(["scp_1"]);
+    expect(toSyncState(s)).toMatchObject({ clients: [c], scopes: [v] });
   });
 
-  it("applies terminal events, and surface events from before the rename", () => {
+  it("a snapshot without scopes hydrates empty", () => {
+    // What 0.20 cached, and what a coordinator before 0.21 sends.
+    const { scopes: _scopes, clients: _clients, ...rest } = snapshot({});
+    const old = applySnapshot(emptySyncData(), 1, {
+      ...rest,
+      views: [{ id: "viw_1", name: "work" }],
+      terminals: [c],
+    } as never);
+    expect(old.scopes).toEqual({});
+    expect(old.clients).toEqual({});
+  });
+
+  it("applies scope and client events", () => {
     let s = applySnapshot(emptySyncData(), 1, snapshot({}));
-    s = applyEvent(s, ev("surface.updated" as never, t, 2));
-    expect(s.terminals["herdr:vo@mac"]).toMatchObject({ name: "vo" });
-    s = applyEvent(s, ev("terminal.updated", { ...t, mirror: "all" }, 3));
-    expect(s.terminals["herdr:vo@mac"]).toMatchObject({ mirror: "all" });
-    s = applyEvent(s, ev("terminal.deleted", { id: t.id }, 4));
-    expect(s.terminals).toEqual({});
+    s = applyEvent(s, ev("scope.updated", v, 2));
+    expect(s.scopes.scp_1).toMatchObject({ name: "work" });
+    s = applyEvent(s, ev("client.updated", { ...c, mirror: "scope", scopeId: "scp_1" }, 3));
+    expect(s.clients["herdr:vo@mac"]).toMatchObject({ mirror: "scope", scopeId: "scp_1" });
+    s = applyEvent(s, ev("client.deleted", { id: c.id }, 4));
+    expect(s.clients).toEqual({});
+    s = applyEvent(s, ev("scope.deleted", { id: "scp_1" }, 5));
+    expect(s.scopes).toEqual({});
+    // An event this client does not know is ignored and still moves the cursor.
+    s = applyEvent(s, ev("view.updated" as never, { id: "viw_1" }, 6));
+    expect(s.seq).toBe(6);
   });
 });
 
@@ -423,7 +451,7 @@ describe("transcript load errors", () => {
     expect(s.transcripts.ses_1).toMatchObject({ stale: true, error: null });
   });
 
-  it("applyReplay clears transcript errors so views retry", () => {
+  it("applyReplay clears transcript errors so scopes retry", () => {
     const store = useSyncStore;
     store.getState().reset();
     store.getState().applySnapshot(1, snapshot());

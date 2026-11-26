@@ -30,7 +30,7 @@ const ws = new WebSocketServer({ server: http, path: '/ws/client' });
 ws.on('connection', (socket) => socket.on('message', (raw) => {
   const message = JSON.parse(raw.toString());
   if (message.type === 'hello') socket.send(JSON.stringify({ type: 'snapshot', seq: 7, state: {
-    hosts: [], projects: [], checkouts: [], workspaces: [], profiles: [], views: [], sessions: [], tasks: [], runs: [], automations: [], attention: [], interactions: [], panels: [], devices: [], adapters: {}, dispatchPaused: false
+    hosts: [], projects: [], checkouts: [], workspaces: [], profiles: [], scopes: [], clients: [], sessions: [], tasks: [], runs: [], automations: [], attention: [], interactions: [], panels: [], devices: [], adapters: {}, dispatchPaused: false
   } }));
 }));
 await new Promise((r) => http.listen(0, '127.0.0.1', r));

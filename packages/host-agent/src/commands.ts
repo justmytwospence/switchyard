@@ -56,7 +56,7 @@ export interface CommandRouterOptions {
   delivery?: Pick<MessageDeliveryWorker, "accept" | "getStatus">;
   github?: Pick<
     GitHubService,
-    "refresh" | "failedLogs" | "merge" | "trackerSync" | "trackerStartIssue" | "trackerSetStatus"
+    "refresh" | "failedLogs" | "merge" | "syncIssues" | "startIssue" | "setIssueStatus"
   >;
   /** Environment for checks. */
   env?: Record<string, string | undefined>;
@@ -528,9 +528,9 @@ export class CommandRouter {
         if (!github)
           throw new SwitchyardError("unsupported_capability", "GitHub integration is unavailable");
         const { type: _type, ...request } = c;
-        if (c.type === "tracker.sync") return github.trackerSync(request as never);
-        if (c.type === "tracker.startIssue") return github.trackerStartIssue(request as never);
-        return github.trackerSetStatus(request as never);
+        if (c.type === "tracker.sync") return github.syncIssues(request as never);
+        if (c.type === "tracker.startIssue") return github.startIssue(request as never);
+        return github.setIssueStatus(request as never);
       }
       case "tracker.prepareBranch":
         await prepareTrackingBranch(c.checkoutPath, c.branch);

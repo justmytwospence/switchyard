@@ -12,12 +12,12 @@ export * from "./events.js";
 export * from "./github.js";
 export * from "./host-wire.js";
 export * from "./ids.js";
+export * from "./issues.js";
 export * from "./policies.js";
+export * from "./scopes.js";
 export * from "./terminal-wire.js";
 export * from "./titles.js";
-export * from "./trackers.js";
 export * from "./ui.js";
-export * from "./views.js";
 export * from "./web-bridge.js";
 
 export const PROTOCOL_VERSION = 1;

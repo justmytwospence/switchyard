@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import type { Session } from "@switchyard/protocol";
 import type { ConnectionFlags } from "../config.js";
 import type { Ctx } from "../context.js";
-import { offMessage, pickerBinding, pinNote, terminalId } from "../mirror/binding.js";
+import { clientId, offMessage, pickerBinding, pinNote } from "../mirror/binding.js";
 import { chooseSession } from "../mirror/choose.js";
 import { Screen, type TerminalIO } from "../mirror/picker.js";
 import { loadMirrorState, type MirrorState } from "../mirror/state.js";
@@ -34,7 +34,7 @@ export async function tmuxNew(
   ctx.err("Connecting to Switchyard…");
   const { client, state } = await loadMirrorState(ctx, flags);
   const name = await tmuxSessionName(ctx.env);
-  const id = terminalId("tmux", name, hostname());
+  const id = clientId("tmux", name, hostname());
   const bound = pickerBinding(state(), ctx.env, id);
   if (bound === "off") {
     client.close();
@@ -65,7 +65,7 @@ export async function tmuxNew(
       created = await client.api.post<Session>("/api/sessions", {
         ...choice,
         prompt: "",
-        ...(bound ? { viewId: bound.id } : {}),
+        ...(bound ? { scopeId: bound.id } : {}),
       });
       ctx.err(`Starting ${created.title}…`);
       if (bound) {

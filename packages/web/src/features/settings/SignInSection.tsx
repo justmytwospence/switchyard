@@ -194,7 +194,7 @@ export function SignInSection() {
 
       <Card
         title="This device"
-        description="Signing out removes this device's credential here. Other devices stay signed in; revoke a device in Settings › Devices to cut it off."
+        description="Signing out removes this device's credential here. Other devices stay signed in; revoke a device in Settings › Clients to cut it off."
       >
         <Button
           icon={<LogOut className="size-4" />}

@@ -27,7 +27,7 @@ function setup(sessions: Session[], windows: string[]) {
     projects: [{ id: "prj_sy", name: "switchyard" }] as any,
     hosts: [{ id: "hst_mac", name: "mac", capabilities: { terminal: true } }] as any,
     checkouts: [],
-    views: [],
+    scopes: [],
   };
   const client = new ApiClient({
     coordinatorUrl: "http://coord",

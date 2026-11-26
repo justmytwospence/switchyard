@@ -1,15 +1,15 @@
 import {
   type Eligibility,
+  type Scope,
   type Task,
   type TaskState,
-  taskInView,
-  type View,
+  taskInScope,
 } from "@switchyard/protocol";
 import { useCallback, useMemo } from "react";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
 import { useNow } from "../queue/useNow";
-import { useSelectedView } from "../views/selection";
+import { useSelectedScope } from "../scopes/selection";
 import {
   type BoardFilters,
   type BoardTaskNode,
@@ -28,9 +28,9 @@ export interface BoardState {
   setFilters: (f: BoardFilters) => void;
   projectId: string | null;
   setProjectId: (id: string | null) => void;
-  /** The selected view (shared with Sessions). */
-  view: View | null;
-  /** Projects the project selector offers (the view's), or null for all. */
+  /** The selected scope (shared with Sessions). */
+  scope: Scope | null;
+  /** Projects the project selector offers (the scope's), or null for all. */
   projectOptions: string[] | null;
   columns: Columns;
   trees: Record<TaskState, BoardTaskNode[]>;
@@ -56,26 +56,26 @@ export function useBoard(): BoardState {
   const runs = useSyncStore((s) => s.runs);
   const attention = useSyncStore((s) => s.attention);
   const projects = useSyncStore((s) => s.projects);
-  const views = useSyncStore((s) => s.views);
-  const [viewId] = useSelectedView();
+  const scopes = useSyncStore((s) => s.scopes);
+  const [scopeId] = useSelectedScope();
   const now = useNow();
 
-  const view = (viewId ? views[viewId] : undefined) ?? null;
-  const viewProjects = view && view.mode === "all" ? view.projectIds : null;
+  const scope = (scopeId ? scopes[scopeId] : undefined) ?? null;
+  const scopeProjects = scope && scope.mode === "all" ? scope.projectIds : null;
   const validProject =
-    projectId && projects[projectId] && (!viewProjects || viewProjects.includes(projectId))
+    projectId && projects[projectId] && (!scopeProjects || scopeProjects.includes(projectId))
       ? projectId
       : null;
   const inScope = useCallback(
     (t: Pick<Task, "projectId" | "sessionId">) =>
-      (!validProject || t.projectId === validProject) && (!view || taskInView(view, t)),
-    [validProject, view],
+      (!validProject || t.projectId === validProject) && (!scope || taskInScope(scope, t)),
+    [validProject, scope],
   );
 
   const columns = useMemo(() => {
     const attentionTaskIds = new Set(openAttentionByTask(attention).keys());
-    return buildColumns(tasks, filters, { projectId: validProject, view, runs, attentionTaskIds });
-  }, [tasks, filters, validProject, view, runs, attention]);
+    return buildColumns(tasks, filters, { projectId: validProject, scope, runs, attentionTaskIds });
+  }, [tasks, filters, validProject, scope, runs, attention]);
 
   const hierarchy = useMemo(() => {
     // Do not apply board filters here: hidden/completed/canceled children still count.
@@ -99,12 +99,12 @@ export function useBoard(): BoardState {
     if (now.data)
       return now.data.queued.filter((q) => {
         const t = tasks[q.taskId];
-        return !t ? !validProject && !view : inScope(t);
+        return !t ? !validProject && !scope : inScope(t);
       }).length;
     return Object.values(tasks).filter(
       (t) => t.state === "ready" && !t.hiddenFromBoard && inScope(t),
     ).length;
-  }, [now.data, tasks, validProject, view, inScope]);
+  }, [now.data, tasks, validProject, scope, inScope]);
 
   const states = visibleColumns(filters);
   const totalTasks = useMemo(
@@ -118,8 +118,8 @@ export function useBoard(): BoardState {
     setFilters: (f) => setFilter("board", f),
     projectId: validProject,
     setProjectId: (id) => setPref("selectedProjectId", id),
-    view,
-    projectOptions: viewProjects,
+    scope,
+    projectOptions: scopeProjects,
     columns,
     trees: hierarchy.trees,
     childProgress: hierarchy.progress,
@@ -128,7 +128,7 @@ export function useBoard(): BoardState {
     queueCount,
     now,
     showProject:
-      !validProject && (viewProjects ? viewProjects.length : Object.keys(projects).length) > 1,
+      !validProject && (scopeProjects ? scopeProjects.length : Object.keys(projects).length) > 1,
     totalTasks,
     visibleCount,
   };

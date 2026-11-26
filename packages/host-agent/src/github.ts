@@ -15,19 +15,19 @@ import {
   type GitHubThread,
   GitHubViewResult,
   type HostGitHub,
+  type IssueHostSetStatusRequest,
+  type IssueHostStartIssueRequest,
+  type IssueHostSyncRequest,
+  type IssueSetStatusResult,
+  type IssueSyncResult,
   SwitchyardError,
-  type TrackerHostSetStatusRequest,
-  type TrackerHostStartIssueRequest,
-  type TrackerHostSyncRequest,
-  type TrackerSetStatusResult,
-  type TrackerSyncResult,
   WorkspaceGitHub,
 } from "@switchyard/protocol";
 import { tailBytes } from "./checks.js";
 import { mapLimit } from "./concurrency.js";
 import type { HostDb } from "./db/index.js";
 import { normalizeRemote } from "./git.js";
-import { trackerSetStatus, trackerSync } from "./github-trackers.js";
+import { setIssueStatus, syncIssues } from "./github-issues.js";
 
 const JSON_BYTES = 2 * 1024 * 1024;
 const SNAPSHOT_BYTES = 512 * 1024;
@@ -1354,14 +1354,14 @@ export class GitHubService {
     });
   }
 
-  /** The host user's assigned issues for a tracker (`tracker.sync`). */
-  trackerSync(req: TrackerHostSyncRequest): Promise<TrackerSyncResult> {
+  /** The host user's issues for a scope's GitHub source (`tracker.sync`). */
+  syncIssues(req: IssueHostSyncRequest): Promise<IssueSyncResult> {
     const deadline = Date.now() + 60_000;
-    return trackerSync((args) => this.json(args, process.cwd(), deadline), req);
+    return syncIssues((args) => this.json(args, process.cwd(), deadline), req);
   }
 
   /** Create a linked branch for an issue with `gh issue develop` (`tracker.startIssue`). */
-  async trackerStartIssue(req: TrackerHostStartIssueRequest): Promise<{ branch: string }> {
+  async startIssue(req: IssueHostStartIssueRequest): Promise<{ branch: string }> {
     const deadline = Date.now() + 60_000;
     const r = await this.run(
       "gh",
@@ -1384,9 +1384,9 @@ export class GitHubService {
   }
 
   /** Move a board card, guarded by assignee and last-seen column (`tracker.setStatus`). */
-  trackerSetStatus(req: TrackerHostSetStatusRequest): Promise<TrackerSetStatusResult> {
+  setIssueStatus(req: IssueHostSetStatusRequest): Promise<IssueSetStatusResult> {
     const deadline = Date.now() + 30_000;
-    return trackerSetStatus((args) => this.json(args, process.cwd(), deadline), req);
+    return setIssueStatus((args) => this.json(args, process.cwd(), deadline), req);
   }
 
   async stop(): Promise<void> {

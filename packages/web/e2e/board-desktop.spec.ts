@@ -232,12 +232,12 @@ test.describe("desktop board", () => {
   test("the view selector filters the board", async ({ page, api, state }, info) => {
     const id = uid(info);
     const t = await createTask(api, state, { title: `In view ${id}` });
-    const inView = await api("POST", "/api/views", {
+    const inView = await api("POST", "/api/scopes", {
       name: `board-in-${id}`,
       projectIds: [state.projectId],
     });
-    const pinned = await api("POST", "/api/views", { name: `board-pinned-${id}`, mode: "pinned" });
-    const select = page.getByLabel("View", { exact: true });
+    const pinned = await api("POST", "/api/scopes", { name: `board-pinned-${id}`, mode: "pinned" });
+    const select = page.getByLabel("Scope", { exact: true });
     await expect(card(page, t.title)).toBeVisible();
     await select.selectOption(inView.id);
     await expect(card(page, t.title)).toBeVisible();
@@ -245,7 +245,7 @@ test.describe("desktop board", () => {
     await expect(card(page, t.title)).toHaveCount(0);
     await select.selectOption("");
     await expect(card(page, t.title)).toBeVisible();
-    await api("DELETE", `/api/views/${inView.id}`);
-    await api("DELETE", `/api/views/${pinned.id}`);
+    await api("DELETE", `/api/scopes/${inView.id}`);
+    await api("DELETE", `/api/scopes/${pinned.id}`);
   });
 });

@@ -49,7 +49,7 @@ Older hosts still work with a new coordinator and retain their legacy panels and
 | `tokenAccounting`  | Supported   | `get_session_stats.tokens.total`                                                                                                                                                                                                                                                    |
 | `costAccounting`   | Supported   | `get_session_stats.cost` (USD, from the model's configured prices)                                                                                                                                                                                                                  |
 | `sessionControls`  | Supported   | `get_available_models`, `set_model`, `set_thinking_level`, `get_commands`, `compact` and `get_session_stats.contextUsage`, plus `model_state` from the bridge or terminal extension |
-| Slash commands in TUI sessions | Supported | `pi.sendUserMessage(..., {expandPromptTemplates: true})` |
+| Slash commands in terminal sessions | Supported | `pi.sendUserMessage(..., {expandPromptTemplates: true})` |
 | `customUi`         | Unsupported | ctx.ui.custom() returns undefined in RPC mode. Pi sends no request; the bridge reports `ui_prompt_start`/`ui_prompt_end` with kind `custom` so Switchyard can show an unsupported-interaction notice.                                                                               |
 | `widgetsComponent` | Unsupported | component widget factories are ignored in RPC mode                                                                                                                                                                                                                                  |
 
@@ -58,11 +58,34 @@ Older hosts still work with a new coordinator and retain their legacy panels and
 | Feature | Meaning |
 |---|---|
 | Enrolment | A Pi started outside Switchyard with `switchyard-terminal.js` loaded listens on `<runtime>/ext-*.sock` (meta in `ext-*.sock.json`) and plays the holder's control side; the host agent adopts it with the terminal reattach path. The session reports `terminal: false` and `external`. |
-| `trackers.v1` | The host answers `tracker.sync`, `tracker.prepareBranch`, `tracker.startIssue` and `tracker.setStatus`. Without it, trackers on that host report "does not support trackers" and nothing else changes. `workspace.remove` `deleteBranch` and `GitState.head` are optional and ignored or absent on older hosts. |
+| `trackers.v1` | GitHub issue sync for scopes: the host answers `tracker.sync`, `tracker.prepareBranch`, `tracker.startIssue` and `tracker.setStatus`. The feature and its commands keep the names they had when a scope's GitHub source was a tracker, so hosts one release behind keep working. Without it, GitHub scopes on that host report "does not support GitHub issue sync" and nothing else changes. `workspace.remove` `deleteBranch` and `GitState.head` are optional and ignored or absent on older hosts. |
+
+## Scopes and clients (0.21)
+
+0.21 merges views and trackers into scopes and renames the herdr and tmux "terminal" to client ([scopes.md](scopes.md#from-020), [clients.md](clients.md#from-020)). A coordinator at 0.21 keeps daemons, browser tabs and SDK clients from 0.20 working; everything below is marked `COMPAT(scopes-rename): remove after 2027-03-01` in the code.
+
+| Shim | What it does |
+|---|---|
+| Client capability `scopes.v1` | A client that announces it gets `scopes` and `clients` in snapshots and the `scope.*` and `client.*` events. One that does not (0.20) gets them projected to `views` and `terminals` and to `view.*` and `terminal.*` events, with a GitHub scope as a view that names itself as its tracker and `mirror: "scope"` as `"view"` |
+| `GET /api/views`, `GET /api/trackers`, `GET /api/terminals` | List scopes and clients in the 0.20 shapes |
+| `PUT /api/terminals/:id`, `PUT /api/terminals/:id/binding`, `DELETE /api/terminals/:id` | A 0.20 daemon's report, binding and removal |
+| `POST` and `DELETE /api/views/:id/sessions/:sessionId` | Pin and unpin |
+| `viewId` in `POST /api/sessions`, `POST /api/branches/open` and `POST /api/issues/:id/open` | Read as `scopeId` |
+| `Presence.terminalId` | Read as `clientId` |
+| `TrackedIssue.trackerId` | Written as a copy of `scopeId` |
+| CLI `views`, `trackers`, `terminals`, `--view` | Hidden aliases of `scopes`, `clients` and `--scope` that print a notice |
+
+Not kept: creating or editing views and trackers through the old routes (they answer 404; use a 0.21 client), and the 0.19 layer (`/api/surfaces`, `/api/views/:id/clients`, `surfaces` in snapshots, `surface.*` events).
+
+The migration moves `minRetainedSeq` past the last event, so every client takes one snapshot at its next connection and no event from before the upgrade is replayed. A GitHub scope has its tracker's id, not its view's: a browser that had that view selected shows All sessions until the scope is selected again.
+
+The other direction is not supported: a CLI or SDK from 0.21 against an older coordinator finds no `scopes` or `clients`, says so once and mirrors nothing. Upgrade the coordinator first.
+
+The host wire does not change: `tracker.*` commands, the `trackers.v1` and `trackers.board.v1` features and `Session.place.terminalId` keep their names.
 
 ## Terminal transport
 
-Hosts with [TUI sessions](terminal-sessions.md) enabled run interactive `pi` in a pty instead of `pi --mode rpc`, with the `switchyard-terminal.js` extension as the control channel. `gate-terminal.test.ts` runs the same real-Pi checks through it: prompt, a select answered remotely and one answered in the terminal, steer, abort, detach and reattach, stop. Pi features the extension API does not expose are listed under the doc's Limits.
+Hosts with [terminal sessions](terminal-sessions.md) enabled run interactive `pi` in a pty instead of `pi --mode rpc`, with the `switchyard-terminal.js` extension as the control channel. `gate-terminal.test.ts` runs the same real-Pi checks through it: prompt, a select answered remotely and one answered in the terminal, steer, abort, detach and reattach, stop. Pi features the extension API does not expose are listed under the doc's Limits.
 
 ## Gate tests
 

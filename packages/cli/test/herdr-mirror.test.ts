@@ -1,4 +1,4 @@
-import type { Checkout, Host, Project, View, Workspace } from "@switchyard/protocol";
+import type { Checkout, Host, Project, Scope, Workspace } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
   agentState,
@@ -11,7 +11,7 @@ import {
   spaceLabel,
   tabLabel,
 } from "../src/herdr/mirror.js";
-import { paneSession, viewedSessions, wantedSessions } from "../src/mirror/state.js";
+import { paneSession, scopedSessions, wantedSessions } from "../src/mirror/state.js";
 import { session } from "./herdr-fixtures.js";
 
 const NOW = Date.parse("2026-11-03T00:00:00Z");
@@ -58,7 +58,7 @@ function state(over: Partial<MirrorState> = {}): MirrorState {
       { id: "chk_mac", projectId: "prj_sy", hostId: "hst_mac" },
       { id: "chk_29", projectId: "prj_29", hostId: "hst_mac" },
     ] as Checkout[],
-    views: [],
+    scopes: [],
     ...over,
   };
 }
@@ -285,7 +285,7 @@ describe("planMirror", () => {
   });
 });
 
-describe("views and ownership", () => {
+describe("scopes and ownership", () => {
   it("does not offer the picker in a space the mirror does not own", () => {
     const h = herdr({
       workspaces: [{ workspace_id: "mine", label: "my stuff", number: 1 }],
@@ -295,16 +295,16 @@ describe("views and ownership", () => {
     expect(planMirror(state(), h, emptyMemory(), NOW).offers).toEqual([]);
   });
 
-  it("only mirrors sessions in the bound view and closes tabs of the rest", () => {
+  it("only mirrors sessions in the bound scope and closes tabs of the rest", () => {
     const st = state({ sessions: [session("ses_1"), session("ses_2")] });
-    const view = {
+    const scope = {
       id: "viw_1",
       name: "v",
       mode: "pinned",
       projectIds: null,
       hostIds: null,
       sessionIds: ["ses_1"],
-      clients: [],
+      source: null,
       createdAt: "",
       updatedAt: "",
     } as const;
@@ -321,20 +321,19 @@ describe("views and ownership", () => {
         { pane_id: "w1:p2", tab_id: "w1:t2", workspace_id: "w1", agent_session: claim("ses_2") },
       ],
     });
-    const plan = planMirror(st, h, mem, NOW, view as any);
+    const plan = planMirror(st, h, mem, NOW, scope as any);
     expect(plan.closeTabs).toEqual([{ tabId: "w1:t2", sessionId: "ses_2" }]);
   });
 
-  it("a tracker's view mirrors issue sessions and live ones only", () => {
-    const view = {
+  it("a GitHub scope mirrors issue sessions and live ones only", () => {
+    const scope = {
       id: "viw_t",
       name: "personal",
       mode: "all",
       projectIds: ["prj_sy"],
       hostIds: null,
       sessionIds: [],
-      clients: [],
-      trackerId: "trk_1",
+      source: { kind: "github" },
       createdAt: "",
       updatedAt: "",
     } as const;
@@ -351,7 +350,7 @@ describe("views and ownership", () => {
       issues: [
         {
           id: "trk_1:I_1",
-          trackerId: "trk_1",
+          scopeId: "viw_t",
           itemId: "I_1",
           projectId: "prj_sy",
           repository: "me/switchyard",
@@ -369,23 +368,22 @@ describe("views and ownership", () => {
       ],
     });
     expect(
-      viewedSessions(st, view as any)
+      scopedSessions(st, scope as any)
         .map((s) => s.id)
         .sort(),
     ).toEqual(["ses_issue", "ses_live"]);
   });
 });
 
-describe("tracker views keep the focused tab", () => {
-  const view = {
+describe("GitHub scopes keep the focused tab", () => {
+  const scope = {
     id: "viw_t",
     name: "personal",
     mode: "all",
     projectIds: ["prj_sy"],
     hostIds: null,
     sessionIds: [],
-    clients: [],
-    trackerId: "trk_1",
+    source: { kind: "github" },
     createdAt: "",
     updatedAt: "",
   } as const;
@@ -404,17 +402,17 @@ describe("tracker views keep the focused tab", () => {
     return m;
   };
 
-  it("keeps the focused tab of a session that stopped out of a tracker's view", () => {
+  it("keeps the focused tab of a session that stopped out of a GitHub scope", () => {
     const st = state({ sessions: [session("ses_old", { runtime: "stopped" })], issues: [] });
-    expect(planMirror(st, h("w1:t1"), mem(), NOW, view as any).closeTabs).toEqual([]);
-    expect(planMirror(st, h("w1:t9"), mem(), NOW, view as any).closeTabs).toEqual([
+    expect(planMirror(st, h("w1:t1"), mem(), NOW, scope as any).closeTabs).toEqual([]);
+    expect(planMirror(st, h("w1:t9"), mem(), NOW, scope as any).closeTabs).toEqual([
       { tabId: "w1:t1", sessionId: "ses_old" },
     ]);
     const archived = state({
       sessions: [session("ses_old", { runtime: "stopped", archivedAt: "2026-11-02T00:00:00Z" })],
       issues: [],
     });
-    expect(planMirror(archived, h("w1:t1"), mem(), NOW, view as any).closeTabs).toEqual([
+    expect(planMirror(archived, h("w1:t1"), mem(), NOW, scope as any).closeTabs).toEqual([
       { tabId: "w1:t1", sessionId: "ses_old" },
     ]);
   });
@@ -513,25 +511,25 @@ describe("one tab per active branch", () => {
     expect(wantedSessions(live, null, NOW).map((s) => s.id)).toEqual(["ses_3"]);
   });
 
-  it("treats a pin as membership: a pinned extra stands for its branch only when the primary is not in the view", () => {
+  it("treats a pin as membership: a pinned extra stands for its branch only when the primary is not in the scope", () => {
     const old = { runtime: "stopped" as const, lastActivityAt: "2026-10-01T00:00:00Z" };
     const st = state({ sessions: [session("ses_1"), session("ses_2")] });
-    const view = {
+    const scope = {
       id: "viw_1",
       name: "v",
       mode: "pinned",
       projectIds: null,
       hostIds: null,
       sessionIds: ["ses_2"],
-      clients: [],
+      source: null,
       createdAt: "",
       updatedAt: "",
-    } as View;
-    expect(wantedSessions(st, view, NOW).map((s) => s.id)).toEqual(["ses_2"]);
+    } as unknown as Scope;
+    expect(wantedSessions(st, scope, NOW).map((s) => s.id)).toEqual(["ses_2"]);
     expect(wantedSessions(st, null, NOW).map((s) => s.id)).toEqual(["ses_1"]);
     // A pin is not activity: a long-stopped pinned session opens no tab.
     const stale = state({ sessions: [session("ses_1", old), session("ses_2", old)] });
-    expect(wantedSessions(stale, view, NOW)).toEqual([]);
+    expect(wantedSessions(stale, scope, NOW)).toEqual([]);
   });
 
   it("opens no tab for a session whose Pi last ran by hand in this terminal", () => {

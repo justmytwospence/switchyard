@@ -148,7 +148,7 @@ export async function setupHarness(
     dispatcher: { tickMs: 0 },
     schedulerTickMs: 0,
     workspaceLifecycleTickMs: 0,
-    trackerTickMs: 0,
+    scopeSyncTickMs: 0,
     ...opts.coordinator,
   });
   const creds = await enrollHost(t);

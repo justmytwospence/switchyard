@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Session } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags } from "../config.js";
 import type { Ctx } from "../context.js";
-import { offMessage, pickerBinding, pinNote, terminalId } from "../mirror/binding.js";
+import { clientId, offMessage, pickerBinding, pinNote } from "../mirror/binding.js";
 import { chooseSession } from "../mirror/choose.js";
 import { Screen, type TerminalIO } from "../mirror/picker.js";
 import { loadMirrorState } from "../mirror/state.js";
@@ -27,7 +27,7 @@ export async function herdrNew(ctx: Ctx, flags: NewFlags, io?: TerminalIO): Prom
   ctx.err("Connecting to Switchyard…");
   const { client, state } = await loadMirrorState(ctx, flags);
   const name = herdrSessionName(ctx.env);
-  const id = terminalId("herdr", name, hostname());
+  const id = clientId("herdr", name, hostname());
   const bound = pickerBinding(state(), ctx.env, id);
   if (bound === "off") {
     client.close();
@@ -58,7 +58,7 @@ export async function herdrNew(ctx: Ctx, flags: NewFlags, io?: TerminalIO): Prom
       created = await client.api.post<Session>("/api/sessions", {
         ...choice,
         prompt: "",
-        ...(bound ? { viewId: bound.id } : {}),
+        ...(bound ? { scopeId: bound.id } : {}),
       });
       ctx.err(`Starting ${created.title}…`);
       if (bound) {

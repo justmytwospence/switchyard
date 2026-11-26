@@ -1,4 +1,4 @@
-# GitHub integration
+# GitHub
 
 This describes the phase 3 implementation under development, not a reviewed or shipped release.
 
@@ -14,9 +14,9 @@ The user can explicitly send failing CI or unresolved review comments to the age
 
 Squash merge is a separate explicit confirmation against the displayed head SHA. Switchyard rechecks PR identity, head, mergeability, checks, review and snapshot completeness, and uses GitHub's SHA-guarded direct merge endpoint. Stale, incomplete, offline or ambiguous data blocks the action; a changed head requires refresh and a new confirmation. Auto-merge, merge queues, admin bypass and branch deletion are not performed. If the outcome is unknown, refresh and reconcile rather than blindly retrying. Accepting a Switchyard task does not merge it.
 
-## Trackers
+## Issues and boards
 
-A tracker syncs the issues assigned to the host's `gh` user in one owner (or a board's open issues) into tracked issues, creates worktrees for their branches, and can move their GitHub Projects cards. See [trackers.md](trackers.md).
+A scope with a GitHub source syncs the issues assigned to the host's `gh` user in one owner (or a board's open issues) into tracked issues, creates worktrees for their branches, and can move their GitHub Projects cards. See [scopes.md](scopes.md).
 
 ## Tasks from issues
 

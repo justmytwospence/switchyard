@@ -63,9 +63,9 @@ The same hourly sweep archives ended sessions nobody will come back to, so a che
 - an ended (stopped, failed or interrupted) session that is not its branch's primary, with no activity for 3 days;
 - an ended subagent with no activity for 3 days, or whose parent session is archived.
 
-A branch's primary session, live sessions, task sessions and sessions with an open question are never archived this way. A pin does not keep a session: archiving removes it from every view it was pinned to. An archived session is hidden, not deleted: it is unarchived when its Pi comes back (resumed in a terminal) or from the session menu. The window is the `sessionArchiveDays` row in the `settings` table (`0` turns it off), reported under `sessions.archiveEndedAfterDays` in `GET /api/diagnostics`.
+A branch's primary session, live sessions, task sessions and sessions with an open question are never archived this way. A pin does not keep a session: archiving removes it from every scope it was pinned to. An archived session is hidden, not deleted: it is unarchived when its Pi comes back (resumed in a terminal) or from the session menu. The window is the `sessionArchiveDays` row in the `settings` table (`0` turns it off), reported under `sessions.archiveEndedAfterDays` in `GET /api/diagnostics`.
 
-Before archiving, the sweep (and every coordinator start) clears what older releases left behind: questions of sessions whose Pi is gone expire and their "Needs input" attention is resolved, and views lose pins of archived sessions.
+Before archiving, the sweep (and every coordinator start) clears what older releases left behind: questions of sessions whose Pi is gone expire and their "Needs input" attention is resolved, and scopes lose pins of archived sessions.
 
 ## Logs
 
@@ -127,7 +127,9 @@ A missing Pi or git is a FAIL only on a machine with a host config; elsewhere (a
 2. Change the image tag in `deploy/compose.yaml` (for example `ghcr.io/justmytwospence/switchyard:0.11.0` to the new release), then `docker compose pull && docker compose up -d` (from `deploy/`). From source, pull, rebuild and restart.
 3. Migrations apply automatically at start. If something goes wrong, stop the service and restore the backup with the previous image.
 
-Upgrade the coordinator before its hosts: a coordinator works with hosts one release older, not newer. Hosts are upgraded separately: `npm update -g @spencerboucher/switchyard`, then restart the installed service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux). Hosts and the coordinator reconnect on their own; running Pi sessions on a host stop when its agent restarts: sessions that were working show as interrupted until resumed; idle ones show as stopped and resume when you send to them.
+**To 0.21.** Migration 23 merges views and trackers into scopes and renames terminals to clients ([scopes.md](scopes.md#from-020), [clients.md](clients.md#from-020)). It is one-way: an older coordinator cannot open the database afterwards, so back up first, and restore that backup to go back. Daemons and browser tabs from 0.20 keep working until you upgrade them ([compatibility.md](compatibility.md#scopes-and-clients-021)); every client takes one fresh snapshot after the upgrade. The herdr and tmux plugins moved from `integrations/` to `modules/`: link or load them from the new path.
+
+Upgrade the coordinator before its hosts and CLIs: a coordinator works with hosts and clients one release older, not newer. Hosts are upgraded separately: `npm update -g @spencerboucher/switchyard`, then restart the installed service (`launchctl kickstart -k gui/$(id -u)/com.switchyard.host` on macOS, `systemctl --user restart switchyard-host` on Linux). Hosts and the coordinator reconnect on their own; running Pi sessions on a host stop when its agent restarts: sessions that were working show as interrupted until resumed; idle ones show as stopped and resume when you send to them.
 
 For policy-protected launches, upgrade hosts and Pi to the supported policy-capable range (`>=1.5.0 <1.7.0`) and verify the session's actual bridge protection state. Optional negotiation keeps older hosts browsable but does not protect their live Pi processes. Explicitly reload or restart old live sessions when appropriate; they are not silently replaced. Protected launches refuse unsupported hosts, and coordinator communication or policy evaluation failures block protected actions rather than allowing them. See [policies.md](policies.md).
 
@@ -135,4 +137,4 @@ For GitHub, install and authenticate `gh` as the host user on each relevant host
 
 ## Revoking devices and hosts
 
-Revoke a lost browser, phone or terminal in Settings > Devices, and a retired host in Settings > Hosts; remove a passkey in Settings > Sign-in (see [auth.md](auth.md#revocation)). A revoked device's credential stops working, its push subscriptions are deleted and its open sockets receive `force_logout`. The local admin token cannot be revoked from the app; rotate it by stopping the coordinator and deleting `admin.token` (a new one is created at the next start).
+Revoke a lost browser, phone or terminal in Settings > Clients, and a retired host in Settings > Hosts; remove a passkey in Settings > Sign-in (see [auth.md](auth.md#revocation)). A revoked device's credential stops working, its push subscriptions are deleted and its open sockets receive `force_logout`. The local admin token cannot be revoked from the app; rotate it by stopping the coordinator and deleting `admin.token` (a new one is created at the next start).

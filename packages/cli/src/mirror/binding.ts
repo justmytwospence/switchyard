@@ -1,110 +1,103 @@
 import type {
-  Terminal,
-  TerminalBindingInput,
-  TerminalKind,
-  TerminalReport,
-  View,
+  Client,
+  ClientBindingInput,
+  ClientKind,
+  ClientReport,
+  Scope,
 } from "@switchyard/protocol";
-import { findView, terminalMirror } from "@switchyard/protocol";
+import { findScope } from "@switchyard/protocol";
 import { type ApiClient, ApiRequestError } from "@switchyard/terminal";
 import type { Env } from "../paths.js";
-import { startPresence } from "./presence.js";
 import type { MirrorState } from "./state.js";
 
 /**
- * What a daemon mirrors: a view, `null` for every session, or "off" (nothing: the daemon touches
- * nothing in its terminal).
+ * What a daemon mirrors: a scope, `null` for every session, or "off" (nothing: the daemon touches
+ * nothing in its client).
  */
-export type Bound = View | null | "off";
+export type Bound = Scope | null | "off";
 
-/** A herdr or tmux session as a Switchyard terminal. */
-export interface TerminalInfo {
+/** A herdr or tmux session as a Switchyard client. */
+export interface ClientInfo {
   /** `${kind}:${name}@${machine}` */
   id: string;
-  kind: TerminalKind;
+  kind: ClientKind;
   name: string;
   machine: string;
   /** The host agent on this machine, when it is enrolled with the same coordinator. */
   hostId: string | null;
 }
 
-export function terminalId(kind: TerminalKind, name: string, machine: string): string {
+export function clientId(kind: ClientKind, name: string, machine: string): string {
   return `${kind}:${name}@${machine}`;
 }
 
-/** The recorded binding of a terminal in synced state; "off" when it has none or its view is gone. */
-export function recordedBinding(st: Pick<MirrorState, "views" | "terminals">, id: string): Bound {
-  const t = st.terminals?.find((x) => x.id === id);
+/** The recorded binding of a client in synced state; "off" when it has none or its scope is gone. */
+export function recordedBinding(st: Pick<MirrorState, "scopes" | "clients">, id: string): Bound {
+  const t = st.clients?.find((x) => x.id === id);
   if (!t) return "off";
-  const mirror = terminalMirror(t);
-  if (mirror === "all") return null;
-  if (mirror === "view") return st.views.find((v) => v.id === t.viewId) ?? "off";
+  if (t.mirror === "all") return null;
+  if (t.mirror === "scope") return st.scopes.find((v) => v.id === t.scopeId) ?? "off";
   return "off";
 }
 
 /**
- * The binding to record for a terminal that never had one, from how 0.19 bound it: its env
- * file's `SWITCHYARD_VIEW`, else the view named after it, but only when it was mirroring (it owns
- * spaces or windows). Undefined while `SWITCHYARD_VIEW` names a view that does not exist yet.
+ * The binding to record for a client that never had one, from how 0.19 bound it: its env
+ * file's `SWITCHYARD_VIEW`, else the scope named after it, but only when it was mirroring (it owns
+ * spaces or windows). Undefined while `SWITCHYARD_VIEW` names a scope that does not exist yet.
  */
 export function seedBinding(
   env: Env,
   name: string,
-  st: Pick<MirrorState, "views">,
+  st: Pick<MirrorState, "scopes">,
   wasMirroring: boolean,
-): TerminalBindingInput | undefined {
+): ClientBindingInput | undefined {
   const ref = env.SWITCHYARD_VIEW?.trim();
   if (ref) {
-    const v = findView(st.views, ref);
-    return v ? { mirror: "view", viewId: v.id } : undefined;
+    const v = findScope(st.scopes, ref);
+    return v ? { mirror: "scope", scopeId: v.id } : undefined;
   }
-  const named = wasMirroring ? findView(st.views, name) : null;
-  return named ? { mirror: "view", viewId: named.id } : { mirror: "none" };
-}
-
-/** 0.19's binding, for a coordinator without terminals: `SWITCHYARD_VIEW`, else the view named after the session. */
-export function legacyBinding(st: Pick<MirrorState, "views">, env: Env, name: string): Bound {
-  return findView(st.views, env.SWITCHYARD_VIEW?.trim() || name) ?? "off";
+  const named = wasMirroring ? findScope(st.scopes, name) : null;
+  return named ? { mirror: "scope", scopeId: named.id } : { mirror: "none" };
 }
 
 /** For a one-shot command (the new-session picker): the recorded binding, else `SWITCHYARD_VIEW`. */
 export function pickerBinding(
-  st: Pick<MirrorState, "views" | "terminals">,
+  st: Pick<MirrorState, "scopes" | "clients">,
   env: Env,
   id: string,
 ): Bound {
-  if (st.terminals?.some((t) => t.id === id)) return recordedBinding(st, id);
+  if (st.clients?.some((t) => t.id === id)) return recordedBinding(st, id);
   const ref = env.SWITCHYARD_VIEW?.trim();
-  return (ref && findView(st.views, ref)) || "off";
+  return (ref && findScope(st.scopes, ref)) || "off";
 }
 
 /**
- * After starting a session from a bound terminal: the coordinator pins it to the view only when
- * the view would not show it otherwise. Say so, or return null when it was not pinned.
+ * After starting a session from a bound client: the coordinator pins it to the scope only when
+ * the scope would not show it otherwise. Say so, or return null when it was not pinned.
  */
 export async function pinNote(
   api: Pick<ApiClient, "get">,
-  view: Pick<View, "id">,
+  scope: Pick<Scope, "id">,
   sessionId: string,
 ): Promise<string | null> {
-  const views = await api.get<View[]>("/api/views").catch(() => null);
-  const v = views?.find((x) => x.id === view.id);
+  const scopes = await api.get<Scope[]>("/api/scopes").catch(() => null);
+  const v = scopes?.find((x) => x.id === scope.id);
   if (!v?.sessionIds.includes(sessionId)) return null;
-  return `Pinned to view "${v.name}": it would not show there otherwise. Unpin it from the session menu.`;
+  return `Pinned to scope "${v.name}": it would not show there otherwise. Unpin it from the session menu.`;
 }
 
-export function offMessage(kind: TerminalKind, id: string): string {
-  return `This ${kind} session mirrors nothing. Choose what it shows with: switchyard terminals bind ${id} --all (or --view <name>)`;
+export function offMessage(kind: ClientKind, id: string): string {
+  return `This ${kind} session mirrors nothing. Choose what it shows with: switchyard clients bind ${id} --all (or --scope <name>)`;
 }
 
 const EVERY_MS = 60_000;
 
 /** A 404 for a route the coordinator does not have (not a missing entity). */
-function unknownRoute(err: unknown): boolean {
+export function isUnknownRoute(err: unknown): boolean {
   return err instanceof ApiRequestError && err.status === 404 && /^No route /.test(err.message);
 }
 
-export interface TerminalSync {
+export interface ClientSync {
   /** What to mirror now. */
   binding(): Bound;
   /** Report now (after `shows` changed). */
@@ -113,68 +106,48 @@ export interface TerminalSync {
 }
 
 /**
- * Register this terminal with the coordinator and report it every minute (and on `report()`),
+ * Register this client with the coordinator and report it every minute (and on `report()`),
  * seeding its binding once from how it was bound before. The binding is read from synced state.
- * Against a coordinator without terminals it falls back to 0.19's surface presence and binding.
+ * A coordinator older than this CLI has no clients: it is said once, and nothing is mirrored.
  */
-export function syncTerminal(opts: {
+export function syncClient(opts: {
   api: ApiClient;
-  info: TerminalInfo;
-  state: () => Pick<MirrorState, "views" | "terminals"> | null;
+  info: ClientInfo;
+  state: () => Pick<MirrorState, "scopes" | "clients"> | null;
   subscribe: (fn: () => void) => () => void;
   env: Env;
   /** Whether it was mirroring under 0.19 (owns spaces or windows). */
   wasMirroring: boolean;
   /** Sessions in its mirror tabs or windows. */
   shows?: () => string[] | undefined;
-  /** The name 0.19 would look a view up by (tmux: the current session name). */
-  legacyName?: () => string;
   log: (line: string) => void;
-}): TerminalSync {
+}): ClientSync {
   const { api, info, log } = opts;
-  const path = `/api/terminals/${encodeURIComponent(info.id)}`;
-  let mode: "unknown" | "terminals" | "legacy" = "unknown";
+  const path = `/api/clients/${encodeURIComponent(info.id)}`;
+  let mode: "unknown" | "clients" | "unsupported" = "unknown";
   let lastError = "";
   let lastShows = "";
   let warned = "";
   let stopped = false;
-  let legacy: { viewId: string; stop(): Promise<void> } | null = null;
 
-  const legacyBound = (): Bound => {
-    const st = opts.state();
-    return st ? legacyBinding(st, opts.env, opts.legacyName?.() ?? info.name) : "off";
-  };
-  const followLegacy = () => {
-    const v = legacyBound();
-    const id = v && v !== "off" ? v.id : null;
-    if (id === (legacy?.viewId ?? null)) return;
-    const old = legacy;
-    legacy = null;
-    if (old) void old.stop();
-    if (id) {
-      const p = startPresence(api, info, id, log);
-      legacy = { viewId: id, stop: p.stop };
-    }
-  };
-
-  const warnIgnoredEnv = (st: Pick<MirrorState, "views" | "terminals">) => {
+  const warnIgnoredEnv = (st: Pick<MirrorState, "scopes" | "clients">) => {
     const ref = opts.env.SWITCHYARD_VIEW?.trim();
-    const t = st.terminals?.find((x) => x.id === info.id);
+    const t = st.clients?.find((x) => x.id === info.id);
     if (!ref || !t?.bindingSetAt) return;
-    const want = findView(st.views, ref);
-    const same = terminalMirror(t) === "view" && want?.id === t.viewId;
-    const key = `${ref}|${t.mirror}|${t.viewId}`;
+    const want = findScope(st.scopes, ref);
+    const same = t.mirror === "scope" && want?.id === t.scopeId;
+    const key = `${ref}|${t.mirror}|${t.scopeId}`;
     if (same || warned === key) return;
     warned = key;
     log(
-      `SWITCHYARD_VIEW=${ref} is ignored: this terminal's recorded binding wins (switchyard terminals bind ${info.id} ...)`,
+      `SWITCHYARD_VIEW=${ref} is ignored: this client's recorded binding wins (switchyard clients bind ${info.id} ...)`,
     );
   };
 
   let inflight = false;
   let again = false;
   const send = async (): Promise<void> => {
-    if (stopped || mode === "legacy") return;
+    if (stopped || mode === "unsupported") return;
     if (inflight) {
       again = true;
       return;
@@ -194,9 +167,9 @@ export function syncTerminal(opts: {
   const sendOnce = async () => {
     const st = opts.state();
     if (!st) return;
-    const recorded = st.terminals?.find((x) => x.id === info.id);
+    const recorded = st.clients?.find((x) => x.id === info.id);
     const shows = opts.shows?.();
-    const body: TerminalReport = {
+    const body: ClientReport = {
       kind: info.kind,
       name: info.name,
       machine: info.machine,
@@ -208,36 +181,35 @@ export function syncTerminal(opts: {
       if (seed) body.seed = seed;
     }
     try {
-      const t = await api.request<Terminal>("PUT", path, body);
-      if (mode !== "terminals") {
-        mode = "terminals";
-        log(`terminal ${info.id} mirrors ${describe(t)}`);
+      const t = await api.request<Client>("PUT", path, body);
+      if (mode !== "clients") {
+        mode = "clients";
+        log(`client ${info.id} mirrors ${describe(t)}`);
       }
       lastShows = JSON.stringify(shows ?? null);
       lastError = "";
       warnIgnoredEnv(st);
     } catch (err) {
-      if (mode === "unknown" && unknownRoute(err)) {
-        mode = "legacy";
-        log("this coordinator has no terminals; binding by SWITCHYARD_VIEW or the session's name");
-        followLegacy();
+      if (mode === "unknown" && isUnknownRoute(err)) {
+        mode = "unsupported";
+        log("this coordinator is older than this CLI (it has no clients): upgrade the coordinator");
         return;
       }
       const m = (err as Error).message;
-      if (m !== lastError) log(`terminal report failed: ${m}`);
+      if (m !== lastError) log(`client report failed: ${m}`);
       lastError = m;
     }
   };
 
   let lastBinding = "";
   const off = opts.subscribe(() => {
-    if (mode === "legacy") return followLegacy();
+    if (mode === "unsupported") return;
     const st = opts.state();
     if (!st) return;
     if (mode === "unknown") void send();
-    const t = st.terminals?.find((x) => x.id === info.id);
+    const t = st.clients?.find((x) => x.id === info.id);
     const now = t ? describe(t) : "";
-    if (t && lastBinding && now !== lastBinding) log(`terminal ${info.id} now mirrors ${now}`);
+    if (t && lastBinding && now !== lastBinding) log(`client ${info.id} now mirrors ${now}`);
     if (t) lastBinding = now;
   });
   void send();
@@ -245,7 +217,7 @@ export function syncTerminal(opts: {
   timer.unref?.();
   return {
     binding() {
-      if (mode === "legacy") return legacyBound();
+      if (mode === "unsupported") return "off";
       const st = opts.state();
       return st ? recordedBinding(st, info.id) : "off";
     },
@@ -256,13 +228,14 @@ export function syncTerminal(opts: {
       stopped = true;
       off();
       clearInterval(timer);
-      await legacy?.stop();
-      legacy = null;
     },
   };
 }
 
-function describe(t: Terminal): string {
-  const m = terminalMirror(t);
-  return m === "view" ? `view ${t.viewId}` : m === "all" ? "everything" : "nothing";
+function describe(t: Client): string {
+  return t.mirror === "scope"
+    ? `scope ${t.scopeId}`
+    : t.mirror === "all"
+      ? "everything"
+      : "nothing";
 }

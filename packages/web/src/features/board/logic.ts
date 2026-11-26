@@ -5,11 +5,11 @@ import type {
   Priority,
   Project,
   Run,
+  Scope,
   Task,
   TaskState,
-  View,
 } from "@switchyard/protocol";
-import { PRIORITY_LABELS, taskInView } from "@switchyard/protocol";
+import { PRIORITY_LABELS, taskInScope } from "@switchyard/protocol";
 
 /**
  * Pure board helpers (filters, sorting, move planning, eligibility wording).
@@ -116,8 +116,8 @@ export function activeFilterChips(
 
 export interface FilterContext {
   projectId: string | null;
-  /** The selected view (shared with Sessions); null: every task. */
-  view?: View | null;
+  /** The selected scope (shared with Sessions); null: every task. */
+  scope?: Scope | null;
   runs: Record<string, Run>;
   /** Task ids with open attention. */
   attentionTaskIds: Set<string>;
@@ -132,7 +132,7 @@ export function taskHostId(task: Task, runs: Record<string, Run>): string | null
 export function matchesFilters(task: Task, f: BoardFilters, ctx: FilterContext): boolean {
   if (task.hiddenFromBoard) return false;
   if (ctx.projectId && task.projectId !== ctx.projectId) return false;
-  if (ctx.view && !taskInView(ctx.view, task)) return false;
+  if (ctx.scope && !taskInScope(ctx.scope, task)) return false;
   if (task.state === "canceled" && !f.showCanceled) return false;
   const q = f.search.trim().toLowerCase();
   if (q && !`${task.title}\n${task.objective}`.toLowerCase().includes(q)) return false;

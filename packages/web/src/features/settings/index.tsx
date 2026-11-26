@@ -8,8 +8,8 @@ import { cn } from "../../lib/cn";
 import { useSyncStore } from "../../sync/store";
 import { AdaptersSection } from "./AdaptersSection";
 import { BackupsSection } from "./BackupsSection";
+import { ClientsSection } from "./ClientsSection";
 import { DeviceSection } from "./DeviceSection";
-import { DevicesSection } from "./DevicesSection";
 import { DiagnosticsSection } from "./DiagnosticsSection";
 import { HostDetail, HostsSection } from "./HostsSection";
 import { NotificationsSection } from "./NotificationsSection";
@@ -17,10 +17,9 @@ import { PoliciesSection } from "./PoliciesSection";
 import { ProfilesSection } from "./ProfilesSection";
 import { ProjectDetail } from "./ProjectDetail";
 import { ProjectCreate, ProjectsSection } from "./ProjectsSection";
+import { ScopesSection } from "./ScopesSection";
 import { SignInSection } from "./SignInSection";
 import { SECTION_GROUPS, settingsPath } from "./shared";
-import { TerminalsSection } from "./TerminalsSection";
-import { TrackersSection } from "./TrackersSection";
 
 /**
  * Settings (spec 15): hosts, devices, projects, Pi profiles, adapters,
@@ -39,15 +38,18 @@ export default function SettingsView() {
       />
       <Route path="hosts" element={<HostsSection />} />
       <Route path="hosts/:hostId" element={<HostDetail />} />
-      <Route path="devices" element={<DevicesSection />} />
+      <Route path="clients" element={<ClientsSection />} />
+      {/* The names these pages had before 0.21. */}
+      <Route path="devices" element={<Navigate to={settingsPath("clients")} replace />} />
+      <Route path="terminals" element={<Navigate to={settingsPath("clients")} replace />} />
+      <Route path="trackers" element={<Navigate to={settingsPath("scopes")} replace />} />
       <Route path="sign-in" element={<SignInSection />} />
       <Route path="projects" element={<ProjectsSection />} />
       <Route path="projects/new" element={<ProjectCreate />} />
       <Route path="projects/:projectId" element={<ProjectDetail />} />
-      <Route path="trackers" element={<TrackersSection />} />
+      <Route path="scopes" element={<ScopesSection />} />
       <Route path="profiles" element={<ProfilesSection />} />
       <Route path="policies" element={<PoliciesSection />} />
-      <Route path="terminals" element={<TerminalsSection />} />
       <Route path="adapters" element={<AdaptersSection />} />
       <Route path="notifications" element={<NotificationsSection />} />
       <Route path="backups" element={<BackupsSection />} />
@@ -125,6 +127,7 @@ function SectionNav({ compact }: { compact: boolean }) {
 function useSummaries(): Record<string, string | undefined> {
   const hosts = useSyncStore((s) => s.hosts);
   const devices = useSyncStore((s) => s.devices);
+  const clients = useSyncStore((s) => s.clients);
   const projects = useSyncStore((s) => s.projects);
   const profiles = useSyncStore((s) => s.profiles);
   const adapters = useSyncStore((s) => s.adapters);
@@ -137,12 +140,16 @@ function useSummaries(): Record<string, string | undefined> {
     const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
     return {
       hosts: `${plural(hs.length, "host")}, ${connected} connected`,
-      devices: plural(Object.values(devices).filter((d) => d.revokedAt === null).length, "device"),
+      clients: plural(
+        Object.values(devices).filter((d) => d.revokedAt === null).length +
+          Object.keys(clients).length,
+        "client",
+      ),
       projects: plural(Object.keys(projects).length, "project"),
       profiles: plural(Object.keys(profiles).length, "profile"),
       adapters: plural(adapterCount, "adapter"),
     };
-  }, [hosts, devices, projects, profiles, adapters, hydrated]);
+  }, [hosts, devices, clients, projects, profiles, adapters, hydrated]);
 }
 
 /** Mobile /settings: the section list, each row opens a sub-page. */

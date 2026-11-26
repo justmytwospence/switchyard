@@ -1,27 +1,32 @@
 import {
+  type BoardStatusOption,
   BRANCH_STAGES,
   type Branch,
-  branchInView,
+  branchInScope,
   buildBranches,
   compareIssues,
-  issueInView,
-  sessionViewReason,
+  type GitHubScope,
+  issueBranchSet,
+  issueInScope,
+  type Scope,
+  sessionScopeReason,
+  sourceBacklog,
   type TrackedIssue,
-  type Tracker,
-  type TrackerStatusOption,
-  trackerBacklog,
-  trackerScope,
-  type View,
 } from "@switchyard/protocol";
 import { sessionsNeedingAttention } from "../../sync/selectors";
 import { type NavInput, type StatusBucket, statusBucket } from "../code/model";
 
 /**
  * The Board: branches as cards in columns, by stage (from facts: branch, pull request) or, for a
- * tracker's view with a GitHub Projects board, by that board's columns. Pure; tested without a DOM.
+ * GitHub scope with a Projects board, by that board's columns. Pure; tested without a DOM.
  */
 
-export type BoardMode = "stage" | "tracker";
+export type BoardMode = "stage" | "github";
+
+/** The board mode a browser stored; "tracker" is how 0.20 stored "github". */
+export function boardMode(stored: string | undefined): BoardMode {
+  return stored === "github" || stored === "tracker" ? "github" : "stage";
+}
 
 export interface BoardCard {
   /** The branch key, or `i:<issue id>` for an issue no branch has yet. */
@@ -39,7 +44,7 @@ export interface BoardCard {
   attention: boolean;
   extraCount: number;
   lastActivityAt: string;
-  /** In the selected tracker's view only while a session is live. */
+  /** In the selected GitHub scope only while a session is live. */
   leaves: boolean;
 }
 
@@ -57,18 +62,15 @@ export const NOT_STARTED = "not_started";
 export const NO_STATUS = "none";
 export const OFF_BOARD = "off";
 
-/** The tracker board a view can show, when it is a tracker's view and its issues have a board. */
-export function trackerBoardOf(
-  view: View | null,
-  trackers: Tracker[],
+/** The Projects board a scope can show, when it is a GitHub scope and its issues have a board. */
+export function githubBoardOf(
+  scope: Scope | null,
   issues: TrackedIssue[],
-): { tracker: Tracker; options: TrackerStatusOption[] } | null {
-  if (!view?.trackerId) return null;
-  const tracker = trackers.find((t) => t.id === view.trackerId);
-  if (!tracker?.board) return null;
-  const withBoard = issues.find((i) => i.trackerId === tracker.id && i.board);
+): { scope: GitHubScope; options: BoardStatusOption[] } | null {
+  if (!scope?.source?.board) return null;
+  const withBoard = issues.find((i) => i.scopeId === scope.id && i.board);
   if (!withBoard?.board) return null;
-  return { tracker, options: withBoard.board.options };
+  return { scope: scope as GitHubScope, options: withBoard.board.options };
 }
 
 function issueCard(i: TrackedIssue, input: BoardInput): BoardCard {
@@ -139,10 +141,11 @@ const order = (a: BoardCard, b: BoardCard) =>
     : b.lastActivityAt.localeCompare(a.lastActivityAt));
 
 export interface BoardOptions {
-  view: View | null;
+  scope: Scope | null;
   query: string;
   mode: BoardMode;
-  tracker: Tracker | null;
+  /** The GitHub scope whose board columns to show (mode "github"). */
+  github: GitHubScope | null;
   /** Show worktrees nobody is working in (no session, issue or pull request). Default true. */
   showEmpty?: boolean;
 }
@@ -152,12 +155,12 @@ export function isEmptyWorktree(b: Branch): boolean {
   return !b.primary && b.extras.length === 0 && !b.issue && !b.pullRequest;
 }
 
-/** The board's columns for a view, a search and a mode. */
+/** The board's columns for a scope, a search and a mode. */
 export function buildBoard(input: BoardInput, opts: BoardOptions): BoardColumn[] {
   return buildBoardWithEmpty(input, opts).columns;
 }
 
-/** The board's columns, and how many empty worktrees the view has (shown or not). */
+/** The board's columns, and how many empty worktrees the scope has (shown or not). */
 export function buildBoardWithEmpty(
   input: BoardInput,
   opts: BoardOptions,
@@ -177,38 +180,38 @@ function columnsOf(input: BoardInput, opts: BoardOptions, onEmpty: () => void): 
     sessions: Object.values(input.sessions),
     issues: Object.values(input.issues),
   });
-  const scope = opts.view ? trackerScope(opts.view, Object.values(input.issues)) : null;
+  const issueSet = opts.scope ? issueBranchSet(opts.scope, Object.values(input.issues)) : null;
   const cards: BoardCard[] = [];
   for (const b of branches) {
     if (!b.primary && (b.main || b.kind === "scratch")) continue;
-    const view = opts.view;
-    if (view && !branchInView(view, b, input.workspaces, scope)) continue;
+    const scope = opts.scope;
+    if (scope && !branchInScope(scope, b, input.workspaces, issueSet)) continue;
     if (isEmptyWorktree(b)) {
       onEmpty();
       if (opts.showEmpty === false) continue;
     }
     const leaves =
       !!scope &&
-      !!view &&
-      b.issue?.trackerId !== view.trackerId &&
+      !!issueSet &&
+      b.issue?.scopeId !== issueSet.scopeId &&
       ![b.primary, ...b.extras].some((s) => {
         if (!s) return false;
-        const r = sessionViewReason(view, s, input.workspaces, scope);
+        const r = sessionScopeReason(scope, s, input.workspaces, issueSet);
         return r !== null && r !== "live";
       });
     cards.push(branchCard(b, input, attn, leaves));
   }
   const issueCards = unstarted
-    .filter((i) => !opts.view || issueInView(opts.view, i))
+    .filter((i) => !opts.scope || issueInScope(opts.scope, i))
     .map((i) => issueCard(i, input));
   const all = [...issueCards, ...cards].filter((c) => matches(c, q));
 
-  if (opts.mode === "tracker" && opts.tracker) {
+  if (opts.mode === "github" && opts.github) {
     const options =
-      Object.values(input.issues).find((i) => i.trackerId === opts.tracker!.id && i.board)?.board
+      Object.values(input.issues).find((i) => i.scopeId === opts.github!.id && i.board)?.board
         ?.options ?? [];
-    const mine = (c: BoardCard) => c.issue?.trackerId === opts.tracker!.id;
-    const backlog = trackerBacklog(opts.tracker).map((b) => b.toLowerCase());
+    const mine = (c: BoardCard) => c.issue?.scopeId === opts.github!.id;
+    const backlog = sourceBacklog(opts.github.source).map((b) => b.toLowerCase());
     const columns: BoardColumn[] = options
       .map((o) => ({
         id: o.id,
@@ -250,14 +253,14 @@ export function canDrop(
   card: BoardCard,
   column: BoardColumn,
   mode: BoardMode,
-  tracker: Tracker | null,
+  github: GitHubScope | null,
 ): { ok: true } | { ok: false; reason: string } {
   if (mode === "stage") {
     if (!card.branch && column.id === "working") return { ok: true };
     return { ok: false, reason: "Moves when the branch or its pull request changes" };
   }
-  if (!tracker?.writeBack) return { ok: false, reason: "Write-back is off for this tracker" };
-  if (!card.issue?.board || card.issue.trackerId !== tracker.id)
+  if (!github?.source.writeBack) return { ok: false, reason: "Write-back is off for this scope" };
+  if (!card.issue?.board || card.issue.scopeId !== github.id)
     return { ok: false, reason: "This branch has no issue on the board" };
   if (column.id === NO_STATUS || column.id === OFF_BOARD)
     return { ok: false, reason: "Pick a board column" };

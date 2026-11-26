@@ -20,10 +20,11 @@ import { PolicyService, type PolicyServiceOptions } from "./policies/service.js"
 import { PROJECT_SCAN_INTERVAL_MS, ProjectFolderService } from "./project-folders.js";
 import { type PushSender, PushService } from "./push.js";
 import { registerAutomationRoutes } from "./routes/automations.js";
+import { registerIssueRoutes } from "./routes/issues.js";
 import { registerPolicyRoutes } from "./routes/policies.js";
 import { registerPushRoutes } from "./routes/push.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
-import { registerTrackerRoutes } from "./routes/trackers.js";
+import { ScopeSourceService } from "./scope-sources.js";
 import type { BuiltinServices } from "./services.js";
 import { requireConnected } from "./sessions/service.js";
 import {
@@ -32,7 +33,6 @@ import {
   type DispatcherOptions,
 } from "./tasks/dispatcher.js";
 import { RunsService } from "./tasks/runs.js";
-import { TrackerService } from "./trackers.js";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle.js";
 
 export interface BuiltinOptions {
@@ -51,8 +51,8 @@ export interface BuiltinOptions {
   cacheAlertTickMs?: number;
   /** Worktree session and landed-removal tick (default 5 min; 0 disables the timer). */
   workspaceLifecycleTickMs?: number;
-  /** Tracker sync tick (default 2 min; 0 disables the timer). */
-  trackerTickMs?: number;
+  /** Scope source sync tick (default 2 min; 0 disables the timer). */
+  scopeSyncTickMs?: number;
   /** Policy rule evaluator (default: a new two-worker pool owned by this coordinator). Tests share one. */
   policyEvaluator?: PolicyServiceOptions["evaluator"];
 }
@@ -184,7 +184,9 @@ export function installBuiltins(
   const workspaceLifecycle = new WorkspaceLifecycleService(ctx, {
     tickMs: opts.workspaceLifecycleTickMs ?? 300_000,
   });
-  const trackers = new TrackerService(ctx, { tickMs: opts.trackerTickMs ?? 120_000 });
+  const scopeSources = new ScopeSourceService(ctx, {
+    tickMs: opts.scopeSyncTickMs ?? 120_000,
+  });
   const services: BuiltinServices = {
     github,
     policies,
@@ -199,12 +201,12 @@ export function installBuiltins(
     notifications,
     projectFolders,
     workspaceLifecycle,
-    trackers,
+    scopeSources,
   };
   for (const [name, svc] of Object.entries(services)) ctx.services.set(name, svc);
   registerPolicyRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
-  registerTrackerRoutes(app, ctx);
+  registerIssueRoutes(app, ctx);
   registerAutomationRoutes(app, ctx);
   registerPushRoutes(app, ctx);
   return {
@@ -223,13 +225,13 @@ export function installBuiltins(
       messages.start();
       github.start();
       workspaceLifecycle.start();
-      trackers.start();
+      scopeSources.start();
     },
     async stop() {
       ctx.hostHub.setAgentHandler(null);
       lifetime.abort(new SwitchyardError("host_unreachable", "The coordinator is stopping."));
       const messagesStopped = messages.stop();
-      trackers.stop();
+      scopeSources.stop();
       workspaceLifecycle.stop();
       github.stop();
       cacheAlerts.stop();

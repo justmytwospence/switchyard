@@ -202,7 +202,7 @@ export function MobileSession({
   );
 
   const changed = ctx.workspace?.git.changedFiles ?? 0;
-  const views = useSyncStore((st) => st.views);
+  const scopes = useSyncStore((st) => st.scopes);
   const menuItems: MenuItem[] = [
     ...(github.snapshot?.pullRequest
       ? [{ id: "pr", label: "Pull request", onSelect: () => setTab("pr") }]
@@ -228,7 +228,7 @@ export function MobileSession({
           },
         ]
       : []),
-    ...sessionMenuItems(ctx, actions, Object.values(views)),
+    ...sessionMenuItems(ctx, actions, Object.values(scopes)),
   ];
 
   return (

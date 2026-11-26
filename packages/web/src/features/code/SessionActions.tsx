@@ -40,8 +40,8 @@ export interface SessionActions {
   unarchive: () => void;
   /** Clear this session's "Needs input" flag (its open input attention), or null when it has none. */
   dismissAttention: (() => void) | null;
-  /** Pin the session to a view, or unpin it. */
-  setPinned: (viewId: string, pinned: boolean) => void;
+  /** Pin the session to a scope, or unpin it. */
+  setPinned: (scopeId: string, pinned: boolean) => void;
   /** This session is its branch's primary session. */
   isPrimary: boolean;
   setPrimary: (primary: boolean) => void;
@@ -257,8 +257,8 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
               .catch((e) => toast.error(errorMessage(e)));
           }
         : null,
-    setPinned: (viewId, pinned) => {
-      const path = `/api/views/${encodeURIComponent(viewId)}/sessions/${encodeURIComponent(session.id)}`;
+    setPinned: (scopeId, pinned) => {
+      const path = `/api/scopes/${encodeURIComponent(scopeId)}/sessions/${encodeURIComponent(session.id)}`;
       void (pinned ? apiPost(path) : apiDelete(path)).catch((e) => toast.error(errorMessage(e)));
     },
     isPrimary,

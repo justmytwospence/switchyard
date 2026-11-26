@@ -436,7 +436,7 @@ export class Integration {
       dispatcher: { tickMs: 100, reconcileEveryMs: 1000, retryBackoffMs: 1000 },
       schedulerTickMs: 0,
       workspaceLifecycleTickMs: 0,
-      trackerTickMs: 0,
+      scopeSyncTickMs: 0,
       policyEvaluator: sharedPolicyEvaluator,
       pushSender: async (sub: PushTarget, payload: PushPayload) => {
         pushes.push({ endpoint: sub.endpoint, payload });

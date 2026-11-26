@@ -100,8 +100,8 @@ test.describe("Sessions navigator header", () => {
     expect(offset).toBeLessThan(phone ? 281 : 255);
 
     const header = nav.getByTestId("navigator-header");
-    await expect(header.getByLabel("View", { exact: true })).toHaveValue("");
-    await expect(nav.getByTestId("view-chip")).not.toHaveAttribute("data-active", "true");
+    await expect(header.getByLabel("Scope", { exact: true })).toHaveValue("");
+    await expect(nav.getByTestId("scope-chip")).not.toHaveAttribute("data-active", "true");
     await expect(nav.getByTestId("where-chip")).toHaveCount(0);
     await expect(nav.getByTestId("clear-filters")).toHaveCount(0);
     // The status summary is folded into the filter: each option counts the rows it lists.
@@ -128,21 +128,21 @@ test.describe("Sessions navigator header", () => {
     await expect(nav.getByTestId("clear-filters")).toHaveCount(0);
 
     // A selected view is highlighted with its own clear.
-    const v = await api("POST", "/api/views", { name: `chip-${uid(info)}`, mode: "pinned" });
-    await header.getByLabel("View", { exact: true }).selectOption(v.id);
-    await expect(nav.getByTestId("view-chip")).toHaveAttribute("data-active", "true");
-    await expect(nav.getByRole("button", { name: "Clear view" })).toBeVisible();
-    await expect(nav.getByRole("button", { name: "Edit view" })).toBeVisible();
+    const v = await api("POST", "/api/scopes", { name: `chip-${uid(info)}`, mode: "pinned" });
+    await header.getByLabel("Scope", { exact: true }).selectOption(v.id);
+    await expect(nav.getByTestId("scope-chip")).toHaveAttribute("data-active", "true");
+    await expect(nav.getByRole("button", { name: "Clear scope" })).toBeVisible();
+    await expect(nav.getByRole("button", { name: "Edit scope" })).toBeVisible();
     await nav.getByTestId("clear-filters").click();
     await expect(nav.getByTestId("clear-filters")).toHaveCount(0);
-    await expect(header.getByLabel("View", { exact: true })).toHaveValue("");
-    await expect(nav.getByTestId("view-chip")).not.toHaveAttribute("data-active", "true");
+    await expect(header.getByLabel("Scope", { exact: true })).toHaveValue("");
+    await expect(nav.getByTestId("scope-chip")).not.toHaveAttribute("data-active", "true");
     if (phone) await expect(header.getByRole("searchbox")).toHaveCount(0);
     else await expect(search).toHaveValue("");
-    await header.getByLabel("View", { exact: true }).selectOption(v.id);
-    await nav.getByRole("button", { name: "Clear view" }).click();
-    await expect(header.getByLabel("View", { exact: true })).toHaveValue("");
-    await api("DELETE", `/api/views/${v.id}`);
+    await header.getByLabel("Scope", { exact: true }).selectOption(v.id);
+    await nav.getByRole("button", { name: "Clear scope" }).click();
+    await expect(header.getByLabel("Scope", { exact: true })).toHaveValue("");
+    await api("DELETE", `/api/scopes/${v.id}`);
   });
 
   test("rows say which terminal a hand-started Pi runs in; Where groups and filters by it", async ({
@@ -196,7 +196,7 @@ test.describe("Sessions navigator header", () => {
     state,
   }, info) => {
     const phone = viewportOf(info) === "mobile";
-    const v = await api("POST", "/api/views", {
+    const v = await api("POST", "/api/scopes", {
       name: `A rather long view name ${uid(info)}`,
       mode: "all",
     });
@@ -213,7 +213,7 @@ test.describe("Sessions navigator header", () => {
         await page.keyboard.press(key);
       }
       expect(await headerProblems(page)).toEqual([]);
-      await nav.getByLabel("View", { exact: true }).selectOption(v.id);
+      await nav.getByLabel("Scope", { exact: true }).selectOption(v.id);
       expect(await headerProblems(page)).toEqual([]);
       await chooseLayout(page, /^Where/);
       await nav.getByRole("button", { name: "Only herdr a-long-terminal-name" }).click();
@@ -223,7 +223,7 @@ test.describe("Sessions navigator header", () => {
       await expect(nav.getByTestId("where-chip")).toHaveCount(0);
       await chooseLayout(page, phone ? /^Recent(?! activity)/ : /^Projects/);
     }
-    await api("DELETE", `/api/views/${v.id}`);
+    await api("DELETE", `/api/scopes/${v.id}`);
   });
 
   test("with no projects, Pi history suggestions are one line linking to Settings", async ({

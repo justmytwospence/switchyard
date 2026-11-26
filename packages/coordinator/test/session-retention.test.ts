@@ -32,14 +32,14 @@ describe("archiving ended sessions", () => {
     // Alone on its branch: the primary, however old.
     await put("ses_alone", { cwd: "/tmp/elsewhere", lastActivityAt: ago(30) });
     const now = store.nowIso();
-    store.views.upsert({
+    store.scopes.upsert({
       id: "viw_pin",
       name: "pins",
       mode: "pinned",
       projectIds: null,
       hostIds: null,
       sessionIds: ["ses_older_pinned"],
-      clients: [],
+      source: null,
       createdAt: now,
       updatedAt: now,
     });
@@ -48,7 +48,7 @@ describe("archiving ended sessions", () => {
     // A pin is membership only: the pinned session is archived like any other, and unpinned.
     expect(archived.sort()).toEqual(["ses_mid", "ses_old", "ses_older_pinned"]);
     expect(store.sessions.require("ses_old").archivedAt).not.toBeNull();
-    expect(store.views.require("viw_pin").sessionIds).toEqual([]);
+    expect(store.scopes.require("viw_pin").sessionIds).toEqual([]);
     for (const id of ["ses_recent", "ses_latest", "ses_live_old", "ses_alone"])
       expect(store.sessions.require(id).archivedAt, id).toBeNull();
     expect(archiveEndedSessions(store)).toEqual([]);
@@ -101,14 +101,14 @@ describe("archiving ended sessions", () => {
     raise("ses_stuck", "ready_for_review");
     raise("ses_live", "needs_input");
     store.putSession({ ...store.sessions.require("ses_gone"), archivedAt: now });
-    store.views.upsert({
+    store.scopes.upsert({
       id: "viw_old",
       name: "old",
       mode: "pinned",
       projectIds: null,
       hostIds: null,
       sessionIds: ["ses_stuck", "ses_gone", "ses_missing"],
-      clients: [],
+      source: null,
       createdAt: now,
       updatedAt: now,
     });
@@ -118,7 +118,7 @@ describe("archiving ended sessions", () => {
     expect(store.interactions.require("int_live").state).toBe("unsupported");
     const open = store.attention.list("resolved_at IS NULL").map((a) => a.id);
     expect(open.sort()).toEqual(["att_ses_live_needs_input", "att_ses_stuck_ready_for_review"]);
-    expect(store.views.require("viw_old").sessionIds).toEqual(["ses_stuck"]);
+    expect(store.scopes.require("viw_old").sessionIds).toEqual(["ses_stuck"]);
     expect(sweepStaleSessionState(store, t.c.attention)).toEqual({ sessions: 0, pins: 0 });
   });
 });

@@ -3,6 +3,7 @@ import type {
   AttentionItem,
   Automation,
   Checkout,
+  Client,
   Device,
   Diagnostic,
   EventData,
@@ -15,14 +16,13 @@ import type {
   Profile,
   Project,
   Run,
+  Scope,
   Session,
   StreamDelta,
   SyncState,
   Task,
-  Terminal,
   TrackedIssue,
   TranscriptItem,
-  View,
   Workspace,
 } from "@switchyard/protocol";
 import { canonicalEventType } from "@switchyard/protocol";
@@ -43,7 +43,7 @@ export interface EntityState {
   checkouts: ById<Checkout>;
   workspaces: ById<Workspace>;
   profiles: ById<Profile>;
-  views: ById<View>;
+  scopes: ById<Scope>;
   sessions: ById<Session>;
   tasks: ById<Task>;
   runs: ById<Run>;
@@ -55,7 +55,7 @@ export interface EntityState {
   /** Keyed by `panelKey(sessionId, adapterId, slot)`. */
   panels: ById<Panel>;
   devices: ById<Device>;
-  terminals: ById<Terminal>;
+  clients: ById<Client>;
   issues: ById<TrackedIssue>;
   /** Adapters per host id. */
   adapters: Record<string, AdapterInfo[]>;
@@ -120,7 +120,7 @@ export function emptyEntities(): EntityState {
     checkouts: {},
     workspaces: {},
     profiles: {},
-    views: {},
+    scopes: {},
     sessions: {},
     tasks: {},
     runs: {},
@@ -129,7 +129,7 @@ export function emptyEntities(): EntityState {
     interactions: {},
     panels: {},
     devices: {},
-    terminals: {},
+    clients: {},
     issues: {},
     adapters: {},
     occurrences: {},
@@ -202,7 +202,8 @@ export function applySnapshot<S extends SyncData>(state: S, seq: number, snap: S
     checkouts: byId(snap.checkouts),
     workspaces: byId(snap.workspaces),
     profiles: byId(snap.profiles),
-    views: byId(snap.views),
+    // A cache written by 0.20 has neither: it hydrates empty until the first snapshot.
+    scopes: byId(snap.scopes ?? []),
     sessions: byId(snap.sessions),
     tasks: byId(snap.tasks),
     runs: byId(snap.runs),
@@ -211,7 +212,7 @@ export function applySnapshot<S extends SyncData>(state: S, seq: number, snap: S
     interactions: byId(snap.interactions),
     panels,
     devices: byId(snap.devices),
-    terminals: byId(snap.terminals ?? snap.surfaces ?? []),
+    clients: byId(snap.clients ?? []),
     issues: byId(snap.issues ?? []),
     adapters: { ...snap.adapters },
     dispatchPaused: snap.dispatchPaused,
@@ -228,7 +229,7 @@ export function toSyncState(state: EntityState): SyncState {
     checkouts: Object.values(state.checkouts),
     workspaces: Object.values(state.workspaces),
     profiles: Object.values(state.profiles),
-    views: Object.values(state.views),
+    scopes: Object.values(state.scopes),
     sessions: Object.values(state.sessions),
     tasks: Object.values(state.tasks),
     runs: Object.values(state.runs),
@@ -238,7 +239,7 @@ export function toSyncState(state: EntityState): SyncState {
     panels: Object.values(state.panels),
     devices: Object.values(state.devices),
     issues: Object.values(state.issues),
-    terminals: Object.values(state.terminals),
+    clients: Object.values(state.clients),
     adapters: state.adapters,
     dispatchPaused: state.dispatchPaused,
   };
@@ -394,13 +395,13 @@ function reduceEvent<S extends SyncData, T extends EventType>(
       const d = data as EventData<"workspace.deleted">;
       return { ...state, workspaces: drop(state.workspaces, d.id) };
     }
-    case "view.updated": {
-      const d = data as EventData<"view.updated">;
-      return { ...state, views: put(state.views, d.id, d) };
+    case "scope.updated": {
+      const d = data as EventData<"scope.updated">;
+      return { ...state, scopes: put(state.scopes, d.id, d) };
     }
-    case "view.deleted": {
-      const d = data as EventData<"view.deleted">;
-      return { ...state, views: drop(state.views, d.id) };
+    case "scope.deleted": {
+      const d = data as EventData<"scope.deleted">;
+      return { ...state, scopes: drop(state.scopes, d.id) };
     }
     case "profile.updated": {
       const d = data as EventData<"profile.updated">;
@@ -509,13 +510,13 @@ function reduceEvent<S extends SyncData, T extends EventType>(
       const d = data as EventData<"issue.deleted">;
       return { ...state, issues: drop(state.issues, d.id) };
     }
-    case "terminal.updated": {
-      const d = data as EventData<"terminal.updated">;
-      return { ...state, terminals: put(state.terminals, d.id, d) };
+    case "client.updated": {
+      const d = data as EventData<"client.updated">;
+      return { ...state, clients: put(state.clients, d.id, d) };
     }
-    case "terminal.deleted": {
-      const d = data as EventData<"terminal.deleted">;
-      return { ...state, terminals: drop(state.terminals, d.id) };
+    case "client.deleted": {
+      const d = data as EventData<"client.deleted">;
+      return { ...state, clients: drop(state.clients, d.id) };
     }
     case "settings.updated": {
       const d = data as EventData<"settings.updated">;

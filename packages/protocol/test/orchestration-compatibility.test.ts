@@ -319,8 +319,8 @@ describe("stable client discriminants", () => {
       "workspace.deleted",
       "profile.updated",
       "profile.deleted",
-      "view.updated",
-      "view.deleted",
+      "scope.updated",
+      "scope.deleted",
       "session.updated",
       "transcript.item",
       "transcript.reset",
@@ -339,8 +339,8 @@ describe("stable client discriminants", () => {
       "device.updated",
       "issue.updated",
       "issue.deleted",
-      "terminal.updated",
-      "terminal.deleted",
+      "client.updated",
+      "client.deleted",
       "settings.updated",
     ];
     expect([...EVENT_TYPES].sort()).toEqual(expected.sort());

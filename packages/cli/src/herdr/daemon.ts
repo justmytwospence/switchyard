@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ApiClient } from "@switchyard/terminal";
 import { archiveSession, renameSession } from "../mirror/actions.js";
 import type { Bound } from "../mirror/binding.js";
-import { primaryIds, viewedSessions } from "../mirror/state.js";
+import { primaryIds, scopedSessions } from "../mirror/state.js";
 import { type HerdrCall, type HerdrSubscription, type herdrSubscribe, nextSeq } from "./client.js";
 import {
   claimedSession,
@@ -34,10 +34,10 @@ export interface DaemonDeps {
   /** Switchyard's state, null until the first sync. */
   state: () => MirrorState | null;
   onStateChange: (fn: () => void) => () => void;
-  /** What it mirrors: a view, null for everything, "off" for nothing (idle). */
-  view?: () => Bound;
-  /** This terminal's id: sessions whose Pi runs by hand in it get no tab. */
-  terminalId?: string;
+  /** What it mirrors: a scope, null for everything, "off" for nothing (idle). */
+  scope?: () => Bound;
+  /** This client's id: sessions whose Pi runs by hand in it get no tab. */
+  clientId?: string;
   /** Called after each reconcile with the sessions its tabs show. */
   onShows?: (sessionIds: string[]) => void;
   /** `<state>/<herdr session>`: spaces.json and the fallback space directory. */
@@ -77,7 +77,7 @@ export class MirrorDaemon {
   private readonly overrideAt = new Map<string, number>();
   private readonly lastReport = new Map<string, string>();
   private readonly metadataSent = new Set<string>();
-  private viewMissingLogged = false;
+  private scopeMissingLogged = false;
 
   constructor(private readonly deps: DaemonDeps) {}
 
@@ -202,13 +202,13 @@ export class MirrorDaemon {
     const st = this.deps.state();
     if (!st) return [];
     const { call, log } = this.deps;
-    const bound = this.deps.view?.() ?? null;
+    const bound = this.deps.scope?.() ?? null;
     if (bound === "off") {
-      if (!this.viewMissingLogged) log("mirrors nothing; idle");
-      this.viewMissingLogged = true;
+      if (!this.scopeMissingLogged) log("mirrors nothing; idle");
+      this.scopeMissingLogged = true;
       return [];
     }
-    this.viewMissingLogged = false;
+    this.scopeMissingLogged = false;
     const done: string[] = [];
     const note = (line: string) => {
       done.push(line);
@@ -226,7 +226,7 @@ export class MirrorDaemon {
     }
     const h = await this.snapshot();
     this.remember(h);
-    const plan = planMirror(st, h, this.mem, this.now(), bound, this.deps.terminalId ?? null);
+    const plan = planMirror(st, h, this.mem, this.now(), bound, this.deps.clientId ?? null);
     const titleOf = (sid: string) => st.sessions.find((s) => s.id === sid)?.title ?? sid;
     const launcher = this.deps.launcherPath;
     const paneCmd = (sid: string) => launcherCommand(launcher, ["pane", sid]);
@@ -401,9 +401,9 @@ export class MirrorDaemon {
   private async onEvent(data: { type: string; [k: string]: unknown }): Promise<void> {
     const st = this.deps.state();
     if (!st) return;
-    const bound = this.deps.view?.() ?? null;
+    const bound = this.deps.scope?.() ?? null;
     if (bound === "off") return;
-    const mirrored = new Map(viewedSessions(st, bound).map((s) => [s.id, s]));
+    const mirrored = new Map(scopedSessions(st, bound).map((s) => [s.id, s]));
     const primaries = primaryIds(st);
     switch (data.type) {
       case "tab_closed": {

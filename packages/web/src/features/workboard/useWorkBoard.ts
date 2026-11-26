@@ -1,4 +1,4 @@
-import type { Tracker, TrackerStatusOption, View } from "@switchyard/protocol";
+import type { BoardStatusOption, GitHubScope, Scope } from "@switchyard/protocol";
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
@@ -6,18 +6,18 @@ import { toast } from "../../components/ui/Toast";
 import { useFilter } from "../../prefs";
 import { errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
-import { useTrackers } from "../../sync/trackers";
 import { codeApi } from "../code/api";
-import { useSelectedView } from "../views/selection";
-import { useViewDescriber } from "../views/ViewSelect";
+import { useScopeDescriber } from "../scopes/ScopeSelect";
+import { useSelectedScope } from "../scopes/selection";
 import { openIssue, setIssueStatus } from "./api";
 import {
   type BoardCard,
   type BoardColumn,
   type BoardMode,
+  boardMode,
   buildBoardWithEmpty,
   canDrop,
-  trackerBoardOf,
+  githubBoardOf,
 } from "./model";
 
 export interface WorkBoardPrefs {
@@ -29,15 +29,15 @@ export interface WorkBoardPrefs {
 
 export interface WorkBoard {
   hydrated: boolean;
-  view: View | null;
-  describe: (v: View) => string;
-  clearView: () => void;
+  scope: Scope | null;
+  describe: (v: Scope) => string;
+  clearScope: () => void;
   prefs: WorkBoardPrefs;
   setPrefs: (p: WorkBoardPrefs) => void;
   mode: BoardMode;
-  trackerBoard: { tracker: Tracker; options: TrackerStatusOption[] } | null;
+  githubBoard: { scope: GitHubScope; options: BoardStatusOption[] } | null;
   columns: BoardColumn[];
-  /** Worktrees in the view with no session, issue or pull request (hidden unless `prefs.empty`). */
+  /** Worktrees in the scope with no session, issue or pull request (hidden unless `prefs.empty`). */
   emptyCount: number;
   total: number;
   canDrop: (card: BoardCard, column: BoardColumn) => { ok: true } | { ok: false; reason: string };
@@ -57,27 +57,24 @@ export function useWorkBoard(): WorkBoard {
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
   const issues = useSyncStore((s) => s.issues);
-  const { views, describe } = useViewDescriber();
-  const [viewId, setViewId] = useSelectedView();
-  const view = (viewId ? views[viewId] : null) ?? null;
-  const { trackers } = useTrackers();
+  const { scopes, describe } = useScopeDescriber();
+  const [scopeId, setScopeId] = useSelectedScope();
+  const scope = (scopeId ? scopes[scopeId] : null) ?? null;
   const [stored, setPrefs] = useFilter<WorkBoardPrefs>("workboard", { mode: "stage", query: "" });
   const prefs = {
-    mode: stored.mode ?? "stage",
+    // "tracker" is how 0.20 stored the board-columns mode.
+    mode: boardMode(stored.mode),
     query: stored.query ?? "",
     empty: stored.empty ?? false,
   };
-  const trackerBoard = useMemo(
-    () => trackerBoardOf(view, trackers ?? [], Object.values(issues)),
-    [view, trackers, issues],
-  );
-  const mode: BoardMode = prefs.mode === "tracker" && trackerBoard ? "tracker" : "stage";
-  const tracker = trackerBoard?.tracker ?? null;
+  const githubBoard = useMemo(() => githubBoardOf(scope, Object.values(issues)), [scope, issues]);
+  const mode: BoardMode = prefs.mode === "github" && githubBoard ? "github" : "stage";
+  const github = githubBoard?.scope ?? null;
   const { columns, empty: emptyCount } = useMemo(
     () =>
       buildBoardWithEmpty(
         { projects, workspaces, sessions, hosts, attention, interactions, issues },
-        { view, query: prefs.query, mode, tracker, showEmpty: prefs.empty },
+        { scope, query: prefs.query, mode, github, showEmpty: prefs.empty },
       ),
     [
       projects,
@@ -87,11 +84,11 @@ export function useWorkBoard(): WorkBoard {
       attention,
       interactions,
       issues,
-      view,
+      scope,
       prefs.query,
       prefs.empty,
       mode,
-      tracker,
+      github,
     ],
   );
   const navigate = useNavigate();
@@ -117,7 +114,7 @@ export function useWorkBoard(): WorkBoard {
   };
 
   const move = async (card: BoardCard, column: BoardColumn) => {
-    if (!canDrop(card, column, mode, tracker).ok) return;
+    if (!canDrop(card, column, mode, github).ok) return;
     try {
       if (mode === "stage") {
         if (card.issue) go((await openIssue(card.issue.id)).session.id);
@@ -133,17 +130,17 @@ export function useWorkBoard(): WorkBoard {
 
   return {
     hydrated,
-    view,
+    scope,
     describe,
-    clearView: () => setViewId(null),
+    clearScope: () => setScopeId(null),
     prefs,
     setPrefs,
     mode,
-    trackerBoard,
+    githubBoard,
     columns,
     emptyCount,
     total: columns.reduce((n, c) => n + c.cards.length, 0),
-    canDrop: (card, column) => canDrop(card, column, mode, tracker),
+    canDrop: (card, column) => canDrop(card, column, mode, github),
     activate,
     move,
   };

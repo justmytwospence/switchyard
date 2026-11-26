@@ -1,11 +1,11 @@
 import { basename } from "node:path";
-import type { Session, View } from "@switchyard/protocol";
+import type { Scope, Session } from "@switchyard/protocol";
 import {
   lingeringSessions,
   type MirrorState,
   NEW_SESSION_GRACE_MS,
   PENDING_MS,
-  viewedSessions,
+  scopedSessions,
   wantedSessions,
 } from "../mirror/state.js";
 
@@ -81,16 +81,16 @@ export function titleFromWindowName(name: string, s: Session, st: MirrorState): 
 
 /**
  * Compare Switchyard with the paired tmux session and say what to change. Pure. Windows are
- * opened for `wantedSessions` (active branches); a window showing any other session in the view
+ * opened for `wantedSessions` (active branches); a window showing any other session in the scope
  * stays while it exists, unless the mirror opened it and its branch is no longer active.
  */
 export function planTmux(
   st: MirrorState,
-  view: View | null,
+  scope: Scope | null,
   windows: TmuxWindow[],
   mem: TmuxMemory,
   now: number,
-  terminalId: string | null = null,
+  clientId: string | null = null,
 ): TmuxPlan {
   const plan: TmuxPlan = {
     closeWindows: [],
@@ -99,9 +99,9 @@ export function planTmux(
     renames: [],
     offers: [],
   };
-  const M = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
-  const W = new Map(wantedSessions(st, view, now, terminalId).map((s) => [s.id, s]));
-  const linger = lingeringSessions(st, view);
+  const M = new Map(scopedSessions(st, scope).map((s) => [s.id, s]));
+  const W = new Map(wantedSessions(st, scope, now, clientId).map((s) => [s.id, s]));
+  const linger = lingeringSessions(st, scope);
   const claimed = new Set<string>();
   for (const w of windows) {
     if (!w.sessionId) continue;
@@ -110,7 +110,7 @@ export function planTmux(
     // A window the mirror opened goes once its branch is no longer active; one you opened stays.
     const inactive = !!s && !W.has(s.id) && mem.ownWindows[w.windowId] === s.id;
     if (!s || inactive) {
-      // A session that stopped out of the view or went inactive keeps the window you are in until you leave it.
+      // A session that stopped out of the scope or went inactive keeps the window you are in until you leave it.
       if (w.active && (inactive || linger.has(w.sessionId))) continue;
       plan.closeWindows.push({ windowId: w.windowId, sessionId: w.sessionId });
       continue;

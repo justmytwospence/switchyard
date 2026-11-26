@@ -107,7 +107,7 @@ export default function EnrollView() {
           <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
             <p className="text-sm">
               This single-use link signs in this browser as “{deviceName}”. You can rename it in
-              Settings › Devices.
+              Settings › Clients.
             </p>
             {error && (
               <div

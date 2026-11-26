@@ -7,7 +7,7 @@ const issue = (id: string) => `/api/issues/${encodeURIComponent(id)}`;
 /** Start or open an issue's branch; returns the session to show and whether it is new. */
 export async function openIssue(
   id: string,
-  body: { hostId?: string; viewId?: string; prompt?: string; profileId?: string } = {},
+  body: { hostId?: string; scopeId?: string; prompt?: string; profileId?: string } = {},
 ): Promise<{ session: Session; created: boolean }> {
   const r = await apiPost<{ session: Session; created: boolean }>(`${issue(id)}/open`, body);
   useSyncStore.getState().upsertSessionIfMissing(r.session);

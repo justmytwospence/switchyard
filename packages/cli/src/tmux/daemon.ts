@@ -4,7 +4,7 @@ import type { ApiClient } from "@switchyard/terminal";
 import { launcherCommand } from "../herdr/util.js";
 import { archiveSession, renameSession } from "../mirror/actions.js";
 import type { Bound } from "../mirror/binding.js";
-import { type MirrorState, PENDING_MS, primaryIds, viewedSessions } from "../mirror/state.js";
+import { type MirrorState, PENDING_MS, primaryIds, scopedSessions } from "../mirror/state.js";
 import { type TmuxControl, type TmuxEvent, type TmuxRun, tmuxTarget } from "./client.js";
 import {
   emptyTmuxMemory,
@@ -27,10 +27,10 @@ export interface TmuxDaemonDeps {
   session: string;
   state: () => MirrorState | null;
   onStateChange: (fn: () => void) => () => void;
-  /** What it mirrors: a view, null for everything, "off" for nothing (idle). */
-  view?: () => Bound;
-  /** This terminal's id: sessions whose Pi runs by hand in it get no window. */
-  terminalId?: string;
+  /** What it mirrors: a scope, null for everything, "off" for nothing (idle). */
+  scope?: () => Bound;
+  /** This client's id: sessions whose Pi runs by hand in it get no window. */
+  clientId?: string;
   /** Called after each reconcile with the sessions its windows show. */
   onShows?: (sessionIds: string[]) => void;
   /** The session's current name (it can be renamed); defaults to `session`. */
@@ -60,7 +60,7 @@ export class TmuxDaemon {
   private readonly closingByUs = new Map<string, number>();
   private readonly renamingByUs = new Map<string, { name: string; at: number }>();
   private readonly overrideAt = new Map<string, number>();
-  private viewMissingLogged = false;
+  private scopeMissingLogged = false;
 
   constructor(private readonly deps: TmuxDaemonDeps) {}
 
@@ -198,13 +198,13 @@ export class TmuxDaemon {
     const { run, log } = this.deps;
     // Refresh the session's name: an older coordinator still binds by it.
     await this.currentName();
-    const bound = this.deps.view?.() ?? null;
+    const bound = this.deps.scope?.() ?? null;
     if (bound === "off") {
-      if (!this.viewMissingLogged) log("mirrors nothing; idle");
-      this.viewMissingLogged = true;
+      if (!this.scopeMissingLogged) log("mirrors nothing; idle");
+      this.scopeMissingLogged = true;
       return [];
     }
-    this.viewMissingLogged = false;
+    this.scopeMissingLogged = false;
     const done: string[] = [];
     const note = (line: string) => {
       done.push(line);
@@ -225,7 +225,7 @@ export class TmuxDaemon {
     this.sessionOfWindow = new Map(
       windows.filter((w) => w.sessionId).map((w) => [w.windowId, w.sessionId as string]),
     );
-    const plan = planTmux(st, bound, windows, this.mem, now, this.deps.terminalId ?? null);
+    const plan = planTmux(st, bound, windows, this.mem, now, this.deps.clientId ?? null);
     const launcher = this.deps.launcherPath;
     const exists = this.deps.exists ?? existsSync;
     const q = (args: string[]) => launcherCommand(launcher, args);
@@ -325,9 +325,9 @@ export class TmuxDaemon {
     }
     const st = this.deps.state();
     if (!st) return;
-    const bound = this.deps.view?.() ?? null;
+    const bound = this.deps.scope?.() ?? null;
     if (bound === "off") return;
-    const mirrored = new Map(viewedSessions(st, bound).map((s) => [s.id, s]));
+    const mirrored = new Map(scopedSessions(st, bound).map((s) => [s.id, s]));
     if (e.type === "window-close") {
       if (this.closingByUs.has(e.windowId)) return;
       const sid = this.sessionOfWindow.get(e.windowId);

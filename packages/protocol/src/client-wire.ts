@@ -4,6 +4,7 @@ import {
   AttentionItem,
   Automation,
   Checkout,
+  Client,
   Device,
   Host,
   Interaction,
@@ -11,14 +12,13 @@ import {
   Profile,
   Project,
   Run,
+  Scope,
   Session,
   Task,
-  Terminal,
-  View,
   Workspace,
 } from "./entities.js";
 import { EventEnvelope, StreamDelta } from "./events.js";
-import { TrackedIssue } from "./trackers.js";
+import { TrackedIssue } from "./issues.js";
 
 export const SyncState = z.object({
   hosts: z.array(Host),
@@ -26,7 +26,8 @@ export const SyncState = z.object({
   checkouts: z.array(Checkout),
   workspaces: z.array(Workspace),
   profiles: z.array(Profile),
-  views: z.array(View),
+  /** Scopes; absent from coordinators before 0.21. */
+  scopes: z.array(Scope).default([]),
   sessions: z.array(Session),
   tasks: z.array(Task),
   runs: z.array(Run),
@@ -37,10 +38,8 @@ export const SyncState = z.object({
   devices: z.array(Device),
   /** Tracked issues; absent from older coordinators. */
   issues: z.array(TrackedIssue).default([]),
-  /** Terminals (herdr and tmux sessions); absent from older coordinators. */
-  terminals: z.array(Terminal).optional(),
-  /** Deprecated: terminals as older coordinators send them (`terminals` replaces it). */
-  surfaces: z.array(Terminal).optional(),
+  /** Clients (herdr and tmux sessions); absent from coordinators before 0.21. */
+  clients: z.array(Client).default([]),
   adapters: z.record(z.string(), z.array(AdapterInfo)),
   dispatchPaused: z.boolean(),
 });
@@ -51,14 +50,20 @@ export const Presence = z.object({
   interactedAt: z.string().nullable(),
   viewing: z.object({ sessionId: z.string() }).nullable(),
   /**
-   * A herdr or tmux daemon reporting the session focused in its terminal (kept apart from the
-   * device's own presence). Older coordinators ignore it.
+   * A herdr or tmux daemon reporting the session focused in its client (kept apart from the
+   * device's own presence).
    */
+  clientId: z.string().min(1).max(200).optional(),
+  /** COMPAT(scopes-rename): remove after 2027-03-01. The old name of clientId. */
   terminalId: z.string().min(1).max(200).optional(),
 });
 export type Presence = z.infer<typeof Presence>;
 
-export const CLIENT_CAPABILITIES = ["adapter.slots.v1", "timeline.cards.v1"] as const;
+/**
+ * `scopes.v1`: the client reads `scopes` and `clients` and the `scope.*` and `client.*` events.
+ * Without it the coordinator sends 0.20's `views` and `terminals` (COMPAT(scopes-rename)).
+ */
+export const CLIENT_CAPABILITIES = ["adapter.slots.v1", "timeline.cards.v1", "scopes.v1"] as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[number];
 
 export const ClientToServer = z.discriminatedUnion("type", [

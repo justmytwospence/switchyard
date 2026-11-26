@@ -3,7 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import type { Session, View } from "@switchyard/protocol";
+import type { Scope, Session } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags, localHostId, resolveConnection } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
 import {
@@ -22,11 +22,11 @@ import {
   stableLauncherPath,
   writeStableLauncher,
 } from "../herdr/util.js";
-import { pickerBinding, syncTerminal, terminalId } from "../mirror/binding.js";
+import { clientId, pickerBinding, syncClient } from "../mirror/binding.js";
 import { herdrClientAttached, startFocusPresence } from "../mirror/focus.js";
 import { loadMirrorState, mirrorStateOf, paneSession } from "../mirror/state.js";
 import type { Env } from "../paths.js";
-import { bindingFromFlags, mirrorText, recordBinding } from "./terminals.js";
+import { bindingFromFlags, mirrorText, recordBinding } from "./clients.js";
 
 const execFileP = promisify(execFile);
 
@@ -78,7 +78,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
   const call: HerdrCall = (method, params) => herdrCall(method, params, socket);
   const name = herdrSessionName(env);
   const machine = hostname();
-  const id = terminalId("herdr", name, machine);
+  const id = clientId("herdr", name, machine);
 
   if (flags.once) {
     const { client, state } = await loadMirrorState(ctx, flags);
@@ -89,7 +89,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
         api: client.api,
         state,
         onStateChange: () => () => {},
-        view: () => pickerBinding(state(), env, id),
+        scope: () => pickerBinding(state(), env, id),
         stateDir: dir,
         launcherPath,
         log: () => {},
@@ -136,7 +136,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     process.exit(1);
   });
   let shows: string[] | undefined;
-  const terminal = syncTerminal({
+  const sync = syncClient({
     api: client.api,
     info: {
       id,
@@ -153,7 +153,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     log,
   });
   const focus = startFocusPresence({
-    terminalId: id,
+    clientId: id,
     send: (presence) => client.send({ type: "presence", presence }),
     focused: async () => {
       if (!herdrClientAttached(await psLines(), name)) return null;
@@ -166,7 +166,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
   });
   const daemon = new MirrorDaemon({
     call,
-    // Focus events only update what this terminal reports as viewed.
+    // Focus events only update what this client reports as viewed.
     subscribe: (types, onEvent, onEnd) =>
       herdrSubscribe(
         [...types, ...FOCUS_EVENTS],
@@ -177,11 +177,11 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     api: client.api,
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
-    view: () => terminal.binding(),
-    terminalId: id,
+    scope: () => sync.binding(),
+    clientId: id,
     onShows: (ids) => {
       shows = ids;
-      terminal.report();
+      sync.report();
     },
     stateDir: dir,
     launcherPath,
@@ -190,7 +190,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
   await daemon.start();
   const leave = () => {
     focus.stop();
-    void terminal.stop().finally(() => process.exit(0));
+    void sync.stop().finally(() => process.exit(0));
   };
   process.once("SIGTERM", leave);
   process.once("SIGINT", leave);
@@ -205,7 +205,7 @@ export async function psLines(): Promise<string[]> {
   return stdout.split("\n");
 }
 
-/** Whether the mirror in this state directory created spaces (it was mirroring a view). */
+/** Whether the mirror in this state directory created spaces (it was mirroring a scope). */
 export function ownsSpaces(dir: string): boolean {
   try {
     const raw = JSON.parse(readFileSync(join(dir, "spaces.json"), "utf8"));
@@ -217,7 +217,7 @@ export function ownsSpaces(dir: string): boolean {
 
 export interface PairFlags extends ConnectionFlags {
   session?: string;
-  view?: string;
+  scope?: string;
   all?: boolean;
   none?: boolean;
   cli?: string;
@@ -251,7 +251,7 @@ export function writePairFile(
 }
 
 /**
- * Record what a paired session mirrors when `--view`, `--all` or `--none` is given, signed in
+ * Record what a paired session mirrors when `--scope`, `--all` or `--none` is given, signed in
  * with the client.json the pairing names.
  */
 export async function pairBinding(
@@ -260,9 +260,9 @@ export async function pairBinding(
   session: string,
   flags: PairFlags,
 ): Promise<void> {
-  if (flags.view === undefined && !flags.all && !flags.none) {
+  if (flags.scope === undefined && !flags.all && !flags.none) {
     ctx.out(
-      `It mirrors nothing until you choose: switchyard terminals bind ${kind}:${session} --all (or --view <name>)`,
+      `It mirrors nothing until you choose: switchyard clients bind ${kind}:${session} --all (or --scope <name>)`,
     );
     return;
   }
@@ -271,9 +271,9 @@ export async function pairBinding(
     : ctx;
   const { api } = connect(c, flags);
   const binding = await bindingFromFlags(api, flags);
-  const t = await recordBinding(api, terminalId(kind, session, hostname()), binding);
-  const views = await api.get<View[]>("/api/views");
-  ctx.out(`${t.id} mirrors ${mirrorText(t, views)}`);
+  const t = await recordBinding(api, clientId(kind, session, hostname()), binding);
+  const scopes = await api.get<Scope[]>("/api/scopes");
+  ctx.out(`${t.id} mirrors ${mirrorText(t, scopes)}`);
 }
 
 /** `switchyard herdr pair`: pair a herdr session (default: the unnamed one) with Switchyard. */

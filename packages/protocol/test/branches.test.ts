@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  branchInView,
+  branchInScope,
   branchKeyOf,
   buildBranches,
   compareIssues,
-  issueInView,
+  type GitHubSource,
+  issueBranchSet,
+  issueInScope,
   issueLinkProblem,
   issueLookup,
   issueUnlinkProblem,
   issueUnstarted,
   primarySession,
+  type Scope,
   type Session,
   type TrackedIssue,
-  trackerScope,
-  type View,
   type Workspace,
 } from "../src/index.js";
 
@@ -69,7 +70,7 @@ function ses(id: string, over: Partial<Session> = {}): Session {
 function issue(id: string, over: Partial<TrackedIssue> = {}): TrackedIssue {
   return {
     id,
-    trackerId: "trk_1",
+    scopeId: "trk_1",
     itemId: id,
     projectId: "prj_a",
     repository: "acme/app",
@@ -87,7 +88,21 @@ function issue(id: string, over: Partial<TrackedIssue> = {}): TrackedIssue {
   };
 }
 
-function view(over: Partial<View> = {}): View {
+const GITHUB: GitHubSource = {
+  kind: "github",
+  hostId: "hst_1",
+  owner: "acme",
+  repositories: null,
+  board: null,
+  writeBack: false,
+  moveShared: true,
+  enabled: true,
+  login: null,
+  lastSyncedAt: null,
+  lastError: null,
+};
+
+function scope(over: Partial<Scope> = {}): Scope {
   return {
     id: "viw_1",
     name: "v",
@@ -95,7 +110,7 @@ function view(over: Partial<View> = {}): View {
     projectIds: null,
     hostIds: null,
     sessionIds: [],
-    clients: [],
+    source: null,
     createdAt: T,
     updatedAt: T,
     ...over,
@@ -239,7 +254,7 @@ describe("buildBranches", () => {
   });
 });
 
-describe("branchInView and issueInView", () => {
+describe("branchInScope and issueInScope", () => {
   const { branches } = buildBranches({
     workspaces: [ws("wsp_1")],
     sessions: [ses("a")],
@@ -249,25 +264,25 @@ describe("branchInView and issueInView", () => {
   const lookup = { wsp_1: { projectId: "prj_a" } };
 
   it("follows pins in pinned mode", () => {
-    expect(branchInView(view({ mode: "pinned" }), b, lookup)).toBe(false);
-    expect(branchInView(view({ mode: "pinned", sessionIds: ["a"] }), b, lookup)).toBe(true);
-    expect(issueInView(view({ mode: "pinned" }), issue("i"))).toBe(false);
+    expect(branchInScope(scope({ mode: "pinned" }), b, lookup)).toBe(false);
+    expect(branchInScope(scope({ mode: "pinned", sessionIds: ["a"] }), b, lookup)).toBe(true);
+    expect(issueInScope(scope({ mode: "pinned" }), issue("i"))).toBe(false);
   });
 
   it("filters by project and host", () => {
-    expect(branchInView(view({ projectIds: ["prj_b"] }), b, lookup)).toBe(false);
-    expect(branchInView(view({ hostIds: ["hst_2"] }), b, lookup)).toBe(false);
+    expect(branchInScope(scope({ projectIds: ["prj_b"] }), b, lookup)).toBe(false);
+    expect(branchInScope(scope({ hostIds: ["hst_2"] }), b, lookup)).toBe(false);
     const empty = buildBranches({ workspaces: [ws("wsp_1")], sessions: [], issues: [] })
       .branches[0]!;
-    expect(branchInView(view({ projectIds: ["prj_a"], hostIds: ["hst_1"] }), empty, lookup)).toBe(
+    expect(branchInScope(scope({ projectIds: ["prj_a"], hostIds: ["hst_1"] }), empty, lookup)).toBe(
       true,
     );
-    expect(issueInView(view({ projectIds: ["prj_a"] }), issue("i"))).toBe(true);
-    expect(issueInView(view({ projectIds: ["prj_b"] }), issue("i"))).toBe(false);
+    expect(issueInScope(scope({ projectIds: ["prj_a"] }), issue("i"))).toBe(true);
+    expect(issueInScope(scope({ projectIds: ["prj_b"] }), issue("i"))).toBe(false);
   });
 
-  it("a tracker view keeps issue branches and live sessions, not dormant leftovers or empty worktrees", () => {
-    const v = view({ trackerId: "trk_1", projectIds: ["prj_a"] });
+  it("a GitHub scope keeps issue branches and live sessions, not dormant leftovers or empty worktrees", () => {
+    const v = scope({ id: "trk_1", source: GITHUB, projectIds: ["prj_a"] });
     const workspaces = [
       ws("wsp_1"),
       ws("wsp_2", { branch: "feat/live" }),
@@ -282,15 +297,15 @@ describe("branchInView and issueInView", () => {
     const issues = [issue("i1", { workspaceId: "wsp_1" })];
     const { branches } = buildBranches({ workspaces, sessions, issues });
     const lookup = Object.fromEntries(workspaces.map((w) => [w.id, w]));
-    const scope = trackerScope(v, issues);
-    const kept = branches.filter((x) => branchInView(v, x, lookup, scope)).map((x) => x.branch);
+    const issueSet = issueBranchSet(v, issues);
+    const kept = branches.filter((x) => branchInScope(v, x, lookup, issueSet)).map((x) => x.branch);
     expect(kept.sort()).toEqual(["feat/live", "feat/x"]);
   });
 
-  it("issueInView follows the tracker", () => {
-    const v = view({ trackerId: "trk_1", projectIds: ["prj_b"] });
-    expect(issueInView(v, issue("i"))).toBe(true);
-    expect(issueInView(v, issue("i", { trackerId: "trk_2" }))).toBe(false);
+  it("issueInScope follows the source", () => {
+    const v = scope({ id: "trk_1", source: GITHUB, projectIds: ["prj_b"] });
+    expect(issueInScope(v, issue("i"))).toBe(true);
+    expect(issueInScope(v, issue("i", { scopeId: "trk_2" }))).toBe(false);
   });
 });
 
@@ -324,7 +339,7 @@ describe("manual issue links", () => {
     expect(issueLinkProblem(i, w, [i])).toBeNull();
     expect(issueLinkProblem(i, { ...w, archivedAt: T }, [i])).toBe("This worktree is archived");
     expect(issueLinkProblem(i, { ...w, provenance: "main" }, [i])).toBe(
-      "A main checkout cannot be linked to an issue; pin the session to the view instead",
+      "A main checkout cannot be linked to an issue; pin the session to the scope instead",
     );
     expect(issueLinkProblem(i, { ...w, branch: null }, [i])).toBe(
       "A detached worktree has no branch to link",

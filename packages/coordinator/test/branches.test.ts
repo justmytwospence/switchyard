@@ -97,19 +97,34 @@ describe("open branch", () => {
     expect(r.body.error.message).toBe("No checkout of this project on second");
   });
 
-  it("pins to the view when the view would not show it", async () => {
-    const v = await h.t.admin("POST", "/api/views", { name: "mine", mode: "pinned" });
-    const r = await open({ branch: "main", viewId: v.body.id });
-    expect(store().views.require(v.body.id).sessionIds).toEqual([r.body.session.id]);
+  it("pins to the scope when the scope would not show it", async () => {
+    const v = await h.t.admin("POST", "/api/scopes", { name: "mine", mode: "pinned" });
+    const r = await open({ branch: "main", scopeId: v.body.id });
+    expect(store().scopes.require(v.body.id).sessionIds).toEqual([r.body.session.id]);
   });
 
-  it("does not pin a new session to a tracker's view of its project", async () => {
-    const v = await h.t.admin("POST", "/api/views", {
+  it("does not pin a new session to a GitHub scope of its project", async () => {
+    const v = await h.t.admin("POST", "/api/scopes", {
       name: "tracked",
       projectIds: [h.project.id],
     });
-    store().putView({ ...store().views.require(v.body.id), trackerId: "trk_x" });
-    await open({ branch: "main", viewId: v.body.id });
-    expect(store().views.require(v.body.id).sessionIds).toEqual([]);
+    store().putScope({
+      ...store().scopes.require(v.body.id),
+      source: {
+        kind: "github",
+        hostId: h.creds.hostId,
+        owner: "acme",
+        repositories: null,
+        board: null,
+        writeBack: false,
+        moveShared: true,
+        enabled: false,
+        login: null,
+        lastSyncedAt: null,
+        lastError: null,
+      },
+    });
+    await open({ branch: "main", scopeId: v.body.id });
+    expect(store().scopes.require(v.body.id).sessionIds).toEqual([]);
   });
 });

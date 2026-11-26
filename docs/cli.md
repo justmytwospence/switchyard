@@ -12,13 +12,12 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `host pi-extension` | Print the extension path a Pi you start yourself loads to appear in Switchyard ([terminal-sessions.md](terminal-sessions.md#sessions-you-start-yourself)) |
 | `host enroll` / `run` / `install-service` / `backup` / `status` | Enroll this machine (`--token` or `--secret`), run the host agent (it waits for enrollment instead of exiting), install it as a launchd or systemd user service (`--instance <name>` with `--config` and `--state-dir` installs a second agent, e.g. for a development coordinator), back it up and inspect it (`status --instance <name>` with `--config` and `--state-dir` for a second agent) |
 | `login` | Sign this terminal in by approving a code in a browser (`--coordinator`, `--name`, `--open`/`--no-open`; `--token <link>` from `pair` instead) |
-| `tui <sessionId>` | Open a TUI session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
-| `terminals list` / `bind` / `forget` | Terminals: the herdr and tmux sessions Switchyard knows about. `bind <terminal> --all \| --view <name> \| --none` records what one mirrors (`herdr:<session>` or `tmux:<session>` on this machine, or a full id `herdr:<session>@<machine>`); `forget` drops one ([terminal-sessions.md](terminal-sessions.md#views-and-terminals)) |
-| `herdr daemon` / `pane` / `new` / `status` / `pair` | The herdr integration: mirror Switchyard into a herdr session, a space per workspace and a tab per active branch ([modules/herdr](../modules/herdr/README.md)); `pair` writes the env file (how to run switchyard, which client.json) and records `--view`, `--all` or `--none` |
-| `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux integration: mirror Switchyard into a tmux session, a window per active branch ([modules/tmux](../modules/tmux/README.md)) |
-| `views list` / `create` / `edit` / `delete` / `pin` / `unpin` | Views: named parts of your work (projects, hosts, pins) that terminals can mirror, and the web navigator and Board can select. `list` shows the terminals MIRRORED IN each |
+| `tui <sessionId>` | Open a terminal session's Pi TUI (Ctrl+] detaches; see [terminal-sessions.md](terminal-sessions.md)) |
+| `clients list` / `bind` / `forget` | Clients: the herdr and tmux sessions Switchyard knows about. `bind <client> --all \| --scope <name> \| --none` records what one mirrors (`herdr:<session>` or `tmux:<session>` on this machine, or a full id `herdr:<session>@<machine>`); `forget` drops one ([clients.md](clients.md#what-a-client-mirrors)) |
+| `herdr daemon` / `pane` / `new` / `status` / `pair` | The herdr client module: mirror Switchyard into a herdr session, a space per workspace and a tab per active branch ([modules/herdr](../modules/herdr/README.md)); `pair` writes the env file (how to run switchyard, which client.json) and records `--scope`, `--all` or `--none` |
+| `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux client module: mirror Switchyard into a tmux session, a window per active branch ([modules/tmux](../modules/tmux/README.md)) |
+| `scopes list` / `create` / `edit` / `delete` / `pin` / `unpin` / `sync` | Scopes: named parts of your work that clients can mirror, and the web navigator and Board can select ([scopes.md](scopes.md)). A scope is projects you choose and pins (`--mode`, `--project`), or has a GitHub source (`--github-host <host> --owner <login>`, optionally `--board`, `--follow`, `--write-back`): your assigned issues, or a board's open issues, with worktrees for their branches. `edit --no-github` removes the source; `sync` syncs it now; `list` shows the source, the clients MIRRORED IN each scope, the last sync and its error |
 | `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
-| `trackers list` / `create` / `edit` / `delete` / `sync` | GitHub trackers: sync assigned issues, or a board's open issues, into tracked issues and worktrees, optionally with a Projects board ([trackers.md](trackers.md)) |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
 | `tasks create` / `list` / `move` | Create, list and move tasks |
 | `automations list` / `run` | List automations; fire one now |
@@ -26,7 +25,9 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 
 List commands accept `--json`.
 
-The three `switchyard_*` agent tools are Pi tools, not shell commands. Policy approvals use the existing interaction-answer API; a TUI session shows the Switchyard approval URL. See [policies.md](policies.md). GitHub uses `gh` on the workspace host, not a Switchyard CLI credential; see [github.md](github.md).
+The names these had before 0.21 still work and print a notice: `views` and `trackers` (now `scopes`; `trackers create --host` is `scopes create --github-host`, and `trackers delete` is `scopes edit --no-github`), `terminals` (now `clients`) and `--view` (now `--scope`). They will be removed.
+
+The three `switchyard_*` agent tools are Pi tools, not shell commands. Policy approvals use the existing interaction-answer API; a terminal session shows the Switchyard approval URL. See [policies.md](policies.md). GitHub uses `gh` on the workspace host, not a Switchyard CLI credential; see [github.md](github.md).
 
 ## Credentials
 
@@ -55,7 +56,7 @@ The full table, with defaults, is in [deployment.md](deployment.md#environment-r
 | `SWITCHYARD_ADMIN_TOKEN` | `pair` and local work commands |
 | `SWITCHYARD_URL`, `SWITCHYARD_TOKEN` | Work commands |
 | `SWITCHYARD_CLIENT_CONFIG` | Work commands and `login`: use this client.json instead of `~/.config/switchyard/client.json` |
-| `SWITCHYARD_TERMINAL_SESSIONS` | The host agent: `0` runs sessions headless instead of as [TUI sessions](terminal-sessions.md) (the default) |
+| `SWITCHYARD_TERMINAL_SESSIONS` | The host agent: `0` runs sessions over RPC instead of as [terminal sessions](terminal-sessions.md) (the default) |
 
 ## Pi terminal
 

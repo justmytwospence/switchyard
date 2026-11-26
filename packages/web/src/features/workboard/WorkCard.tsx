@@ -87,7 +87,7 @@ export function WorkCard({
         {card.branch && !card.sessionId && <span>No session</span>}
         {card.leaves && (
           <span
-            title={`In ${board.view?.name ?? "this view"} only while it is live. Pin it or link an issue to keep it.`}
+            title={`In ${board.scope?.name ?? "this scope"} only while it is live. Pin it or link an issue to keep it.`}
           >
             No issue
           </span>

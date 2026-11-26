@@ -21,7 +21,7 @@ import { useFilter } from "../../prefs";
 import { apiPost, errorMessage } from "../../sync/api";
 import { useOpenAttention, useSyncStore } from "../../sync/store";
 import { dismissAttentionItem } from "../code/SessionActions";
-import { UnfilteredNote } from "../views/UnfilteredNote";
+import { UnfilteredNote } from "../scopes/UnfilteredNote";
 import {
   ATTENTION_ACTION_HELP,
   ATTENTION_GROUPS,

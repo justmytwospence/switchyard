@@ -7,7 +7,11 @@ import { GITHUB, SIDEBAR } from "./src/docs-sources.ts";
 export default defineConfig({
   site: process.env.SITE_URL ?? "https://switchyard-site.pages.dev",
   trailingSlash: "always",
-  redirects: { "/docs": "/docs/getting-started/" },
+  redirects: {
+    "/docs": "/docs/getting-started/",
+    // Renamed in 0.21.
+    "/docs/trackers": "/docs/scopes/",
+  },
   markdown: {
     // Diagrams render to inline SVG at build time, so they read without JavaScript.
     rehypePlugins: [[rehypeMermaid, { strategy: "img-svg", dark: true }]],

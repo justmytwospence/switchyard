@@ -44,7 +44,8 @@ export const SIDEBAR: Group[] = [
   {
     label: "Using Switchyard",
     items: [
-      doc("trackers"),
+      doc("scopes"),
+      doc("clients"),
       doc("terminal-sessions"),
       { path: "modules/herdr/README.md", slug: "docs/herdr", title: "herdr" },
       { path: "modules/tmux/README.md", slug: "docs/tmux", title: "tmux" },

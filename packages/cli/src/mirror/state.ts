@@ -1,14 +1,14 @@
 import type {
   Checkout,
+  Client,
   Host,
   Project,
+  Scope,
   Session,
-  Terminal,
   TrackedIssue,
-  View,
   Workspace,
 } from "@switchyard/protocol";
-import { buildBranches, sessionInView, trackerScope } from "@switchyard/protocol";
+import { buildBranches, issueBranchSet, sessionInScope } from "@switchyard/protocol";
 import { SwitchyardClient } from "@switchyard/terminal";
 import { CliError, type ConnectionFlags, resolveConnection } from "../config.js";
 import type { Ctx } from "../context.js";
@@ -23,11 +23,11 @@ export interface MirrorState {
   projects: Project[];
   hosts: Host[];
   checkouts: Checkout[];
-  views: View[];
-  /** Tracked issues (decide a tracker view's sessions); absent in older fixtures. */
+  scopes: Scope[];
+  /** Tracked issues (decide a GitHub scope's sessions); absent in older fixtures. */
   issues?: TrackedIssue[];
-  /** Terminals and their recorded bindings; absent in older fixtures. */
-  terminals?: Terminal[];
+  /** Clients and their recorded bindings; absent in older fixtures. */
+  clients?: Client[];
 }
 
 export type AgentState = "idle" | "working" | "blocked";
@@ -90,39 +90,39 @@ export function mirrorStateOf(client: SwitchyardClient): MirrorState {
     projects: Object.values(s.projects),
     hosts: Object.values(s.hosts),
     checkouts: Object.values(s.checkouts),
-    views: Object.values(s.views),
+    scopes: Object.values(s.scopes),
     issues: Object.values(s.issues ?? {}),
-    terminals: Object.values(s.terminals ?? {}),
+    clients: Object.values(s.clients ?? {}),
   };
 }
 
-/** `mirroredSessions` limited to a view (all of them without one). */
-export function viewedSessions(st: MirrorState, view: View | null): Session[] {
+/** `mirroredSessions` limited to a scope (all of them without one). */
+export function scopedSessions(st: MirrorState, scope: Scope | null): Session[] {
   const all = mirroredSessions(st);
-  if (!view) return all;
+  if (!scope) return all;
   const workspaces = Object.fromEntries(st.workspaces.map((w) => [w.id, w]));
-  const scope = trackerScope(view, st.issues ?? []);
-  return all.filter((s) => sessionInView(view, s, workspaces, scope));
+  const issueSet = issueBranchSet(scope, st.issues ?? []);
+  return all.filter((s) => sessionInScope(scope, s, workspaces, issueSet));
 }
 
 /** A stopped session counts as active for this long after its last activity. */
 export const RECENT_MS = 48 * 60 * 60_000;
 
-/** The terminal a session's Pi runs, or last ran, in by hand (an own pane), if any. */
+/** The client a session's Pi runs, or last ran, in by hand (an own pane), if any. */
 export function placedIn(s: Pick<Session, "external" | "place">): string | null {
   return s.place?.terminalId ?? s.external?.client ?? null;
 }
 
-/** The live session whose Pi runs by hand in this terminal's `pane`, if any. */
+/** The live session whose Pi runs by hand in this client's `pane`, if any. */
 export function paneSession(
   st: Pick<MirrorState, "sessions">,
-  terminalId: string,
+  clientId: string,
   pane: string,
 ): string | null {
   const s = st.sessions.find(
     (x) =>
       x.archivedAt === null &&
-      x.external?.client === terminalId &&
+      x.external?.client === clientId &&
       x.place?.pane === pane &&
       LIVE_RUNTIMES.includes(x.runtime),
   );
@@ -131,7 +131,7 @@ export function paneSession(
 
 /**
  * Active: live (including waiting for input), unread, or active in the last 48 hours. Only active
- * branches get a tab opened for them. A pin is membership in a view only, not activity.
+ * branches get a tab opened for them. A pin is membership in a scope only, not activity.
  */
 export function isActive(s: Session, now: number): boolean {
   return (
@@ -142,17 +142,17 @@ export function isActive(s: Session, now: number): boolean {
 }
 
 /**
- * The sessions a mirror opens a tab or window for: one per active branch in the view (its primary,
- * or its latest session the view holds when the primary is not in it); oldest first. Extras are opened on demand (the picker), and a session whose Pi runs by
- * hand in `terminalId` (an own pane there) gets none.
+ * The sessions a mirror opens a tab or window for: one per active branch in the scope (its primary,
+ * or its latest session the scope holds when the primary is not in it); oldest first. Extras are opened on demand (the picker), and a session whose Pi runs by
+ * hand in `clientId` (an own pane there) gets none.
  */
 export function wantedSessions(
   st: MirrorState,
-  view: View | null,
+  scope: Scope | null,
   now: number,
-  terminalId: string | null = null,
+  clientId: string | null = null,
 ): Session[] {
-  const kept = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
+  const kept = new Map(scopedSessions(st, scope).map((s) => [s.id, s]));
   const { branches } = buildBranches({
     workspaces: st.workspaces,
     sessions: st.sessions,
@@ -161,15 +161,15 @@ export function wantedSessions(
   const out = new Map<string, Session>();
   const add = (id: string | undefined) => {
     const s = id ? kept.get(id) : undefined;
-    if (!s || (terminalId && placedIn(s) === terminalId)) return;
+    if (!s || (clientId && placedIn(s) === clientId)) return;
     if (isActive(s, now)) out.set(s.id, s);
   };
   const workspaces = Object.fromEntries(st.workspaces.map((w) => [w.id, w]));
-  const scope = view ? trackerScope(view, st.issues ?? []) : null;
-  const inView = (x: Session) => !view || sessionInView(view, x, workspaces, scope);
+  const issueSet = scope ? issueBranchSet(scope, st.issues ?? []) : null;
+  const inScope = (x: Session) => !scope || sessionInScope(scope, x, workspaces, issueSet);
   for (const b of branches) {
-    // The primary; when the view holds only other sessions of the branch (pins), its latest one.
-    const rep = b.primary && inView(b.primary) ? b.primary : b.extras.find(inView);
+    // The primary; when the scope holds only other sessions of the branch (pins), its latest one.
+    const rep = b.primary && inScope(b.primary) ? b.primary : b.extras.find(inScope);
     add(rep?.id);
   }
   return [...out.values()].sort(
@@ -187,15 +187,15 @@ export function primaryIds(st: MirrorState): Set<string> {
   return new Set(branches.flatMap((b) => (b.primary ? [b.primary.id] : [])));
 }
 
-/** Sessions that left a tracker's view only by stopping: a focused tab or window of theirs stays until focus moves. */
-export function lingeringSessions(st: MirrorState, view: View | null): Set<string> {
+/** Sessions that left a GitHub scope only by stopping: a focused tab or window of theirs stays until focus moves. */
+export function lingeringSessions(st: MirrorState, scope: Scope | null): Set<string> {
   const out = new Set<string>();
-  if (!view?.trackerId) return out;
+  if (!scope?.source) return out;
   const workspaces = Object.fromEntries(st.workspaces.map((w) => [w.id, w]));
-  const scope = trackerScope(view, st.issues ?? []);
+  const issueSet = issueBranchSet(scope, st.issues ?? []);
   for (const s of mirroredSessions(st)) {
-    if (sessionInView(view, s, workspaces, scope)) continue;
-    if (sessionInView(view, { ...s, runtime: "idle" }, workspaces, scope)) out.add(s.id);
+    if (sessionInScope(scope, s, workspaces, issueSet)) continue;
+    if (sessionInScope(scope, { ...s, runtime: "idle" }, workspaces, issueSet)) out.add(s.id);
   }
   return out;
 }

@@ -42,7 +42,7 @@ test.describe("branch board", () => {
       branch,
       title: `In view ${id}`,
     });
-    const elsewhere = await api("POST", "/api/views", {
+    const elsewhere = await api("POST", "/api/scopes", {
       name: `elsewhere-${id}`,
       mode: "pinned",
     });
@@ -50,11 +50,11 @@ test.describe("branch board", () => {
     if (isMobile(info)) await page.getByRole("tab", { name: /Working/ }).tap();
     const card = page.getByTestId("work-card").filter({ hasText: `In view ${id}` });
     await expect(card).toBeVisible();
-    await page.getByLabel("View", { exact: true }).selectOption(elsewhere.id);
+    await page.getByLabel("Scope", { exact: true }).selectOption(elsewhere.id);
     await expect(card).toHaveCount(0);
-    await page.getByLabel("View", { exact: true }).selectOption("");
+    await page.getByLabel("Scope", { exact: true }).selectOption("");
     await expect(card).toBeVisible();
-    await api("DELETE", `/api/views/${elsewhere.id}`);
+    await api("DELETE", `/api/scopes/${elsewhere.id}`);
   });
 
   test("a worktree without a session offers Start session", async ({

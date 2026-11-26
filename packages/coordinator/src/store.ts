@@ -5,6 +5,7 @@ import {
   type AttentionItem,
   type Automation,
   type Checkout,
+  type Client,
   type Device,
   type EventData,
   EventDataSchemas,
@@ -19,15 +20,13 @@ import {
   type Profile,
   type Project,
   type Run,
+  type Scope,
   type Session,
   SwitchyardError,
   type SyncState,
   type Task,
-  type Terminal,
   type TrackedIssue,
-  type Tracker,
   type TranscriptItem,
-  type View,
   type Workspace,
 } from "@switchyard/protocol";
 import { captureFinalRunFailure, captureTaskCompletion } from "./agents/notifications.js";
@@ -137,8 +136,8 @@ export interface EnrollmentRow {
 
 export interface PresenceRow {
   deviceId: string;
-  /** The terminal a daemon reports for, under its device; absent for the device itself. */
-  terminalId?: string | null;
+  /** The client a daemon reports for, under its device; absent for the device itself. */
+  clientId?: string | null;
   foregroundUntil: string | null;
   interactedAt: string | null;
   viewingSessionId: string | null;
@@ -186,11 +185,9 @@ export class Store {
   readonly checkouts: JsonRepo<Checkout>;
   readonly workspaces: JsonRepo<Workspace>;
   readonly profiles: JsonRepo<Profile>;
-  readonly views: JsonRepo<View>;
-  /** Trackers are REST resources: no events; their per-item data rides on tasks. */
-  readonly trackers: JsonRepo<Tracker>;
+  readonly scopes: JsonRepo<Scope>;
   readonly issues: JsonRepo<TrackedIssue>;
-  readonly terminals: JsonRepo<Terminal>;
+  readonly clients: JsonRepo<Client>;
   readonly sessions: JsonRepo<Session>;
   readonly interactions: JsonRepo<Interaction>;
   readonly tasks: JsonRepo<Task>;
@@ -259,27 +256,20 @@ export class Store {
       { name: (p) => p.name },
       { created_at: () => now() },
     );
-    this.views = new JsonRepo<View>(
+    this.scopes = new JsonRepo<Scope>(
       st,
-      "views",
-      "View",
+      "scopes",
+      "Scope",
       { name: (v) => v.name },
       { created_at: () => now() },
     );
-    this.trackers = new JsonRepo<Tracker>(
+    this.clients = new JsonRepo<Client>(
       st,
-      "trackers",
-      "Tracker",
-      { name: (t) => t.name },
-      { created_at: () => now() },
-    );
-    this.terminals = new JsonRepo<Terminal>(
-      st,
-      "terminals",
-      "Terminal",
+      "clients",
+      "Client",
       {
         device_id: (x) => x.deviceId,
-        view_id: (x) => x.viewId,
+        scope_id: (x) => x.scopeId,
         last_seen_at: (x) => x.lastSeenAt,
       },
       { created_at: (x) => x.createdAt },
@@ -288,7 +278,7 @@ export class Store {
       st,
       "tracked_issues",
       "Issue",
-      { tracker_id: (i) => i.trackerId, project_id: (i) => i.projectId },
+      { scope_id: (i) => i.scopeId, project_id: (i) => i.projectId },
       { created_at: () => now() },
     );
     this.sessions = new JsonRepo<Session>(st, "sessions", "Session", {
@@ -597,20 +587,20 @@ export class Store {
     });
   }
 
-  putView(v: View): View {
+  putScope(v: Scope): Scope {
     return this.tx(() => {
-      this.views.upsert(v);
-      this.appendEvent("view.updated", {}, v);
+      this.scopes.upsert(v);
+      this.appendEvent("scope.updated", {}, v);
       return v;
     });
   }
 
-  /** Remove a session from every view's pins. */
+  /** Remove a session from every scope's pins. */
   unpinSession(sessionId: string): void {
     this.tx(() => {
-      for (const v of this.views.list()) {
+      for (const v of this.scopes.list()) {
         if (!v.sessionIds.includes(sessionId)) continue;
-        this.putView({
+        this.putScope({
           ...v,
           sessionIds: v.sessionIds.filter((id) => id !== sessionId),
           updatedAt: this.nowIso(),
@@ -619,29 +609,31 @@ export class Store {
     });
   }
 
-  deleteView(id: string): void {
+  deleteScope(id: string): void {
     this.tx(() => {
-      this.views.delete(id);
-      this.appendEvent("view.deleted", {}, { id });
+      this.scopes.delete(id);
+      this.appendEvent("scope.deleted", {}, { id });
     });
   }
 
-  putTerminal(x: Terminal): Terminal {
+  putClient(x: Client): Client {
     return this.tx(() => {
-      this.terminals.upsert(x);
-      this.appendEvent("terminal.updated", {}, x);
+      this.clients.upsert(x);
+      this.appendEvent("client.updated", {}, x);
       return x;
     });
   }
 
-  deleteTerminal(id: string): void {
+  deleteClient(id: string): void {
     this.tx(() => {
-      if (!this.terminals.delete(id)) return;
-      this.appendEvent("terminal.deleted", {}, { id });
+      if (!this.clients.delete(id)) return;
+      this.appendEvent("client.deleted", {}, { id });
     });
   }
 
-  putIssue(i: TrackedIssue): TrackedIssue {
+  /** `trackerId` is written as a copy of `scopeId` for 0.20 clients (COMPAT(scopes-rename)). */
+  putIssue(issue: TrackedIssue): TrackedIssue {
+    const i: TrackedIssue = { ...issue, trackerId: issue.scopeId };
     return this.tx(() => {
       this.issues.upsert(i);
       this.appendEvent("issue.updated", { projectId: i.projectId }, i);
@@ -1091,11 +1083,11 @@ export class Store {
   upsertPresence(p: PresenceRow): void {
     this.st
       .get(
-        "INSERT INTO presence (device_id, terminal_id, foreground_until, interacted_at, viewing_session_id, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(device_id, terminal_id) DO UPDATE SET foreground_until = excluded.foreground_until, interacted_at = excluded.interacted_at, viewing_session_id = excluded.viewing_session_id, updated_at = excluded.updated_at",
+        "INSERT INTO presence (device_id, client_id, foreground_until, interacted_at, viewing_session_id, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(device_id, client_id) DO UPDATE SET foreground_until = excluded.foreground_until, interacted_at = excluded.interacted_at, viewing_session_id = excluded.viewing_session_id, updated_at = excluded.updated_at",
       )
       .run(
         p.deviceId,
-        p.terminalId ?? "",
+        p.clientId ?? "",
         p.foregroundUntil,
         p.interactedAt,
         p.viewingSessionId,
@@ -1106,7 +1098,7 @@ export class Store {
   private presenceFromRow(r: Record<string, unknown>): PresenceRow {
     return {
       deviceId: r.device_id as string,
-      terminalId: (r.terminal_id as string) || null,
+      clientId: (r.client_id as string) || null,
       foregroundUntil: (r.foreground_until as string | null) ?? null,
       interactedAt: (r.interacted_at as string | null) ?? null,
       viewingSessionId: (r.viewing_session_id as string | null) ?? null,
@@ -1116,7 +1108,7 @@ export class Store {
 
   getPresence(deviceId: string): PresenceRow | undefined {
     const r = this.st
-      .get("SELECT * FROM presence WHERE device_id = ? AND terminal_id = ''")
+      .get("SELECT * FROM presence WHERE device_id = ? AND client_id = ''")
       .get(deviceId) as Record<string, unknown> | undefined;
     return r ? this.presenceFromRow(r) : undefined;
   }
@@ -1339,7 +1331,7 @@ export class Store {
       checkouts: this.checkouts.list(),
       workspaces: this.workspaces.list("archived_at IS NULL"),
       profiles: this.profiles.list(undefined, [], "created_at, rowid"),
-      views: this.views.list(undefined, [], "created_at, rowid"),
+      scopes: this.scopes.list(undefined, [], "created_at, rowid"),
       sessions,
       tasks,
       runs,
@@ -1349,7 +1341,7 @@ export class Store {
       panels: this.listPanels(),
       devices: this.devices.list("is_admin = 0", [], "created_at"),
       issues: this.issues.list(undefined, [], "created_at, rowid"),
-      terminals: this.terminals.list(undefined, [], "created_at, rowid"),
+      clients: this.clients.list(undefined, [], "created_at, rowid"),
       adapters: this.adaptersByHost(),
       dispatchPaused: this.dispatchPaused,
     };

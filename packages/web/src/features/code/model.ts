@@ -9,36 +9,36 @@ import type {
   ProviderUsage,
   Run,
   RuntimeCapabilities,
+  Scope,
+  ScopeReason,
   Session,
   SessionModel,
   SlashCommand,
   TrackedIssue,
   TranscriptItem,
-  View,
-  ViewReason,
   Workspace,
 } from "@switchyard/protocol";
 import {
   branchKeyOf,
   DEFAULT_WORKTREE_DIR,
+  issueBranchSet,
   issueLookup,
   primarySession,
-  sessionViewReason,
+  sessionScopeReason,
   ThinkingLevel,
-  trackerScope,
 } from "@switchyard/protocol";
 import { formatDuration } from "../../lib/time";
 import { PANE_LIMITS } from "../../prefs";
 import { isBusyRuntime, isLiveRuntime, sessionsNeedingAttention } from "../../sync/selectors";
 import type { StreamBuffer } from "../../sync/store";
 import {
+  clientName,
   liveHostIds,
   type RowWhere,
   sessionIsWhere,
   sessionWhereToken,
-  terminalName,
   type Where,
-} from "../views/where";
+} from "../scopes/where";
 
 /**
  * Pure helpers for the Code feature (navigator tree, composer state,
@@ -137,29 +137,29 @@ export interface NewSessionDefaults {
   checkoutId: string | null;
 }
 
-/** The view's projects first (in their existing order), then the rest. */
-export function orderProjectsForView<T extends { id: string }>(
+/** The scope's projects first (in their existing order), then the rest. */
+export function orderProjectsForScope<T extends { id: string }>(
   projects: T[],
-  viewProjectIds: string[] | null,
+  scopeProjectIds: string[] | null,
 ): T[] {
-  if (!viewProjectIds) return projects;
-  const inView = projects.filter((p) => viewProjectIds.includes(p.id));
-  return [...inView, ...projects.filter((p) => !viewProjectIds.includes(p.id))];
+  if (!scopeProjectIds) return projects;
+  const inView = projects.filter((p) => scopeProjectIds.includes(p.id));
+  return [...inView, ...projects.filter((p) => !scopeProjectIds.includes(p.id))];
 }
 
-/** The project New session starts on: the asked one, else the last used or selected one when the view covers it, else the first listed. */
+/** The project New session starts on: the asked one, else the last used or selected one when the scope covers it, else the first listed. */
 export function newSessionProject(input: {
   initial: string | null;
   last: string | null;
   selected: string | null;
   ordered: { id: string }[];
-  viewProjectIds: string[] | null;
+  scopeProjectIds: string[] | null;
 }): string {
   const listed = (id: string | null): id is string =>
     !!id && input.ordered.some((p) => p.id === id);
   if (listed(input.initial)) return input.initial;
   const pick = [input.last, input.selected].find(
-    (id) => listed(id) && (!input.viewProjectIds || input.viewProjectIds.includes(id)),
+    (id) => listed(id) && (!input.scopeProjectIds || input.scopeProjectIds.includes(id)),
   );
   return pick ?? input.ordered[0]?.id ?? "";
 }
@@ -273,17 +273,17 @@ export interface NavRow {
   role: "primary" | "extra" | "subagent";
   /** The tracked issue its branch is worked for. */
   issue: { number: number; url: string; title: string } | null;
-  /** In the selected tracker's view only while it is live. */
+  /** In the selected GitHub scope only while it is live. */
   leaves: boolean;
   /** Listed only because it is the open session: what excludes it; null when nothing does. */
   outside: NavOutside | null;
 }
 
 /**
- * Why the open session is listed though a filter excludes it: the selected view, the Where filter,
+ * Why the open session is listed though a filter excludes it: the selected scope, the Where filter,
  * or the status filter (Active: it stopped; Needs input: it does not).
  */
-export type NavOutside = "view" | "where" | "status";
+export type NavOutside = "scope" | "where" | "status";
 
 export interface NavGroup {
   /**
@@ -323,8 +323,8 @@ export interface NavOptions {
   sort?: NavSort;
   /** Sessions needing input before the rest. Default true. */
   needsInputFirst?: boolean;
-  /** Only sessions in this view. */
-  view?: View | null;
+  /** Only sessions in this scope. */
+  scope?: Scope | null;
   /** Only sessions running there. */
   where?: Where | null;
   /** The open session: always listed. */
@@ -338,7 +338,7 @@ export interface NavInput {
   hosts: Record<string, Host>;
   attention: Record<string, AttentionItem>;
   interactions: Record<string, Interaction>;
-  /** Tracked issues: decide a tracker view's sessions. */
+  /** Tracked issues: decide a GitHub scope's sessions. */
   issues?: Record<string, TrackedIssue>;
 }
 
@@ -466,7 +466,9 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
   const needsFirst = opts.needsInputFirst ?? true;
   const q = opts.query.trim().toLowerCase();
   const attn = sessionsNeedingAttention(input.attention, input.interactions);
-  const scope = opts.view ? trackerScope(opts.view, Object.values(input.issues ?? {})) : null;
+  const issueSet = opts.scope
+    ? issueBranchSet(opts.scope, Object.values(input.issues ?? {}))
+    : null;
   const issueOf = issueLookup(Object.values(input.issues ?? {}));
   const multiHost = liveHostIds(input.hosts).length >= 2;
 
@@ -479,13 +481,13 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
         ? input.sessions[s.parentSessionId]
         : undefined;
     const keep = s.id === opts.keepId;
-    const reason = opts.view
-      ? sessionViewReason(opts.view, parent ?? s, input.workspaces, scope)
+    const reason = opts.scope
+      ? sessionScopeReason(opts.scope, parent ?? s, input.workspaces, issueSet)
       : "filter";
     const needs = attn.has(s.id);
     const outside: NavOutside | null =
       reason === null
-        ? "view"
+        ? "scope"
         : !sessionIsWhere(opts.where, parent ?? s)
           ? "where"
           : (opts.filter === "active" && !isLive(s) && !needs) ||
@@ -686,8 +688,8 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       let tg = hg.groups.find((g) => g.key === key);
       if (!tg) {
         tg = client
-          ? emptyGroup(key, "terminal", terminalName(client), {
-              where: live ? { kind: "terminal", id: client, hostId: e.hostId } : null,
+          ? emptyGroup(key, "terminal", clientName(client), {
+              where: live ? { kind: "client", id: client, hostId: e.hostId } : null,
             })
           : ext
             ? emptyGroup(key, "terminal", "Terminal", { detail: "not running" })
@@ -783,11 +785,11 @@ export function navOutsideRow(tree: NavTree): NavRow | null {
   return walk(tree.groups);
 }
 
-/** Where a session stands: its issue, and why it is in the selected view (null: it is not). */
+/** Where a session stands: its issue, and why it is in the selected scope (null: it is not). */
 export interface SessionPlace {
   issue: TrackedIssue | null;
-  view: View | null;
-  reason: ViewReason | null;
+  scope: Scope | null;
+  reason: ScopeReason | null;
 }
 
 export function sessionPlace(input: {
@@ -795,32 +797,37 @@ export function sessionPlace(input: {
   sessions: Record<string, Session>;
   workspaces: Record<string, Workspace>;
   issues: TrackedIssue[];
-  view: View | null;
+  scope: Scope | null;
 }): SessionPlace {
-  const { session, view } = input;
+  const { session, scope } = input;
   const ws = session.workspaceId ? input.workspaces[session.workspaceId] : undefined;
   const issue = issueLookup(input.issues)(ws);
   const parent =
     session.provenance === "subagent" && session.parentSessionId
       ? input.sessions[session.parentSessionId]
       : undefined;
-  const reason = view
-    ? sessionViewReason(view, parent ?? session, input.workspaces, trackerScope(view, input.issues))
+  const reason = scope
+    ? sessionScopeReason(
+        scope,
+        parent ?? session,
+        input.workspaces,
+        issueBranchSet(scope, input.issues),
+      )
     : null;
-  return { issue, view, reason };
+  return { issue, scope, reason };
 }
 
-/** A short note on a session's place in the selected view; null when there is nothing to say. */
-export function viewNote(
+/** A short note on a session's place in the selected scope; null when there is nothing to say. */
+export function scopeNote(
   place: SessionPlace,
   session: Pick<Session, "archivedAt">,
 ): { label: string; title: string } | null {
-  const v = place.view;
+  const v = place.scope;
   if (!v || session.archivedAt) return null;
   if (place.reason === null)
     return {
       label: `Not in ${v.name}`,
-      title: `Outside the selected view. Pin it to ${v.name} from the session menu to keep it there.`,
+      title: `Outside the selected scope. Pin it to ${v.name} from the session menu to keep it there.`,
     };
   if (place.reason === "live")
     return {

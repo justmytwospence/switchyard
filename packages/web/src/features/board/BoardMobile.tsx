@@ -24,7 +24,7 @@ import { TabPanel, Tabs } from "../../components/ui/Tabs";
 import { TextLink } from "../../components/ui/TextLink";
 import { useFilter } from "../../prefs";
 import { useSyncStore, useTask } from "../../sync/store";
-import { ViewSelect } from "../views/ViewSelect";
+import { ScopeSelect } from "../scopes/ScopeSelect";
 import {
   BoardNotices,
   DispatchChip,
@@ -147,10 +147,10 @@ export function BoardMobile() {
           <FilterButton
             board={board}
             mobile
-            extraCount={(board.projectId ? 1 : 0) + (board.view ? 1 : 0)}
+            extraCount={(board.projectId ? 1 : 0) + (board.scope ? 1 : 0)}
             extra={
               <>
-                <ViewSelect allLabel="All tasks" subject="tasks" labelVisible />
+                <ScopeSelect allLabel="All tasks" subject="tasks" labelVisible />
                 <ProjectSelect board={board} labelVisible />
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-medium">Layout</span>

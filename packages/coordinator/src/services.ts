@@ -9,9 +9,9 @@ import type { GitHubService } from "./github.js";
 import type { PolicyService } from "./policies/service.js";
 import type { ProjectFolderService } from "./project-folders.js";
 import type { PushService } from "./push.js";
+import type { ScopeSourceService } from "./scope-sources.js";
 import type { Dispatcher } from "./tasks/dispatcher.js";
 import type { RunsService } from "./tasks/runs.js";
-import type { TrackerService } from "./trackers.js";
 import type { WorkspaceLifecycleService } from "./workspace-lifecycle.js";
 
 /** Built-in services registered in `ctx.services` by `createCoordinator`. */
@@ -29,7 +29,7 @@ export interface BuiltinServices {
   projectFolders: ProjectFolderService;
   cacheAlerts: CacheAlertService;
   workspaceLifecycle: WorkspaceLifecycleService;
-  trackers: TrackerService;
+  scopeSources: ScopeSourceService;
 }
 
 /** Typed lookup of a built-in service (undefined before `start()` registers it). */

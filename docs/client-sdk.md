@@ -51,4 +51,4 @@ const unsubscribe = client.events.subscribe((notice) => {
 // unsubscribe() on shutdown; client.close() also closes every subscription.
 ```
 
-The synced state also carries `issues` (tracked issues) and `terminals` (herdr and tmux sessions, what each mirrors and the sessions it shows); both are empty against older coordinators (a 0.19 coordinator's `surfaces` are read as terminals). Imported historical custom messages retain portable text but do not rerun adapter hooks. The SDK does not fetch an entire transcript automatically or retry failed writes.
+The synced state also carries `scopes` (named parts of your work, each with its GitHub source when it has one), `issues` (tracked issues) and `clients` (herdr and tmux sessions, what each mirrors and the sessions it shows). Before 0.21 these were `views` and `terminals`, and `ClientState` had those fields; a coordinator older than 0.21 sends neither `scopes` nor `clients`, so both are empty against it. Imported historical custom messages retain portable text but do not rerun adapter hooks. The SDK does not fetch an entire transcript automatically or retry failed writes.

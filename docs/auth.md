@@ -19,7 +19,7 @@ A page that says "this server has no owner, claim it" announces to the network t
 - **A passkey** (below) signs in without the provider, as a backup or alternative.
 - **A `switchyard pair` link** (local use and recovery, below).
 
-Devices are named automatically from the browser (for example "Safari on iPhone"). Rename one in Settings › Devices.
+Devices are named automatically from the browser (for example "Safari on iPhone"). Rename one in Settings › Clients.
 
 ## Terminals
 
@@ -150,7 +150,7 @@ So a host can be started before the server exists, and a service manager never s
 
 ## Revocation
 
-- **Devices:** Settings › Devices › Revoke. The credential stops working at once, the device's push subscriptions are deleted, and its open sockets are told to sign out. Signing out of one device (Settings › Sign-in) only clears its cookie.
+- **Devices:** Settings › Clients › Revoke. The credential stops working at once, the device's push subscriptions are deleted, and its open sockets are told to sign out. Signing out of one device (Settings › Sign-in) only clears its cookie.
 - **Hosts:** Settings › Hosts, open the host, Revoke. Its credential stops working and its link is dropped. A host that enrolled with the shared secret is revoked individually; if you want it gone for good, also remove the secret or delete its `host.json`, since a host without `host.json` enrolls again while the secret is set.
 - **Passkeys:** Settings › Sign-in › Remove. Devices already minted by the passkey are unaffected; revoke them separately.
 - **The local admin token** (`admin.token` in the data dir) cannot be revoked from the app. Rotate it by stopping the coordinator, deleting the file and starting again.

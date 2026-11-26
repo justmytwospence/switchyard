@@ -1,6 +1,11 @@
-import type { Session, View, Workspace } from "./entities.js";
-import type { TrackedIssue } from "./trackers.js";
-import { isLiveRuntime, sessionInView, type TrackerScope, type WorkspaceLookup } from "./views.js";
+import type { Scope, Session, Workspace } from "./entities.js";
+import type { TrackedIssue } from "./issues.js";
+import {
+  type IssueBranchSet,
+  isLiveRuntime,
+  sessionInScope,
+  type WorkspaceLookup,
+} from "./scopes.js";
 
 /**
  * Branches: a project on a branch, the unit of work every client lists. Derived from workspaces,
@@ -271,7 +276,7 @@ export function issueLinkProblem(
 ): string | null {
   if (ws.archivedAt) return "This worktree is archived";
   if (ws.provenance === "main")
-    return "A main checkout cannot be linked to an issue; pin the session to the view instead";
+    return "A main checkout cannot be linked to an issue; pin the session to the scope instead";
   if (!ws.branch) return "A detached worktree has no branch to link";
   if (issue.projectId !== ws.projectId) return "This issue belongs to another project";
   if (issue.pullRequest?.state === "MERGED") return "This issue is merged";
@@ -291,27 +296,33 @@ export function issueUnlinkProblem(issue: TrackedIssue): string | null {
   return null;
 }
 
-/** Is a branch in a view? By its sessions, else (unless pinned-only) by project and host. */
-export function branchInView(
-  view: View,
+/** Is a branch in a scope? By its sessions, else (unless pinned-only) by project and host. */
+export function branchInScope(
+  scope: Scope,
   b: Branch,
   workspaces: WorkspaceLookup,
-  scope?: TrackerScope | null,
+  issueSet?: IssueBranchSet | null,
 ): boolean {
   const sessions = [...(b.primary ? [b.primary] : []), ...b.extras];
-  if (sessions.some((s) => sessionInView(view, s, workspaces, scope))) return true;
-  if (view.mode === "pinned") return false;
-  if (view.projectIds !== null && (b.projectId === null || !view.projectIds.includes(b.projectId)))
+  if (sessions.some((s) => sessionInScope(scope, s, workspaces, issueSet))) return true;
+  if (scope.mode === "pinned") return false;
+  if (
+    scope.projectIds !== null &&
+    (b.projectId === null || !scope.projectIds.includes(b.projectId))
+  )
     return false;
-  if (view.hostIds !== null && !b.placements.some((p) => view.hostIds!.includes(p.hostId)))
+  if (scope.hostIds !== null && !b.placements.some((p) => scope.hostIds!.includes(p.hostId)))
     return false;
-  if (view.trackerId && scope) return b.issue?.trackerId === view.trackerId;
+  if (scope.source && issueSet) return b.issue?.scopeId === scope.id;
   return true;
 }
 
-/** Is an issue in a view? A tracker's view holds its own issues; others filter by project. */
-export function issueInView(view: View, i: Pick<TrackedIssue, "projectId" | "trackerId">): boolean {
-  if (view.mode === "pinned") return false;
-  if (view.trackerId) return i.trackerId === view.trackerId;
-  return view.projectIds === null || view.projectIds.includes(i.projectId);
+/** Is an issue in a scope? A GitHub scope holds its own issues; others filter by project. */
+export function issueInScope(
+  scope: Scope,
+  i: Pick<TrackedIssue, "projectId" | "scopeId">,
+): boolean {
+  if (scope.mode === "pinned") return false;
+  if (scope.source) return i.scopeId === scope.id;
+  return scope.projectIds === null || scope.projectIds.includes(i.projectId);
 }

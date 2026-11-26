@@ -88,7 +88,7 @@ describe("SyncClient projection negotiation", () => {
     expect(ws.lastSent()).toMatchObject({
       type: "hello",
       cursor: null,
-      capabilities: ["adapter.slots.v1", "timeline.cards.v1"],
+      capabilities: ["adapter.slots.v1", "timeline.cards.v1", "scopes.v1"],
       projectionId: null,
     });
     ws.receive({

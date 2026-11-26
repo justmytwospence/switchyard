@@ -19,7 +19,7 @@ export const DEFAULT_SESSION_ARCHIVE_DAYS = 3;
  *
  * Kept: a branch's primary (so every branch can be resumed), live sessions, task sessions (the task
  * owns them) and sessions with an open interaction. A pin is membership of a view only: it does not
- * keep a session, and archiving removes it from views. Archiving hides a session; it is unarchived
+ * keep a session, and archiving removes it from scopes. Archiving hides a session; it is unarchived
  * when its Pi comes back, or by hand.
  */
 export function archiveEndedSessions(store: Store, days = sessionArchiveDays(store)): Session[] {
@@ -98,14 +98,14 @@ export function sweepStaleSessionState(
       if (r.interactions + r.attention > 0) sessions++;
     }
     let pins = 0;
-    for (const v of store.views.list()) {
+    for (const v of store.scopes.list()) {
       const kept = v.sessionIds.filter((id) => {
         const s = store.sessions.get(id);
         return !!s && s.archivedAt === null;
       });
       if (kept.length === v.sessionIds.length) continue;
       pins += v.sessionIds.length - kept.length;
-      store.putView({ ...v, sessionIds: kept, updatedAt: store.nowIso() });
+      store.putScope({ ...v, sessionIds: kept, updatedAt: store.nowIso() });
     }
     return { sessions, pins };
   });

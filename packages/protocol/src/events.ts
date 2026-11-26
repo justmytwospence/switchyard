@@ -4,6 +4,7 @@ import {
   AttentionItem,
   Automation,
   Checkout,
+  Client,
   Device,
   Diagnostic,
   Host,
@@ -13,14 +14,13 @@ import {
   Profile,
   Project,
   Run,
+  Scope,
   Session,
   Task,
-  Terminal,
   TranscriptItem,
-  View,
   Workspace,
 } from "./entities.js";
-import { TrackedIssue } from "./trackers.js";
+import { TrackedIssue } from "./issues.js";
 
 /** Durable event payloads by type. `data` is the full new entity unless noted. */
 export const EventDataSchemas = {
@@ -32,8 +32,8 @@ export const EventDataSchemas = {
   "workspace.deleted": z.object({ id: z.string() }),
   "profile.updated": Profile,
   "profile.deleted": z.object({ id: z.string() }),
-  "view.updated": View,
-  "view.deleted": z.object({ id: z.string() }),
+  "scope.updated": Scope,
+  "scope.deleted": z.object({ id: z.string() }),
   "session.updated": Session,
   "transcript.item": TranscriptItem,
   "transcript.reset": z.object({ sessionId: z.string(), epoch: z.number().int() }),
@@ -52,19 +52,17 @@ export const EventDataSchemas = {
   "device.updated": Device,
   "issue.updated": TrackedIssue,
   "issue.deleted": z.object({ id: z.string() }),
-  "terminal.updated": Terminal,
-  "terminal.deleted": z.object({ id: z.string() }),
+  "client.updated": Client,
+  "client.deleted": z.object({ id: z.string() }),
   "settings.updated": z.object({ dispatchPaused: z.boolean() }),
 } as const;
 
 export type EventType = keyof typeof EventDataSchemas;
 export const EVENT_TYPES = Object.keys(EventDataSchemas) as EventType[];
 
-/** Renamed event types (old -> new): `workspace.removed` in 0.9, `surface.*` in 0.20. */
+/** Renamed event types (old -> new): `workspace.removed` in 0.9. */
 export const LEGACY_EVENT_TYPES: Readonly<Record<string, EventType>> = {
   "workspace.removed": "workspace.deleted",
-  "surface.updated": "terminal.updated",
-  "surface.deleted": "terminal.deleted",
 };
 export function canonicalEventType(type: string): string {
   return LEGACY_EVENT_TYPES[type] ?? type;

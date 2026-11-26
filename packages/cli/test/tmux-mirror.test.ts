@@ -1,4 +1,4 @@
-import type { View } from "@switchyard/protocol";
+import type { Scope } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import type { MirrorState } from "../src/mirror/state.js";
 import {
@@ -21,7 +21,7 @@ function state(over: Partial<MirrorState> = {}): MirrorState {
       { id: "hst_mac", name: "mac", capabilities: { terminal: true } },
     ] as MirrorState["hosts"],
     checkouts: [],
-    views: [],
+    scopes: [],
     ...over,
   };
 }
@@ -57,45 +57,44 @@ describe("planTmux", () => {
 
   it("closes windows of sessions that left the set, never archiving", () => {
     const st = state({ sessions: [session("ses_1")] });
-    const view = {
+    const scope = {
       id: "viw_1",
       name: "v",
       mode: "pinned",
       projectIds: null,
       hostIds: null,
       sessionIds: [],
-      clients: [],
+      source: null,
       createdAt: "",
       updatedAt: "",
-    } as View;
+    } as unknown as Scope;
     const w = win("@1", { sessionId: "ses_1", name: windowName(st.sessions[0]!, st) });
-    expect(planTmux(st, view, [w], emptyTmuxMemory(), NOW).closeWindows).toEqual([
+    expect(planTmux(st, scope, [w], emptyTmuxMemory(), NOW).closeWindows).toEqual([
       { windowId: "@1", sessionId: "ses_1" },
     ]);
   });
 
-  it("keeps the active window of a session that stopped out of a tracker's view", () => {
+  it("keeps the active window of a session that stopped out of a GitHub scope", () => {
     const st = state({
       sessions: [session("ses_1", { runtime: "stopped", projectId: "prj_sy" })],
       issues: [],
     });
-    const view = {
+    const scope = {
       id: "viw_t",
       name: "personal",
       mode: "all",
       projectIds: ["prj_sy"],
       hostIds: null,
       sessionIds: [],
-      clients: [],
-      trackerId: "trk_1",
+      source: { kind: "github" },
       createdAt: "",
       updatedAt: "",
-    } as View;
+    } as unknown as Scope;
     const name = windowName(st.sessions[0]!, st);
     const active = win("@1", { sessionId: "ses_1", name, active: true });
-    expect(planTmux(st, view, [active], emptyTmuxMemory(), NOW).closeWindows).toEqual([]);
+    expect(planTmux(st, scope, [active], emptyTmuxMemory(), NOW).closeWindows).toEqual([]);
     const other = win("@1", { sessionId: "ses_1", name, active: false });
-    expect(planTmux(st, view, [other], emptyTmuxMemory(), NOW).closeWindows).toEqual([
+    expect(planTmux(st, scope, [other], emptyTmuxMemory(), NOW).closeWindows).toEqual([
       { windowId: "@1", sessionId: "ses_1" },
     ]);
   });

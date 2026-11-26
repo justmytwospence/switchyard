@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   Automation,
+  Client,
+  ClientMirror,
   CompletionPolicy,
   ContinuationPolicy,
   Device,
@@ -10,23 +12,21 @@ import {
   Platform,
   Priority,
   ProjectScan,
+  Scope,
   Session,
   SessionModel,
   SlashCommand,
   Task,
   TaskState,
   TaskTemplate,
-  Terminal,
-  TerminalMirror,
   ThinkingLevel,
   TranscriptItem,
   Trigger,
-  View,
-  ViewClient,
   WorktreeDir,
 } from "./entities.js";
 import { GitHubIssueUrl, githubIssueFromUrl } from "./github.js";
 import { ProjectSuggestion } from "./host-wire.js";
+import { GitHubSourceInput, GitHubSourcePatch } from "./issues.js";
 import { InteractionResponseSchema, UINodeSchema } from "./ui.js";
 
 /** REST request bodies. Responses return entities from `entities.ts` unless noted. */
@@ -147,6 +147,8 @@ export const CreateSessionRequest = z.object({
   profileId: z.string().nullable().optional(),
   prompt: z.string().default(""),
   title: z.string().optional(),
+  scopeId: z.string().optional(),
+  /** COMPAT(scopes-rename): remove after 2027-03-01. The old name of scopeId. */
   viewId: z.string().optional(),
 });
 
@@ -159,6 +161,8 @@ export const OpenBranchRequest = z.object({
   prompt: z.string().default(""),
   profileId: z.string().nullable().optional(),
   title: z.string().optional(),
+  scopeId: z.string().optional(),
+  /** COMPAT(scopes-rename): remove after 2027-03-01. The old name of scopeId. */
   viewId: z.string().optional(),
   /** Start another session even when the branch has one. */
   another: z.boolean().default(false),
@@ -595,45 +599,42 @@ export const MeResponse = z.object({
 });
 export type MeResponse = z.infer<typeof MeResponse>;
 
-/** A terminal's binding as the CLI or web app records it. */
-export const TerminalBindingInput = z
-  .object({ mirror: TerminalMirror, viewId: z.string().min(1).nullable().optional() })
-  .refine((b) => (b.mirror === "view") === !!b.viewId, {
-    message: "viewId is required for mirror=view and only then",
+/** A client's binding as the CLI or web app records it. */
+export const ClientBindingInput = z
+  .object({ mirror: ClientMirror, scopeId: z.string().min(1).nullable().optional() })
+  .refine((b) => (b.mirror === "scope") === !!b.scopeId, {
+    message: "scopeId is required for mirror=scope and only then",
   });
-export type TerminalBindingInput = z.infer<typeof TerminalBindingInput>;
+export type ClientBindingInput = z.infer<typeof ClientBindingInput>;
 
-/** A daemon's heartbeat for the terminal it runs in. */
-export const TerminalReport = Terminal.pick({ kind: true, name: true, machine: true }).extend({
+/** A daemon's heartbeat for the client it runs in. */
+export const ClientReport = Client.pick({ kind: true, name: true, machine: true }).extend({
   hostId: z.string().nullable().optional(),
   /** Sessions in its mirror tabs or windows; omitted when unchanged or unknown. */
   shows: z.array(z.string()).max(1000).optional(),
-  /** The binding this terminal had before bindings were recorded (env file); applied only when none is recorded. */
-  seed: TerminalBindingInput.optional(),
+  /** The binding this client had before bindings were recorded (env file); applied only when none is recorded. */
+  seed: ClientBindingInput.optional(),
 });
-export type TerminalReport = z.infer<typeof TerminalReport>;
+export type ClientReport = z.infer<typeof ClientReport>;
 
-/** Deprecated: the report of a mirror daemon from 0.19 or earlier (`PUT /api/surfaces/:id`). */
-export const SurfaceReport = Terminal.pick({
-  kind: true,
-  name: true,
-  machine: true,
-  viewId: true,
-}).extend({ hostId: z.string().nullable().optional() });
-export type SurfaceReport = z.infer<typeof SurfaceReport>;
-
-export const ViewInput = View.pick({
-  name: true,
-  mode: true,
-  projectIds: true,
-  hostIds: true,
-}).partial({
-  mode: true,
-  projectIds: true,
-  hostIds: true,
+export const ScopeInput = z.object({
+  name: Scope.shape.name,
+  mode: Scope.shape.mode.optional(),
+  projectIds: Scope.shape.projectIds.optional(),
+  hostIds: Scope.shape.hostIds.optional(),
+  /** A GitHub source makes this a GitHub scope; its projects are then kept by GitHub. */
+  source: GitHubSourceInput.nullable().optional(),
 });
-export const ViewPatch = ViewInput.partial();
-export const ViewClientReport = ViewClient.omit({ lastSeenAt: true });
+export type ScopeInput = z.input<typeof ScopeInput>;
+export const ScopePatch = z.object({
+  name: Scope.shape.name.optional(),
+  mode: Scope.shape.mode.optional(),
+  projectIds: Scope.shape.projectIds.optional(),
+  hostIds: Scope.shape.hostIds.optional(),
+  /** null removes the source; an object changes it, or adds one (then hostId and owner are required). */
+  source: GitHubSourcePatch.nullable().optional(),
+});
+export type ScopePatch = z.input<typeof ScopePatch>;
 
 export const ProjectSuggestionsResponse = z.object({
   suggestions: z.array(ProjectSuggestion.extend({ name: z.string(), preselected: z.boolean() })),

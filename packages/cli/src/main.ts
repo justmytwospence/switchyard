@@ -5,6 +5,7 @@ import { SwitchyardError } from "@switchyard/protocol";
 import { ApiRequestError } from "@switchyard/terminal";
 import { Command, Option } from "commander";
 import { login, pair } from "./commands/auth.js";
+import { clientsBind, clientsForget, clientsList } from "./commands/clients.js";
 import {
   coordinatorBackup,
   coordinatorMigrate,
@@ -15,19 +16,19 @@ import { defaultDoctorDeps, printDoctor, runDoctor } from "./commands/doctor.js"
 import { herdrDaemon, herdrNew, herdrPair, herdrPane, herdrStatus } from "./commands/herdr.js";
 import { hostBackup, hostEnroll, hostPiExtension, hostRun, hostStatus } from "./commands/host.js";
 import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
-import { installService } from "./commands/service.js";
-import { terminalsBind, terminalsForget, terminalsList } from "./commands/terminals.js";
-import { tmuxDaemon, tmuxNew, tmuxPair, tmuxPane, tmuxStatus } from "./commands/tmux.js";
 import {
-  trackersCreate,
-  trackersDelete,
-  trackersEdit,
-  trackersList,
-  trackersSync,
-} from "./commands/trackers.js";
+  scopesCreate,
+  scopesDelete,
+  scopesEdit,
+  scopesList,
+  scopesPin,
+  scopesRemoveSource,
+  scopesSync,
+} from "./commands/scopes.js";
+import { installService } from "./commands/service.js";
+import { tmuxDaemon, tmuxNew, tmuxPair, tmuxPane, tmuxStatus } from "./commands/tmux.js";
 import { tuiCommand } from "./commands/tui.js";
 import { up } from "./commands/up.js";
-import { viewsCreate, viewsDelete, viewsEdit, viewsList, viewsPin } from "./commands/views.js";
 import {
   automationsList,
   automationsRun,
@@ -298,7 +299,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
 
   const herdr = program
     .command("herdr")
-    .description("herdr integration: mirror Switchyard into a paired herdr session");
+    .description("herdr client module: mirror Switchyard into a herdr session");
   connectionOptions(
     herdr.command("daemon").description("Mirror Switchyard into this herdr session"),
   )
@@ -328,7 +329,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .command("pair")
     .description("Pair a herdr session (default: the unnamed one) with Switchyard")
     .option("--session <name>", "herdr session name (default: default)")
-    .option("--view <name>", "mirror this view (recorded with the coordinator)")
+    .option("--scope <name>", "mirror this scope (recorded with the coordinator)")
+    .addOption(new Option("--view <name>").hideHelp())
     .option("--all", "mirror every session")
     .option("--none", "mirror nothing")
     .option("--cli <command>", "how to run switchyard")
@@ -337,7 +339,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .action(async (o) => {
       await herdrPair(ctx, {
         session: o.session,
-        view: o.view,
+        scope: o.scope ?? o.view,
         all: o.all,
         none: o.none,
         cli: o.cli,
@@ -348,7 +350,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
 
   const tmux = program
     .command("tmux")
-    .description("tmux integration: mirror Switchyard into a paired tmux session");
+    .description("tmux client module: mirror Switchyard into a tmux session");
   connectionOptions(tmux.command("daemon").description("Mirror Switchyard into this tmux session"))
     .option("--ensure", "start the daemon in the background unless it runs")
     .option("--once", "sync once and print what changed")
@@ -374,7 +376,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .command("pair")
     .description("Pair a tmux session (default: switchyard) with Switchyard")
     .option("--session <name>", "tmux session name (default: switchyard)")
-    .option("--view <name>", "mirror this view (recorded with the coordinator)")
+    .option("--scope <name>", "mirror this scope (recorded with the coordinator)")
+    .addOption(new Option("--view <name>").hideHelp())
     .option("--all", "mirror every session")
     .option("--none", "mirror nothing")
     .option("--cli <command>", "how to run switchyard")
@@ -383,7 +386,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .action(async (o) => {
       await tmuxPair(ctx, {
         session: o.session,
-        view: o.view,
+        scope: o.scope ?? o.view,
         all: o.all,
         none: o.none,
         cli: o.cli,
@@ -392,81 +395,62 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
       });
     });
 
-  const terminals = program
-    .command("terminals")
-    .description("Terminals: herdr and tmux sessions, and what each one mirrors");
-  connectionOptions(terminals.command("list").description("List terminals"))
-    .option("--json", "JSON output")
-    .action((o) => terminalsList(ctx, { ...connFlags(o), json: o.json }));
-  connectionOptions(
-    terminals
-      .command("bind <terminal>")
-      .description("Choose what a terminal mirrors (herdr:<session>, tmux:<session> or a full id)"),
-  )
-    .option("--view <name>", "a view")
-    .option("--all", "every session")
-    .option("--none", "nothing")
-    .action((ref, o) =>
-      terminalsBind(ctx, ref, { ...connFlags(o), view: o.view, all: o.all, none: o.none }),
-    );
-  connectionOptions(
-    terminals.command("forget <terminal>").description("Forget a terminal and its binding"),
-  ).action((ref, o) => terminalsForget(ctx, ref, connFlags(o)));
-
-  const views = program
-    .command("views")
-    .description("Views: named sets of projects and pins that terminals can mirror");
   const collect = (v: string, prev: string[] = []) => [...prev, v];
-  connectionOptions(views.command("list").description("List views"))
-    .option("--json", "JSON output")
-    .action((o) => viewsList(ctx, { ...connFlags(o), json: o.json }));
-  connectionOptions(views.command("create <name>").description("Create a view"))
-    .option("--mode <mode>", "all (matching or pinned) or pinned (pinned only)")
-    .option("--project <project>", "limit to a project (repeatable)", collect)
-    .option("--host <host>", "limit to a host (repeatable)", collect)
-    .action((name, o) =>
-      viewsCreate(ctx, name, {
-        ...connFlags(o),
-        mode: o.mode,
-        project: o.project,
-        host: o.host,
-      }),
-    );
-  connectionOptions(views.command("edit <view>").description("Change a view"))
-    .option("--name <name>", "new name")
-    .option("--mode <mode>", "all or pinned")
-    .option("--project <project>", "limit to a project (repeatable)", collect)
-    .option("--host <host>", "limit to a host (repeatable)", collect)
-    .option("--any-project", "remove the project limit")
-    .option("--any-host", "remove the host limit")
-    .action((ref, o) =>
-      viewsEdit(ctx, ref, {
-        ...connFlags(o),
-        name: o.name,
-        mode: o.mode,
-        project: o.project,
-        host: o.host,
-        anyProject: o.anyProject,
-        anyHost: o.anyHost,
-      }),
-    );
-  connectionOptions(views.command("delete <view>").description("Delete a view")).action((ref, o) =>
-    viewsDelete(ctx, ref, connFlags(o)),
-  );
-  connectionOptions(views.command("pin <view> <sessionId>").description("Pin a session")).action(
-    (ref, id, o) => viewsPin(ctx, ref, id, connFlags(o)),
-  );
-  connectionOptions(
-    views.command("unpin <view> <sessionId>").description("Unpin a session"),
-  ).action((ref, id, o) => viewsPin(ctx, ref, id, connFlags(o), true));
+  /** The old name of a command group: say so on stderr, then run. */
+  const renamed = (old: string, now: string) => () =>
+    ctx.err(`"switchyard ${old}" is now "switchyard ${now}"; the old name will be removed`);
+  const viewOption = () => new Option("--view <name>").hideHelp();
 
-  const trackers = program
-    .command("trackers")
-    .description("GitHub trackers: sync assigned issues into branches and worktrees");
-  const trackerFlags = (o: Record<string, any>) => ({
+  const clientCommands = (group: Command) => {
+    connectionOptions(group.command("list").description("List clients"))
+      .option("--json", "JSON output")
+      .action((o) => clientsList(ctx, { ...connFlags(o), json: o.json }));
+    connectionOptions(
+      group
+        .command("bind <client>")
+        .description("Choose what a client mirrors (herdr:<session>, tmux:<session> or a full id)"),
+    )
+      .option("--scope <name>", "a scope")
+      .addOption(viewOption())
+      .option("--all", "every session")
+      .option("--none", "nothing")
+      .action((ref, o) =>
+        clientsBind(ctx, ref, {
+          ...connFlags(o),
+          scope: o.scope,
+          view: o.view,
+          all: o.all,
+          none: o.none,
+        }),
+      );
+    connectionOptions(
+      group.command("forget <client>").description("Forget a client and its binding"),
+    ).action((ref, o) => clientsForget(ctx, ref, connFlags(o)));
+  };
+  clientCommands(
+    program
+      .command("clients")
+      .description("Clients: herdr and tmux sessions, and what each one mirrors"),
+  );
+  clientCommands(
+    program
+      .command("terminals", { hidden: true })
+      .hook("preAction", renamed("terminals", "clients")),
+  );
+
+  /** The scope's own options: name, mode and limits. */
+  const scopeFlags = (o: Record<string, any>) => ({
     ...connFlags(o),
     name: o.name,
+    mode: o.mode,
+    project: o.project,
     host: o.host,
+    anyProject: o.anyProject,
+    anyHost: o.anyHost,
+  });
+  /** The GitHub source options; `host` names the option that carries the GitHub host. */
+  const githubFlags = (o: Record<string, any>, host: "githubHost" | "host", create: boolean) => ({
+    githubHost: o[host],
     owner: o.owner,
     repo: o.repo,
     allRepos: o.allRepos,
@@ -483,84 +467,178 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     priorityField: typeof o.priorityField === "string" ? o.priorityField : undefined,
     noPriorityField: o.priorityField === false,
     writeBack: o.writeBack,
-    moveShared: o.moveShared,
-    worktrees: o.worktrees,
+    // On create only the negative forms exist, and commander defaults them to true.
+    moveShared: create ? (o.moveShared === false ? false : undefined) : o.moveShared,
+    worktrees: create ? (o.worktrees === false ? false : undefined) : o.worktrees,
     enable: o.enable,
     disable: o.disable,
   });
-  connectionOptions(trackers.command("list").description("List trackers"))
+  const githubCreateOptions = (c: Command, host: string) =>
+    c
+      .option(`${host} <host>`, "host whose gh login reads the issues (required with --owner)")
+      .option("--owner <login>", "GitHub organization or user: makes this a GitHub scope")
+      .option("--repo <owner/name>", "limit to a repository (repeatable)", collect)
+      .option(
+        "--also <owner/name>",
+        "also include a repository of another owner (repeatable)",
+        collect,
+      )
+      .option("--board <number>", "GitHub Projects board number in the owner")
+      .option("--status-field <name>", "board status field (default Status)")
+      .option("--on-start <column>", "column once the worktree exists (write-back)")
+      .option("--on-review <column>", "column once a pull request is open (write-back)")
+      .option(
+        "--follow <assigned|board>",
+        "which issues to follow: assigned to you (default), or every open issue on the board",
+      )
+      .option(
+        "--backlog <column>",
+        "board column whose cards wait until they have a branch (repeatable)",
+        collect,
+      )
+      .option("--priority-field <name>", "single-select board field that ranks issues")
+      .option("--write-back", "let Switchyard move board cards")
+      .option("--no-move-shared", "never move cards assigned to someone else too")
+      .option(
+        "--no-worktrees",
+        "never make a worktree for an issue branch; link the ones you make",
+      );
+  const githubEditOptions = (c: Command, host: string) =>
+    c
+      .option(`${host} <host>`, "host whose gh login reads the issues")
+      .option("--owner <login>", "GitHub organization or user")
+      .option("--repo <owner/name>", "limit to a repository (repeatable)", collect)
+      .option("--all-repos", "remove the repository limit")
+      .option(
+        "--also <owner/name>",
+        "also include a repository of another owner (repeatable)",
+        collect,
+      )
+      .option("--no-also", "remove the repositories of other owners")
+      .option("--board <number>", "GitHub Projects board number")
+      .option("--no-board", "stop using a board")
+      .option("--status-field <name>", "board status field")
+      .option("--on-start <column>", "column once the worktree exists")
+      .option("--on-review <column>", "column once a pull request is open")
+      .option(
+        "--follow <assigned|board>",
+        "which issues to follow: assigned to you, or every open issue on the board",
+      )
+      .option(
+        "--backlog <column>",
+        "board column whose cards wait until they have a branch (repeatable)",
+        collect,
+      )
+      .option("--no-backlog", "track every column")
+      .option("--priority-field <name>", "single-select board field that ranks issues")
+      .option("--no-priority-field", "stop reading a priority field")
+      .option("--write-back", "let Switchyard move board cards")
+      .option("--no-write-back", "never move board cards")
+      .option("--move-shared", "also move cards assigned to someone else too")
+      .option("--no-move-shared", "never move cards assigned to someone else too")
+      .option("--worktrees", "make a worktree for an issue branch that has none")
+      .option("--no-worktrees", "never make a worktree for an issue branch; link the ones you make")
+      .option("--enable", "sync the GitHub source")
+      .option("--disable", "stop syncing the GitHub source");
+
+  const scopes = program
+    .command("scopes")
+    .description(
+      "Scopes: named parts of your work that clients can mirror, optionally fed by GitHub",
+    );
+  connectionOptions(scopes.command("list").description("List scopes"))
     .option("--json", "JSON output")
-    .action((o) => trackersList(ctx, { ...connFlags(o), json: o.json }));
-  connectionOptions(trackers.command("create <name>").description("Create a tracker"))
-    .option("--host <host>", "host whose gh login is used (required)")
-    .option("--owner <login>", "GitHub organization or user (required)")
-    .option("--repo <owner/name>", "limit to a repository (repeatable)", collect)
-    .option(
-      "--also <owner/name>",
-      "also include a repository of another owner (repeatable)",
-      collect,
-    )
-    .option("--board <number>", "GitHub Projects board number in the owner")
-    .option("--status-field <name>", "board status field (default Status)")
-    .option("--on-start <column>", "column once the worktree exists (write-back)")
-    .option("--on-review <column>", "column once a pull request is open (write-back)")
-    .option(
-      "--follow <assigned|board>",
-      "which issues to follow: assigned to you (default), or every open issue on the board",
-    )
-    .option(
-      "--backlog <column>",
-      "board column whose cards wait until they have a branch (repeatable)",
-      collect,
-    )
-    .option("--priority-field <name>", "single-select board field that ranks issues")
-    .option("--write-back", "let Switchyard move board cards")
-    .option("--no-move-shared", "never move cards assigned to someone else too")
-    .option("--no-worktrees", "never make a worktree for an issue branch; link the ones you make")
-    .action((name, o) => trackersCreate(ctx, name, trackerFlags(o)));
-  connectionOptions(trackers.command("edit <tracker>").description("Change a tracker"))
-    .option("--name <name>", "new name")
-    .option("--host <host>", "host whose gh login is used")
-    .option("--owner <login>", "GitHub organization or user")
-    .option("--repo <owner/name>", "limit to a repository (repeatable)", collect)
-    .option("--all-repos", "remove the repository limit")
-    .option(
-      "--also <owner/name>",
-      "also include a repository of another owner (repeatable)",
-      collect,
-    )
-    .option("--no-also", "remove the repositories of other owners")
-    .option("--board <number>", "GitHub Projects board number")
-    .option("--no-board", "stop using a board")
-    .option("--status-field <name>", "board status field")
-    .option("--on-start <column>", "column once the worktree exists")
-    .option("--on-review <column>", "column once a pull request is open")
-    .option(
-      "--follow <assigned|board>",
-      "which issues to follow: assigned to you, or every open issue on the board",
-    )
-    .option(
-      "--backlog <column>",
-      "board column whose cards wait until they have a branch (repeatable)",
-      collect,
-    )
-    .option("--no-backlog", "track every column")
-    .option("--priority-field <name>", "single-select board field that ranks issues")
-    .option("--no-priority-field", "stop reading a priority field")
-    .option("--write-back", "let Switchyard move board cards")
-    .option("--no-write-back", "never move board cards")
-    .option("--move-shared", "also move cards assigned to someone else too")
-    .option("--no-move-shared", "never move cards assigned to someone else too")
-    .option("--worktrees", "make a worktree for an issue branch that has none")
-    .option("--no-worktrees", "never make a worktree for an issue branch; link the ones you make")
-    .option("--enable", "sync this tracker")
-    .option("--disable", "stop syncing this tracker")
-    .action((ref, o) => trackersEdit(ctx, ref, trackerFlags(o)));
-  connectionOptions(trackers.command("delete <tracker>").description("Delete a tracker")).action(
-    (ref, o) => trackersDelete(ctx, ref, connFlags(o)),
+    .action((o) => scopesList(ctx, { ...connFlags(o), json: o.json }));
+  githubCreateOptions(
+    connectionOptions(scopes.command("create <name>").description("Create a scope"))
+      .option("--mode <mode>", "all (matching or pinned) or pinned (pinned only)")
+      .option("--project <project>", "limit to a project (repeatable)", collect)
+      .option("--host <host>", "limit to a host (repeatable)", collect),
+    "--github-host",
+  ).action((name, o) =>
+    scopesCreate(ctx, name, { ...scopeFlags(o), ...githubFlags(o, "githubHost", true) }),
   );
-  connectionOptions(trackers.command("sync <tracker>").description("Sync a tracker now")).action(
-    (ref, o) => trackersSync(ctx, ref, connFlags(o)),
+  githubEditOptions(
+    connectionOptions(scopes.command("edit <scope>").description("Change a scope"))
+      .option("--name <name>", "new name")
+      .option("--mode <mode>", "all or pinned")
+      .option("--project <project>", "limit to a project (repeatable)", collect)
+      .option("--host <host>", "limit to a host (repeatable)", collect)
+      .option("--any-project", "remove the project limit")
+      .option("--any-host", "remove the host limit"),
+    "--github-host",
+  )
+    .option("--no-github", "remove the GitHub source; the scope keeps its projects")
+    .action((ref, o) =>
+      scopesEdit(ctx, ref, {
+        ...scopeFlags(o),
+        ...githubFlags(o, "githubHost", false),
+        noGithub: o.github === false,
+      }),
+    );
+  connectionOptions(scopes.command("delete <scope>").description("Delete a scope")).action(
+    (ref, o) => scopesDelete(ctx, ref, connFlags(o)),
+  );
+  connectionOptions(scopes.command("pin <scope> <sessionId>").description("Pin a session")).action(
+    (ref, id, o) => scopesPin(ctx, ref, id, connFlags(o)),
+  );
+  connectionOptions(
+    scopes.command("unpin <scope> <sessionId>").description("Unpin a session"),
+  ).action((ref, id, o) => scopesPin(ctx, ref, id, connFlags(o), true));
+  connectionOptions(
+    scopes.command("sync <scope>").description("Sync a scope's GitHub source now"),
+  ).action((ref, o) => scopesSync(ctx, ref, connFlags(o)));
+
+  // The old names of `scopes`: views (a scope's own options) and trackers (its GitHub source).
+  const views = program
+    .command("views", { hidden: true })
+    .hook("preAction", renamed("views", "scopes"));
+  connectionOptions(views.command("list"))
+    .option("--json", "JSON output")
+    .action((o) => scopesList(ctx, { ...connFlags(o), json: o.json }));
+  connectionOptions(views.command("create <name>"))
+    .option("--mode <mode>")
+    .option("--project <project>", "", collect)
+    .option("--host <host>", "", collect)
+    .action((name, o) => scopesCreate(ctx, name, scopeFlags(o)));
+  connectionOptions(views.command("edit <view>"))
+    .option("--name <name>")
+    .option("--mode <mode>")
+    .option("--project <project>", "", collect)
+    .option("--host <host>", "", collect)
+    .option("--any-project")
+    .option("--any-host")
+    .action((ref, o) => scopesEdit(ctx, ref, scopeFlags(o)));
+  connectionOptions(views.command("delete <view>")).action((ref, o) =>
+    scopesDelete(ctx, ref, connFlags(o)),
+  );
+  connectionOptions(views.command("pin <view> <sessionId>")).action((ref, id, o) =>
+    scopesPin(ctx, ref, id, connFlags(o)),
+  );
+  connectionOptions(views.command("unpin <view> <sessionId>")).action((ref, id, o) =>
+    scopesPin(ctx, ref, id, connFlags(o), true),
+  );
+
+  const trackers = program
+    .command("trackers", { hidden: true })
+    .hook("preAction", renamed("trackers", "scopes"));
+  connectionOptions(trackers.command("list"))
+    .option("--json", "JSON output")
+    .action((o) => scopesList(ctx, { ...connFlags(o), json: o.json, onlySources: true }));
+  githubCreateOptions(connectionOptions(trackers.command("create <name>")), "--host").action(
+    (name, o) => scopesCreate(ctx, name, { ...connFlags(o), ...githubFlags(o, "host", true) }),
+  );
+  githubEditOptions(
+    connectionOptions(trackers.command("edit <tracker>")).option("--name <name>"),
+    "--host",
+  ).action((ref, o) =>
+    scopesEdit(ctx, ref, { ...connFlags(o), name: o.name, ...githubFlags(o, "host", false) }),
+  );
+  connectionOptions(trackers.command("delete <tracker>")).action((ref, o) =>
+    scopesRemoveSource(ctx, ref, connFlags(o)),
+  );
+  connectionOptions(trackers.command("sync <tracker>")).action((ref, o) =>
+    scopesSync(ctx, ref, connFlags(o)),
   );
 
   const tasks = program.command("tasks").description("Tasks");

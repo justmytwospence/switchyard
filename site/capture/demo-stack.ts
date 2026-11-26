@@ -1,7 +1,7 @@
 /**
  * A seeded demo of Switchyard for the site's product visuals: a real coordinator serving the
  * built web app, two host agents running real Pi against a scripted mock model, three made-up
- * projects of a made-up `acme` organization, a tracker with its issues, and branches in every
+ * projects of a made-up `acme` organization, a GitHub scope with its issues, and branches in every
  * stage. Nothing here touches real repositories, GitHub, model providers or your Pi setup.
  *
  * Run `pnpm build` at the repository root first. `node site/capture/demo-stack.ts` keeps it running
@@ -530,11 +530,9 @@ export async function startDemo(opts: { port?: number } = {}): Promise<Demo> {
       });
     }
 
-    const tracker = await api("POST", "/api/trackers", {
+    const scope = await api("POST", "/api/scopes", {
       name: "acme",
-      hostId: hosts.laptop,
-      owner: "acme",
-      worktrees: false,
+      source: { hostId: hosts.laptop, owner: "acme", worktrees: false },
     });
 
     const sessions: Record<string, string> = {};
@@ -568,7 +566,7 @@ export async function startDemo(opts: { port?: number } = {}): Promise<Demo> {
         const s = await session(sessions[key]);
         return s.runtime === "idle" && !!s.lastAssistantText;
       });
-    await api("POST", `/api/trackers/${tracker.id}/sync`).catch(() => {});
+    await api("POST", `/api/scopes/${scope.id}/sync`).catch(() => {});
     return { url, adminToken, root, hosts, projects, sessions, stop };
   } catch (err) {
     console.error(`[demo] setup failed; logs in ${root}`);

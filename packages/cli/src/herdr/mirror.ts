@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { Session, View } from "@switchyard/protocol";
+import type { Scope, Session } from "@switchyard/protocol";
 
 import {
   type AgentState,
@@ -10,7 +10,7 @@ import {
   mirroredSessions,
   NEW_SESSION_GRACE_MS,
   PENDING_MS,
-  viewedSessions,
+  scopedSessions,
   wantedSessions,
 } from "../mirror/state.js";
 
@@ -163,7 +163,7 @@ export function claimedSession(p: HerdrPane): string | null {
 
 /**
  * Compare Switchyard with the paired herdr session and say what to change. Pure. Tabs are opened
- * for `wantedSessions` (active branches); a tab showing any other session in the view stays
+ * for `wantedSessions` (active branches); a tab showing any other session in the scope stays
  * while it exists, unless the mirror opened it and its branch is no longer active.
  */
 export function planMirror(
@@ -171,8 +171,8 @@ export function planMirror(
   h: HerdrSnapshot,
   mem: MirrorMemory,
   now: number,
-  view: View | null = null,
-  terminalId: string | null = null,
+  scope: Scope | null = null,
+  clientId: string | null = null,
 ): MirrorPlan {
   const plan: MirrorPlan = {
     closeTabs: [],
@@ -187,9 +187,9 @@ export function planMirror(
     offers: [],
     spaces: {},
   };
-  const M = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
-  const W = new Map(wantedSessions(st, view, now, terminalId).map((s) => [s.id, s]));
-  const linger = lingeringSessions(st, view);
+  const M = new Map(scopedSessions(st, scope).map((s) => [s.id, s]));
+  const W = new Map(wantedSessions(st, scope, now, clientId).map((s) => [s.id, s]));
+  const linger = lingeringSessions(st, scope);
   const workspaces = [...h.workspaces].sort((a, b) => a.number - b.number);
   const present = new Set(workspaces.map((w) => w.workspace_id));
   const tabsPresent = new Set(h.tabs.map((t) => t.tab_id));
@@ -240,7 +240,7 @@ export function planMirror(
     // A tab the mirror opened goes once its branch is no longer active; one you opened stays.
     const inactive = M.has(sid) && !W.has(sid) && mem.ownTabs[t.tab_id] === sid;
     if (M.has(sid) && !inactive) continue;
-    // A session that stopped out of the view or went inactive keeps the tab you are in until you leave it.
+    // A session that stopped out of the scope or went inactive keeps the tab you are in until you leave it.
     if (t.tab_id === h.focusedTabId && (inactive || linger.has(sid))) continue;
     plan.closeTabs.push({ tabId: t.tab_id, sessionId: sid });
   }

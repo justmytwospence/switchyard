@@ -37,7 +37,7 @@ test.describe("shared behavior", () => {
       "/settings",
       "/settings/hosts",
       `/settings/hosts/${state.hostId}`,
-      "/settings/devices",
+      "/settings/clients",
       "/settings/projects",
       `/settings/projects/${state.projectId}`,
       "/settings/profiles",
@@ -197,10 +197,10 @@ test.describe("shared behavior", () => {
     await expect(page.getByTestId("interaction-card").first()).toBeVisible();
   });
 
-  test("a device can be renamed in Settings › Devices", async ({ page, signIn }, info) => {
+  test("a device can be renamed in Settings › Clients", async ({ page, signIn }, info) => {
     test.skip(info.project.name !== "desktop-1440x900", "desktop project only");
     await signIn();
-    await page.goto("/settings/devices");
+    await page.goto("/settings/clients");
     await settled(page);
     await page.getByTestId("device-rename").first().click();
     await page.getByLabel("Device name").fill("Renamed browser");

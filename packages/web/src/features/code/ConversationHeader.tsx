@@ -1,4 +1,4 @@
-import type { View } from "@switchyard/protocol";
+import type { Scope } from "@switchyard/protocol";
 import {
   Archive,
   ArchiveRestore,
@@ -28,7 +28,7 @@ import { StatusChip } from "../../components/ui/StatusChip";
 import { useSyncStore } from "../../sync/store";
 import { ATTENTION_ACTION_HELP } from "../attention/logic";
 import { type SessionContext, useElementWidth } from "./hooks";
-import { AUTOMATION_LABEL, viewNote, workspaceLabel } from "./model";
+import { AUTOMATION_LABEL, scopeNote, workspaceLabel } from "./model";
 import { useSessionPlace } from "./place";
 import type { SessionActions } from "./SessionActions";
 import type { Surface } from "./surface";
@@ -66,7 +66,7 @@ export function HostChip({ ctx }: { ctx: SessionContext }) {
 export function sessionMenuItems(
   ctx: SessionContext,
   a: SessionActions,
-  views: View[] = [],
+  scopes: Scope[] = [],
 ): MenuItem[] {
   return [
     {
@@ -142,9 +142,9 @@ export function sessionMenuItems(
             },
           ]
         : []),
-    ...(ctx.session.archivedAt ? [] : views).map(
+    ...(ctx.session.archivedAt ? [] : scopes).map(
       (v): MenuItem => ({
-        id: `view-${v.id}`,
+        id: `scope-${v.id}`,
         label: `Pin to ${v.name}`,
         kind: "checkbox",
         checked: v.sessionIds.includes(ctx.session.id),
@@ -182,10 +182,10 @@ export function ConversationHeader({
 }) {
   const { session, project, workspace, task } = ctx;
   const navigate = useNavigate();
-  const views = useSyncStore((st) => st.views);
+  const scopes = useSyncStore((st) => st.scopes);
   const [ref, width] = useElementWidth<HTMLElement>();
   const place = useSessionPlace(session);
-  const note = viewNote(place, session);
+  const note = scopeNote(place, session);
   const narrow = width > 0 && width < 640;
   const menuItems: MenuItem[] = [
     ...(narrow && task
@@ -198,7 +198,7 @@ export function ConversationHeader({
           },
         ]
       : []),
-    ...sessionMenuItems(ctx, actions, Object.values(views)),
+    ...sessionMenuItems(ctx, actions, Object.values(scopes)),
   ];
   return (
     <header
@@ -290,7 +290,11 @@ export function ConversationHeader({
           </a>
         )}
         {note && (
-          <span data-testid="view-note" title={note.title} className="shrink-0 text-xs text-subtle">
+          <span
+            data-testid="scope-note"
+            title={note.title}
+            className="shrink-0 text-xs text-subtle"
+          >
             {note.label}
           </span>
         )}

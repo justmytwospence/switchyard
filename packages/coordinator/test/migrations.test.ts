@@ -19,13 +19,234 @@ function dbAt(version: number): Db {
   return db;
 }
 
+/** Apply the pending migrations up to `version` only: what that release's coordinator would do. */
+function upTo(db: Db, version: number): void {
+  const row = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as { v: number };
+  for (const m of MIGRATIONS.filter((x) => x.version > (row.v ?? 0) && x.version <= version)) {
+    db.exec(m.sql);
+    db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)").run(
+      m.version,
+      m.name,
+      "2026-01-01T00:00:00.000Z",
+    );
+  }
+}
+
 describe("coordinator migrations", () => {
+  it("023 merges views and trackers into scopes, renames terminals to clients and forces a snapshot", () => {
+    const db = dbAt(22);
+    const ins = (table: string, cols: string[], row: unknown[]) =>
+      db
+        .prepare(
+          `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+        )
+        .run(...(row as string[]));
+    const view = (id: string, name: string, extra: Record<string, unknown> = {}) =>
+      ins(
+        "views",
+        ["id", "name", "json", "created_at"],
+        [
+          id,
+          name,
+          JSON.stringify({
+            id,
+            name,
+            mode: "all",
+            projectIds: null,
+            hostIds: null,
+            sessionIds: [],
+            clients: [],
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-02",
+            ...extra,
+          }),
+          "2026-01-01",
+        ],
+      );
+    const tracker = (id: string, name: string, extra: Record<string, unknown> = {}) =>
+      ins(
+        "trackers",
+        ["id", "name", "json", "created_at"],
+        [
+          id,
+          name,
+          JSON.stringify({
+            id,
+            name,
+            provider: "github",
+            hostId: "hst_1",
+            owner: "acme",
+            repositories: null,
+            extraRepositories: [],
+            board: null,
+            follow: "assigned",
+            writeBack: true,
+            moveShared: true,
+            enabled: true,
+            login: "me",
+            lastSyncedAt: "2026-02-01",
+            lastError: null,
+            createdAt: "2026-01-03",
+            updatedAt: "2026-02-01",
+            ...extra,
+          }),
+          "2026-01-03",
+        ],
+      );
+    // A view no tracker keeps (pinned-only), and one whose tracker is long gone.
+    view("viw_manual", "scratch", { mode: "pinned", sessionIds: ["ses_1"] });
+    view("viw_stale", "clients", { trackerId: "trk_gone" });
+    // A tracker with its view.
+    view("viw_work", "work", {
+      trackerId: "trk_work",
+      projectIds: ["prj_1"],
+      sessionIds: ["ses_2"],
+    });
+    tracker("trk_work", "work");
+    // A tracker that never synced adopts the view of its name, as its first sync would have.
+    view("viw_personal", "Personal");
+    tracker("trk_personal", "personal", { login: null, lastSyncedAt: null });
+    // A tracker whose view was renamed, and one with no view whose name that view took.
+    view("viw_dup", "dup", { trackerId: "trk_renamed" });
+    tracker("trk_renamed", "renamed");
+    tracker("trk_orphan01", "dup");
+    const issue = (id: string, trackerId: string) =>
+      ins(
+        "tracked_issues",
+        ["id", "tracker_id", "project_id", "json", "created_at"],
+        [id, trackerId, "prj_1", JSON.stringify({ id, trackerId, itemId: "I_1" }), "2026-01-05"],
+      );
+    issue("trk_work:I_1", "trk_work");
+    issue("trk_dead:I_9", "trk_dead");
+    const terminal = (id: string, viewId: string | null, json: Record<string, unknown>) =>
+      ins(
+        "terminals",
+        ["id", "device_id", "view_id", "last_seen_at", "json", "created_at"],
+        [id, "dev_1", viewId, "2026-03-01", JSON.stringify({ id, viewId, ...json }), "2026-01-01"],
+      );
+    terminal("herdr:work@mac", "viw_work", { mirror: "view", shows: ["ses_2"] });
+    terminal("herdr:all@mac", null, { mirror: "all" });
+    terminal("herdr:none@mac", null, { mirror: "none" });
+    terminal("tmux:scratch@mac", "viw_manual", { mirror: "view" });
+    terminal("tmux:old@mac", "viw_manual", {}); // written before `mirror` existed
+    terminal("tmux:gone@mac", "viw_deleted", { mirror: "view" });
+    ins(
+      "presence",
+      ["device_id", "terminal_id", "updated_at"],
+      ["dev_1", "herdr:work@mac", "2026"],
+    );
+    const ev = db.prepare("INSERT INTO events (id, type, json, at) VALUES (?, ?, ?, ?)");
+    for (const type of ["view.updated", "session.updated", "terminal.updated"])
+      ev.run(`evt_${type}`, type, "{}", "2026");
+    ins("settings", ["key", "value"], ["minRetainedSeq", "1"]);
+
+    migrate(db);
+
+    const scopes = (
+      db.prepare("SELECT id, name, json FROM scopes ORDER BY id").all() as {
+        id: string;
+        name: string;
+        json: string;
+      }[]
+    ).map((r) => ({ row: r.name, ...JSON.parse(r.json) }));
+    const scope = (id: string) => scopes.find((s) => s.id === id);
+    expect(scopes.map((s) => s.id)).toEqual([
+      "trk_orphan01",
+      "trk_personal",
+      "trk_renamed",
+      "trk_work",
+      "viw_manual",
+      "viw_stale",
+    ]);
+    for (const s of scopes) expect(s.row).toBe(s.name);
+    expect(scope("viw_manual")).toMatchObject({
+      name: "scratch",
+      mode: "pinned",
+      sessionIds: ["ses_1"],
+      source: null,
+    });
+    expect(scope("viw_stale")).toMatchObject({ name: "clients", source: null });
+    for (const s of scopes) {
+      expect("clients" in s).toBe(false);
+      expect("trackerId" in s).toBe(false);
+    }
+    expect(scope("trk_work")).toMatchObject({
+      name: "work",
+      projectIds: ["prj_1"],
+      sessionIds: ["ses_2"],
+      createdAt: "2026-01-01",
+      source: { kind: "github", owner: "acme", hostId: "hst_1", login: "me", writeBack: true },
+    });
+    const source = scope("trk_work").source;
+    for (const key of ["id", "name", "provider", "createdAt", "updatedAt"])
+      expect(key in source).toBe(false);
+    expect(scope("trk_personal")).toMatchObject({ name: "Personal", source: { login: null } });
+    expect(scope("trk_renamed")).toMatchObject({ name: "dup", source: { kind: "github" } });
+    expect(scope("trk_orphan01")).toMatchObject({
+      name: "dup orphan01",
+      mode: "all",
+      projectIds: [],
+      hostIds: null,
+      sessionIds: [],
+      source: { kind: "github" },
+    });
+
+    const clients = Object.fromEntries(
+      (
+        db.prepare("SELECT id, scope_id, json FROM clients").all() as {
+          id: string;
+          scope_id: string | null;
+          json: string;
+        }[]
+      ).map((r) => [r.id, { column: r.scope_id, ...JSON.parse(r.json) }]),
+    );
+    expect(clients["herdr:work@mac"]).toMatchObject({
+      column: "trk_work",
+      scopeId: "trk_work",
+      mirror: "scope",
+      shows: ["ses_2"],
+    });
+    expect(clients["herdr:all@mac"]).toMatchObject({ scopeId: null, mirror: "all" });
+    expect(clients["herdr:none@mac"]).toMatchObject({ scopeId: null, mirror: "none" });
+    expect(clients["tmux:scratch@mac"]).toMatchObject({ scopeId: "viw_manual", mirror: "scope" });
+    expect(clients["tmux:old@mac"]).toMatchObject({ scopeId: "viw_manual", mirror: "scope" });
+    expect(clients["tmux:gone@mac"]).toMatchObject({ column: null, scopeId: null, mirror: "none" });
+    for (const c of Object.values(clients)) expect("viewId" in c).toBe(false);
+
+    const issues = db.prepare("SELECT id, scope_id, json FROM tracked_issues").all() as {
+      id: string;
+      scope_id: string;
+      json: string;
+    }[];
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ id: "trk_work:I_1", scope_id: "trk_work" });
+    expect(JSON.parse(issues[0]!.json)).toMatchObject({
+      scopeId: "trk_work",
+      trackerId: "trk_work",
+    });
+
+    expect(db.prepare("SELECT client_id FROM presence").all()).toEqual([
+      { client_id: "herdr:work@mac" },
+    ]);
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]
+    ).map((r) => r.name);
+    expect(tables).not.toContain("views");
+    expect(tables).not.toContain("trackers");
+    expect(tables).not.toContain("terminals");
+    // Every cursor is behind it: all clients take a snapshot, and old events are never replayed.
+    expect(db.prepare("SELECT value FROM settings WHERE key = 'minRetainedSeq'").get()).toEqual({
+      value: "4",
+    });
+    db.close();
+  });
+
   it("022 keys presence by device and terminal", () => {
     const db = dbAt(21);
     db.prepare(
       "INSERT INTO presence (device_id, foreground_until, interacted_at, viewing_session_id, updated_at) VALUES (?, ?, ?, ?, ?)",
     ).run("dev_1", null, null, null, "2026");
-    migrate(db);
+    upTo(db, 22);
     const put = db.prepare(
       "INSERT INTO presence (device_id, terminal_id, updated_at) VALUES (?, ?, ?)",
     );
@@ -59,7 +280,7 @@ describe("coordinator migrations", () => {
     const ev = db.prepare("INSERT INTO events (id, type, json, at) VALUES (?, ?, ?, ?)");
     ev.run("evt_1", "surface.updated", "{}", "2026");
     ev.run("evt_2", "surface.deleted", "{}", "2026");
-    migrate(db);
+    upTo(db, 21);
     const json = (id: string) =>
       JSON.parse(
         (db.prepare("SELECT json FROM terminals WHERE id = ?").get(id) as { json: string }).json,
@@ -106,7 +327,7 @@ describe("coordinator migrations", () => {
         external: { client: "herdr:default@mac" },
       }),
     );
-    migrate(db);
+    upTo(db, 20);
     const json = (table: "views" | "sessions", id: string) =>
       JSON.parse(
         (db.prepare(`SELECT json FROM ${table} WHERE id = ?`).get(id) as { json: string }).json,
@@ -132,13 +353,13 @@ describe("coordinator migrations", () => {
       JSON.stringify({ id: "viw_1", clients: [{ id: "herdr:a@m" }] }),
       "2026",
     );
-    migrate(db);
+    upTo(db, 17);
     const json = JSON.parse(
       (db.prepare("SELECT json FROM views WHERE id = 'viw_1'").get() as { json: string }).json,
     );
     expect(json.clients).toEqual([]);
     db.prepare(
-      "INSERT INTO terminals (id, device_id, view_id, last_seen_at, json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO surfaces (id, device_id, view_id, last_seen_at, json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
     ).run("herdr:a@m", "dev_1", null, "2026", "{}", "2026");
     db.close();
   });
@@ -191,7 +412,7 @@ describe("coordinator migrations", () => {
     const set = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
     set.run("trackerMoved:tsk_1:In progress", '"2026"');
     set.run("trackerBranchTried:tsk_1:12-x", '"2026"');
-    expect(migrate(db)).toBeGreaterThanOrEqual(15);
+    upTo(db, 15);
     const keys = (
       db.prepare("SELECT key FROM settings ORDER BY key").all() as { key: string }[]
     ).map((r) => r.key);
@@ -206,7 +427,7 @@ describe("coordinator migrations", () => {
 
   it("014 adds the trackers table to a version 13 database", () => {
     const db = dbAt(13);
-    expect(migrate(db)).toBeGreaterThanOrEqual(14);
+    upTo(db, 14);
     db.prepare("INSERT INTO trackers (id, name, json, created_at) VALUES (?, ?, ?, ?)").run(
       "trk_1",
       "fieldgoal",
@@ -263,11 +484,15 @@ describe("coordinator migrations", () => {
           JSON.stringify(version),
         );
       const originals = db.prepare("SELECT * FROM workspaces ORDER BY id").all();
-      const settings = db.prepare("SELECT * FROM settings ORDER BY key").all();
+      const settings = db
+        .prepare("SELECT * FROM settings WHERE key <> 'minRetainedSeq' ORDER BY key")
+        .all();
       const history = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
       expect(migrate(db)).toBe(LATEST_MIGRATION);
       expect(db.prepare("SELECT * FROM workspaces ORDER BY id").all()).toEqual(originals);
-      expect(db.prepare("SELECT * FROM settings ORDER BY key").all()).toEqual(settings);
+      expect(
+        db.prepare("SELECT * FROM settings WHERE key <> 'minRetainedSeq' ORDER BY key").all(),
+      ).toEqual(settings);
       expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual([]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version <= 12 ORDER BY version").all(),
@@ -297,7 +522,9 @@ describe("coordinator migrations", () => {
       const applied = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
       expect(migrate(db)).toBe(LATEST_MIGRATION);
       expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(applied);
-      expect(db.prepare("SELECT * FROM settings ORDER BY key").all()).toEqual(settings);
+      expect(
+        db.prepare("SELECT * FROM settings WHERE key <> 'minRetainedSeq' ORDER BY key").all(),
+      ).toEqual(settings);
       expect(db.prepare("SELECT * FROM github_merge_fences").all()).toEqual([]);
       db.close();
     },

@@ -1,19 +1,21 @@
 import type {
+  GitHubScope,
+  GitHubSource,
   Host,
   Project,
+  Scope,
   Session,
   TrackedIssue,
-  Tracker,
-  View,
   Workspace,
 } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
   type BoardInput,
+  boardMode,
   buildBoard,
   buildBoardWithEmpty,
   canDrop,
-  trackerBoardOf,
+  githubBoardOf,
 } from "../src/features/workboard/model";
 import { session } from "./fixtures";
 
@@ -56,7 +58,7 @@ const board = (status: string | null) => ({
 function issue(id: string, patch: Partial<TrackedIssue> = {}): TrackedIssue {
   return {
     id,
-    trackerId: "trk_1",
+    scopeId: "trk_1",
     itemId: id,
     projectId: "prj_1",
     repository: "acme/prj_1",
@@ -105,7 +107,7 @@ function input(patch: Partial<BoardInput> = {}): BoardInput {
   };
 }
 
-const view = (over: Partial<View> = {}): View =>
+const scope = (over: Partial<Scope> = {}): Scope =>
   ({
     id: "viw_1",
     name: "v",
@@ -113,20 +115,25 @@ const view = (over: Partial<View> = {}): View =>
     projectIds: null,
     hostIds: null,
     sessionIds: [],
-    clients: [],
+    source: null,
     createdAt: T0,
     updatedAt: T0,
     ...over,
-  }) as View;
+  }) as Scope;
 
-const tracker = (over: Partial<Tracker> = {}): Tracker =>
-  ({
+/** A GitHub scope with the id its issues carry. */
+const github = (over: Partial<GitHubSource> = {}): GitHubScope =>
+  scope({
     id: "trk_1",
     name: "personal",
-    board: { projectNumber: 4, statusField: "Status", onStart: null, onReview: null },
-    writeBack: true,
-    ...over,
-  }) as Tracker;
+    source: {
+      kind: "github",
+      owner: "acme",
+      board: { projectNumber: 4, statusField: "Status", onStart: null, onReview: null },
+      writeBack: true,
+      ...over,
+    } as GitHubSource,
+  }) as GitHubScope;
 
 const keys = (cols: ReturnType<typeof buildBoard>) =>
   Object.fromEntries(cols.map((c) => [c.id, c.cards.map((x) => x.key)]));
@@ -134,7 +141,7 @@ const keys = (cols: ReturnType<typeof buildBoard>) =>
 describe("work board", () => {
   it("leaves out worktrees with no session, issue or pull request when asked", () => {
     const data = input({ workspaces: { ...input().workspaces, w9: ws("w9") } });
-    const opts = { view: null, query: "", mode: "stage" as const, tracker: null };
+    const opts = { scope: null, query: "", mode: "stage" as const, github: null };
     const shown = buildBoardWithEmpty(data, opts);
     expect(shown.empty).toBe(1);
     expect(shown.columns.flatMap((c) => c.cards).some((c) => c.key.endsWith("feat/w9"))).toBe(true);
@@ -147,7 +154,7 @@ describe("work board", () => {
   });
 
   it("puts branches and issues in stage columns from facts", () => {
-    const cols = buildBoard(input(), { view: null, query: "", mode: "stage", tracker: null });
+    const cols = buildBoard(input(), { scope: null, query: "", mode: "stage", github: null });
     expect(cols.map((c) => c.label)).toEqual(["Not started", "Working", "In review", "Merged"]);
     expect(keys(cols)).toEqual({
       not_started: ["i:i0"],
@@ -165,33 +172,33 @@ describe("work board", () => {
       input({
         sessions: { m: session("m", { workspaceId: "wm" }) } as Record<string, Session>,
       }),
-      { view: null, query: "", mode: "stage", tracker: null },
+      { scope: null, query: "", mode: "stage", github: null },
     );
     const main = cols[1]!.cards.find((c) => c.key === "b:prj_1:main")!;
     expect(main.branchLabel).toBeNull();
     const without = buildBoard(input({ sessions: {} }), {
-      view: null,
+      scope: null,
       query: "",
       mode: "stage",
-      tracker: null,
+      github: null,
     });
     expect(without[1]!.cards.some((c) => c.key === "b:prj_1:main")).toBe(false);
   });
 
-  it("filters branches and issues by the view and the search", () => {
+  it("filters branches and issues by the scope and the search", () => {
     const other = buildBoard(input(), {
-      view: view({ projectIds: ["prj_2"] }),
+      scope: scope({ projectIds: ["prj_2"] }),
       query: "",
       mode: "stage",
-      tracker: null,
+      github: null,
     });
     expect(other.every((c) => c.cards.length === 0)).toBe(true);
-    const found = buildBoard(input(), { view: null, query: "#7", mode: "stage", tracker: null });
+    const found = buildBoard(input(), { scope: null, query: "#7", mode: "stage", github: null });
     expect(found[0]!.cards).toHaveLength(1);
   });
 
-  it("a tracker's view shows its issues, their branches and live sessions only", () => {
-    const tv = view({ trackerId: "trk_1", projectIds: ["prj_1"] });
+  it("a GitHub scope shows its issues, their branches and live sessions only", () => {
+    const tv = { ...github(), projectIds: ["prj_1"] };
     const data = input({
       sessions: {
         a: session("a", { workspaceId: "w1", runtime: "running" }),
@@ -200,10 +207,10 @@ describe("work board", () => {
       issues: {
         i0: issue("i0"),
         i2: issue("i2", { workspaceId: "w2" }),
-        x: issue("x", { trackerId: "trk_2" }),
+        x: issue("x", { scopeId: "trk_2" }),
       },
     });
-    const cols = buildBoard(data, { view: tv, query: "", mode: "stage", tracker: null });
+    const cols = buildBoard(data, { scope: tv, query: "", mode: "stage", github: null });
     expect(keys(cols)).toEqual({
       not_started: ["i:i0"],
       working: expect.arrayContaining(["b:prj_1:feat/w1", "b:prj_1:feat/w2"]),
@@ -216,16 +223,16 @@ describe("work board", () => {
     expect(card("b:prj_1:feat/w2").leaves).toBe(false);
   });
 
-  it("uses the tracker board's columns, with No status and Not on the board", () => {
+  it("uses the GitHub board's columns, with No status and Not on the board", () => {
     const issues = {
       i0: issue("i0", { board: board("Todo") }),
       i2: issue("i2", { workspaceId: "w2", board: board(null) }),
     };
     const cols = buildBoard(input({ issues }), {
-      view: null,
+      scope: null,
       query: "",
-      mode: "tracker",
-      tracker: tracker(),
+      mode: "github",
+      github: github(),
     });
     expect(cols.map((c) => c.label)).toEqual(["Todo", "Doing", "No status", "Not on the board"]);
     expect(keys(cols)).toEqual({
@@ -248,23 +255,23 @@ describe("work board", () => {
       r0: ranked("r0", 3, 0),
     };
     const cols = buildBoard(input({ issues, workspaces: {}, sessions: {} }), {
-      view: null,
+      scope: null,
       query: "",
       mode: "stage",
-      tracker: null,
+      github: null,
     });
     expect(cols[0]!.cards.map((c) => c.key)).toEqual(["i:r0", "i:r2", "i:none"]);
     const found = buildBoard(input({ issues, workspaces: {}, sessions: {} }), {
-      view: null,
+      scope: null,
       query: "p0",
       mode: "stage",
-      tracker: null,
+      github: null,
     });
     expect(found[0]!.cards.map((c) => c.key)).toEqual(["i:r0"]);
   });
 
-  it("hides an empty backlog column on the tracker board", () => {
-    const withBacklog = tracker({
+  it("hides an empty backlog column on the GitHub board", () => {
+    const withBacklog = github({
       board: {
         projectNumber: 4,
         statusField: "Status",
@@ -275,10 +282,10 @@ describe("work board", () => {
     });
     const run = (issues: Record<string, TrackedIssue>) =>
       buildBoard(input({ issues }), {
-        view: null,
+        scope: null,
         query: "",
-        mode: "tracker",
-        tracker: withBacklog,
+        mode: "github",
+        github: withBacklog,
       });
     const none = run({ i0: issue("i0", { board: board("Doing") }) });
     expect(none.map((c) => c.label)).toEqual(["Doing", "No status", "Not on the board"]);
@@ -286,20 +293,24 @@ describe("work board", () => {
     expect(some.map((c) => c.label)).toContain("Todo");
   });
 
-  it("offers the tracker board only for a tracker's view with a board", () => {
+  it("offers the GitHub board only for a GitHub scope with a board", () => {
     const issues = [issue("i0", { board: board("Todo") })];
-    expect(trackerBoardOf(view({ trackerId: "trk_1" }), [tracker()], issues)?.options).toHaveLength(
-      2,
-    );
-    expect(trackerBoardOf(view(), [tracker()], issues)).toBeNull();
-    expect(
-      trackerBoardOf(view({ trackerId: "trk_1" }), [tracker({ board: null })], issues),
-    ).toBeNull();
-    expect(trackerBoardOf(view({ trackerId: "trk_1" }), [tracker()], [issue("i0")])).toBeNull();
+    expect(githubBoardOf(github(), issues)?.options).toHaveLength(2);
+    expect(githubBoardOf(github(), issues)?.scope.id).toBe("trk_1");
+    expect(githubBoardOf(scope(), issues)).toBeNull();
+    expect(githubBoardOf(github({ board: null }), issues)).toBeNull();
+    expect(githubBoardOf(github(), [issue("i0")])).toBeNull();
+  });
+
+  it("a stored tracker board mode reads as github", () => {
+    expect(boardMode("tracker")).toBe("github");
+    expect(boardMode("github")).toBe("github");
+    expect(boardMode("stage")).toBe("stage");
+    expect(boardMode(undefined)).toBe("stage");
   });
 
   it("allows only the drops that mean something", () => {
-    const stage = buildBoard(input(), { view: null, query: "", mode: "stage", tracker: null });
+    const stage = buildBoard(input(), { scope: null, query: "", mode: "stage", github: null });
     const [notStarted, working, review] = stage;
     const issueCard = notStarted!.cards[0]!;
     const branchCard = working!.cards[0]!;
@@ -311,23 +322,23 @@ describe("work board", () => {
     });
     const issues = { i0: issue("i0", { board: board("Todo") }) };
     const cols = buildBoard(input({ issues }), {
-      view: null,
+      scope: null,
       query: "",
-      mode: "tracker",
-      tracker: tracker(),
+      mode: "github",
+      github: github(),
     });
     const card = cols[0]!.cards[0]!;
-    expect(canDrop(card, cols[1]!, "tracker", tracker())).toEqual({ ok: true });
-    expect(canDrop(card, cols[1]!, "tracker", tracker({ writeBack: false }))).toEqual({
+    expect(canDrop(card, cols[1]!, "github", github())).toEqual({ ok: true });
+    expect(canDrop(card, cols[1]!, "github", github({ writeBack: false }))).toEqual({
       ok: false,
-      reason: "Write-back is off for this tracker",
+      reason: "Write-back is off for this scope",
     });
-    expect(canDrop(card, cols[2]!, "tracker", tracker())).toEqual({
+    expect(canDrop(card, cols[2]!, "github", github())).toEqual({
       ok: false,
       reason: "Pick a board column",
     });
     const offCard = cols[3]!.cards[0]!;
-    expect(canDrop(offCard, cols[1]!, "tracker", tracker())).toEqual({
+    expect(canDrop(offCard, cols[1]!, "github", github())).toEqual({
       ok: false,
       reason: "This branch has no issue on the board",
     });

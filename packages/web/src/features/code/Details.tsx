@@ -16,14 +16,14 @@ import {
   useSyncStore,
   useTranscript,
 } from "../../sync/store";
+import { runsIn } from "../scopes/where";
 import { protectionLabel } from "../settings/policyLogic";
-import { runsIn } from "../views/where";
 import { AdapterDiagnostics } from "./AdapterDiagnostics";
 import { AdapterPanel } from "./AdapterPanel";
 import { ControlChip } from "./ConversationHeader";
 import { useCodeContext } from "./context";
 import type { SessionContext } from "./hooks";
-import { contextMeter, modelLabel, viewNote, workspaceLabel } from "./model";
+import { contextMeter, modelLabel, scopeNote, workspaceLabel } from "./model";
 import { GitHubStatus } from "./PullRequest";
 import { useSessionPlace } from "./place";
 import type { SessionActions } from "./SessionActions";
@@ -345,7 +345,7 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
   const { session, workspace, host } = ctx;
   const meter = contextMeter(session);
   const place = useSessionPlace(session);
-  const note = viewNote(place, session);
+  const note = scopeNote(place, session);
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
       <dt className="text-muted">Project</dt>
@@ -378,7 +378,7 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
       )}
       {note && (
         <>
-          <dt className="text-muted">View</dt>
+          <dt className="text-muted">Scope</dt>
           <dd className="min-w-0 break-words">
             {note.label}. {note.title}
           </dd>

@@ -21,6 +21,7 @@ import { sql as unreadNeedsOutput } from "./migrations/019_unread_needs_output.j
 import { sql as dropViewSources } from "./migrations/020_drop_view_sources.js";
 import { sql as terminals } from "./migrations/021_terminals.js";
 import { sql as terminalPresence } from "./migrations/022_terminal_presence.js";
+import { sql as scopesClients } from "./migrations/023_scopes_clients.js";
 
 export interface Migration {
   version: number;
@@ -52,6 +53,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 20, name: "020_drop_view_sources", sql: dropViewSources },
   { version: 21, name: "021_terminals", sql: terminals },
   { version: 22, name: "022_terminal_presence", sql: terminalPresence },
+  { version: 23, name: "023_scopes_clients", sql: scopesClients },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

@@ -44,7 +44,7 @@ import {
   newSessionDefaults,
   newSessionProject,
   normalizeLayout,
-  orderProjectsForView,
+  orderProjectsForScope,
   outputPreview,
   parseClientCommand,
   parseDataUrl,
@@ -52,6 +52,7 @@ import {
   pillModelLabel,
   projectIdOfGroup,
   STATUS_BUCKETS,
+  scopeNote,
   sendModes,
   sessionPlace,
   sessionStatus,
@@ -59,7 +60,6 @@ import {
   statusBucket,
   TERMINAL_COMMANDS,
   uniqueBranch,
-  viewNote,
   worktreePath,
 } from "../src/features/code/model";
 import type { StreamBuffer } from "../src/sync/store";
@@ -201,19 +201,19 @@ describe("navigator tree", () => {
     expect(tree.groups[1]!.rows[0]).toMatchObject({ branch: "x" });
   });
 
-  it("with a view keeps only the view's sessions", () => {
-    const view = {
+  it("with a scope keeps only the scope's sessions", () => {
+    const scope = {
       id: "viw_1",
       name: "v",
       mode: "pinned",
       projectIds: null,
       hostIds: null,
       sessionIds: ["a"],
-      clients: [],
+      source: null,
       createdAt: "",
       updatedAt: "",
     } as const;
-    const tree = buildNavTree(input, { filter: "all", query: "", view: view as never });
+    const tree = buildNavTree(input, { filter: "all", query: "", scope: scope as never });
     expect(ids(tree)).toEqual(["a"]);
   });
 
@@ -228,7 +228,7 @@ describe("navigator tree", () => {
     const here = buildNavTree(where, {
       filter: "all",
       query: "",
-      where: { kind: "terminal", id: "herdr:x@m" },
+      where: { kind: "client", id: "herdr:x@m" },
     });
     expect(ids(here)).toEqual(["a"]);
     const elsewhere = buildNavTree(where, {
@@ -497,7 +497,7 @@ describe("navigator tree", () => {
     issues: {
       i1: {
         id: "i1",
-        trackerId: "trk_1",
+        scopeId: "trk_1",
         projectId: "prj_1",
         workspaceId: "w2",
         branch: null,
@@ -508,36 +508,35 @@ describe("navigator tree", () => {
       } as unknown as TrackedIssue,
     },
   };
-  const trackerView = {
-    id: "viw_t",
+  const githubScope = {
+    id: "trk_1",
     name: "personal",
     mode: "all",
     projectIds: ["prj_1"],
     hostIds: null,
     sessionIds: [],
-    clients: [],
-    trackerId: "trk_1",
+    source: { kind: "github", owner: "acme" },
     createdAt: "",
     updatedAt: "",
   } as never;
   const rowOf = (tree: NavTree, id: string) => tree.rows.find((r) => r.session.id === id)!;
 
-  it("a tracker's view keeps issue branches and live sessions", () => {
+  it("a GitHub scope keeps issue branches and live sessions", () => {
     const tree = buildNavTree(tracked, {
       filter: "all",
       query: "",
       layout: "recent",
-      view: trackerView,
+      scope: githubScope,
     });
     expect(ids(tree).sort()).toEqual(["a", "c"]);
   });
 
-  it("rows carry their issue, and a tracker's view marks sessions it holds only while live", () => {
+  it("rows carry their issue, and a GitHub scope marks sessions it holds only while live", () => {
     const tree = buildNavTree(tracked, {
       filter: "all",
       query: "",
       layout: "recent",
-      view: trackerView,
+      scope: githubScope,
     });
     expect(rowOf(tree, "c")).toMatchObject({ issue: { number: 12 }, leaves: false });
     expect(rowOf(tree, "a")).toMatchObject({ issue: null, leaves: true });
@@ -550,16 +549,16 @@ describe("navigator tree", () => {
     expect(ids(tree)).toEqual(["c"]);
   });
 
-  it("the open session keeps its row outside the view and outside the filter", () => {
+  it("the open session keeps its row outside the scope and outside the filter", () => {
     const tree = buildNavTree(tracked, {
       filter: "all",
       query: "",
       layout: "recent",
-      view: trackerView,
+      scope: githubScope,
       keepId: "f",
     });
     expect(ids(tree).sort()).toEqual(["a", "c", "f"]);
-    expect(rowOf(tree, "f").outside).toBe("view");
+    expect(rowOf(tree, "f").outside).toBe("scope");
     const active = buildNavTree(input, {
       filter: "active",
       query: "",
@@ -597,8 +596,8 @@ describe("navigator tree", () => {
   });
 
   it("a tree holding only the open session counts as empty and exposes its row", () => {
-    const pinned = { ...(trackerView as object), trackerId: null, mode: "pinned" } as never;
-    const tree = buildNavTree(input, { filter: "all", query: "", view: pinned, keepId: "a" });
+    const pinned = { ...(githubScope as object), source: null, mode: "pinned" } as never;
+    const tree = buildNavTree(input, { filter: "all", query: "", scope: pinned, keepId: "a" });
     expect(navTreeIsEmpty(tree)).toBe(true);
     expect(navOutsideRow(tree)?.session.id).toBe("a");
   });
@@ -644,7 +643,7 @@ describe("navigator tree", () => {
     ]);
     expect(one.where).toEqual({ kind: "host", id: "hst_1" });
     expect(one.groups[0]!.where).toEqual({
-      kind: "terminal",
+      kind: "client",
       id: "herdr:default@mac-pro",
       hostId: "hst_1",
     });
@@ -701,7 +700,7 @@ describe("navigator tree", () => {
 });
 
 describe("composer", () => {
-  it("treats subagent sessions as view-only views refreshed on open", () => {
+  it("treats subagent sessions as scope-only scopes refreshed on open", () => {
     expect(isSubagentView(session("s", { provenance: "subagent", readOnly: true }))).toBe(true);
     expect(isSubagentView(session("s"))).toBe(false);
   });
@@ -1155,20 +1154,20 @@ describe("session status bar", () => {
 });
 
 describe("new session helpers", () => {
-  it("lists the view's projects first", () => {
+  it("lists the scope's projects first", () => {
     const ps = [{ id: "a" }, { id: "b" }, { id: "c" }];
-    expect(orderProjectsForView(ps, ["c", "a"]).map((p) => p.id)).toEqual(["a", "c", "b"]);
-    expect(orderProjectsForView(ps, null)).toBe(ps);
+    expect(orderProjectsForScope(ps, ["c", "a"]).map((p) => p.id)).toEqual(["a", "c", "b"]);
+    expect(orderProjectsForScope(ps, null)).toBe(ps);
   });
 
-  it("defaults to the last project only when the view covers it", () => {
+  it("defaults to the last project only when the scope covers it", () => {
     const ordered = [{ id: "a" }, { id: "b" }, { id: "c" }];
     const base = { initial: null, last: "b", selected: null, ordered };
-    expect(newSessionProject({ ...base, viewProjectIds: null })).toBe("b");
-    expect(newSessionProject({ ...base, viewProjectIds: ["a"] })).toBe("a");
-    expect(newSessionProject({ ...base, selected: "c", viewProjectIds: ["a", "c"] })).toBe("c");
-    expect(newSessionProject({ ...base, initial: "c", viewProjectIds: ["a"] })).toBe("c");
-    expect(newSessionProject({ ...base, last: "zz", ordered: [], viewProjectIds: null })).toBe("");
+    expect(newSessionProject({ ...base, scopeProjectIds: null })).toBe("b");
+    expect(newSessionProject({ ...base, scopeProjectIds: ["a"] })).toBe("a");
+    expect(newSessionProject({ ...base, selected: "c", scopeProjectIds: ["a", "c"] })).toBe("c");
+    expect(newSessionProject({ ...base, initial: "c", scopeProjectIds: ["a"] })).toBe("c");
+    expect(newSessionProject({ ...base, last: "zz", ordered: [], scopeProjectIds: null })).toBe("");
   });
 
   it("suggests a kebab-case branch from the prompt", () => {
@@ -1239,7 +1238,7 @@ describe("session place", () => {
   const issues = [
     {
       id: "i1",
-      trackerId: "trk_1",
+      scopeId: "trk_1",
       projectId: "prj_1",
       workspaceId: "w1",
       branch: null,
@@ -1250,21 +1249,20 @@ describe("session place", () => {
     } as unknown as TrackedIssue,
   ];
   const tv = {
-    id: "viw_t",
+    id: "trk_1",
     name: "personal",
     mode: "all",
     projectIds: ["prj_1"],
     hostIds: null,
     sessionIds: [],
-    clients: [],
-    trackerId: "trk_1",
+    source: { kind: "github", owner: "acme" },
     createdAt: "",
     updatedAt: "",
   } as never;
-  const place = (s: Session, sessions: Record<string, Session> = { [s.id]: s }, view = tv) =>
-    sessionPlace({ session: s, sessions, workspaces: w, issues, view });
+  const place = (s: Session, sessions: Record<string, Session> = { [s.id]: s }, scope = tv) =>
+    sessionPlace({ session: s, sessions, workspaces: w, issues, scope });
 
-  it("names the issue and why the session is in the view", () => {
+  it("names the issue and why the session is in the scope", () => {
     expect(place(session("a", { workspaceId: "w1", runtime: "stopped" }))).toMatchObject({
       issue: { number: 7 },
       reason: "issue",
@@ -1279,35 +1277,35 @@ describe("session place", () => {
     expect(place(sub, { p: parent, s: sub }).reason).toBe("issue");
   });
 
-  it("viewNote explains outside and live-only, and is silent otherwise", () => {
+  it("scopeNote explains outside and live-only, and is silent otherwise", () => {
     const out = session("c", { workspaceId: "w2", runtime: "stopped" });
-    expect(viewNote(place(out), out)).toEqual({
+    expect(scopeNote(place(out), out)).toEqual({
       label: "Not in personal",
       title:
-        "Outside the selected view. Pin it to personal from the session menu to keep it there.",
+        "Outside the selected scope. Pin it to personal from the session menu to keep it there.",
     });
     const live = session("b", { workspaceId: "w2" });
-    expect(viewNote(place(live), live)).toEqual({
+    expect(scopeNote(place(live), live)).toEqual({
       label: "No issue",
       title: "In personal only while it is live. Pin it or link an issue to keep it.",
     });
     const linked = session("a", { workspaceId: "w1" });
-    expect(viewNote(place(linked), linked)).toBeNull();
+    expect(scopeNote(place(linked), linked)).toBeNull();
     const archived = session("x", { archivedAt: "2026-01-01T00:00:00Z" });
-    expect(viewNote(place(archived), archived)).toBeNull();
-    expect(viewNote(place(out, { c: out }, null as never), out)).toBeNull();
+    expect(scopeNote(place(archived), archived)).toBeNull();
+    expect(scopeNote(place(out, { c: out }, null as never), out)).toBeNull();
   });
 });
 
-describe("session menu view pins", () => {
-  it("lists a checkable pin item per view and toggles through setPinned", async () => {
+describe("session menu scope pins", () => {
+  it("lists a checkable pin item per scope and toggles through setPinned", async () => {
     const { sessionMenuItems } = await import("../src/features/code/ConversationHeader");
     const calls: [string, boolean][] = [];
     const ctx = { session: { id: "ses_1", readOnly: false, archivedAt: null } } as never;
     const actions = { setPinned: (v: string, p: boolean) => calls.push([v, p]) } as never;
-    const view = (id: string, sessionIds: string[]) => ({ id, name: id, sessionIds }) as never;
-    const items = sessionMenuItems(ctx, actions, [view("a", ["ses_1"]), view("b", [])]);
-    const pins = items.filter((i) => i.id.startsWith("view-"));
+    const scope = (id: string, sessionIds: string[]) => ({ id, name: id, sessionIds }) as never;
+    const items = sessionMenuItems(ctx, actions, [scope("a", ["ses_1"]), scope("b", [])]);
+    const pins = items.filter((i) => i.id.startsWith("scope-"));
     expect(pins.map((i) => [i.label, i.checked])).toEqual([
       ["Pin to a", true],
       ["Pin to b", false],

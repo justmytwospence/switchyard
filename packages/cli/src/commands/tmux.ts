@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Session } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags, localHostId } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
-import { pickerBinding, syncTerminal, terminalId } from "../mirror/binding.js";
+import { clientId, pickerBinding, syncClient } from "../mirror/binding.js";
 import { startFocusPresence } from "../mirror/focus.js";
 import { loadMirrorState, mirrorStateOf, paneSession } from "../mirror/state.js";
 import { tmuxControl, tmuxRun, tmuxSessionName, tmuxTarget } from "../tmux/client.js";
@@ -47,7 +47,7 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   }
   const launcherPath = stableTmuxLauncherPath(env);
   const name0 = await tmuxSessionName(env);
-  // Target the session by id so renaming it rebinds the view instead of losing the session.
+  // Target the session by id so renaming it keeps its binding instead of losing the session.
   let session = name0;
   try {
     const id = (
@@ -63,8 +63,8 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   const pidFile = join(dir, "daemon.pid");
   const logFile = join(dir, "daemon.log");
   const machine = hostname();
-  // The terminal keeps the name the session had when the daemon started.
-  const id = terminalId("tmux", name0, machine);
+  // The client keeps the name the session had when the daemon started.
+  const id = clientId("tmux", name0, machine);
 
   if (flags.once) {
     const { client, state } = await loadMirrorState(ctx, flags);
@@ -76,7 +76,7 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
         session,
         state,
         onStateChange: () => () => {},
-        view: () => pickerBinding(state(), env, id),
+        scope: () => pickerBinding(state(), env, id),
         sessionName,
         stateDir: dir,
         launcherPath,
@@ -130,7 +130,7 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   let currentName = name0;
   const trackedName = async () => (currentName = await sessionName());
   let shows: string[] | undefined;
-  const terminal = syncTerminal({
+  const sync = syncClient({
     api: client.api,
     info: {
       id,
@@ -144,7 +144,6 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
     env,
     shows: () => shows,
     wasMirroring: ownsWindows(dir),
-    legacyName: () => currentName,
     log,
   });
   const daemon = new TmuxDaemon({
@@ -154,11 +153,11 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
     session,
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
-    view: () => terminal.binding(),
-    terminalId: id,
+    scope: () => sync.binding(),
+    clientId: id,
     onShows: (ids) => {
       shows = ids;
-      terminal.report();
+      sync.report();
     },
     sessionName: trackedName,
     stateDir: dir,
@@ -167,7 +166,7 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   });
   await daemon.start();
   const focus = startFocusPresence({
-    terminalId: id,
+    clientId: id,
     send: (presence) => client.send({ type: "presence", presence }),
     // Polled: a window or pane switch shows within one check (5 s).
     pollMs: 5_000,
@@ -188,14 +187,14 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   });
   const leave = () => {
     focus.stop();
-    void terminal.stop().finally(() => process.exit(0));
+    void sync.stop().finally(() => process.exit(0));
   };
   process.once("SIGTERM", leave);
   process.once("SIGINT", leave);
   await new Promise(() => {});
 }
 
-/** Whether the mirror in this state directory created windows (it was mirroring a view). */
+/** Whether the mirror in this state directory created windows (it was mirroring a scope). */
 export function ownsWindows(dir: string): boolean {
   try {
     const raw = JSON.parse(readFileSync(join(dir, "windows.json"), "utf8"));

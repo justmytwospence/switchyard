@@ -735,32 +735,33 @@ test.describe("desktop coding view", () => {
   });
 
   test("the view chip explains the selected view", async ({ page, api, state }, info) => {
-    const v = await api("POST", "/api/views", { name: `pins-${uid(info)}`, mode: "pinned" });
+    const v = await api("POST", "/api/scopes", { name: `pins-${uid(info)}`, mode: "pinned" });
     await page.goto(`/code/${state.sessions.long}`);
     await expect(page.getByTestId("conversation")).toBeVisible();
     const nav = page.getByTestId("navigator");
-    await nav.getByLabel("View", { exact: true }).selectOption(v.id);
-    await expect(nav.getByLabel("View", { exact: true })).toHaveAttribute(
+    await nav.getByLabel("Scope", { exact: true }).selectOption(v.id);
+    await expect(nav.getByLabel("Scope", { exact: true })).toHaveAttribute(
       "title",
       "Only sessions you pin",
     );
     await expect(nav.getByText(/^No (active )?sessions in pins-/)).toBeVisible();
     await expect(nav.getByTestId("row-outside")).toContainText("Not in pins-");
-    await expect(page.getByTestId("view-note")).toContainText("Not in pins-");
-    await expect(nav.getByText("This view holds only sessions you pin.")).toBeVisible();
+    await expect(page.getByTestId("scope-note")).toContainText("Not in pins-");
+    await expect(nav.getByText("This scope holds only sessions you pin.")).toBeVisible();
     // The empty state comes first, then the open session it keeps.
-    const emptyY = (await nav.getByText("This view holds only sessions you pin.").boundingBox())!.y;
+    const emptyY = (await nav.getByText("This scope holds only sessions you pin.").boundingBox())!
+      .y;
     const keptY = (await nav.getByRole("list", { name: "Open session" }).boundingBox())!.y;
     expect(keptY).toBeGreaterThan(emptyY);
 
-    await nav.getByRole("button", { name: "Edit view", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Edit view" });
-    const about = dialog.getByTestId("view-about");
+    await nav.getByRole("button", { name: "Edit scope", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Edit scope" });
+    const about = dialog.getByTestId("scope-about");
     await expect(about).toContainText("Contains");
     await expect(about).toContainText("Mirrored in");
-    await expect(about).toContainText("No terminal.");
+    await expect(about).toContainText("No client.");
     await expect(dialog.getByLabel("Sessions", { exact: true })).toHaveValue("pinned");
     await dialog.getByRole("button", { name: "Cancel" }).click();
-    await api("DELETE", `/api/views/${v.id}`);
+    await api("DELETE", `/api/scopes/${v.id}`);
   });
 });

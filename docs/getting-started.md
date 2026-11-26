@@ -25,7 +25,7 @@ Later, to run agents on more machines, run the coordinator as a server and enrol
 2. On Sessions, choose **New session**, pick the project and a branch, and write what you want done. A new branch gets its own git worktree inside the repository (`<repo>/.worktrees/<branch>`).
 3. Watch it work. When Pi or a plugin asks a question, it shows as a card; answer it there.
 
-Sessions, branches, views and the Board are explained in [the model](model.md). To bring in the GitHub issues assigned to you, add a [tracker](trackers.md).
+Sessions, branches, scopes and the Board are explained in [the model](model.md). To bring in the GitHub issues assigned to you, add a [GitHub scope](scopes.md).
 
 ## 4. Your phone
 
@@ -38,14 +38,14 @@ Then sign the phone in: open a fresh `switchyard pair` link on it, or use single
 
 ## 5. Your terminal and herdr
 
-A session Switchyard starts runs Pi's own TUI in a holder on its host (a TUI session). Sign a terminal in once, then open any of them in it:
+A session Switchyard starts runs Pi's own TUI in a holder on its host (a terminal session). Sign a terminal in once, then open any of them in it:
 
 ```sh
 switchyard login --coordinator http://localhost:7400
 switchyard tui <session id>       # Ctrl+] detaches; the session keeps running
 ```
 
-With the herdr plugin linked (`herdr plugin link <repo>/modules/herdr`), every herdr session is a Switchyard **terminal**: Pi you start in it by hand shows up in Switchyard, and the session mirrors nothing until you choose. Bind it to everything or to one view with `switchyard terminals bind herdr:<session> --all` (or `--view <name>`), or in Settings › Terminals, and it shows a space per workspace and a tab per active branch, in sync with the web app. tmux works the same way. See [TUI sessions and terminals](terminal-sessions.md) and the [herdr](../modules/herdr/README.md) and [tmux](../modules/tmux/README.md) integrations.
+With the herdr plugin linked (`herdr plugin link <repo>/modules/herdr`), every herdr session is a Switchyard **client**: Pi you start in it by hand shows up in Switchyard, and the session mirrors nothing until you choose. Bind it to everything or to one scope with `switchyard clients bind herdr:<session> --all` (or `--scope <name>`), or in Settings › Clients, and it shows a space per workspace and a tab per active branch, in sync with the web app. tmux works the same way. See [clients](clients.md), [terminal sessions](terminal-sessions.md) and the [herdr](../modules/herdr/README.md) and [tmux](../modules/tmux/README.md) client modules.
 
 ## Next
 

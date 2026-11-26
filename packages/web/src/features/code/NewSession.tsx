@@ -1,12 +1,12 @@
 import {
   compareIssues,
+  issueBranchSet,
+  issueBranchSetHas,
   issueLookup,
   issueUnstarted,
   primarySession,
+  type Scope,
   type Session,
-  scopeHasWorkspace,
-  trackerScope,
-  type View,
 } from "@switchyard/protocol";
 import { ChevronDown, ChevronRight, GitBranch, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useMemo, useState } from "react";
@@ -21,7 +21,7 @@ import { loadDraft, setDraftNow } from "../../drafts";
 import { usePrefs } from "../../prefs";
 import { errorMessage } from "../../sync/api";
 import { useProjects, useSyncStore } from "../../sync/store";
-import { effectiveWhere, useSelectedWhere, whereLabel } from "../views/where";
+import { effectiveWhere, useSelectedWhere, whereLabel } from "../scopes/where";
 import { openIssue } from "../workboard/api";
 import { codeApi } from "./api";
 import {
@@ -31,14 +31,14 @@ import {
   hostOnline,
   newSessionDefaults,
   newSessionProject,
-  orderProjectsForView,
+  orderProjectsForScope,
   uniqueBranch,
   workspaceLabel,
   worktreePath,
 } from "./model";
 import { CHIP_SELECT, ProjectPicker } from "./ProjectPicker";
+import { useSelectedScope } from "./scopes";
 import { rememberInitialPrompt } from "./startingPrompts";
-import { useSelectedView } from "./views";
 
 const NEW = "__new";
 /** Workspace option prefix: start this issue (its branch, worktree and session). */
@@ -47,15 +47,15 @@ const ISSUE = "issue:";
 function useNewSessionForm(
   open: boolean,
   initialProjectId: string | null,
-  view: View | null,
+  scope: Scope | null,
   /** The host to start on when the project has a checkout there and it is online (a host Where). */
   preferHostId: string | null = null,
 ) {
   const allProjects = useProjects();
-  const viewProjectIds = view && view.mode === "all" ? view.projectIds : null;
+  const scopeProjectIds = scope && scope.mode === "all" ? scope.projectIds : null;
   const projects = useMemo(
-    () => orderProjectsForView(allProjects, viewProjectIds),
-    [allProjects, viewProjectIds],
+    () => orderProjectsForScope(allProjects, scopeProjectIds),
+    [allProjects, scopeProjectIds],
   );
   const issues = useSyncStore((s) => s.issues);
   const workspaces = useSyncStore((s) => s.workspaces);
@@ -93,7 +93,7 @@ function useNewSessionForm(
         last: lastProject,
         selected: selectedProject,
         ordered: projects,
-        viewProjectIds,
+        scopeProjectIds,
       }),
     );
   }, [open, initialProjectId]);
@@ -300,14 +300,14 @@ export function NewSessionFlow({
   projectId?: string | null;
 }) {
   const id = useId();
-  const [selectedView] = useSelectedView();
-  const knownViews = useSyncStore((st) => st.views);
+  const [selectedScope] = useSelectedScope();
+  const knownScopes = useSyncStore((st) => st.scopes);
   const issues = useSyncStore((st) => st.issues);
-  const view = (selectedView ? knownViews[selectedView] : null) ?? null;
+  const scope = (selectedScope ? knownScopes[selectedScope] : null) ?? null;
   const hostsById = useSyncStore((st) => st.hosts);
   const [storedWhere] = useSelectedWhere();
   const where = effectiveWhere(storedWhere, hostsById);
-  const f = useNewSessionForm(open, projectId, view, where?.kind === "host" ? where.id : null);
+  const f = useNewSessionForm(open, projectId, scope, where?.kind === "host" ? where.id : null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -319,19 +319,22 @@ export function NewSessionFlow({
   }, [open]);
 
   const reuse = !!f.occupant && !f.another;
-  const scope = useMemo(
-    () => (view ? trackerScope(view, Object.values(issues)) : null),
-    [view, issues],
+  const issueSet = useMemo(
+    () => (scope ? issueBranchSet(scope, Object.values(issues)) : null),
+    [scope, issues],
   );
   const linked =
     f.mode === "issue" ||
-    (f.mode === "existing" && !!f.workspace && !!scope && scopeHasWorkspace(scope, f.workspace));
+    (f.mode === "existing" &&
+      !!f.workspace &&
+      !!issueSet &&
+      issueBranchSetHas(issueSet, f.workspace));
   const leaves =
     !!scope &&
-    !!view &&
+    !!issueSet &&
     !reuse &&
     !linked &&
-    (view.projectIds === null || view.projectIds.includes(f.projectId));
+    (scope.projectIds === null || scope.projectIds.includes(f.projectId));
   const create = async () => {
     if (f.problem || submitting) return;
     if (reuse && f.occupant) {
@@ -634,16 +637,16 @@ export function NewSessionFlow({
             </div>
           )}
         </div>
-        {where && f.hostId && (where.kind === "terminal" || where.id !== f.hostId) && (
+        {where && f.hostId && (where.kind === "client" || where.id !== f.hostId) && (
           <p data-testid="new-session-where" className="text-xs text-muted">
-            {where.kind === "terminal"
+            {where.kind === "client"
               ? `Switchyard holds this session, not ${whereLabel(where, hostsById)}: it is not listed while Where is set there.`
               : `It runs on ${hostsById[f.hostId]?.name ?? "another host"}, not ${whereLabel(where, hostsById)}: it is not listed while Where is set there.`}
           </p>
         )}
-        {leaves && view && (
+        {leaves && scope && (
           <p data-testid="new-session-leaves" className="text-xs text-muted">
-            This session has no issue: it leaves {view.name} when it stops.{" "}
+            This session has no issue: it leaves {scope.name} when it stops.{" "}
             {f.startable.length > 0
               ? "To keep it, choose an issue under Workspace."
               : "Pin it from its menu to keep it."}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runsIn } from "../src/features/views/where";
+import { runsIn } from "../src/features/scopes/where";
 
 describe("runsIn", () => {
   const place = { terminalId: "herdr:default@mac-pro", pane: "w1:p2" };

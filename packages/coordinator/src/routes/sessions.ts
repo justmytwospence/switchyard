@@ -38,7 +38,7 @@ import { archiveSession, returnToAutomation, stopSession, takeover } from "../se
 import {
   createSession,
   LIVE_RUNTIMES,
-  pinIfOutsideView,
+  pinIfOutsideScope,
   requireConnected,
   requireUsableHost,
   resetTranscript,
@@ -254,10 +254,11 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
 
   app.post("/api/sessions", async (req, reply) => {
     const body = parse(CreateSessionRequest, req.body);
-    // Validate the view first so nothing is created on error.
-    const view = body.viewId ? ctx.store.views.require(body.viewId) : null;
+    // Validate the scope first so nothing is created on error.
+    const scopeId = body.scopeId ?? body.viewId;
+    const scope = scopeId ? ctx.store.scopes.require(scopeId) : null;
     const { session } = createSession(ctx, body);
-    if (view) pinIfOutsideView(ctx, view.id, session.id);
+    if (scope) pinIfOutsideScope(ctx, scope.id, session.id);
     return reply.code(202).send(session);
   });
 

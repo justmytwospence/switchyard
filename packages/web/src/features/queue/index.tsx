@@ -40,7 +40,7 @@ import { useSyncStore } from "../../sync/store";
 import { updateTask } from "../board/api";
 import { DispatchToggle } from "../board/BoardChrome";
 import { isRunActive, WAIT_LABELS, type WaitReason } from "../board/logic";
-import { UnfilteredNote } from "../views/UnfilteredNote";
+import { UnfilteredNote } from "../scopes/UnfilteredNote";
 import { useNow } from "./useNow";
 
 const WAIT_ICONS: Record<WaitReason, LucideIcon> = {

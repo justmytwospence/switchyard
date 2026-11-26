@@ -16,7 +16,6 @@ import {
   Server,
   ShieldCheck,
   SlidersHorizontal,
-  SquareTerminal,
   Stethoscope,
   TriangleAlert,
 } from "lucide-react";
@@ -51,9 +50,9 @@ export const SECTIONS: SectionDef[] = [
     group: "Workspace",
   },
   {
-    path: "trackers",
-    label: "Trackers",
-    description: "GitHub issues and boards that feed the board",
+    path: "scopes",
+    label: "Scopes",
+    description: "Named parts of your work, and the GitHub issues that feed them",
     icon: CircleDot,
     group: "Workspace",
   },
@@ -76,13 +75,6 @@ export const SECTIONS: SectionDef[] = [
     label: "Hosts",
     description: "Execution hosts, capabilities and versions",
     icon: Server,
-    group: "Infrastructure",
-  },
-  {
-    path: "terminals",
-    label: "Terminals",
-    description: "herdr and tmux sessions, and what each mirrors",
-    icon: SquareTerminal,
     group: "Infrastructure",
   },
   {
@@ -114,9 +106,9 @@ export const SECTIONS: SectionDef[] = [
     group: "Access",
   },
   {
-    path: "devices",
-    label: "Devices",
-    description: "Signed-in browsers, apps and terminals",
+    path: "clients",
+    label: "Clients",
+    description: "Signed-in browsers, apps and CLIs, and their herdr and tmux sessions",
     icon: MonitorSmartphone,
     group: "Access",
   },

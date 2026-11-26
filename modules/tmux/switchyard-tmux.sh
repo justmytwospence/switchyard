@@ -3,10 +3,10 @@
 # paired with a Switchyard coordinator by ~/.config/switchyard-tmux/<tmux session>.env:
 #   SWITCHYARD_CLI            how to run switchyard (default: switchyard on PATH)
 #   SWITCHYARD_CLIENT_CONFIG  client.json written by `switchyard login` (default: the usual one)
-#   SWITCHYARD_VIEW           deprecated: the view it mirrored before 0.20, recorded once as its
+#   SWITCHYARD_VIEW           deprecated: the scope it mirrored before 0.20, recorded once as its
 #                             binding when none is recorded yet
 # The file is optional. The daemon runs in every tmux session where switchyard is signed in and
-# mirrors what the coordinator records for it (`switchyard terminals bind`): nothing until then.
+# mirrors what the coordinator records for it (`switchyard clients bind`): nothing until then.
 set -eu
 SWITCHYARD_TMUX_ROOT=$(cd "$(dirname "$0")" && pwd)
 export SWITCHYARD_TMUX_ROOT

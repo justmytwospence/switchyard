@@ -133,12 +133,12 @@ The coordinator needs neither the host home mount nor Docker socket.
 | Task           | Objective, acceptance criteria, project, dependencies, priority, state, policy |
 | Run            | Task/session, dispatch key, attempt, limits, control revision, outcome         |
 | Automation     | Trigger, filters, task template, grouping/overlap/missed-run policy            |
-| Tracker        | Host, GitHub owner, repositories, optional board, follow mode, backlog columns, write-back; tracked issues link to branches |
-| Tracked issue  | Tracker, issue, project, priority, parent and sub-issue count, linked branches, branch and workspace worked on, pull request, board column |
+| Scope          | Name, mode, projects, pins, and optionally a GitHub source: host, owner, repositories, optional board, follow mode, backlog columns, write-back; its tracked issues link to branches |
+| Tracked issue  | Scope, issue, project, priority, parent and sub-issue count, linked branches, branch and workspace worked on, pull request, board column |
 | Interaction    | Session, ID/revision, payload, allowed responses, resolution                   |
 | Attention item | Session/task, reason, severity, acknowledgment                                 |
 | Device         | Identity, credentials, presence, push subscription, revocation                 |
-| Terminal       | herdr/tmux session id, device, optional host, recorded binding (none, all, view), shown sessions, last report |
+| Client         | herdr/tmux session id (or another client module's), device, optional host, recorded binding (none, all, scope), shown sessions, last report |
 
 A branch (project + branch name) is derived from workspaces, sessions and tracked issues and never stored; a session may be its branch's chosen primary ([model.md](model.md)).
 
@@ -237,7 +237,7 @@ Setup hooks stream output and surface failure.
 
 A `.worktreeinclude` file at the repository root (gitignore syntax) lists ignored files, such as `.env`, to copy into each new managed worktree. Only files that match and that Git already ignores are copied; existing files are kept, and a copy failure removes the new worktree.
 
-Finishing a session never deletes its workspace. A project can opt in to removing worktrees whose pull request has merged (clean, HEAD at the merged head, no running session, for ten minutes); see [trackers.md](trackers.md).
+Finishing a session never deletes its workspace. A project can opt in to removing worktrees whose pull request has merged (clean, HEAD at the merged head, no running session, for ten minutes); see [scopes.md](scopes.md).
 
 Removal checks active sessions, dirty files, and unmerged changes. Destructive overrides are explicit.
 
@@ -372,16 +372,16 @@ Every row is a branch (a project on a branch, see [model.md](model.md)) and show
 
 - **Projects** (default on desktop): project → branches. Each row shows its branch unless it is the main checkout. A worktree with no session is not listed here; it is on the Board with Start session.
 - **Recent**: one list, branches needing input first, then by last activity, with project and branch on each row.
-- **Where**: host (with connection state) → the terminal a Pi started by hand runs in, or Switchyard for the sessions it holds → branches (one row per host). A host or terminal header offers "Only this", which sets the Where filter to it. A stored Hosts layout opens as Where.
+- **Where**: host (with connection state) → the herdr or tmux client a Pi started by hand runs in, or Switchyard for the sessions it holds → branches (one row per host). A host or client header offers "Only this", which sets the Where filter to it. A stored Hosts layout opens as Where.
 - **Status**: grouped by what needs you.
 
 Subagent sessions are nested under the session that started them and hidden unless "Show subagents" is on. View options also choose a sort per layout (Recent activity, Newest, Name, Status; defaults: Projects and Hosts by name, Recent and Status by activity), applied to groups and rows, with rows needing input first unless turned off. Rows show title, textual status, last activity, and attention indicator. Outside the Where layout, a row says where its session runs: the terminal of a Pi started by hand ("herdr default on Mac", named through the host's Switchyard name, the same label as Details' "Runs in"), or the host when there are several hosts that are not revoked. A row on an issue's branch shows `#N`. In a tracker's view, a session that is there only while live shows "No issue". The open session always keeps its row, marked with the filter that excludes it: "Not in <view>", "Not in <where>", or "Not active" (Needs input: "No input needed"); when it is the only row, the empty state shows above it.
 
-The header, top to bottom, with no boxes around its controls except the search field: the title with New session; search (on the phone, an icon beside New session that opens it; the command palette stays on Cmd/Ctrl+K); the filters; the status filter with View options. The filters are quiet labelled text controls: **View** (a borderless select, in the accent colour with its own clear when a view is chosen, and an icon beside it that edits the view or makes a new one) and **Where**, shown only while set (the terminal or host chosen with "Only this", with its own clear). Where limits the list to sessions running there and combines with the view; a terminal lists only Pi running in it now, and a revoked host is never offered or applied. Once two filters are set (view, Where, search, Needs input), a single Clear resets them all. Both are kept per browser. The view's description is its tooltip; what it contains and where it is shown are in its Edit dialog. The status filter is quiet text options (Active, All, and on the phone Needs input), the chosen one highlighted, each followed by the number of branches it lists after search and every filter, so the counts match the rows; on desktop a "needs input" count beside it opens the latest session waiting for you. Collapse and expand all are in View options. Until there is a host and a project, the header holds only the title and New session (disabled, its tooltip says why), and Pi history suggestions are one line under the empty state ("7 repositories found in your Pi history", Review) linking to Settings > Projects, which lists them in full.
+The header, top to bottom, with no boxes around its controls except the search field: the title with New session; search (on the phone, an icon beside New session that opens it; the command palette stays on Cmd/Ctrl+K); the filters; the status filter with View options. The filters are quiet labelled text controls: **Scope** (a borderless select, in the accent colour with its own clear when a scope is chosen, and an icon beside it that edits the scope or makes a new one) and **Where**, shown only while set (the client or host chosen with "Only this", with its own clear). Where limits the list to sessions running there and combines with the scope; a client lists only Pi running in it now, and a revoked host is never offered or applied. Once two filters are set (scope, Where, search, Needs input), a single Clear resets them all. Both are kept per browser. The scope's description is its tooltip; what it contains and where it is shown are in its Edit dialog. The status filter is quiet text options (Active, All, and on the phone Needs input), the chosen one highlighted, each followed by the number of branches it lists after search and every filter, so the counts match the rows; on desktop a "needs input" count beside it opens the latest session waiting for you. Collapse and expand all are in View options. Until there is a host and a project, the header holds only the title and New session (disabled, its tooltip says why), and Pi history suggestions are one line under the empty state ("7 repositories found in your Pi history", Review) linking to Settings > Projects, which lists them in full.
 
-Empty state: "Add a project" and "Connect a host," based on what is missing. With a filter that leaves nothing, the empty state names the filter and offers to clear it (Where: "Clear Where"; a terminal's says it lists only the Pi running in it now).
+Empty state: "Add a project" and "Connect a host," based on what is missing. With a filter that leaves nothing, the empty state names the filter and offers to clear it (Where: "Clear Where"; a client's says it lists only the Pi running in it now).
 
-New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt; it also lists the project's not-started issues (by priority) under "Start an issue", and choosing one starts the issue: its branch, worktree and session), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. The selected view's projects come first. In a tracker's view, a session that will not stay says so. With a host Where, the host defaults to it when the project has a checkout there and it is online; when the session will run elsewhere, or Where is a terminal (a new session is held by Switchyard, not run in that terminal), the dialog says it will not be listed while that Where is set. Show the resulting branch/path above Start session; Cmd/Ctrl+Enter starts. When the chosen workspace already has a session, the primary action is Open session: no new session starts, and a typed prompt waits in that session's composer. "Start another session in this branch" is an explicit checkbox. Do not require a task.
+New session flow: prompt first ("What should Pi do?", optional), then Project, Workspace (default: the main checkout on an online host; "New worktree…" suggests a branch from the prompt; it also lists the project's not-started issues (by priority) under "Start an issue", and choosing one starts the issue: its branch, worktree and session), Host (only when the project has checkouts on several hosts) and Pi profile (project default). Advanced: session title and checkout. The selected scope's projects come first. In a GitHub scope, a session that will not stay says so. With a host Where, the host defaults to it when the project has a checkout there and it is online; when the session will run elsewhere, or Where is a client (a new session is held by Switchyard, not run in that herdr or tmux session), the dialog says it will not be listed while that Where is set. Show the resulting branch/path above Start session; Cmd/Ctrl+Enter starts. When the chosen workspace already has a session, the primary action is Open session: no new session starts, and a typed prompt waits in that session's composer. "Start another session in this branch" is an explicit checkbox. Do not require a task.
 
 ### Conversation header
 
@@ -392,7 +392,7 @@ Actions:
 - Open linked task.
 - Take over / Return to automation.
 - Stop, when running.
-- Session menu: rename, archive, primary session of this branch, new session in this branch, pin to a view, link to issue / unlink from #N (a worktree branch and a not-started issue), native-session information.
+- Session menu: rename, archive, primary session of this branch, new session in this branch, pin to a scope, link to issue / unlink from #N (a worktree branch and a not-started issue), native-session information.
 
 Attach is navigation to this view, not an action that creates a process.
 
@@ -500,12 +500,12 @@ Start a new session from mobile using the same creation fields as desktop, prese
 
 ## 12a. Board (branches)
 
-The Board lists branches as cards (see [model.md](model.md)), filtered by the selected view, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. An issue's card also shows its board priority, "Part of #N" for a sub-issue and "N/M sub-issues" for a parent. Activating a card opens its primary session. A worktree with no session shows "No session" and a Start session button, which opens the branch (starting a session). In a tracker's view, a card without an issue shows "No issue".
+The Board lists branches as cards (see [model.md](model.md)), filtered by the selected scope, with search. A card shows the primary session's title and status, project, branch (not for a main checkout), host when the project spans hosts, a "+N" count of extra sessions, and links to its issue and pull request. An issue's card also shows its board priority, "Part of #N" for a sub-issue and "N/M sub-issues" for a parent. Activating a card opens its primary session. A worktree with no session shows "No session" and a Start session button, which opens the branch (starting a session). In a tracker's view, a card without an issue shows "No issue".
 
 Columns:
 
 - **Stage** (default): Not started (tracked issues with no branch yet, by board priority, then number), Working, In review (an open pull request), Merged. Stages are facts; the only move is an issue from Not started to Working, which starts it: its branch, worktree and an idle session titled `#<number> <title>`.
-- **Tracker board** (a tracker's view whose issues have a GitHub Projects board): one column per board column (a backlog column only when it has cards), then No status and Not on the board. Moving a card sets its board column on GitHub, only with the tracker's write-back on.
+- **GitHub board** (a GitHub scope whose issues have a Projects board): one column per board column (a backlog column only when it has cards), then No status and Not on the board. Moving a card sets its board column on GitHub, only with the scope's write-back on.
 
 Invalid drops show the reason. Every move is also in the card's Move to… menu; mobile shows one column at a time as tabs.
 
@@ -525,7 +525,7 @@ Each column is 288–360 pixels wide with a sticky title and count. Horizontal s
 
 Canceled tasks appear through a filter, not a permanent default column.
 
-A view filters tasks by its projects (a tracker's view: its repositories), or by pinned sessions; the view selector says which.
+A scope filters tasks by its projects (a GitHub scope: its repositories), or by pinned sessions; the scope selector says which.
 
 ### Task cards
 
@@ -620,7 +620,7 @@ Each item shows project/task/session, reason, age, and direct action.
 
 Resolving a question updates the same runtime interaction. Acknowledging a notification does not resolve the underlying task.
 
-Not filtered by the selected view; says so while one is selected.
+Not filtered by the selected scope; says so while one is selected.
 
 ### Queue
 
@@ -630,7 +630,7 @@ Each queued row explains its wait: dependency, host offline, project limit, work
 
 Allow priority changes and pause of future dispatch without terminating active runs.
 
-Not filtered by the selected view; says so while one is selected.
+Not filtered by the selected scope; says so while one is selected.
 
 ### Automations
 

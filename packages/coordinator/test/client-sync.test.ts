@@ -292,9 +292,10 @@ describe("terminal presence", () => {
     });
     await until(() => t!.c.store.listPresence().length === 2);
     expect(t.c.store.getPresence(dev.deviceId)?.viewingSessionId).toBeNull();
-    expect(
-      t.c.store.listPresence().find((p) => p.terminalId === "herdr:default@mac"),
-    ).toMatchObject({ deviceId: dev.deviceId, viewingSessionId: "ses_h" });
+    expect(t.c.store.listPresence().find((p) => p.clientId === "herdr:default@mac")).toMatchObject({
+      deviceId: dev.deviceId,
+      viewingSessionId: "ses_h",
+    });
     await h.event("session.updated", hostSession("ses_h", { runtime: "running" }));
     await h.event(
       "session.updated",

@@ -5,10 +5,10 @@ import { piAgentDir } from "@switchyard/adapter-sdk";
 import { detectPi, type PiDetection, terminalSupport } from "@switchyard/pi-runtime";
 import {
   GIT_LOG_FEATURE,
+  GITHUB_BOARD_FEATURE,
+  GITHUB_ISSUES_FEATURE,
   PROTOCOL_VERSION,
   type Receipt,
-  TRACKER_BOARD_FEATURE,
-  TRACKERS_FEATURE,
 } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
 import { AgentBroker } from "./agent-broker.js";
@@ -211,8 +211,8 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         : null,
       features: [
         ...(agentSupport ? ["agentRequests.v1", "policies.v1"] : []),
-        TRACKERS_FEATURE,
-        TRACKER_BOARD_FEATURE,
+        GITHUB_ISSUES_FEATURE,
+        GITHUB_BOARD_FEATURE,
         GIT_LOG_FEATURE,
       ],
       protocolVersion: PROTOCOL_VERSION,

@@ -36,9 +36,9 @@ function fixture() {
     refresh: vi.fn(async () => ({ snapshot: "view" })),
     failedLogs: vi.fn(async () => ({ jobs: [] })),
     merge: vi.fn(async () => ({ status: "outcome_unknown" })),
-    trackerSync: vi.fn(async () => ({ login: "me", items: [], truncated: false })),
-    trackerStartIssue: vi.fn(async () => ({ branch: "12-x" })),
-    trackerSetStatus: vi.fn(async () => ({ status: "moved" })),
+    syncIssues: vi.fn(async () => ({ login: "me", items: [], truncated: false })),
+    startIssue: vi.fn(async () => ({ branch: "12-x" })),
+    setIssueStatus: vi.fn(async () => ({ status: "moved" })),
   };
   const sendReceipt = vi.fn();
   const make = (integration: object | null = github) =>
@@ -61,7 +61,7 @@ function gate<T>() {
   return { promise, resolve };
 }
 
-describe("tracker host commands", () => {
+describe("GitHub issue host commands", () => {
   const sync = { type: "tracker.sync", owner: "acme", repositories: null, board: null } as const;
   const start = {
     type: "tracker.startIssue",
@@ -97,9 +97,9 @@ describe("tracker host commands", () => {
     const { type: _s, ...syncArgs } = sync;
     const { type: _t, ...startArgs } = start;
     const { type: _u, ...statusArgs } = status;
-    expect(f.github.trackerSync).toHaveBeenCalledWith(syncArgs);
-    expect(f.github.trackerStartIssue).toHaveBeenCalledWith(startArgs);
-    expect(f.github.trackerSetStatus).toHaveBeenCalledWith(statusArgs);
+    expect(f.github.syncIssues).toHaveBeenCalledWith(syncArgs);
+    expect(f.github.startIssue).toHaveBeenCalledWith(startArgs);
+    expect(f.github.setIssueStatus).toHaveBeenCalledWith(statusArgs);
     expect(READ_ONLY_COMMANDS.has("tracker.sync")).toBe(true);
     expect(READ_ONLY_COMMANDS.has("tracker.setStatus")).toBe(false);
     expect(queueKey({ type: "tracker.prepareBranch", checkoutPath: "/repo", branch: "b" })).toBe(

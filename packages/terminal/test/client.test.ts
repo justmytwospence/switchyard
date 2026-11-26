@@ -70,7 +70,7 @@ describe("SwitchyardClient", () => {
     expect(received[0]).toEqual({
       type: "hello",
       cursor: null,
-      capabilities: ["adapter.slots.v1", "timeline.cards.v1"],
+      capabilities: ["adapter.slots.v1", "timeline.cards.v1", "scopes.v1"],
       projectionId: null,
     });
     expect(st.connection.state).toBe("live");

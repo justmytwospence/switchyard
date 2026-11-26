@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ContributionDescriptor } from "./contributions.js";
 import { GitHubIssue, HostGitHub, WorkspaceGitHub } from "./github.js";
+import { GitHubSource } from "./issues.js";
 import { CompletedUsageWatermark, PolicyPermission, PolicyPhase } from "./policies.js";
 import { UINodeSchema } from "./ui.js";
 
@@ -246,59 +247,56 @@ export const Profile = z.object({
 });
 export type Profile = z.infer<typeof Profile>;
 
-/** Deprecated: a TUI client bound to a view, replaced by `Terminal`. */
-export const ViewClient = z.object({
-  /** `${kind}:${name}@${machine}` */
-  id: z.string().min(1),
-  kind: z.enum(["herdr", "tmux"]),
-  name: z.string().min(1),
-  machine: z.string().min(1),
-  lastSeenAt: Iso,
-});
-export type ViewClient = z.infer<typeof ViewClient>;
-
-/** A named part of your work: a set of projects (or a tracker's) plus pins. Terminals can mirror one. */
-export const View = z.object({
+/**
+ * A named part of your work: a set of projects you choose plus pins, or the issues of a GitHub
+ * source. Clients can mirror one, and Sessions and the Board can show one. Not a permission.
+ * See docs/scopes.md.
+ */
+export const Scope = z.object({
   id: Id,
   name: z.string().min(1).max(60),
   mode: z.enum(["all", "pinned"]),
   projectIds: z.array(z.string()).nullable(),
   hostIds: z.array(z.string()).nullable(),
   sessionIds: z.array(z.string()),
-  /** Deprecated: always empty; see Terminal. */
-  clients: z.array(ViewClient).default([]),
-  /** A tracker keeps this view's projects (see docs/trackers.md). */
-  trackerId: z.string().nullable().optional(),
+  /** What feeds this scope its issues; null for a scope of projects you choose. */
+  source: GitHubSource.nullable(),
   createdAt: Iso,
   updatedAt: Iso,
 });
-export type View = z.infer<typeof View>;
+export type Scope = z.infer<typeof Scope>;
+/** A scope fed by GitHub. */
+export type GitHubScope = Scope & { source: GitHubSource };
+export const hasSource = (s: Scope): s is GitHubScope => s.source !== null;
 
-export const TerminalKind = z.enum(["herdr", "tmux"]);
-export type TerminalKind = z.infer<typeof TerminalKind>;
+/** A client module's kind: "herdr", "tmux", or another module's own name. */
+export const ClientKind = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
+export type ClientKind = z.infer<typeof ClientKind>;
+/** The client kinds Switchyard ships a module for. */
+export const BUILTIN_CLIENT_KINDS = ["herdr", "tmux"] as const;
 
-/** What a terminal mirrors: nothing, every session, or one view (`viewId`). */
-export const TerminalMirror = z.enum(["none", "all", "view"]);
-export type TerminalMirror = z.infer<typeof TerminalMirror>;
+/** What a client mirrors: nothing, every session, or one scope (`scopeId`). */
+export const ClientMirror = z.enum(["none", "all", "scope"]);
+export type ClientMirror = z.infer<typeof ClientMirror>;
 
 /**
- * A terminal: a herdr or tmux session Switchyard knows about, reported by the signed-in device
- * whose daemon runs in it, optionally on a host. Which sessions it mirrors (`mirror`, `viewId`)
- * is recorded by the coordinator from the CLI or the web app, never inferred from names;
- * `shows` and `lastSeenAt` are the daemon's report. See docs/terminal-sessions.md.
+ * A client: a herdr or tmux session (or another client module's) Switchyard knows about,
+ * reported by the signed-in device whose daemon runs in it, optionally on a host. Which sessions
+ * it mirrors (`mirror`, `scopeId`) is recorded by the coordinator from the CLI or the web app,
+ * never inferred from names; `shows` and `lastSeenAt` are the daemon's report. See docs/clients.md.
  */
-export const Terminal = z.object({
+export const Client = z.object({
   /** `${kind}:${name}@${machine}` */
   id: z.string().min(1).max(200),
-  kind: TerminalKind,
+  kind: ClientKind,
   name: z.string().min(1),
   machine: z.string().min(1),
   deviceId: Id,
   hostId: Id.nullable(),
-  /** What it mirrors (coordinator-owned); older records have only `viewId`. */
-  mirror: TerminalMirror.optional(),
-  /** The view it mirrors when `mirror` is "view" (coordinator-owned). */
-  viewId: Id.nullable(),
+  /** What it mirrors (coordinator-owned). */
+  mirror: ClientMirror,
+  /** The scope it mirrors when `mirror` is "scope" (coordinator-owned). */
+  scopeId: Id.nullable(),
   /** When the binding was recorded; null when it never was (a daemon may seed it once). */
   bindingSetAt: Iso.nullable().optional(),
   /** Sessions it shows in mirror tabs or windows now (daemon-owned). */
@@ -306,11 +304,12 @@ export const Terminal = z.object({
   lastSeenAt: Iso,
   createdAt: Iso,
 });
-export type Terminal = z.infer<typeof Terminal>;
+export type Client = z.infer<typeof Client>;
 
-/** A terminal's binding, also for records written before `mirror` existed. */
-export function terminalMirror(t: Pick<Terminal, "mirror" | "viewId">): TerminalMirror {
-  return t.mirror ?? (t.viewId ? "view" : "none");
+/** `<kind>:<name>@<machine>` split into its parts, or null. */
+export function parseClientId(id: string): { kind: string; name: string; machine: string } | null {
+  const m = /^([a-z][a-z0-9-]{0,31}):(.+)@([^@]+)$/.exec(id);
+  return m ? { kind: m[1]!, name: m[2]!, machine: m[3]! } : null;
 }
 
 export const RuntimeState = z.enum([
@@ -379,16 +378,17 @@ export const Session = z.object({
   /** A live terminal session: `switchyard tui` can attach to its Pi terminal. */
   terminal: z.boolean().optional(),
   /**
-   * A Pi the user started in their own terminal and enrolled (`client`: the herdr session it runs
-   * in, when known). Switchyard never shows or closes that terminal.
+   * A Pi the user started in their own terminal and enrolled (`client`: the id of the herdr or
+   * tmux client it runs in, when known). Switchyard never shows or closes that terminal.
    */
   external: z
     .object({ client: z.string().min(1).max(200).nullable() })
     .nullable()
     .optional(),
   /**
-   * Where this Pi last ran by hand (host-owned): the terminal (`herdr:<s>@<m>`, `tmux:<s>@<m>`)
-   * and pane. Kept after it stops; cleared once Switchyard starts it. Older hosts omit it.
+   * Where this Pi last ran by hand (host-owned): the client (`herdr:<s>@<m>`, `tmux:<s>@<m>`;
+   * the wire field keeps the name `terminalId`) and pane. Kept after it stops; cleared once
+   * Switchyard starts it. Older hosts omit it.
    */
   place: z
     .object({

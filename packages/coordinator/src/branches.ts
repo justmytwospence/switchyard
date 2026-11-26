@@ -5,7 +5,7 @@ import {
   SwitchyardError,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "./context.js";
-import { createSession, pinIfOutsideView } from "./sessions/service.js";
+import { createSession, pinIfOutsideScope } from "./sessions/service.js";
 import { refreshCheckoutWorkspaces } from "./workspaces.js";
 
 export interface OpenBranchInput {
@@ -16,6 +16,8 @@ export interface OpenBranchInput {
   prompt?: string | undefined;
   profileId?: string | null | undefined;
   title?: string | undefined;
+  scopeId?: string | undefined;
+  /** COMPAT(scopes-rename): remove after 2027-03-01. The old name of scopeId. */
   viewId?: string | undefined;
   another?: boolean | undefined;
 }
@@ -30,7 +32,8 @@ export async function openBranch(
 ): Promise<{ session: Session; created: boolean }> {
   const { store } = ctx;
   const project = store.projects.require(input.projectId);
-  if (input.viewId) store.views.require(input.viewId);
+  const scopeId = input.scopeId ?? input.viewId;
+  if (scopeId) store.scopes.require(scopeId);
   const checkouts = store.checkouts.list("project_id = ?", [project.id]);
   const matches = store.workspaces
     .list("project_id = ? AND archived_at IS NULL", [project.id])
@@ -96,6 +99,6 @@ export async function openBranch(
       workspace: { checkoutId: checkout.id, newBranch: input.branch, base: input.base ?? null },
     }).session;
   }
-  if (input.viewId) pinIfOutsideView(ctx, input.viewId, session.id);
+  if (scopeId) pinIfOutsideScope(ctx, scopeId, session.id);
   return { session, created: true };
 }

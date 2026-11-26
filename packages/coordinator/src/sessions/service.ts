@@ -1,16 +1,16 @@
 import {
   type Checkout,
   type HostCommandOf,
+  issueBranchSet,
   type NativeHandle,
   newId,
   type Profile,
   type Project,
   type Session,
   SwitchyardError,
-  sessionInView,
+  sessionInScope,
   type TranscriptItem,
   titleFrom,
-  trackerScope,
   type Workspace,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
@@ -198,17 +198,21 @@ export type WorkspaceChoice =
   | { existingId: string }
   | { checkoutId: string; newBranch: string; base?: string | null };
 
-/** Pin a session to a view when the view would not show it otherwise. */
-export function pinIfOutsideView(ctx: CoordinatorContext, viewId: string, sessionId: string): void {
+/** Pin a session to a scope when the scope would not show it otherwise. */
+export function pinIfOutsideScope(
+  ctx: CoordinatorContext,
+  scopeId: string,
+  sessionId: string,
+): void {
   const { store } = ctx;
   store.tx(() => {
-    const cur = store.views.get(viewId);
+    const cur = store.scopes.get(scopeId);
     const fresh = store.sessions.get(sessionId);
     if (!cur || !fresh || cur.sessionIds.includes(fresh.id)) return;
     const workspaces = Object.fromEntries(store.workspaces.list().map((w) => [w.id, w]));
-    const scope = trackerScope(cur, store.issues.list());
-    if (cur.mode === "pinned" || !sessionInView(cur, fresh, workspaces, scope)) {
-      store.putView({
+    const issueSet = issueBranchSet(cur, store.issues.list());
+    if (cur.mode === "pinned" || !sessionInScope(cur, fresh, workspaces, issueSet)) {
+      store.putScope({
         ...cur,
         sessionIds: [...cur.sessionIds, fresh.id],
         updatedAt: store.nowIso(),

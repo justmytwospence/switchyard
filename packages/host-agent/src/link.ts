@@ -8,6 +8,8 @@ import {
   type AgentResultFrame,
   CoordinatorToHost,
   GIT_LOG_FEATURE,
+  GITHUB_BOARD_FEATURE,
+  GITHUB_ISSUES_FEATURE,
   HostAgentRequestFrame,
   type HostCommand,
   type HostEvent,
@@ -22,8 +24,6 @@ import {
   SwitchyardError,
   type TermCoordinatorMsg,
   type TermServerToViewer,
-  TRACKER_BOARD_FEATURE,
-  TRACKERS_FEATURE,
 } from "@switchyard/protocol";
 import WebSocket from "ws";
 import type { HostDb } from "./db/index.js";
@@ -38,7 +38,11 @@ const FLUSH_PAGE = 500;
 const ACKED_META = "outbox.ackedHostSeq";
 const AGENT_FEATURES = ["agentRequests.v1", "policies.v1"] as const;
 /** Host features the coordinator gates commands on; not negotiated in `welcome`. */
-const HOST_FEATURES: readonly string[] = [TRACKERS_FEATURE, TRACKER_BOARD_FEATURE, GIT_LOG_FEATURE];
+const HOST_FEATURES: readonly string[] = [
+  GITHUB_ISSUES_FEATURE,
+  GITHUB_BOARD_FEATURE,
+  GIT_LOG_FEATURE,
+];
 
 export interface AgentRequestOptions {
   toolCallId?: string;

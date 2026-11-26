@@ -4,13 +4,13 @@ import type { Presence } from "@switchyard/protocol";
 const EVERY_MS = 15_000;
 
 /**
- * Report the session focused in this terminal as being viewed, so a session you watch in herdr
+ * Report the session focused in this client as being viewed, so a session you watch in herdr
  * or tmux is not marked unread and its notifications stay inline. `focused` returns null while
  * no client is attached or the focused pane shows no session. Reports when the focus changes
  * (`check()`) and every 15 s while something is focused.
  */
 export function startFocusPresence(opts: {
-  terminalId: string;
+  clientId: string;
   send: (presence: Presence) => boolean;
   focused: () => Promise<string | null>;
   log: (line: string) => void;
@@ -28,7 +28,7 @@ export function startFocusPresence(opts: {
       foreground: sessionId !== null,
       interactedAt: null,
       viewing: sessionId ? { sessionId } : null,
-      terminalId: opts.terminalId,
+      clientId: opts.clientId,
     });
   const check = async (): Promise<void> => {
     if (stopped) return;

@@ -4,7 +4,7 @@ import { Card } from "../../components/ui/Card";
 import { SwitchRow } from "../../components/ui/Switch";
 import { usePrefs } from "../../prefs";
 import { useSyncStore } from "../../sync/store";
-import { DEVICE_KIND_LABEL } from "./DevicesSection";
+import { DEVICE_KIND_LABEL } from "./ClientsSection";
 import { KeyValues, SectionPage } from "./shared";
 
 /** Settings › This device: preferences stored only in this browser. */

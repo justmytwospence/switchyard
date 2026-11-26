@@ -161,7 +161,7 @@ function setup(sessions: Session[]) {
     projects: [{ id: "prj_sy", name: "switchyard" }] as any,
     hosts: [{ id: "hst_mac", name: "mac", capabilities: { terminal: true } }] as any,
     checkouts: [],
-    views: [],
+    scopes: [],
   };
   const api: { path: string; body: unknown }[] = [];
   const responses = new Map<string, { status: number; body: unknown }>();
@@ -189,7 +189,7 @@ function setup(sessions: Session[]) {
     stateDir: dir,
     launcherPath: "/state/switchyard-herdr",
     log: (l) => logs.push(l),
-    view: () => bound.value,
+    scope: () => bound.value,
     exists: () => true,
     debounceMs: 0,
     intervalMs: 0,

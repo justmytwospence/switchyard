@@ -70,7 +70,7 @@ export function LinkIssueDialog({
       open={open}
       onClose={close}
       title="Link to issue"
-      description={`Link ${workspace.branch} to an issue that has no branch yet. Its sessions then stay in the tracker's view.`}
+      description={`Link ${workspace.branch} to an issue that has no branch yet. Its sessions then stay in the issue's scope.`}
       footer={<Button onClick={close}>Cancel</Button>}
     >
       <div className="flex min-w-0 flex-col gap-2">
