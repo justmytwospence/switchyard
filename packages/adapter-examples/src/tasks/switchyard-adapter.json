@@ -1,0 +1,14 @@
+{
+  "id": "tasks",
+  "version": "0.1.0",
+  "target": {
+    "extension": "pi-tasks",
+    "versionRange": ">=0.1.0 <1.0.0",
+    "testedVersions": ["0.1.0"],
+    "entrypoints": ["index.ts"]
+  },
+  "protocolVersion": 1,
+  "server": "server.js",
+  "webRenderer": null,
+  "capabilities": ["toolCards", "interactions", "panels", "progress", "state"]
+}

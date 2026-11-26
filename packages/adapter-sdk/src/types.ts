@@ -3,7 +3,9 @@ import type {
   AdapterInfo,
   AttentionReason,
   ContributionDescriptor,
+  InteractionKind,
   InteractionResponse,
+  ToolViewData,
   UINode,
 } from "@switchyard/protocol";
 import type { AdapterManifest } from "./manifest.js";
@@ -11,6 +13,22 @@ import type { PiUiMethod, PiUiRequest, PiUiResponse } from "./pi-ui.js";
 
 export type MaybePromise<T> = T | Promise<T>;
 export type AdapterTier = AdapterInfo["tier"];
+/**
+ * What this host's adapter contract supports beyond version 1, as `AdapterContext.features`.
+ * A host from before contract v2 has no `features` at all: check before using anything listed.
+ */
+export const ADAPTER_FEATURES = [
+  /** The `toolView` hook is called. */
+  "tool.views.v1",
+  /** checklist, facts, rows and badge nodes, `section.open` and URL refs validate. */
+  "ui.nodes.v2",
+  /** The `composer.tracker` and `session.badge` placements validate. */
+  "adapter.trackers.v1",
+  /** `Claim.kind` is carried to clients. */
+  "interaction.kinds.v1",
+] as const;
+export type AdapterFeature = (typeof ADAPTER_FEATURES)[number];
+
 export const TIER_ORDER: readonly AdapterTier[] = ["project", "owner", "plugin", "bundled"];
 
 // ---------------------------------------------------------------------------
@@ -102,6 +120,12 @@ export interface Claim {
   toPiResponse(resp: InteractionResponse): MaybePromise<ClaimResponse>;
   /** Tool call that owns any queued follow-up answers (default: the latest running tool call). */
   ownerToolCallId?: string;
+  /**
+   * What the dialog is. A question may hide its tool call's row and be answered with number
+   * keys; an approval keeps the row and is never answered by a key; a plan is read before it is
+   * answered. Leave it out when the adapter does not know.
+   */
+  kind?: InteractionKind;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +162,8 @@ export interface AdapterContext {
   readonly adapterId: string;
   /** Persistent, server-authoritative key/value state (JSON values). */
   readonly state: AdapterStateStore;
+  /** Contract features of this host (`ADAPTER_FEATURES`). Undefined on a host before v2. */
+  readonly features?: readonly string[];
   setPanel(slot: string, node: UINode | null, opts?: PanelOptions): void;
   setContribution(id: string, contribution: AdapterContribution | null): void;
   attention(reason: AttentionReason, summary: string): void;
@@ -172,6 +198,12 @@ export interface ServerAdapter {
   /** Rebuild presentation from persisted state only; never replay workflow events. */
   onRestore?(ctx: AdapterContext): MaybePromise<void>;
   toolCard?(tool: ToolInfo, ctx: AdapterContext): MaybePromise<UINode | undefined>;
+  /**
+   * `tool.views.v1`: the tool call's one-line row (verb, target, counts), the node shown when it
+   * is opened, or `hide`. Called when the call starts and again when it ends. The first adapter
+   * that returns a view wins; without one the client derives the row from name and arguments.
+   */
+  toolView?(tool: ToolInfo, ctx: AdapterContext): MaybePromise<ToolViewData | undefined>;
   customMessageCard?(
     message: CustomMessageInfo,
     ctx: AdapterContext,

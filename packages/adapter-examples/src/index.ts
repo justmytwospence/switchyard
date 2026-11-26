@@ -8,16 +8,20 @@ import {
 } from "@switchyard/adapter-sdk";
 import hello from "./hello/server.js";
 import helloManifest from "./hello/switchyard-adapter.json" with { type: "json" };
+import tasks from "./tasks/server.js";
+import tasksManifest from "./tasks/switchyard-adapter.json" with { type: "json" };
 
 /**
  * Example adapters for adapter authors. Switchyard does not load them: real adapters ship with the
  * Pi packages that own them (see docs/adapters.md).
  */
-export const EXAMPLE_ADAPTER_NAMES = ["hello"] as const;
+export const EXAMPLE_ADAPTER_NAMES = ["hello", "tasks"] as const;
 export type ExampleAdapterName = (typeof EXAMPLE_ADAPTER_NAMES)[number];
 
 const table: Record<ExampleAdapterName, { manifest: unknown; server: ServerAdapter }> = {
   hello: { manifest: helloManifest, server: hello },
+  // Written against the dependency-free contract types; the SDK's own types accept it.
+  tasks: { manifest: tasksManifest, server: tasks },
 };
 
 /** Directory holding an example adapter's manifest and server module. */
@@ -41,3 +45,4 @@ export function exampleAdapters(): LoadedAdapter[] {
 }
 
 export * as hello from "./hello/server.js";
+export * as tasks from "./tasks/server.js";

@@ -1,10 +1,13 @@
 import {
   contributionSlot,
+  InteractionKind,
   type InteractionResponse,
   type Panel,
+  type ToolViewData,
   type UINode,
   validateContribution,
   validateContributionCard,
+  validateToolView,
   validateUINode,
 } from "@switchyard/protocol";
 import { genericClaim } from "./generic.js";
@@ -15,26 +18,27 @@ import {
   PiUiResponseSchema,
   responseFitsRequest,
 } from "./pi-ui.js";
-import type {
-  AdapterContext,
-  AdapterDiagnostic,
-  AdapterSessionHost,
-  AdapterStateStore,
-  AdapterTier,
-  AnswerMatcher,
-  AnswerSource,
-  Claim,
-  ClaimResponse,
-  CustomMessageInfo,
-  LoadedAdapter,
-  MaybePromise,
-  QueuedStep,
-  ServerAdapter,
-  SessionEntryInfo,
-  ToolEndEvent,
-  ToolInfo,
-  ToolStartEvent,
-  ToolUpdateEvent,
+import {
+  ADAPTER_FEATURES,
+  type AdapterContext,
+  type AdapterDiagnostic,
+  type AdapterSessionHost,
+  type AdapterStateStore,
+  type AdapterTier,
+  type AnswerMatcher,
+  type AnswerSource,
+  type Claim,
+  type ClaimResponse,
+  type CustomMessageInfo,
+  type LoadedAdapter,
+  type MaybePromise,
+  type QueuedStep,
+  type ServerAdapter,
+  type SessionEntryInfo,
+  type ToolEndEvent,
+  type ToolInfo,
+  type ToolStartEvent,
+  type ToolUpdateEvent,
 } from "./types.js";
 
 export const DEFAULT_HOOK_TIMEOUT_MS = 2000;
@@ -76,6 +80,8 @@ export interface ClaimedInteraction {
   /** null for the generic renderer. */
   adapterId: string | null;
   request: PiUiRequest;
+  /** The tool call the dialog belongs to: the claim's owner, or the only running call. */
+  toolCallId?: string;
 }
 
 /** A dialog answered from the user's earlier form (queueAnswers). */
@@ -285,6 +291,20 @@ export class AdapterSession {
     return undefined;
   }
 
+  /** First valid adapter view of the tool call, or undefined (the derived row is used). */
+  async toolView(tool: ToolInfo): Promise<{ adapterId: string; view: ToolViewData } | undefined> {
+    for (const entry of this.enabled("toolView")) {
+      const r = await this.call(entry, "toolView", [tool]);
+      if (!r.ok || r.value === undefined || r.value === null) continue;
+      try {
+        return { adapterId: entry.id, view: validateToolView(r.value) };
+      } catch (err) {
+        this.disable(entry, "toolView", `returned an invalid view: ${errorMessage(err)}`);
+      }
+    }
+    return undefined;
+  }
+
   /** First valid card for a visible custom message; hidden messages never invoke hooks. */
   async customMessageCard(
     message: CustomMessageInfo,
@@ -325,17 +345,27 @@ export class AdapterSession {
           throw new Error("claim.toPiResponse must be a function");
         }
         const presentation = validateUINode(claim.presentation);
+        const kind = InteractionKind.optional().parse(claim.kind);
+        const toolCallId = this.dialogToolCall(claim.ownerToolCallId);
         return {
           kind: "claim",
-          claim: { ...claim, presentation, toPiResponse: claim.toPiResponse.bind(claim) },
+          claim: { ...claim, kind, presentation, toPiResponse: claim.toPiResponse.bind(claim) },
           adapterId: entry.id,
           request: req,
+          ...(toolCallId ? { toolCallId } : {}),
         };
       } catch (err) {
         this.disable(entry, "claimInteraction", `returned an invalid claim: ${errorMessage(err)}`);
       }
     }
-    return { kind: "claim", claim: genericClaim(req), adapterId: null, request: req };
+    const toolCallId = this.dialogToolCall(undefined);
+    return {
+      kind: "claim",
+      claim: genericClaim(req),
+      adapterId: null,
+      request: req,
+      ...(toolCallId ? { toolCallId } : {}),
+    };
   }
 
   /**
@@ -469,6 +499,15 @@ export class AdapterSession {
 
   // -------------------------------------------------------------------------
   // Internals
+
+  /**
+   * The tool call a dialog belongs to. Pi does not say, so without an owner from the claim it
+   * is known only while exactly one call runs; with several in flight it stays unknown.
+   */
+  private dialogToolCall(owner: string | undefined): string | undefined {
+    if (owner !== undefined) return this.activeTools.has(owner) ? owner : undefined;
+    return this.activeTools.size === 1 ? this.latestToolCallId() : undefined;
+  }
 
   private latestToolCallId(): string | undefined {
     let last: string | undefined;
@@ -651,6 +690,7 @@ export class AdapterSession {
       sessionId: this.sessionId,
       adapterId,
       state,
+      features: ADAPTER_FEATURES,
       setPanel: (slot, node, opts) => {
         if (!live()) return;
         const checked = node === null ? null : validateUINode(node);
