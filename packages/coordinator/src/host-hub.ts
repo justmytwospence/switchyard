@@ -16,6 +16,7 @@ import {
   HostToCoordinator,
   type HostToolPolicyContext,
   Interaction,
+  isInputAttentionReason,
   isLiveRuntime,
   newId,
   Panel,
@@ -1007,11 +1008,18 @@ export class HostHub {
         // Adapter `attention(reason, summary)` arrives as an extra `attention` key.
         const att = raw.attention as { reason?: unknown; summary?: unknown } | undefined;
         const sessionId = d.sessionId ?? ev.sessionId ?? null;
-        if (att && typeof att === "object" && sessionId && this.ownedSession(hostId, sessionId)) {
+        const owned =
+          att && typeof att === "object" && sessionId
+            ? this.ownedSession(hostId, sessionId)
+            : undefined;
+        if (att && owned && sessionId) {
           const given = att.reason ?? "needs_input";
-          const reason = AttentionReason.safeParse(given);
+          const parsed = AttentionReason.safeParse(given);
+          const reason = parsed.success ? parsed.data : "unsupported_interaction";
+          // A question from a session whose Pi has stopped cannot be answered.
+          if (isInputAttentionReason(reason) && !isLiveRuntime(owned.runtime)) return;
           this.attention.raise({
-            reason: reason.success ? reason.data : "unsupported_interaction",
+            reason,
             sessionId,
             summary:
               typeof att.summary === "string" && att.summary.trim()
@@ -1169,6 +1177,8 @@ export class HostHub {
     }
     if (existing && JSON.stringify(existing) === JSON.stringify(next)) return;
     this.store.putSession(next);
+    // Its Pi is gone: questions it asked can no longer be answered.
+    if (!isLiveRuntime(next.runtime)) this.attention.endSessionInput(id);
     if (partial.bridge !== undefined) {
       // Recheck the current guard only after the bridge projection is durable.
       this.store.afterCommit(() => this.retryDeferred(hostId));
@@ -1212,6 +1222,25 @@ export class HostHub {
 
   /** Keep `needs_input` / `unsupported_interaction` attention in line with interaction state. */
   reconcileInputAttention(i: Interaction): void {
+    const session = this.store.sessions.get(i.sessionId);
+    // A late report from a session whose Pi has stopped: nothing can answer it any more.
+    if (
+      session &&
+      !isLiveRuntime(session.runtime) &&
+      i.permission?.kind !== "policy" &&
+      (i.state === "pending" || (i.state === "unsupported" && !i.resolution))
+    ) {
+      this.attention.endSessionInput(i.sessionId);
+      return;
+    }
+    if (i.state !== "unsupported") {
+      // Closed (answered, expired, canceled): a terminal-only dialog it was stops waiting too.
+      this.attention.resolve({
+        sessionId: i.sessionId,
+        reason: "unsupported_interaction",
+        interactionId: i.id,
+      });
+    }
     if (i.state === "pending") {
       this.attention.raise({
         reason: "needs_input",

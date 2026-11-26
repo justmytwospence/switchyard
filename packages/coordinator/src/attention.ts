@@ -1,6 +1,7 @@
 import {
   type AttentionItem,
   type AttentionReason,
+  INPUT_ATTENTION_REASONS,
   newId,
   SwitchyardError,
 } from "@switchyard/protocol";
@@ -130,14 +131,60 @@ export class AttentionService {
       const items = this.open(filter).filter(
         (a) => !filter.interactionId || a.interactionId === filter.interactionId,
       );
-      const now = this.store.nowIso();
-      const out: AttentionItem[] = [];
-      for (const a of items) {
-        const resolved = this.store.putAttention({ ...a, resolvedAt: now });
-        out.push(resolved);
-        this.store.afterCommit(() => this.hub.emit("attention.resolved", resolved));
+      return items.map((a) => this.resolveItem(a));
+    });
+  }
+
+  /** Resolve one open item. Call in a transaction. */
+  private resolveItem(a: AttentionItem, patch: Partial<AttentionItem> = {}): AttentionItem {
+    const resolved = this.store.putAttention({ ...a, ...patch, resolvedAt: this.store.nowIso() });
+    this.store.afterCommit(() => this.hub.emit("attention.resolved", resolved));
+    return resolved;
+  }
+
+  /**
+   * A session's Pi stopped: nothing it asked can be answered any more, whatever raised it (Pi, an
+   * adapter, a terminal-only dialog). Expire its open interactions and resolve its input attention.
+   * Hosts expire their own copies too, but hosts one release behind do not for every kind, and the
+   * coordinator owns what the web shows. Joins the caller's transaction.
+   */
+  endSessionInput(
+    sessionId: string,
+    summary = "Pi stopped before this was answered",
+  ): { interactions: number; attention: number } {
+    return this.store.tx(() => {
+      const session = this.store.sessions.get(sessionId);
+      const scope = {
+        ...(session ? { hostId: session.hostId } : {}),
+        ...(session?.projectId ? { projectId: session.projectId } : {}),
+      };
+      const at = this.store.nowIso();
+      const listed = this.store.interactions
+        .list("session_id = ? AND state IN ('pending', 'unsupported')", [sessionId], "created_at")
+        .filter((i) => i.state === "pending" || i.resolution === null);
+      // Policy questions belong to the policy service and may outlive a Pi (continuations).
+      const policy = new Set(
+        listed.filter((i) => i.permission?.kind === "policy").map((i) => i.id),
+      );
+      const open = listed.filter((i) => !policy.has(i.id));
+      for (const i of open) {
+        this.store.putInteraction(
+          {
+            ...i,
+            state: "expired",
+            revision: i.revision + 1,
+            resolution: { by: "coordinator", summary, at },
+          },
+          scope,
+        );
       }
-      return out;
+      const items = this.open({ sessionId }).filter(
+        (a) =>
+          INPUT_ATTENTION_REASONS.includes(a.reason) &&
+          !(a.interactionId && policy.has(a.interactionId)),
+      );
+      for (const a of items) this.resolveItem(a);
+      return { interactions: open.length, attention: items.length };
     });
   }
 

@@ -654,6 +654,16 @@ export const AttentionReason = z.enum([
 ]);
 export type AttentionReason = z.infer<typeof AttentionReason>;
 
+/**
+ * Reasons that mean "Needs input": a question waiting in a live session. They are resolved when
+ * the session's Pi stops; the other reasons keep their own labels.
+ */
+export const INPUT_ATTENTION_REASONS: readonly AttentionReason[] = [
+  "needs_input",
+  "unsupported_interaction",
+];
+export const isInputAttentionReason = (r: AttentionReason) => INPUT_ATTENTION_REASONS.includes(r);
+
 export const AttentionItem = z.object({
   id: Id,
   sessionId: Id.nullable(),
