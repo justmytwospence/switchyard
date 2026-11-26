@@ -1,0 +1,208 @@
+---
+import Shot from "../components/Shot.astro";
+import { GITHUB, INSTALL, NODE, NPM_URL, VERSION } from "../release";
+import "../styles/landing.css";
+
+const title = "Switchyard: Pi coding agents on your machines, reachable from anywhere";
+const description =
+  "Switchyard runs Pi coding agents on your own machines and lets you follow every session from your phone, your browser or your terminal.";
+const canonical = new URL("/", Astro.site);
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta name="color-scheme" content="dark light" />
+    <script is:inline>
+      // Follow a theme picked in the docs (Starlight keeps it in localStorage), else the system.
+      try {
+        const t = localStorage.getItem("starlight-theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="wrap">
+      <nav aria-label="Site">
+        <a class="brand" href="/"><img src="/icon.svg" alt="" width="28" height="28" />switchyard</a>
+        <span class="tag">v{VERSION}</span>
+        <span class="sp"></span>
+        <a class="hide-sm" href="/docs/getting-started/">Docs</a>
+        <a class="hide-sm" href="/docs/model/">Model</a>
+        <a href={GITHUB}>GitHub</a>
+      </nav>
+
+      <main id="main">
+        <header class="hero">
+          <svg class="tracks" viewBox="0 0 1200 520" preserveAspectRatio="none" aria-hidden="true">
+            <g fill="none" stroke-width="2">
+              <path d="M0 470 H520 C640 470 700 330 820 330 H1200" />
+              <path d="M0 470 H520 C640 470 700 410 820 410 H1200" />
+              <path d="M0 470 H1200" />
+            </g>
+          </svg>
+          <p class="kicker">Pi coding agents, on your own machines</p>
+          <h1>Agents where the code is. <em>You</em>, anywhere.</h1>
+          <p class="lede">
+            Switchyard runs <a href="https://github.com/earendil-works/pi">Pi</a> on your laptop, workstation
+            or home server and lets you follow every session from your phone, your browser or your terminal.
+            Answer the question it asks from the train; take over in a terminal when you sit down.
+          </p>
+          <div class="cta">
+            <pre class="term" aria-label="Install"><span class="p" aria-hidden="true">$ </span>{INSTALL}
+<span class="p" aria-hidden="true">$ </span>switchyard up   <span class="c"># http://localhost:7400</span></pre>
+            <a class="btn pri" href="/docs/getting-started/">Get started</a>
+            <a class="btn" href="/docs/model/">How it works</a>
+          </div>
+          <div class="stage">
+            <Shot
+              class="desk"
+              name="sessions"
+              alt="The Sessions page: sessions grouped by project, each with its status and the host it runs on, and a finished session's summary and changes"
+              sizes="(max-width: 1180px) 100vw, 1132px"
+              eager
+            />
+            <Shot
+              class="phone"
+              name="phone-question"
+              alt="A question from the agent shown as a card on a phone, with three options"
+              widths={[240, 360, 520]}
+              sizes="(max-width: 820px) 36vw, 260px"
+              eager
+            />
+          </div>
+        </header>
+
+        <section aria-labelledby="what">
+          <h2 id="what">What it does that nothing else does</h2>
+          <p class="sub">
+            For people who already work with Pi and want their agents to keep going when they walk away from
+            the keyboard.
+          </p>
+          <div class="grid">
+            <article class="cell">
+              <p class="n">01</p>
+              <h3>Your machines, every screen</h3>
+              <p>
+                Hosts run Pi as you, with your repositories, worktrees and logins, and dial out to the
+                coordinator, so they need no open ports. Phone, browser and terminal all show the same live
+                session; closing one never stops the work.
+              </p>
+              <svg class="fan" viewBox="0 0 520 210" role="img" aria-label="Two hosts dial out to the coordinator; a phone, a browser and a terminal look at the same sessions through it.">
+                <g class="rails" fill="none" stroke-width="3">
+                  <path d="M120 55 C190 55 200 105 260 105" />
+                  <path d="M120 155 C190 155 200 105 260 105" />
+                  <path d="M260 105 C320 105 330 40 400 40" />
+                  <path d="M260 105 H400" />
+                  <path d="M260 105 C320 105 330 170 400 170" />
+                </g>
+                <g class="nodes">
+                  <rect x="20" y="38" width="100" height="34" rx="6" /><rect x="20" y="138" width="100" height="34" rx="6" />
+                  <rect x="400" y="23" width="100" height="34" rx="6" /><rect x="400" y="88" width="100" height="34" rx="6" /><rect x="400" y="153" width="100" height="34" rx="6" />
+                  <circle cx="260" cy="105" r="13" />
+                </g>
+                <g class="labels">
+                  <text x="70" y="60">laptop</text><text x="70" y="160">server</text>
+                  <text x="450" y="45">phone</text><text x="450" y="110">browser</text><text x="450" y="175">terminal</text>
+                  <text x="260" y="140">coordinator</text>
+                </g>
+              </svg>
+            </article>
+            <article class="cell">
+              <p class="n">02</p>
+              <h3>Questions become cards</h3>
+              <p>
+                When Pi or a plugin asks, the question shows in every client and as a notification on the device
+                you are using. Answer once, anywhere; the terminal dialog closes by itself.
+              </p>
+              <Shot name="question" alt="A question card in the web app, with the agent's work above it" sizes="(max-width: 820px) 100vw, 520px" />
+            </article>
+            <article class="cell">
+              <p class="n">03</p>
+              <h3>Work before there is a session</h3>
+              <p>
+                Branches, GitHub trackers and a board: issues assigned to you wait in Not started, starting one
+                makes its worktree and session, and the branch follows its pull request to In review and Merged.
+              </p>
+              <Shot name="board" alt="The Board with Not started, Working, In review and Merged columns" sizes="(max-width: 820px) 100vw, 520px" />
+            </article>
+            <article class="cell">
+              <p class="n">04</p>
+              <h3>Terminals are first-class</h3>
+              <p>
+                Sessions run Pi's own TUI: open one from any terminal with <code>switchyard tui</code>. A herdr or tmux
+                session is a terminal: Pi you start there shows up in Switchyard, and you bind it to mirror everything or
+                one view, a tab per active branch.
+              </p>
+              <Shot name="terminal" alt="Pi's own terminal interface for a session, asking the same question" sizes="(max-width: 820px) 100vw, 520px" />
+            </article>
+          </div>
+        </section>
+
+        <section aria-labelledby="fits">
+          <h2 id="fits">How it fits together</h2>
+          <p class="sub">Three questions, kept apart, so a session is the same thing wherever you look at it.</p>
+          <div class="model">
+            <article class="q">
+              <p class="k">What work</p>
+              <h3>Views</h3>
+              <p>A view is a named part of your work: some projects, a tracker's issues, your pins.</p>
+              <ul><li>project › branch › session</li><li>issues from a tracker</li></ul>
+            </article>
+            <article class="q">
+              <p class="k">Where it runs</p>
+              <h3>Hosts</h3>
+              <p>
+                A session runs on a host, in a worktree: as a TUI session Switchyard holds, or in a pane you started it in.
+                The coordinator never runs code.
+              </p>
+              <ul><li>your laptop, your server</li><li>a worktree per branch</li></ul>
+            </article>
+            <article class="q">
+              <p class="k">Where you look</p>
+              <h3>Devices and terminals</h3>
+              <p>
+                The web app and your phone, or a herdr or tmux session: a terminal that mirrors nothing, everything or one
+                view.
+              </p>
+              <ul><li>browser · phone</li><li>herdr · tmux</li></ul>
+            </article>
+          </div>
+          <p class="more"><a href="/docs/model/">Read the model →</a></p>
+        </section>
+
+        <section class="install" aria-labelledby="try">
+          <div>
+            <h2 id="try">Try it on one machine</h2>
+            <p class="sub">
+              Node {NODE} or newer, git and Pi on your PATH. <code>up</code> runs the coordinator and a host in one
+              process and opens a sign-in link.
+            </p>
+            <p><a class="btn pri" href="/docs/getting-started/">Getting started</a></p>
+          </div>
+          <pre class="term" aria-label="Install and start"><span class="p" aria-hidden="true">$ </span>{INSTALL}
+<span class="p" aria-hidden="true">$ </span>switchyard up
+<span class="c"># then add a repository in Settings › Projects</span></pre>
+        </section>
+      </main>
+
+      <footer>
+        <span>MIT licensed</span>
+        <a href="/docs/getting-started/">Docs</a>
+        <a href={GITHUB}>GitHub</a>
+        <a href={NPM_URL}>npm</a>
+        <span>Screenshots are from a seeded demo.</span>
+      </footer>
+    </div>
+  </body>
+</html>
