@@ -131,18 +131,18 @@ const canonical = new URL("/", Astro.site);
               <p class="n">03</p>
               <h3>Work before there is a session</h3>
               <p>
-                Branches, GitHub trackers and a board: issues assigned to you wait in Not started, starting one
+                Branches, GitHub scopes and a board: issues assigned to you wait in Not started, starting one
                 makes its worktree and session, and the branch follows its pull request to In review and Merged.
               </p>
               <Shot name="board" alt="The Board with Not started, Working, In review and Merged columns" sizes="(max-width: 820px) 100vw, 520px" />
             </article>
             <article class="cell">
               <p class="n">04</p>
-              <h3>Terminals are first-class</h3>
+              <h3>The terminal is first-class</h3>
               <p>
                 Sessions run Pi's own TUI: open one from any terminal with <code>switchyard tui</code>. A herdr or tmux
-                session is a terminal: Pi you start there shows up in Switchyard, and you bind it to mirror everything or
-                one view, a tab per active branch.
+                session is a client: Pi you start there shows up in Switchyard, and you bind it to mirror everything or
+                one scope, a tab per active branch.
               </p>
               <Shot name="terminal" alt="Pi's own terminal interface for a session, asking the same question" sizes="(max-width: 820px) 100vw, 520px" />
             </article>
@@ -155,25 +155,24 @@ const canonical = new URL("/", Astro.site);
           <div class="model">
             <article class="q">
               <p class="k">What work</p>
-              <h3>Views</h3>
-              <p>A view is a named part of your work: some projects, a tracker's issues, your pins.</p>
-              <ul><li>project › branch › session</li><li>issues from a tracker</li></ul>
+              <h3>Scopes</h3>
+              <p>A scope is a named part of your work: some projects, or the GitHub issues assigned to you, and your pins.</p>
+              <ul><li>project › branch › session</li><li>issues from GitHub</li></ul>
             </article>
             <article class="q">
               <p class="k">Where it runs</p>
               <h3>Hosts</h3>
               <p>
-                A session runs on a host, in a worktree: as a TUI session Switchyard holds, or in a pane you started it in.
+                A session runs on a host, in a worktree: as a terminal session Switchyard holds, or in a pane you started it in.
                 The coordinator never runs code.
               </p>
               <ul><li>your laptop, your server</li><li>a worktree per branch</li></ul>
             </article>
             <article class="q">
               <p class="k">Where you look</p>
-              <h3>Devices and terminals</h3>
+              <h3>Clients</h3>
               <p>
-                The web app and your phone, or a herdr or tmux session: a terminal that mirrors nothing, everything or one
-                view.
+                The web app and your phone, or a herdr or tmux session that mirrors nothing, everything or one scope.
               </p>
               <ul><li>browser · phone</li><li>herdr · tmux</li></ul>
             </article>
