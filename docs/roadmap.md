@@ -124,6 +124,31 @@ Spencer chose to defer the relay. This is not part of the Phase 4 implementation
 - Slot content from third-party adapters is untrusted: validate it strictly, and never render HTML outside sandboxed iframes.
 - The deferred relay adds a security surface. It requires a separate threat model and explicit approval before implementation.
 
+## Session experience: the 2026-11 review
+
+A review of the session UI against Ovis, Collie, Paseo, T3 Code, opencode, Orca, Omnigent, pi-agent-dashboard and the Claude, Codex, Cursor and Conductor apps (revisions pinned in [sources.md](sources.md)) found one shape they share and Switchyard lacks: the transcript is a quiet document, everything live sits at the composer, and plugins describe what a thing is instead of shipping an opaque card.
+
+Principles:
+
+1. The transcript is a document, not a log.
+2. One thing, one place.
+3. Live and ambient state lives at the composer.
+4. No state moves content.
+5. The phone is a first-class supervision surface: thumb-reachable answers, sheets for detail, one row of composer controls.
+6. Plugins declare meaning, core renders it.
+7. Quiet by default, colour only for state.
+8. Nothing is shown as done without evidence.
+
+Each phase ships and is reviewed on a deployment on its own. A phase is a scope; its file-level plan is written when it starts.
+
+- **S1 Transcript** (in progress, web only). One line per tool call with typed detail; unboxed messages; a turn fold with a sentence summary; Tool activity Detailed / Normal / Summary.
+- **S2 Request dock and composer** (web, plus one optional field on `Interaction`). A pending question, approval or plan answer is docked above the input, not in the transcript; the transcript keeps one outcome line where it happened. The host sets `Interaction.toolCallId` and the web hides that tool row. Options are flat rows with number keycaps, multi-question forms get step chips, and a plan keeps its reader in the transcript column and its answers in the dock. The "Needs input" strip goes. The input is one card with one row: a `+` menu (images, camera, commands), mic, a model and effort pill, a context ring that opens context, tokens, cost, subscription usage and Compact, and one round primary button (Send when idle, Stop when running with an empty draft, Send with a small Stop beside it when running with a draft). A per-device setting chooses what Send does while Pi works (Queue, the default, or Steer); Cmd/Ctrl+Enter or a long press does the other. Queued messages are listed above the input with Edit queue. A suggested next message is a chip at the input. A tracker bar above the input holds a built-in Changes pill and the adapters' pills at a reserved height. The header becomes one row. On a phone the tab strip goes: chat fills the screen, a header button with the changed-file count opens Changes, PR and Details in a sheet, and Terminal opens from the overflow menu. Site screenshots are regenerated here.
+- **S3 Adapter contract v2** (protocol, adapter-sdk, host-agent, coordinator, web). The S1 tool view moves to `@switchyard/protocol`; the host attaches it to tool items using Pi's result `details` (real edit diffs, exit codes); adapters get `toolView(tool, ctx)` returning kind, verbs, target, counts, an optional detail node and `hide`, and `toolCard` stays as the legacy form. New nodes `checklist`, `facts`, `rows`, `badge`, `section.open`, and a `url` ref. New placements `composer.tracker` (label, count, status, current step, detail node) and `session.badge` (a short text on the navigator row); `composer.pill` stays as an alias. `Interaction.kind`. Client capabilities `tool.views.v1`, `ui.nodes.v2` and `adapter.trackers.v1`, with the coordinator downgrading for older clients as it does for slots and cards today. Unclaimed statuses become one Status tracker instead of a panel.
+- **S4 pi-plugins adapters on v2** (pi-plugins). ask-user-question: a dock form with step chips, the tool row hidden, an outcome line. tool-gate: an approval as facts plus the command, structured from a plugin-published entry instead of title parsing, and a mode tracker. plan-mode: the reader plus dock answers, and a Plan tracker. todo: a checklist tracker (`Todo 2/5 · current step`) and grouped update rows. subagents and bg: trackers with rows (name, status, elapsed, open link), verbs for their tools, and structured job data instead of status-text parsing. Small tool-view adapters for next-prompt, issues, ship, herdr and system1.
+- **S5 Navigator and attention** (web). Row anatomy: status mark, title, last-activity preview, time, adapter badges; Extensions diagnostics move under Details.
+
+Ownership ([plugin-boundaries.md](plugin-boundaries.md)): Pi and plugins stay the authority for workflows; tool views, trackers and badges are presentation derived by the host or an adapter and cached by the coordinator. With an adapter absent or failed, core shows the generic row (tool name, first argument, arguments and output), generic dialogs in the dock and unclaimed statuses in the Status tracker; nothing is answered automatically. Web and coordinator never branch on a plugin or adapter id; verbs exist only for Pi's own built-in tools.
+
 ## Deferred and not planned
 
 - Server-side speech recognition: dictation stays on the browser's Web Speech API.
