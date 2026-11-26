@@ -11,7 +11,7 @@ import {
   spaceLabel,
   tabLabel,
 } from "../src/herdr/mirror.js";
-import { viewedSessions, wantedSessions } from "../src/mirror/state.js";
+import { paneSession, viewedSessions, wantedSessions } from "../src/mirror/state.js";
 import { session } from "./herdr-fixtures.js";
 
 const NOW = Date.parse("2026-11-03T00:00:00Z");
@@ -535,11 +535,25 @@ describe("one tab per active branch", () => {
   });
 
   it("opens no tab for a session whose Pi last ran by hand in this terminal", () => {
-    const st = state({
-      sessions: [session("ses_1", { runtime: "stopped", external: { client: "herdr:a@m" } })],
-    });
+    const place = { terminalId: "herdr:a@m", pane: "w1:p2" };
+    const st = state({ sessions: [session("ses_1", { runtime: "stopped", place })] });
     expect(wantedSessions(st, null, NOW, "herdr:a@m")).toEqual([]);
     expect(wantedSessions(st, null, NOW, "herdr:b@m").map((s) => s.id)).toEqual(["ses_1"]);
+    // An older host reports only `external` while it runs.
+    const old = state({
+      sessions: [session("ses_1", { runtime: "stopped", external: { client: "herdr:a@m" } })],
+    });
+    expect(wantedSessions(old, null, NOW, "herdr:a@m")).toEqual([]);
+  });
+
+  it("finds the hand-started Pi in a focused pane", () => {
+    const place = { terminalId: "herdr:a@m", pane: "w1:p2" };
+    const external = { client: "herdr:a@m" };
+    const st = state({ sessions: [session("ses_1", { terminal: false, external, place })] });
+    expect(paneSession(st, "herdr:a@m", "w1:p2")).toBe("ses_1");
+    expect(paneSession(st, "herdr:a@m", "w1:p3")).toBeNull();
+    const stopped = state({ sessions: [session("ses_1", { runtime: "stopped", place })] });
+    expect(paneSession(stopped, "herdr:a@m", "w1:p2")).toBeNull();
   });
 
   it("closes a tab it opened once the branch is inactive; a tab you opened or are in stays", () => {

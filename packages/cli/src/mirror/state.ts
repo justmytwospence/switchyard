@@ -108,9 +108,25 @@ export function viewedSessions(st: MirrorState, view: View | null): Session[] {
 /** A stopped session counts as active for this long after its last activity. */
 export const RECENT_MS = 48 * 60 * 60_000;
 
-/** The terminal a session's Pi runs in by hand (an own pane), if any. */
-export function placedIn(s: Pick<Session, "external">): string | null {
-  return s.external?.client ?? null;
+/** The terminal a session's Pi runs, or last ran, in by hand (an own pane), if any. */
+export function placedIn(s: Pick<Session, "external" | "place">): string | null {
+  return s.place?.terminalId ?? s.external?.client ?? null;
+}
+
+/** The live session whose Pi runs by hand in this terminal's `pane`, if any. */
+export function paneSession(
+  st: Pick<MirrorState, "sessions">,
+  terminalId: string,
+  pane: string,
+): string | null {
+  const s = st.sessions.find(
+    (x) =>
+      x.archivedAt === null &&
+      x.external?.client === terminalId &&
+      x.place?.pane === pane &&
+      LIVE_RUNTIMES.includes(x.runtime),
+  );
+  return s?.id ?? null;
 }
 
 /**

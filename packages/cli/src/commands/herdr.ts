@@ -24,7 +24,7 @@ import {
 } from "../herdr/util.js";
 import { pickerBinding, syncTerminal, terminalId } from "../mirror/binding.js";
 import { herdrClientAttached, startFocusPresence } from "../mirror/focus.js";
-import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
+import { loadMirrorState, mirrorStateOf, paneSession } from "../mirror/state.js";
 import type { Env } from "../paths.js";
 import { bindingFromFlags, mirrorText, recordBinding } from "./terminals.js";
 
@@ -159,7 +159,8 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
       if (!herdrClientAttached(await psLines(), name)) return null;
       const snap = (await call("session.snapshot", {}))?.snapshot ?? {};
       const pane = (snap.panes ?? []).find((p: any) => p.pane_id === snap.focused_pane_id);
-      return pane ? claimedSession(pane) : null;
+      if (!pane) return null;
+      return claimedSession(pane) ?? paneSession(mirrorStateOf(client), id, pane.pane_id);
     },
     log,
   });

@@ -185,6 +185,8 @@ export interface HostSessionRecord {
   terminal?: { socketPath: string } | null;
   /** A Pi the user started and enrolled (its socket is the extension's, not a holder's). */
   external?: { client: string | null } | null;
+  /** Where this Pi last ran by hand: kept after it stops, cleared when Switchyard starts it. */
+  place?: { terminalId: string; pane: string | null } | null;
   /** Dispatch whose launch prompt this session was sent; a retry dispatch with another key sends its own. */
   promptedDispatchKey?: string | null;
   /** When the session last left a live runtime (pruning age). */
@@ -1146,6 +1148,7 @@ export class SessionSupervisor {
     rec.runtimeDetail = "Attaching to your terminal…";
     rec.terminal = { socketPath };
     rec.external = { client: meta.client };
+    rec.place = meta.client ? { terminalId: meta.client, pane: meta.pane ?? null } : null;
     rec.endedAt = null;
     rec.lastActivityAt = now;
     this.records.set(rec.id, rec);
@@ -1195,6 +1198,7 @@ export class SessionSupervisor {
       createdAt: rec.createdAt,
       terminal: rec.terminal != null && !rec.external,
       external: rec.external ?? null,
+      place: rec.place ?? null,
       ...(rec.bridge ? { bridge: rec.bridge } : {}),
       ...(rec.adapterGeneration ? { adapterGeneration: rec.adapterGeneration } : {}),
     };
@@ -1438,6 +1442,7 @@ export class SessionSupervisor {
       );
       const socketPath = ms.terminalSocket;
       rec.terminal = socketPath ? { socketPath } : null;
+      rec.place = null;
       this.db.tx(() => this.saveAndEmit(rec));
     } catch (err) {
       if (ms.process) this.spawned++;

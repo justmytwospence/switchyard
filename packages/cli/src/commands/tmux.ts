@@ -7,7 +7,7 @@ import { CliError, type ConnectionFlags, localHostId } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
 import { pickerBinding, syncTerminal, terminalId } from "../mirror/binding.js";
 import { startFocusPresence } from "../mirror/focus.js";
-import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
+import { loadMirrorState, mirrorStateOf, paneSession } from "../mirror/state.js";
 import { tmuxControl, tmuxRun, tmuxSessionName, tmuxTarget } from "../tmux/client.js";
 import { TmuxDaemon } from "../tmux/daemon.js";
 import { WINDOW_OPTION } from "../tmux/mirror.js";
@@ -178,10 +178,11 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
         "-t",
         // A pane target: `=name` alone names no pane here.
         session.startsWith("$") ? session : `${tmuxTarget(session)}:`,
-        `#{session_attached}\t#{${WINDOW_OPTION}}`,
+        `#{session_attached}\t#{pane_id}\t#{${WINDOW_OPTION}}`,
       ]);
-      const [attached, sid] = out.trim().split("\t");
-      return Number(attached) > 0 && sid ? sid : null;
+      const [attached, pane, sid] = out.trim().split("\t");
+      if (!(Number(attached) > 0)) return null;
+      return sid || (pane ? paneSession(mirrorStateOf(client), id, pane) : null);
     },
     log,
   });
