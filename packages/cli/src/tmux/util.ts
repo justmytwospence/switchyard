@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { stableNodePath } from "../commands/service.js";
 import { CliError } from "../config.js";
 import type { Env } from "../paths.js";
 
@@ -22,13 +23,18 @@ export function stableTmuxLauncherPath(env: Env = process.env): string {
 }
 
 /** Write `<stateRoot>/switchyard-tmux`, which runs the plugin's launcher. */
-export function writeStableTmuxLauncher(stateRoot: string, pluginRoot: string): string {
+export function writeStableTmuxLauncher(
+  stateRoot: string,
+  pluginRoot: string,
+  execPath = process.execPath,
+): string {
   if (pluginRoot.includes("'") || stateRoot.includes("'")) {
     throw new CliError("Plugin path contains an apostrophe");
   }
   mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
   const path = join(stateRoot, "switchyard-tmux");
-  const nodeDir = dirname(process.execPath);
+  // Not Homebrew's versioned Cellar directory: it is gone after the next `brew upgrade node`.
+  const nodeDir = dirname(stableNodePath(execPath));
   if (nodeDir.includes("'")) throw new CliError("Node path contains an apostrophe");
   writeFileSync(
     path,
