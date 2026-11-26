@@ -137,6 +137,8 @@ export interface EnrollmentRow {
 
 export interface PresenceRow {
   deviceId: string;
+  /** The terminal a daemon reports for, under its device; absent for the device itself. */
+  terminalId?: string | null;
   foregroundUntil: string | null;
   interactedAt: string | null;
   viewingSessionId: string | null;
@@ -1089,14 +1091,22 @@ export class Store {
   upsertPresence(p: PresenceRow): void {
     this.st
       .get(
-        "INSERT INTO presence (device_id, foreground_until, interacted_at, viewing_session_id, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET foreground_until = excluded.foreground_until, interacted_at = excluded.interacted_at, viewing_session_id = excluded.viewing_session_id, updated_at = excluded.updated_at",
+        "INSERT INTO presence (device_id, terminal_id, foreground_until, interacted_at, viewing_session_id, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(device_id, terminal_id) DO UPDATE SET foreground_until = excluded.foreground_until, interacted_at = excluded.interacted_at, viewing_session_id = excluded.viewing_session_id, updated_at = excluded.updated_at",
       )
-      .run(p.deviceId, p.foregroundUntil, p.interactedAt, p.viewingSessionId, p.updatedAt);
+      .run(
+        p.deviceId,
+        p.terminalId ?? "",
+        p.foregroundUntil,
+        p.interactedAt,
+        p.viewingSessionId,
+        p.updatedAt,
+      );
   }
 
   private presenceFromRow(r: Record<string, unknown>): PresenceRow {
     return {
       deviceId: r.device_id as string,
+      terminalId: (r.terminal_id as string) || null,
       foregroundUntil: (r.foreground_until as string | null) ?? null,
       interactedAt: (r.interacted_at as string | null) ?? null,
       viewingSessionId: (r.viewing_session_id as string | null) ?? null,
@@ -1105,9 +1115,9 @@ export class Store {
   }
 
   getPresence(deviceId: string): PresenceRow | undefined {
-    const r = this.st.get("SELECT * FROM presence WHERE device_id = ?").get(deviceId) as
-      | Record<string, unknown>
-      | undefined;
+    const r = this.st
+      .get("SELECT * FROM presence WHERE device_id = ? AND terminal_id = ''")
+      .get(deviceId) as Record<string, unknown> | undefined;
     return r ? this.presenceFromRow(r) : undefined;
   }
 

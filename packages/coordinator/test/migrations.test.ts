@@ -20,6 +20,21 @@ function dbAt(version: number): Db {
 }
 
 describe("coordinator migrations", () => {
+  it("022 keys presence by device and terminal", () => {
+    const db = dbAt(21);
+    db.prepare(
+      "INSERT INTO presence (device_id, foreground_until, interacted_at, viewing_session_id, updated_at) VALUES (?, ?, ?, ?, ?)",
+    ).run("dev_1", null, null, null, "2026");
+    migrate(db);
+    const put = db.prepare(
+      "INSERT INTO presence (device_id, terminal_id, updated_at) VALUES (?, ?, ?)",
+    );
+    put.run("dev_1", "", "2026");
+    put.run("dev_1", "herdr:a@m", "2026");
+    expect(() => put.run("dev_1", "herdr:a@m", "2026")).toThrow();
+    db.close();
+  });
+
   it("021 turns surfaces into terminals with a recorded binding", () => {
     const db = dbAt(20);
     const put = db.prepare(
