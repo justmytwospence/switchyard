@@ -105,6 +105,24 @@ describe("host-reported attention and workspace removal", () => {
     expect(h.t.c.attention.open({ sessionId: "ses_e" })).toEqual([]);
   });
 
+  it("dismisses an item by resolving it", async () => {
+    h = await setupHarness();
+    await h.host.event("session.updated", hostSession("ses_x", { cwd: ROOT }));
+    await h.host.event("diagnostic", {
+      sessionId: "ses_x",
+      adapterId: "x",
+      level: "info",
+      message: "m",
+      attention: { reason: "ready_for_review", summary: "Look" },
+    });
+    const [a] = h.t.c.attention.open({ sessionId: "ses_x" });
+    const r = await h.t.admin("POST", `/api/attention/${a!.id}/dismiss`);
+    expect(r.status).toBe(200);
+    expect(r.body.resolvedAt).not.toBeNull();
+    expect(r.body.acknowledgedAt).not.toBeNull();
+    expect(h.t.c.attention.open({ sessionId: "ses_x" })).toEqual([]);
+  });
+
   it("accepts the legacy workspace.removed name", async () => {
     h = await setupHarness();
     const main = h.t.c.store.workspaceByPath(h.creds.hostId, ROOT)!;

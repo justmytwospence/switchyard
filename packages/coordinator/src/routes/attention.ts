@@ -38,4 +38,9 @@ export function registerAttentionRoutes(app: FastifyInstance, ctx: CoordinatorCo
   app.post("/api/attention/:id/acknowledge", async (req) =>
     ctx.attention.acknowledge((req.params as { id: string }).id),
   );
+
+  // Resolve by hand: the item stops flagging its session (a question still pending stays).
+  app.post("/api/attention/:id/dismiss", async (req) =>
+    ctx.attention.dismiss((req.params as { id: string }).id),
+  );
 }
