@@ -231,17 +231,21 @@ export function ViewsDialog({
                   />
                 ))}
               </fieldset>
-              <fieldset className="flex flex-col gap-1">
-                <legend className="text-sm font-medium">Hosts (none checked: any)</legend>
-                {hosts.map((h) => (
-                  <Checkbox
-                    key={h.id}
-                    label={h.name}
-                    checked={hostIds.includes(h.id)}
-                    onChange={(on) => setHostIds(toggle(hostIds, h.id, on))}
-                  />
-                ))}
-              </fieldset>
+              {/* Where sessions run is the navigator's Where filter; only views that already
+                  limit hosts keep this, so they can be changed or cleared. */}
+              {!!view?.hostIds?.length && (
+                <fieldset className="flex flex-col gap-1">
+                  <legend className="text-sm font-medium">Hosts (none checked: any)</legend>
+                  {hosts.map((h) => (
+                    <Checkbox
+                      key={h.id}
+                      label={h.name}
+                      checked={hostIds.includes(h.id)}
+                      onChange={(on) => setHostIds(toggle(hostIds, h.id, on))}
+                    />
+                  ))}
+                </fieldset>
+              )}
             </>
           )}
           {error !== null && !nameError && (
