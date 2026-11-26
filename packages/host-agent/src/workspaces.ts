@@ -48,7 +48,7 @@ export class WorkspaceService {
     this.emitUpdate(wt.path, { branch: wt.branch, baseBranch: wt.baseBranch, setup: initial });
     // Status is not needed to start a session: it follows as an update.
     void worktreeStatus(wt.path, wt.baseBranch).then(
-      (git) => this.emitUpdate(wt.path, { git }),
+      (git) => this.emitLate(wt.path, { git }),
       () => {},
     );
     let setupDone: Promise<SetupState> = Promise.resolve(initial);
@@ -57,7 +57,7 @@ export class WorkspaceService {
         env: { ...process.env, ...(this.opts.env ?? {}) } as NodeJS.ProcessEnv,
       }).then(
         (final) => {
-          this.emitUpdate(wt.path, { setup: final });
+          this.emitLate(wt.path, { setup: final });
           return final;
         },
         (err: unknown) => {
@@ -65,7 +65,7 @@ export class WorkspaceService {
             state: "failed",
             log: `Setup could not run: ${(err as Error).message}`,
           };
-          this.emitUpdate(wt.path, { setup: failed });
+          this.emitLate(wt.path, { setup: failed });
           return failed;
         },
       );
@@ -100,6 +100,19 @@ export class WorkspaceService {
       this.opts.link.emit({ type: "workspace.deleted", data: { id: path, path } }),
     );
     return { ok: true, path };
+  }
+
+  /**
+   * An update from work that outlives the request (git status, the setup command). The host may
+   * have stopped meanwhile: with its database closed there is nowhere to record the update, and
+   * throwing from a promise callback would take the process down.
+   */
+  private emitLate(path: string, patch: Record<string, unknown>): void {
+    if (!this.opts.db.isOpen) {
+      this.opts.log.debug({ path }, "workspace update after shutdown dropped");
+      return;
+    }
+    this.emitUpdate(path, patch);
   }
 
   /** Durable partial workspace update keyed by path (the coordinator merges it). */

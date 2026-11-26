@@ -146,6 +146,11 @@ export class HostDb {
     return this.all<{ json: string }>(sql, params).map((r) => JSON.parse(r.json) as T);
   }
 
+  /** False once `close()` ran: work that finishes after shutdown has nowhere to write. */
+  get isOpen(): boolean {
+    return this.db.isOpen;
+  }
+
   close(): void {
     try {
       this.db.close();
