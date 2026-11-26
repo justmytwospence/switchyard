@@ -4,11 +4,15 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { InlineError } from "../../components/ui/states";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { formatRelative } from "../../lib/time";
 import { apiGet, apiPost, errorMessage, isApiError } from "../../sync/api";
 
-/** Repositories used with Pi recently on a host, to add as projects in one step. */
+/**
+ * Repositories used with Pi recently on a host, to add as projects in one step. `compact` (the
+ * narrow Sessions navigator) is one line linking to Settings > Projects, where the full list is.
+ */
 export function ProjectSuggestions({ host, compact }: { host: Host; compact?: boolean }) {
   const [items, setItems] = useState<ProjectSuggestionsResponse["suggestions"] | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -41,6 +45,23 @@ export function ProjectSuggestions({ host, compact }: { host: Host; compact?: bo
     return error ? <InlineError error={error} /> : null;
   }
 
+  if (compact) {
+    return (
+      <p
+        data-testid="project-suggestions-line"
+        className="flex flex-wrap items-baseline justify-center gap-x-1.5 px-2 pb-3 text-center text-xs text-muted"
+      >
+        <span>
+          {items.length} {items.length === 1 ? "repository" : "repositories"} found in your Pi
+          history
+        </span>
+        <TextLink to="/settings/projects" size="xs" variant="action">
+          Review
+        </TextLink>
+      </p>
+    );
+  }
+
   const add = async () => {
     setBusy(true);
     let added = 0;
@@ -66,7 +87,6 @@ export function ProjectSuggestions({ host, compact }: { host: Host; compact?: bo
       testId="project-suggestions"
       title="Suggested from your Pi history"
       description={`Repositories you used with Pi in the last 30 days on ${host.name}.`}
-      className={compact ? "mb-3" : undefined}
       actions={
         <Button
           variant="primary"
@@ -85,7 +105,7 @@ export function ProjectSuggestions({ host, compact }: { host: Host; compact?: bo
             <Checkbox
               label={s.name}
               description={
-                <span className="font-mono text-xs text-muted">
+                <span className="font-mono text-xs break-all text-muted">
                   {s.rootPath} · {s.sessionCount} session{s.sessionCount === 1 ? "" : "s"} · last{" "}
                   {formatRelative(s.lastActivityAt)}
                 </span>
