@@ -85,4 +85,12 @@ describe("attention", () => {
     );
     expect([...set].sort()).toEqual(["ses_1", "ses_2", "ses_4"]);
   });
+
+  it("flags only questions: other reasons keep their own labels", () => {
+    const review = attention("review", { sessionId: "ses_5", reason: "ready_for_review" });
+    const failed = attention("failed", { sessionId: "ses_6", reason: "failed" });
+    const dialog = attention("dialog", { sessionId: "ses_7", reason: "unsupported_interaction" });
+    const set = sessionsNeedingAttention({ review, failed, dialog }, {});
+    expect([...set]).toEqual(["ses_7"]);
+  });
 });

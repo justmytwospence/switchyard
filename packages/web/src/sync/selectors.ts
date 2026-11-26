@@ -1,4 +1,9 @@
-import type { AttentionItem, Interaction, Session } from "@switchyard/protocol";
+import {
+  type AttentionItem,
+  type Interaction,
+  isInputAttentionReason,
+  type Session,
+} from "@switchyard/protocol";
 
 type Runtime = Session["runtime"];
 
@@ -54,14 +59,19 @@ export const isUnacknowledgedAttention = (
   a: Pick<AttentionItem, "resolvedAt" | "acknowledgedAt">,
 ) => !a.resolvedAt && !a.acknowledgedAt;
 
-/** Session ids flagged "Needs input": open attention (acknowledged included) or a pending interaction. */
+/**
+ * Session ids flagged "Needs input": a question that can still be answered, i.e. open input
+ * attention (acknowledged included; dismissing resolves it) or a pending interaction. Other
+ * reasons (failed, ready for review) keep their own labels and do not flag a session. The
+ * coordinator resolves input attention when a session's Pi stops.
+ */
 export function sessionsNeedingAttention(
   attention: Record<string, AttentionItem>,
   interactions: Record<string, Interaction>,
 ): Set<string> {
   const out = new Set<string>();
   for (const a of Object.values(attention)) {
-    if (a.sessionId && isOpenAttention(a)) out.add(a.sessionId);
+    if (a.sessionId && isOpenAttention(a) && isInputAttentionReason(a.reason)) out.add(a.sessionId);
   }
   for (const i of Object.values(interactions)) if (isPendingInteraction(i)) out.add(i.sessionId);
   return out;
