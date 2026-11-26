@@ -37,8 +37,8 @@ Trackers use the host's `gh` login, like the rest of the [GitHub integration](gi
 2. Create a tracker in Settings > Trackers, or with the CLI:
 
    ```sh
-   switchyard trackers create fieldgoal --host mac --owner fieldgoalco
-   switchyard trackers create vo --host mac --owner VO-Health \
+   switchyard trackers create work --host laptop --owner acme
+   switchyard trackers create clients --host laptop --owner acme-clients \
      --board 3 --on-start "In progress" --on-review "In review" --write-back
    ```
 
@@ -50,7 +50,7 @@ Trackers use the host's `gh` login, like the rest of the [GitHub integration](gi
 For a personal board where issues are triaged by column and not assigned, follow the board instead of your assignments:
 
 ```sh
-switchyard trackers create personal --host nuc --owner justmytwospence \
+switchyard trackers create personal --host server --owner your-login \
   --board 4 --follow board --backlog Backlog --priority-field Priority \
   --on-start "In progress" --on-review "In review" --write-back
 ```
@@ -63,7 +63,7 @@ switchyard trackers create personal --host nuc --owner justmytwospence \
 
 ### In the web app
 
-Settings > Trackers shows each tracker as a card: its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, its issue count, and links that open its view on Sessions or the Board. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** and **Delete** change or remove it (its issues are removed, its view stays as an ordinary view). The view selector on Sessions and the Board marks a tracker's view, such as `fieldgoal · GitHub`. Edit has "Repositories of other owners", the same as `--also`.
+Settings > Trackers shows each tracker as a card: its owner and repositories, the signed-in GitHub user, the host, the board and how it moves cards, the last sync and any error, its issue count, and links that open its view on Sessions or the Board. Under Projects it lists the projects it covers, each with the two worktree switches. **Sync now** syncs at once; **Edit** and **Delete** change or remove it (its issues are removed, its view stays as an ordinary view). The view selector on Sessions and the Board marks a tracker's view, such as `work · GitHub`. Edit has "Repositories of other owners", the same as `--also`.
 
 A tracker keeps a view of its own name pointed at the projects in its owner and its other repositories (an existing view of that name is adopted). Its project list is the tracker's; hosts and pins stay editable. The view holds the sessions on branches linked to the tracker's issues, in any state, plus any session in its repositories that is live right now; a stopped session with no issue is not in it. With that view selected, the Board can show the Projects board's own columns instead of stages. A herdr or tmux session bound to the view mirrors the same sessions: a stopped session with no issue leaves it. Bind a herdr session to it with `switchyard herdr pair --session <name> --view <name>`.
 

@@ -4,7 +4,7 @@ This roadmap tracks the 2026 competitor review (Paseo, Orca, Omnigent, Ovis, Col
 
 Each phase below is a scope, not an implementation plan. Before a phase starts, write a detailed plan against the code as it stands then, and check each assumption here against that code. Feature placement and failure behavior follow the [core/plugin ownership contract](plugin-boundaries.md).
 
-Each phase is reviewed on https://dev.switchyard.spencerboucher.com before promotion of `dev` to `main` with `scripts/promote.sh`; production releases use a version tag (see [development.md](development.md)).
+Each phase is reviewed on the dev deployment before promotion of `dev` to `main` with `scripts/promote.sh`; production releases use a version tag (see [development.md](development.md)).
 
 ## Evolving Pi plugins: v0.14.0
 

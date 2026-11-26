@@ -20,13 +20,13 @@ Nothing, until you choose. Every herdr session where the plugin runs and the CLI
 ```sh
 switchyard terminals list
 switchyard terminals bind herdr:default --all         # every session
-switchyard terminals bind herdr:vo --view vo          # one view (by id: renaming the view keeps it)
+switchyard terminals bind herdr:work --view work      # one view (by id: renaming the view keeps it)
 switchyard terminals bind herdr:scratch --none        # nothing
 ```
 
 or in the web app under Settings > Terminals. A herdr session named like a view mirrors nothing until you bind it. A mirror opens a tab for each branch's primary while the branch is active: live or waiting for input, unread, or active in the last 48 hours. So "everything" stays usable with hundreds of stopped sessions. A tab the mirror opened closes once its branch goes inactive, unless you are in it.
 
-Several terminals can mirror the same view, herdr and tmux alike. Work in one herdr session for everything, keep a herdr session per view (for example `fieldgoal` and `vo`), or do both.
+Several terminals can mirror the same view, herdr and tmux alike. Work in one herdr session for everything, keep a herdr session per view (for example one per team or client), or do both.
 
 ## What you can do in a mirroring session
 
