@@ -1,0 +1,75 @@
+name: site
+# The public site (site/): built and checked on every change to it or to the docs it renders,
+# deployed to Cloudflare Pages on push. main (what is released) is production; every other
+# branch, dev included, gets a preview at <branch>.switchyard-site.pages.dev. Separate from ci.yml,
+# so the site never blocks the product.
+on:
+  push:
+    paths:
+      - site/**
+      - docs/**
+      - integrations/*/README.md
+      - package.json
+      - scripts/build-npm.mjs
+      - .github/workflows/site.yml
+  pull_request:
+    paths:
+      - site/**
+      - docs/**
+      - integrations/*/README.md
+      - package.json
+      - scripts/build-npm.mjs
+      - .github/workflows/site.yml
+  workflow_dispatch:
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: site/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # Chromium renders the Mermaid diagrams at build time and runs the accessibility check.
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm build
+      - run: pnpm check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site/dist
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: dist
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; not deploying."
+            exit 0
+          fi
+          npx --yes wrangler@4 pages deploy dist --project-name switchyard-site --branch "$BRANCH" --commit-hash "$GITHUB_SHA"
