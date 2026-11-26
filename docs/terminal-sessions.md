@@ -40,7 +40,7 @@ echo "export { default } from \"$(switchyard host pi-extension)\";" > ~/.pi/agen
 
 An interactive Pi with a terminal then enrols with the host agent on that machine (the one whose state directory is `SWITCHYARD_STATE_DIR` or the default; set `SWITCHYARD_ENROLL_STATE_DIR` to pick another, such as a dev agent's). Within a few seconds it is a live session in the workspace containing its working directory. If that directory is in a worktree Switchyard has not seen yet, it rescans the checkout and moves the session to that worktree. Pi that Switchyard starts, print and RPC runs, `--no-session` and `SWITCHYARD_ENROLL=0` never enrol, and without a host agent nothing happens. In a Pi that Switchyard starts, only the copy its holder loads (`SWITCHYARD_TERMINAL_EXTENSION`) runs, so a global shim of another version stays out of the way.
 
-In the web app, the Where selector on Sessions lists the herdr session such a Pi runs in, so you can see just what is open there.
+In the web app, such a Pi's row on Sessions names the herdr session it runs in, and the Where layout groups sessions by it; "Only this" on that terminal's header shows just what is open there.
 
 The terminal stays yours:
 
