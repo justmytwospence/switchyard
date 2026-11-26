@@ -1,4 +1,4 @@
-import type { Checkout, Host, Project, Workspace } from "@switchyard/protocol";
+import type { Checkout, Host, Project, View, Workspace } from "@switchyard/protocol";
 import { describe, expect, it } from "vitest";
 import {
   agentState,
@@ -11,7 +11,7 @@ import {
   spaceLabel,
   tabLabel,
 } from "../src/herdr/mirror.js";
-import { viewedSessions } from "../src/mirror/state.js";
+import { viewedSessions, wantedSessions } from "../src/mirror/state.js";
 import { session } from "./herdr-fixtures.js";
 
 const NOW = Date.parse("2026-11-03T00:00:00Z");
@@ -106,7 +106,8 @@ describe("planMirror", () => {
   });
 
   it("adds tabs to a space, unless a typed command is still pending", () => {
-    const st = state({ sessions: [session("ses_1"), session("ses_2")] });
+    // ses_1 is an extra opened by hand; its branch's primary ses_2 gets a tab next to it.
+    const st = state({ sessions: [session("ses_1"), session("ses_2", { primary: true })] });
     const h = herdr({
       workspaces: [{ workspace_id: "w1", label: "switchyard", number: 1 }],
       tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Title ses_1" }],
@@ -424,7 +425,7 @@ describe("claims", () => {
     const st = state({
       sessions: [
         session("ses_1"),
-        session("ses_2", { createdAt: new Date(NOW - 1000).toISOString() }),
+        session("ses_2", { createdAt: new Date(NOW - 1000).toISOString(), primary: true }),
       ],
     });
     const h = herdr({
@@ -461,14 +462,14 @@ describe("terminals", () => {
       ] as Host[],
       sessions: [
         session("ses_1", { hostId: "hst_nuc", workspaceId: "wsp_other", projectId: "prj_29" }),
-        session("ses_2", { terminal: false }),
-        session("ses_3", { runtime: "stopped", terminal: undefined }),
+        session("ses_2", { terminal: false, workspaceId: "wsp_other", projectId: "prj_29" }),
+        session("ses_3", { runtime: "stopped", terminal: undefined, workspaceId: "wsp_feat" }),
         session("ses_4", { runtime: "starting", terminal: undefined }),
       ],
     });
     expect(mirroredSessions(st).map((s) => s.id)).toEqual(["ses_3", "ses_4"]);
     const plan = planMirror(st, herdr(), emptyMemory(), NOW);
-    expect(plan.createSpaces.map((c) => c.firstSessionId)).toEqual(["ses_3"]);
+    expect(plan.createSpaces.map((c) => c.firstSessionId)).toEqual(["ses_3", "ses_4"]);
   });
 });
 
@@ -486,5 +487,90 @@ describe("labels", () => {
     expect(spaceLabel("wsp_feat", two)).toBe("switchyard · feat · mac");
     expect(agentState("starting")).toBe("working");
     expect(agentState("stopped")).toBe("idle");
+  });
+});
+
+describe("one tab per active branch", () => {
+  const DAY = 24 * 60 * 60_000;
+  const ago = (ms: number) => new Date(NOW - ms).toISOString();
+  const feat = { workspaceId: "wsp_feat", cwd: "/repo/.worktrees/feat" };
+
+  it("opens only each branch's primary, and only while the branch is active", () => {
+    const st = state({
+      sessions: [
+        session("ses_1", { runtime: "stopped", lastActivityAt: ago(DAY) }),
+        session("ses_2", { runtime: "stopped", lastActivityAt: ago(DAY / 2) }),
+        session("ses_3", { ...feat, runtime: "stopped", lastActivityAt: ago(3 * DAY) }),
+      ],
+    });
+    // ses_2 is wsp_main's primary (most recently active); feat stopped three days ago.
+    expect(wantedSessions(st, null, NOW).map((s) => s.id)).toEqual(["ses_2"]);
+    const unread = state({
+      sessions: [session("ses_3", { ...st.sessions[2]!, unreadSince: ago(3 * DAY) })],
+    });
+    expect(wantedSessions(unread, null, NOW).map((s) => s.id)).toEqual(["ses_3"]);
+    const live = state({ sessions: [session("ses_3", { ...st.sessions[2]!, runtime: "idle" })] });
+    expect(wantedSessions(live, null, NOW).map((s) => s.id)).toEqual(["ses_3"]);
+  });
+
+  it("treats a pin as membership: a pinned extra stands for its branch only when the primary is not in the view", () => {
+    const old = { runtime: "stopped" as const, lastActivityAt: "2026-10-01T00:00:00Z" };
+    const st = state({ sessions: [session("ses_1"), session("ses_2")] });
+    const view = {
+      id: "viw_1",
+      name: "v",
+      mode: "pinned",
+      projectIds: null,
+      hostIds: null,
+      sessionIds: ["ses_2"],
+      clients: [],
+      createdAt: "",
+      updatedAt: "",
+    } as View;
+    expect(wantedSessions(st, view, NOW).map((s) => s.id)).toEqual(["ses_2"]);
+    expect(wantedSessions(st, null, NOW).map((s) => s.id)).toEqual(["ses_1"]);
+    // A pin is not activity: a long-stopped pinned session opens no tab.
+    const stale = state({ sessions: [session("ses_1", old), session("ses_2", old)] });
+    expect(wantedSessions(stale, view, NOW)).toEqual([]);
+  });
+
+  it("opens no tab for a session whose Pi last ran by hand in this terminal", () => {
+    const st = state({
+      sessions: [session("ses_1", { runtime: "stopped", external: { client: "herdr:a@m" } })],
+    });
+    expect(wantedSessions(st, null, NOW, "herdr:a@m")).toEqual([]);
+    expect(wantedSessions(st, null, NOW, "herdr:b@m").map((s) => s.id)).toEqual(["ses_1"]);
+  });
+
+  it("closes a tab it opened once the branch is inactive; a tab you opened or are in stays", () => {
+    const old = { runtime: "stopped" as const, lastActivityAt: ago(3 * DAY) };
+    const st = state({ sessions: [session("ses_1", old), session("ses_3", { ...feat, ...old })] });
+    const h = herdr({
+      workspaces: [
+        { workspace_id: "w1", label: "switchyard", number: 1 },
+        { workspace_id: "w2", label: "switchyard · feat", number: 2 },
+      ],
+      tabs: [
+        { tab_id: "w1:t1", workspace_id: "w1", label: "Title ses_1" },
+        { tab_id: "w2:t1", workspace_id: "w2", label: "Title ses_3" },
+      ],
+      panes: [
+        { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", agent_session: claim("ses_1") },
+        { pane_id: "w2:p1", tab_id: "w2:t1", workspace_id: "w2", agent_session: claim("ses_3") },
+      ],
+    });
+    const mem = emptyMemory();
+    mem.ownTabs["w1:t1"] = "ses_1";
+    expect(planMirror(st, h, mem, NOW).closeTabs).toEqual([{ tabId: "w1:t1", sessionId: "ses_1" }]);
+    expect(planMirror(st, { ...h, focusedTabId: "w1:t1" }, mem, NOW).closeTabs).toEqual([]);
+  });
+
+  it("does not reopen a tab you closed until the session is active again", () => {
+    const st = state({ sessions: [session("ses_1")] });
+    const mem = emptyMemory();
+    mem.hidden.ses_1 = st.sessions[0]!.lastActivityAt;
+    expect(planMirror(st, herdr(), mem, NOW).createSpaces).toEqual([]);
+    mem.hidden.ses_1 = "2026-01-01T00:00:00Z";
+    expect(planMirror(st, herdr(), mem, NOW).createSpaces).toHaveLength(1);
   });
 });

@@ -317,6 +317,20 @@ describe("chooseSession", () => {
     ).toEqual({ checkoutId: "chk_29", newBranch: "b" });
   });
 
+  it("offers the tab's workspace's sessions to open, primary first", async () => {
+    const st = state({
+      sessions: [
+        session("ses_1", { workspaceId: "wsp_feat", runtime: "stopped" }),
+        session("ses_2", { workspaceId: "wsp_feat", primary: true }),
+        session("ses_3", { workspaceId: "wsp_feat", provenance: "subagent" }),
+      ],
+    });
+    const io = fakeIO([DOWN, DOWN, ENTER]);
+    expect(await chooseSession(st, new Screen(io), { workspaceId: "wsp_feat" })).toEqual({
+      openSessionId: "ses_1",
+    });
+  });
+
   it("refuses workspaces on hosts without terminal sessions", async () => {
     await expect(
       chooseSession(state(), new Screen(fakeIO([])), { workspaceId: "wsp_old" }),

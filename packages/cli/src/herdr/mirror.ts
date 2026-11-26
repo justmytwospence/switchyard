@@ -11,6 +11,7 @@ import {
   NEW_SESSION_GRACE_MS,
   PENDING_MS,
   viewedSessions,
+  wantedSessions,
 } from "../mirror/state.js";
 
 export type { AgentState, MirrorState };
@@ -69,6 +70,8 @@ export interface MirrorMemory {
   offered: Set<string>;
   /** session id -> title just requested from a tab rename. */
   titleOverrides: Record<string, string>;
+  /** session id -> its `lastActivityAt` when you closed its tab: not reopened until it changes. */
+  hidden: Record<string, string>;
 }
 
 export interface MirrorPlan {
@@ -99,7 +102,14 @@ export interface MirrorPlan {
 }
 
 export function emptyMemory(): MirrorMemory {
-  return { spaces: {}, ownTabs: {}, pending: {}, offered: new Set(), titleOverrides: {} };
+  return {
+    spaces: {},
+    ownTabs: {},
+    pending: {},
+    offered: new Set(),
+    titleOverrides: {},
+    hidden: {},
+  };
 }
 
 function cap(label: string): string {
@@ -151,13 +161,18 @@ export function claimedSession(p: HerdrPane): string | null {
   return p.agent_session?.source === SOURCE ? p.agent_session.value : null;
 }
 
-/** Compare Switchyard with the paired herdr session and say what to change. Pure. */
+/**
+ * Compare Switchyard with the paired herdr session and say what to change. Pure. Tabs are opened
+ * for `wantedSessions` (active branches); a tab showing any other session in the view stays
+ * while it exists, unless the mirror opened it and its branch is no longer active.
+ */
 export function planMirror(
   st: MirrorState,
   h: HerdrSnapshot,
   mem: MirrorMemory,
   now: number,
   view: View | null = null,
+  terminalId: string | null = null,
 ): MirrorPlan {
   const plan: MirrorPlan = {
     closeTabs: [],
@@ -173,6 +188,7 @@ export function planMirror(
     spaces: {},
   };
   const M = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
+  const W = new Map(wantedSessions(st, view, now, terminalId).map((s) => [s.id, s]));
   const linger = lingeringSessions(st, view);
   const workspaces = [...h.workspaces].sort((a, b) => a.number - b.number);
   const present = new Set(workspaces.map((w) => w.workspace_id));
@@ -220,9 +236,12 @@ export function planMirror(
     const owners = new Set(panes.map(claimedSession));
     if (owners.size !== 1) continue;
     const sid = [...owners][0];
-    if (!sid || M.has(sid)) continue;
-    // A session that stopped out of a tracker's view keeps the tab you are in until you leave it.
-    if (t.tab_id === h.focusedTabId && linger.has(sid)) continue;
+    if (!sid) continue;
+    // A tab the mirror opened goes once its branch is no longer active; one you opened stays.
+    const inactive = M.has(sid) && !W.has(sid) && mem.ownTabs[t.tab_id] === sid;
+    if (M.has(sid) && !inactive) continue;
+    // A session that stopped out of the view or went inactive keeps the tab you are in until you leave it.
+    if (t.tab_id === h.focusedTabId && (inactive || linger.has(sid))) continue;
     plan.closeTabs.push({ tabId: t.tab_id, sessionId: sid });
   }
 
@@ -255,8 +274,9 @@ export function planMirror(
     return p !== undefined && now - p.at < PENDING_MS;
   };
   const createdKeys = new Set<string>();
-  for (const s of M.values()) {
+  for (const s of W.values()) {
     if (claimedPanes.has(s.id) || fresh(s.id)) continue;
+    if (mem.hidden[s.id] === s.lastActivityAt) continue;
     if (now - Date.parse(s.createdAt) < NEW_SESSION_GRACE_MS) continue;
     const key = spaceKey(s);
     const space = spaceOfKey.get(key);
@@ -333,7 +353,9 @@ export function planMirror(
   }
 
   // 10. Own spaces with nothing left to show.
-  const liveKeys = new Set([...M.values()].map(spaceKey));
+  const liveKeys = new Set(
+    [...W.values(), ...[...claimedPanes.keys()].flatMap((sid) => M.get(sid) ?? [])].map(spaceKey),
+  );
   const claimedSpaces = new Set(
     h.panes.filter((p) => claimedSession(p) !== null).map((p) => p.workspace_id),
   );

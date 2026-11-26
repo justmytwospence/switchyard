@@ -131,6 +131,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     log(`signed out: ${reason}`);
     process.exit(1);
   });
+  let shows: string[] | undefined;
   const terminal = syncTerminal({
     api: client.api,
     info: {
@@ -143,6 +144,7 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     subscribe: (fn) => client.store.subscribe(fn),
     env,
+    shows: () => shows,
     wasMirroring: ownsSpaces(dir),
     log,
   });
@@ -153,6 +155,11 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
     view: () => terminal.binding(),
+    terminalId: id,
+    onShows: (ids) => {
+      shows = ids;
+      terminal.report();
+    },
     stateDir: dir,
     launcherPath,
     log,

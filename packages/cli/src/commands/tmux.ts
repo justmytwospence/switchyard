@@ -128,6 +128,7 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
   });
   let currentName = name0;
   const trackedName = async () => (currentName = await sessionName());
+  let shows: string[] | undefined;
   const terminal = syncTerminal({
     api: client.api,
     info: {
@@ -140,6 +141,7 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     subscribe: (fn) => client.store.subscribe(fn),
     env,
+    shows: () => shows,
     wasMirroring: ownsWindows(dir),
     legacyName: () => currentName,
     log,
@@ -152,6 +154,11 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
     view: () => terminal.binding(),
+    terminalId: id,
+    onShows: (ids) => {
+      shows = ids;
+      terminal.report();
+    },
     sessionName: trackedName,
     stateDir: dir,
     launcherPath,

@@ -6,6 +6,7 @@ import {
   NEW_SESSION_GRACE_MS,
   PENDING_MS,
   viewedSessions,
+  wantedSessions,
 } from "../mirror/state.js";
 
 export const WINDOW_OPTION = "@switchyard_session";
@@ -31,6 +32,8 @@ export interface TmuxMemory {
   /** Windows that appeared (`%window-add`) after the daemon started. */
   added: Set<string>;
   titleOverrides: Record<string, string>;
+  /** session id -> its `lastActivityAt` when you closed its window: not reopened until it changes. */
+  hidden: Record<string, string>;
 }
 
 export interface TmuxPlan {
@@ -42,7 +45,14 @@ export interface TmuxPlan {
 }
 
 export function emptyTmuxMemory(): TmuxMemory {
-  return { ownWindows: {}, pending: {}, offered: new Set(), added: new Set(), titleOverrides: {} };
+  return {
+    ownWindows: {},
+    pending: {},
+    offered: new Set(),
+    added: new Set(),
+    titleOverrides: {},
+    hidden: {},
+  };
 }
 
 function cap(label: string): string {
@@ -69,13 +79,18 @@ export function titleFromWindowName(name: string, s: Session, st: MirrorState): 
   return name.startsWith(prefix) ? name.slice(prefix.length) : name;
 }
 
-/** Compare Switchyard with the paired tmux session and say what to change. Pure. */
+/**
+ * Compare Switchyard with the paired tmux session and say what to change. Pure. Windows are
+ * opened for `wantedSessions` (active branches); a window showing any other session in the view
+ * stays while it exists, unless the mirror opened it and its branch is no longer active.
+ */
 export function planTmux(
   st: MirrorState,
   view: View | null,
   windows: TmuxWindow[],
   mem: TmuxMemory,
   now: number,
+  terminalId: string | null = null,
 ): TmuxPlan {
   const plan: TmuxPlan = {
     closeWindows: [],
@@ -85,15 +100,18 @@ export function planTmux(
     offers: [],
   };
   const M = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
+  const W = new Map(wantedSessions(st, view, now, terminalId).map((s) => [s.id, s]));
   const linger = lingeringSessions(st, view);
   const claimed = new Set<string>();
   for (const w of windows) {
     if (!w.sessionId) continue;
     claimed.add(w.sessionId);
     const s = M.get(w.sessionId);
-    if (!s) {
-      // A session that stopped out of a tracker's view keeps the window you are in until you leave it.
-      if (w.active && linger.has(w.sessionId)) continue;
+    // A window the mirror opened goes once its branch is no longer active; one you opened stays.
+    const inactive = !!s && !W.has(s.id) && mem.ownWindows[w.windowId] === s.id;
+    if (!s || inactive) {
+      // A session that stopped out of the view or went inactive keeps the window you are in until you leave it.
+      if (w.active && (inactive || linger.has(w.sessionId))) continue;
       plan.closeWindows.push({ windowId: w.windowId, sessionId: w.sessionId });
       continue;
     }
@@ -101,8 +119,9 @@ export function planTmux(
     const name = windowName(s, st, mem.titleOverrides);
     if (w.name !== name) plan.renames.push({ windowId: w.windowId, name });
   }
-  for (const s of M.values()) {
+  for (const s of W.values()) {
     if (claimed.has(s.id)) continue;
+    if (mem.hidden[s.id] === s.lastActivityAt) continue;
     const p = mem.pending[s.id];
     if (p && now - p.at < PENDING_MS) continue;
     if (now - Date.parse(s.createdAt) < NEW_SESSION_GRACE_MS) continue;

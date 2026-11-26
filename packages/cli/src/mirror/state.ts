@@ -8,7 +8,7 @@ import type {
   View,
   Workspace,
 } from "@switchyard/protocol";
-import { sessionInView, trackerScope } from "@switchyard/protocol";
+import { buildBranches, sessionInView, trackerScope } from "@switchyard/protocol";
 import { SwitchyardClient } from "@switchyard/terminal";
 import { CliError, type ConnectionFlags, resolveConnection } from "../config.js";
 import type { Ctx } from "../context.js";
@@ -103,6 +103,72 @@ export function viewedSessions(st: MirrorState, view: View | null): Session[] {
   const workspaces = Object.fromEntries(st.workspaces.map((w) => [w.id, w]));
   const scope = trackerScope(view, st.issues ?? []);
   return all.filter((s) => sessionInView(view, s, workspaces, scope));
+}
+
+/** A stopped session counts as active for this long after its last activity. */
+export const RECENT_MS = 48 * 60 * 60_000;
+
+/** The terminal a session's Pi runs in by hand (an own pane), if any. */
+export function placedIn(s: Pick<Session, "external">): string | null {
+  return s.external?.client ?? null;
+}
+
+/**
+ * Active: live (including waiting for input), unread, or active in the last 48 hours. Only active
+ * branches get a tab opened for them. A pin is membership in a view only, not activity.
+ */
+export function isActive(s: Session, now: number): boolean {
+  return (
+    LIVE_RUNTIMES.includes(s.runtime) ||
+    !!s.unreadSince ||
+    now - Date.parse(s.lastActivityAt) < RECENT_MS
+  );
+}
+
+/**
+ * The sessions a mirror opens a tab or window for: one per active branch in the view (its primary,
+ * or its latest session the view holds when the primary is not in it); oldest first. Extras are opened on demand (the picker), and a session whose Pi runs by
+ * hand in `terminalId` (an own pane there) gets none.
+ */
+export function wantedSessions(
+  st: MirrorState,
+  view: View | null,
+  now: number,
+  terminalId: string | null = null,
+): Session[] {
+  const kept = new Map(viewedSessions(st, view).map((s) => [s.id, s]));
+  const { branches } = buildBranches({
+    workspaces: st.workspaces,
+    sessions: st.sessions,
+    issues: [],
+  });
+  const out = new Map<string, Session>();
+  const add = (id: string | undefined) => {
+    const s = id ? kept.get(id) : undefined;
+    if (!s || (terminalId && placedIn(s) === terminalId)) return;
+    if (isActive(s, now)) out.set(s.id, s);
+  };
+  const workspaces = Object.fromEntries(st.workspaces.map((w) => [w.id, w]));
+  const scope = view ? trackerScope(view, st.issues ?? []) : null;
+  const inView = (x: Session) => !view || sessionInView(view, x, workspaces, scope);
+  for (const b of branches) {
+    // The primary; when the view holds only other sessions of the branch (pins), its latest one.
+    const rep = b.primary && inView(b.primary) ? b.primary : b.extras.find(inView);
+    add(rep?.id);
+  }
+  return [...out.values()].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+  );
+}
+
+/** Each branch's primary session: closing its tab archives it; closing an extra's only hides it. */
+export function primaryIds(st: MirrorState): Set<string> {
+  const { branches } = buildBranches({
+    workspaces: st.workspaces,
+    sessions: st.sessions,
+    issues: [],
+  });
+  return new Set(branches.flatMap((b) => (b.primary ? [b.primary.id] : [])));
 }
 
 /** Sessions that left a tracker's view only by stopping: a focused tab or window of theirs stays until focus moves. */

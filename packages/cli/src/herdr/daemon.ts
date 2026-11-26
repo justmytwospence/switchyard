@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ApiClient } from "@switchyard/terminal";
 import { archiveSession, renameSession } from "../mirror/actions.js";
 import type { Bound } from "../mirror/binding.js";
-import { viewedSessions } from "../mirror/state.js";
+import { primaryIds, viewedSessions } from "../mirror/state.js";
 import { type HerdrCall, type HerdrSubscription, type herdrSubscribe, nextSeq } from "./client.js";
 import {
   claimedSession,
@@ -36,6 +36,10 @@ export interface DaemonDeps {
   onStateChange: (fn: () => void) => () => void;
   /** What it mirrors: a view, null for everything, "off" for nothing (idle). */
   view?: () => Bound;
+  /** This terminal's id: sessions whose Pi runs by hand in it get no tab. */
+  terminalId?: string;
+  /** Called after each reconcile with the sessions its tabs show. */
+  onShows?: (sessionIds: string[]) => void;
   /** `<state>/<herdr session>`: spaces.json and the fallback space directory. */
   stateDir: string;
   /** Stable launcher for typed commands and resume commands. */
@@ -222,7 +226,7 @@ export class MirrorDaemon {
     }
     const h = await this.snapshot();
     this.remember(h);
-    const plan = planMirror(st, h, this.mem, this.now(), bound);
+    const plan = planMirror(st, h, this.mem, this.now(), bound, this.deps.terminalId ?? null);
     const titleOf = (sid: string) => st.sessions.find((s) => s.id === sid)?.title ?? sid;
     const launcher = this.deps.launcherPath;
     const paneCmd = (sid: string) => launcherCommand(launcher, ["pane", sid]);
@@ -355,6 +359,9 @@ export class MirrorDaemon {
     }
 
     // Bookkeeping.
+    for (const [sid, at] of Object.entries(this.mem.hidden)) {
+      if (st.sessions.find((s) => s.id === sid)?.lastActivityAt !== at) delete this.mem.hidden[sid];
+    }
     const claimed = new Set(h.panes.map(claimedSession).filter(Boolean) as string[]);
     for (const [sid, p] of Object.entries(this.mem.pending)) {
       if (claimed.has(sid) || this.now() - p.at >= PENDING_MS * 4) delete this.mem.pending[sid];
@@ -368,6 +375,7 @@ export class MirrorDaemon {
     }
     this.mem.spaces = { ...plan.spaces, ...createdNow };
     this.save();
+    this.deps.onShows?.([...claimed].sort());
     return done;
   }
 
@@ -396,6 +404,7 @@ export class MirrorDaemon {
     const bound = this.deps.view?.() ?? null;
     if (bound === "off") return;
     const mirrored = new Map(viewedSessions(st, bound).map((s) => [s.id, s]));
+    const primaries = primaryIds(st);
     switch (data.type) {
       case "tab_closed": {
         const tabId = String(data.tab_id);
@@ -406,7 +415,10 @@ export class MirrorDaemon {
           const elsewhere = [...this.sessionsOfTab].some(
             ([other, sids]) => other !== tabId && sids.includes(sid),
           );
-          if (s && !elsewhere) await this.archive(s.id, s.title);
+          if (!s || elsewhere) continue;
+          // Closing a primary's tab archives it; closing an extra's only hides it.
+          if (primaries.has(s.id)) await this.archive(s.id, s.title);
+          else this.mem.hidden[s.id] = s.lastActivityAt;
         }
         return;
       }
@@ -414,7 +426,7 @@ export class MirrorDaemon {
         const ws = String(data.workspace_id);
         for (const sid of new Set(this.sessionsOfSpace.get(ws) ?? [])) {
           const s = mirrored.get(sid);
-          if (s) await this.archive(s.id, s.title);
+          if (s && primaries.has(s.id)) await this.archive(s.id, s.title);
         }
         delete this.mem.spaces[ws];
         return;
