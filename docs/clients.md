@@ -10,7 +10,7 @@ A client is anything signed in that shows your work. All of them look at the sam
 | The CLI | What you ask for (`switchyard sessions list`, `switchyard tui <session>`) |
 | A herdr or tmux session | What Switchyard records for it: nothing, everything, or one scope, as a tab or window per active branch |
 
-A **device** is the credential a client signs in with: a browser, an installed app, or a machine's CLI. The herdr and tmux sessions on a machine are clients under that machine's CLI device. Settings > Clients lists the devices, with the herdr and tmux sessions on each; revoking a device signs all of them out.
+A **device** is the credential a client signs in with: a browser, an installed app, or a machine's CLI. The herdr and tmux sessions on a machine are clients under that machine's CLI device. Settings > Clients lists the herdr and tmux sessions (what each mirrors, whether its plugin is running, and Forget for one that is gone) and, below them, the devices; revoking a device signs out the sessions that use it.
 
 herdr and tmux are **client modules**: each is a plugin for that multiplexer plus a daemon in the Switchyard CLI ([herdr](../modules/herdr/README.md), [tmux](../modules/tmux/README.md)). Another multiplexer can be added the same way: the coordinator accepts any kind ([modules.md](modules.md#what-another-project-can-write-today)).
 
@@ -35,7 +35,7 @@ Closing a primary's tab archives the session everywhere (a running session is re
 
 Starting a session in the web app with a scope selected does not pin it. `switchyard herdr new` and `switchyard tmux new` pin the new session to the scope their client mirrors only when the scope would not show it otherwise (a pinned-only scope, or a project or host outside it), and say so.
 
-`switchyard scopes list` shows the clients mirroring each scope, the scope's Edit dialog says where it is mirrored, and Settings > Clients lists each device's herdr and tmux sessions. Use one herdr session for everything, a client per scope, or both.
+`switchyard scopes list` shows the clients mirroring each scope, the scope's Edit dialog says where it is mirrored, and Settings > Clients lists the herdr and tmux sessions and what each mirrors. Use one herdr session for everything, a client per scope, or both.
 
 ## Focus counts as reading
 

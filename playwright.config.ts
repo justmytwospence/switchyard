@@ -41,6 +41,7 @@ export default defineConfig({
       name: "mobile-390x844",
       testMatch: [
         "board-mobile.spec.ts",
+        "clients.spec.ts",
         "code-mobile.spec.ts",
         "navigator-header.spec.ts",
         "board-hierarchy.spec.ts",
