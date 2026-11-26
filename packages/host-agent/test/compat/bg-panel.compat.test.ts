@@ -29,7 +29,7 @@ const script: MockScript = [
   { when: when.always(), reply: { text: "noted" } },
 ];
 
-describe.skipIf(skip !== null)(`bg panel compat${skip ? ` (${skip})` : ""}`, () => {
+describe.skipIf(skip !== null)(`bg tracker compat${skip ? ` (${skip})` : ""}`, () => {
   let h: CompatHarness;
   const results: Record<string, any> = {};
   beforeAll(async () => {
@@ -41,7 +41,7 @@ describe.skipIf(skip !== null)(`bg panel compat${skip ? ` (${skip})` : ""}`, () 
     await h?.dispose();
   });
 
-  it("bg_run updates the bg panel while the job runs and after it ends", async () => {
+  it("bg_run updates the Background tracker while the job runs and after it ends", async () => {
     const s = await h.startSession();
     const before = s.settledCount();
     await s.prompt("please start the job");
@@ -56,52 +56,66 @@ describe.skipIf(skip !== null)(`bg panel compat${skip ? ` (${skip})` : ""}`, () 
       return;
     }
 
-    const bgPanel = () =>
-      s
-        .panels()
-        .find(
-          (p) =>
-            p.adapterId === "bg" &&
-            p.node &&
-            (p.slot === "bg" || p.contribution?.placement === "session.panel"),
-        );
+    // On a contract v2 host the adapter publishes a tracker with one row per task, built from
+    // the entries pi-bg writes, instead of a panel that parses the status text.
+    const isTracker = (p: any) =>
+      p.adapterId === "bg" && p.node && p.contribution?.id === "bg-tracker";
+    const bgTracker = () => s.panels().find(isTracker) as any;
     const updates = () =>
       h.coord
         .eventsOf("panel.updated", s.id)
         .map((e) => e.data as any)
-        .filter(
-          (p) =>
-            p.adapterId === "bg" &&
-            p.node &&
-            (p.slot === "bg" || p.contribution?.placement === "session.panel"),
-        );
-    // While the job runs: "bg: compat 0:01" style elapsed time.
-    await waitFor(() => updates().length > 0, 10000, "bg panel");
-    const running = updates()[0];
-    results.runningPanel = running;
+        .filter(isTracker);
+    // The coordinator's events carry what this harness negotiated (a pill for a v1 coordinator);
+    // the host's own panel is the v2 shape.
+    await waitFor(() => updates().length > 0 && !!bgTracker(), 10000, "bg tracker");
+    const running = bgTracker();
+    results.runningTracker = running;
     // Published by the adapter pi-bg ships, loaded through the plugin tier (with its renderer).
     expect(h.adapter("bg")).toMatchObject({ tier: "plugin", webRenderer: true });
-    expect(running).toMatchObject({
+    expect(running, JSON.stringify(s.panels())).toMatchObject({
       title: "Background",
-      webRenderer: true,
-      node: { t: "text", text: expect.stringMatching(/^bg: compat \d+:\d\d$/) },
-      state: { status: expect.stringMatching(/^bg: compat /), lines: [] },
+      contribution: {
+        placement: "composer.tracker",
+        tracker: { count: "1 running", status: "running", step: "compat" },
+      },
+      node: {
+        t: "rows",
+        rows: [{ title: "compat", status: "running", meta: expect.stringMatching(/^for \d+s$/) }],
+      },
     });
     // After it exits the plugin marks it done.
     await waitFor(
-      () => /\u2713/.test(bgPanel()?.mobileFallback ?? ""),
+      () => bgTracker()?.node?.rows?.[0]?.status === "done",
       15000,
-      "bg panel shows the finished job",
+      "bg tracker shows the finished job",
     );
     results.uiRequests = s.uiRequests.filter(
       (r) => r.method === "setStatus" || r.method === "setWidget",
     );
-    results.finalPanel = bgPanel();
-    results.panelUpdates = updates();
-    expect(bgPanel()).toMatchObject({
-      node: { t: "text", text: "bg: compat \u2713" },
-      state: { status: "bg: compat \u2713" },
+    results.finalTracker = bgTracker();
+    results.trackerUpdates = updates();
+    expect(bgTracker()).toMatchObject({
+      contribution: { tracker: { status: "ok" } },
+      node: {
+        t: "rows",
+        rows: [
+          {
+            title: "compat",
+            status: "done",
+            tone: "success",
+            meta: expect.stringMatching(/^after \d+s$/),
+          },
+        ],
+      },
     });
+    expect(bgTracker().contribution.tracker.count).toBeUndefined();
+    // The tracker replaces the old panel; it is not shown beside it.
+    expect(
+      s
+        .panels()
+        .filter((p) => p.adapterId === "bg" && p.contribution?.placement === "session.panel"),
+    ).toEqual([]);
     expect(updates().length).toBeGreaterThanOrEqual(2);
   });
 });

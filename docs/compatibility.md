@@ -148,6 +148,7 @@ Isolation: each harness has its own `PI_CODING_AGENT_DIR`, `PI_OFFLINE=1`, an em
 
 The results and observations below are historical, not results for the dev tranche above.
 
+- **2026-11-26:** the pin is pi-plugins v0.1.113 (`53b505d2c105630ae0c002a41f12732da1ab7e8e`), whose adapters use contract v2 on a host that offers it. Two assertions changed with it: `todo-panel.compat.test.ts` now expects the `todo-tracker` contribution (`composer.tracker`, count `0/2`, a `checklist` node) and the `todo-badge` (`session.badge`) instead of the `todo` panel, and `bg-panel.compat.test.ts` expects the `bg-tracker` contribution (a `rows` node with one row per task, `running` then `done`) instead of the status-text panel. The other five files are unchanged. Result with Pi 1.6.0: 7 files, 13 tests, all passing over three runs. The rows for those two tests in the table below describe the earlier panels.
 - **2026-11-02:** the adapters now ship in pi-plugins (`packages/<pkg>/src/switchyard/`, commit `ca7f9e22e9559723a7b5b3097b3a771ccc131f49`), and the compat tests load them through the plugin tier. Result at that commit with Pi 1.4.0: 5 files, 6 tests, all passing. The table below describes the earlier run against the bundled adapters; the assertions are unchanged.
 - **Date:** 2026-11-02, Pi 1.4.0.
 - **pi-plugins commit:** `bbc6ce56243043a91ae53992fb5abc04dc2cbe38`.

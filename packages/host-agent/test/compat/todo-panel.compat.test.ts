@@ -37,7 +37,7 @@ const script: MockScript = [
   },
 ];
 
-describe.skipIf(skip !== null)(`todo panel compat${skip ? ` (${skip})` : ""}`, () => {
+describe.skipIf(skip !== null)(`todo tracker compat${skip ? ` (${skip})` : ""}`, () => {
   let h: CompatHarness;
   const results: Record<string, any> = {};
   beforeAll(async () => {
@@ -48,7 +48,7 @@ describe.skipIf(skip !== null)(`todo panel compat${skip ? ` (${skip})` : ""}`, (
     await h?.dispose();
   });
 
-  it("todo tool results update the todo panel", async () => {
+  it("todo tool results update the Todo tracker and badge", async () => {
     const s = await h.startSession();
     const before = s.settledCount();
     await s.prompt("please plan the work");
@@ -67,34 +67,50 @@ describe.skipIf(skip !== null)(`todo panel compat${skip ? ` (${skip})` : ""}`, (
       return;
     }
 
-    const panel = s
-      .panels()
-      .find(
-        (p) =>
-          p.adapterId === "todo" &&
-          p.node &&
-          (p.slot === "todo" || p.contribution?.placement === "session.panel"),
-      );
-    results.panel = panel;
+    // On a contract v2 host the adapter publishes a tracker and a badge instead of a panel.
+    const mine = () => s.panels().filter((p) => p.adapterId === "todo" && p.node);
+    const tracker = mine().find((p) => p.contribution?.id === "todo-tracker");
+    results.tracker = tracker;
     expect(
-      panel,
+      tracker,
       JSON.stringify({ panels: s.panels(), adapters: h.agent.supervisor.sessionAdapters(s.id) }),
     ).toBeTruthy();
     // Published by the adapter pi-todo ships, loaded through the plugin tier.
     expect(h.adapter("todo")).toMatchObject({ tier: "plugin" });
-    expect(panel!.title).toBe("Todo");
-    expect(panel!.node).toMatchObject({
-      t: "list",
-      items: [
-        { t: "text", text: "[~] Write the compat tests" },
-        { t: "text", text: "[ ] Update the docs" },
-      ],
+    expect(tracker).toMatchObject({
+      title: "Todo",
+      contribution: {
+        placement: "composer.tracker",
+        tracker: { count: "0/2", status: "running", step: "writing compat tests" },
+      },
+      node: {
+        t: "checklist",
+        items: [
+          { text: "Write the compat tests", state: "doing" },
+          { text: "Update the docs", state: "todo" },
+        ],
+      },
+      mobileFallback: "[~] Write the compat tests\n[ ] Update the docs",
     });
-    expect(panel!.mobileFallback).toBe("[~] Write the compat tests\n[ ] Update the docs");
-    // The panel was published after each call (three panel updates for the todo slot).
+    const badge = mine().find((p) => p.contribution?.id === "todo-badge");
+    results.badge = badge;
+    expect(badge).toMatchObject({
+      contribution: { placement: "session.badge" },
+      node: { t: "badge", text: "Todo 0/2" },
+    });
+    // The tracker replaces the old panel and pill; they are not shown beside it.
+    expect(
+      mine().filter(
+        (p) =>
+          p.contribution?.placement === "session.panel" ||
+          p.contribution?.placement === "composer.pill",
+      ),
+    ).toEqual([]);
+    // The tracker was published after each call (three updates of its slot).
     const updates = h.coord
       .eventsOf("panel.updated", s.id)
-      .filter((e) => (e.data as any).adapterId === "todo");
+      .map((e) => e.data as any)
+      .filter((p) => p.adapterId === "todo" && p.contribution?.id === "todo-tracker");
     expect(updates.length).toBeGreaterThanOrEqual(3);
   });
 });
