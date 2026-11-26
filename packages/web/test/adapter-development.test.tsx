@@ -12,7 +12,7 @@ import {
 } from "../src/features/code/AdapterPanel";
 import { codeApi } from "../src/features/code/api";
 import type { SessionContext } from "../src/features/code/hooks";
-import { TimelineRow, ToolCard } from "../src/features/code/TranscriptItems";
+import { TimelineRow, ToolRow } from "../src/features/code/TranscriptItems";
 import { mergeDiagnostics } from "../src/features/settings/diagnosticsApi";
 import { apiGet, apiPost } from "../src/sync/api";
 import { session } from "./fixtures";
@@ -98,7 +98,7 @@ describe("adapter generation compatibility", () => {
       card: panel.node,
       adapterGeneration: generation,
     } as ToolItemData;
-    const html = renderToStaticMarkup(<ToolCard data={data} stream={null} sessionId="s" />);
+    const html = renderToStaticMarkup(<ToolRow data={data} stream={null} sessionId="s" />);
     expect(html).toContain("Original tool output");
     expect(html).toContain("Fixture note");
     expect(html).not.toContain(">Run fixture<");

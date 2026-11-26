@@ -168,6 +168,33 @@ test.describe("desktop coding view", () => {
     await expect(dialog).toHaveCount(0);
   });
 
+  test("A tool call is one line and opens its detail", async ({ page, state, api }, info) => {
+    const id = await createSession(
+      api,
+      state,
+      `Tool rows ${uid(info)}`,
+      "TOOL-ROWS check",
+      (s) => s.runtime === "idle" && !!s.lastAssistantText,
+    );
+    await page.goto(`/code/${id}`);
+    const transcript = page.getByTestId("transcript");
+    const work = transcript.getByTestId("work-row").first();
+    await expect(work.locator("> summary")).toContainText("ran 1 command");
+    await expect(work.locator("> summary")).toContainText("1 failed");
+    await work.locator("> summary").click();
+    const row = work.getByTestId("tool-row").first();
+    await expect(row).toContainText("Ran");
+    await expect(row).toContainText("echo tool-rows-out; exit 3");
+    await expect(row).toContainText("failed");
+    await expect(row).toHaveAttribute("data-kind", "command");
+    // Closed, the row is the line alone; opening it shows the command and its output in place.
+    await expect(row.locator("pre")).toHaveCount(0);
+    await row.getByRole("button").first().click();
+    await expect(row.getByText("$ echo tool-rows-out; exit 3")).toBeVisible();
+    await expect(row.getByText(/^Output/)).toBeVisible();
+    await expect(row.locator("pre").filter({ hasText: /^tool-rows-out/ })).toBeVisible();
+  });
+
   test("Jump to latest does not autoscroll while reading", async ({ page, state, api }, info) => {
     const id = await createSession(
       api,
@@ -183,7 +210,7 @@ test.describe("desktop coding view", () => {
     // The finished turn's tool calls are folded into one row.
     await expect(transcript.getByTestId("work-row").first()).toBeVisible();
     await transcript.getByTestId("work-row").first().locator("> summary").click();
-    await expect(transcript.getByTestId("tool-card").first()).toBeVisible();
+    await expect(transcript.getByTestId("tool-row").first()).toBeVisible();
 
     // Scroll up to read; the button appears without a count.
     await transcript.evaluate((el) => {

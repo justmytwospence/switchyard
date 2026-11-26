@@ -89,6 +89,14 @@ export const MOCK_SCRIPT: MockScript = [
   },
   { when: when.toolResult("fixture_slow"), reply: { text: "Slow work finished." } },
   {
+    when: when.userSays("TOOL-ROWS"),
+    reply: {
+      text: "Running a check.",
+      toolCalls: [{ name: "bash", arguments: { command: "echo tool-rows-out; exit 3" } }],
+    },
+  },
+  { when: when.toolResult("bash"), reply: { text: "Check finished." } },
+  {
     when: (req) => req.lastRole === "user",
     reply: (req) => ({ text: `Received: ${req.lastText.slice(0, 200)}` }),
   },

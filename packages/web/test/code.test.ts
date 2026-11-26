@@ -24,6 +24,8 @@ import {
   contextMeter,
   countAfter,
   effortIndex,
+  entrySpacing,
+  type FoldedEntry,
   favoriteModels,
   filterCommands,
   fitPanes,
@@ -58,8 +60,12 @@ import {
   sessionStatus,
   sessionUsage,
   statusBucket,
+  summarizeWork,
   TERMINAL_COMMANDS,
+  type TimelineEntry,
+  type TranscriptDetail,
   uniqueBranch,
+  workingSince,
   worktreePath,
 } from "../src/features/code/model";
 import type { StreamBuffer } from "../src/sync/store";
@@ -1400,6 +1406,7 @@ describe("foldTimeline", () => {
     name = "bash",
     status = "ok",
     ms = 1000,
+    args: unknown = {},
   ): TranscriptItem =>
     ({
       id,
@@ -1411,7 +1418,7 @@ describe("foldTimeline", () => {
         toolCallId: id,
         name,
         status,
-        args: {},
+        args,
         summary: "",
         output: "",
         startedAt: at,
@@ -1436,8 +1443,9 @@ describe("foldTimeline", () => {
     kind: "notice",
     data: { level: "info", text: "n" },
   });
-  const fold = (items: TranscriptItem[], busy = false) =>
-    foldTimeline(buildTimeline(items, [], []), busy);
+  const fold = (items: TranscriptItem[], busy = false, level: TranscriptDetail = "normal") =>
+    foldTimeline(buildTimeline(items, [], []), busy, level);
+  const keys = (out: FoldedEntry[]) => out.map((e) => (e.type === "work" ? "work" : e.key));
 
   it("folds a closed turn into one work entry where the first tool was", () => {
     const out = fold([
@@ -1458,8 +1466,49 @@ describe("foldTimeline", () => {
     ]);
     const work = out[1];
     if (work?.type !== "work") throw new Error("expected work");
-    expect(work.summary).toMatchObject({ edits: 1, reads: 1, thinking: 1 });
+    expect(work.summary).toMatchObject({ editedFiles: 1, readFiles: 1, thinking: 1 });
     expect(work.key).toBe("work:t1");
+  });
+
+  it("detailed returns the entries unchanged", () => {
+    const base = buildTimeline(
+      [user("u1", 1), tool("a", 2), assistant("r1", 3, "done"), user("u2", 4)],
+      [],
+      [],
+    );
+    expect(foldTimeline(base, false, "detailed")).toBe(base);
+  });
+
+  it("a closed turn's work entry is not live", () => {
+    const work = fold([user("u1", 1), tool("a", 2), assistant("r1", 3, "done")])[1];
+    if (work?.type !== "work") throw new Error("expected work");
+    expect(work.live).toBe(false);
+    expect(work.startAt).toBe(at);
+  });
+
+  it("summary folds the open turn into a live work entry and keeps the trailing reply", () => {
+    const items = [
+      user("u1", 1),
+      assistant("m1", 2, "looking"),
+      tool("a", 3),
+      thinking("t1", 4),
+      tool("b", 5, "bash", "running"),
+      assistant("r1", 6, "so far"),
+    ];
+    expect(keys(fold(items, true, "normal"))).toEqual(["u1", "m1", "a", "t1", "b", "r1"]);
+    const out = fold(items, true, "summary");
+    expect(keys(out)).toEqual(["u1", "work", "r1"]);
+    const work = out[1];
+    if (work?.type !== "work") throw new Error("expected work");
+    expect(work.live).toBe(true);
+    expect(work.key).toBe("work:m1");
+    expect(work.entries.map((e) => e.key)).toEqual(["m1", "a", "t1", "b"]);
+    expect(work.summary.commands).toBe(2);
+  });
+
+  it("summary leaves an open turn without tools unfolded", () => {
+    const items = [user("u1", 1), thinking("t1", 2), assistant("r1", 3, "hi")];
+    expect(keys(fold(items, true, "summary"))).toEqual(["u1", "t1", "r1"]);
   });
 
   it("keeps notices outside the fold and folds intermediate assistant text", () => {
@@ -1516,29 +1565,102 @@ describe("foldTimeline", () => {
 describe("formatWorkSummary", () => {
   const base = {
     durationMs: 7000,
-    edits: 0,
-    reads: 0,
+    editedFiles: 0,
+    readFiles: 0,
     commands: 0,
     searches: 0,
     other: 0,
     thinking: 3,
     failed: 0,
   };
-  it("pluralizes and omits zero counts", () => {
+  it("says what was done, pluralizes and omits zero counts", () => {
     expect(
       formatWorkSummary({
         ...base,
-        edits: 2,
-        reads: 1,
+        editedFiles: 2,
+        readFiles: 1,
         commands: 1,
         searches: 2,
         other: 2,
         failed: 1,
       }),
-    ).toBe("Worked 7s · 2 edits · 1 read · 1 command · 2 searches · 2 other · 1 failed");
+    ).toBe(
+      "Worked for 7s · edited 2 files · ran 1 command · read 1 file · 2 searches · 2 other tool calls · 1 failed",
+    );
+    expect(formatWorkSummary({ ...base, other: 1 })).toBe("Worked for 7s · 1 other tool call");
   });
   it("handles a null duration", () => {
-    expect(formatWorkSummary({ ...base, durationMs: null, reads: 1 })).toBe("Worked · 1 read");
+    expect(formatWorkSummary({ ...base, durationMs: null, readFiles: 1 })).toBe(
+      "Worked · read 1 file",
+    );
+  });
+  it("reads as running when live", () => {
+    expect(formatWorkSummary({ ...base, commands: 1 }, true)).toBe("Working… 7s · ran 1 command");
+    expect(formatWorkSummary({ ...base, durationMs: null }, true)).toBe("Working…");
+  });
+});
+
+describe("summarizeWork", () => {
+  const at = "2026-11-01T10:00:00.000Z";
+  const entry = (id: string, name: string, args: unknown): TimelineEntry => ({
+    type: "item",
+    key: id,
+    stream: null,
+    item: {
+      id,
+      sessionId: "ses_1",
+      order: 1,
+      at,
+      kind: "tool",
+      data: {
+        toolCallId: id,
+        name,
+        status: "ok",
+        args,
+        summary: "",
+        output: "",
+        startedAt: at,
+        durationMs: 10,
+        card: null,
+        adapterId: null,
+      },
+    },
+  });
+  it("counts distinct files", () => {
+    const s = summarizeWork(
+      [
+        entry("a", "edit", { path: "src/a.ts", edits: [] }),
+        entry("b", "edit", { path: "src/a.ts", edits: [] }),
+        entry("c", "write", { path: "src/b.ts", content: "x" }),
+        entry("d", "read", { path: "src/a.ts" }),
+        entry("e", "read", { path: "src/a.ts", offset: 10 }),
+        entry("f", "read", {}),
+        entry("g", "read", {}),
+        entry("h", "todo", { action: "list" }),
+      ],
+      null,
+    );
+    expect(s).toMatchObject({ editedFiles: 2, readFiles: 3, other: 1, commands: 0 });
+  });
+});
+
+describe("entrySpacing", () => {
+  const at = "2026-11-01T10:00:00.000Z";
+  const item = (kind: "user" | "assistant" | "thinking" | "tool"): TimelineEntry =>
+    ({
+      type: "item",
+      key: kind,
+      stream: null,
+      item: { id: kind, sessionId: "s", order: 1, at, kind, data: {} },
+    }) as unknown as TimelineEntry;
+  it("packs tool and thinking lines and sets a new turn apart", () => {
+    expect(entrySpacing(null, item("user"))).toBe("none");
+    expect(entrySpacing(item("tool"), item("tool"))).toBe("tight");
+    expect(entrySpacing(item("thinking"), item("tool"))).toBe("tight");
+    expect(entrySpacing(item("tool"), item("assistant"))).toBe("normal");
+    expect(entrySpacing(item("assistant"), item("user"))).toBe("turn");
+    expect(workingSince([item("user"), item("tool")])).toBe(at);
+    expect(workingSince([item("tool")])).toBeNull();
   });
 });
 

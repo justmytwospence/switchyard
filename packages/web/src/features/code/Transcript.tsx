@@ -15,9 +15,17 @@ import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
 import { usePrefs } from "../../prefs";
 import { usePendingInteractions, useStreams, useSyncStore, useTranscript } from "../../sync/store";
-import { buildTimeline, countAfter, foldTimeline, interactionDomId, isBusy } from "./model";
+import {
+  buildTimeline,
+  countAfter,
+  entrySpacing,
+  foldTimeline,
+  interactionDomId,
+  isBusy,
+  workingSince,
+} from "./model";
 import { ReplySelectionMenu } from "./ReplySelection";
-import { StartingCard, TimelineRow, WorkRow } from "./TranscriptItems";
+import { StartingCard, TimelineRow, WorkingRow, WorkRow } from "./TranscriptItems";
 
 /**
  * Center `target` inside `container` by scrolling only the container
@@ -37,6 +45,8 @@ const HIGHLIGHT_MS = 4000;
 /** Every row sits in one centered column so the left edge stays aligned; plans span the full width. */
 const ROW =
   "mx-auto w-full min-w-0 max-w-[80ch] has-[[data-testid=document-interaction]]:max-w-none";
+/** Space above a row: tool lines sit close together, a new turn stands apart. */
+const SPACING = { none: "", tight: "mt-0.5", normal: "mt-3", turn: "mt-6" } as const;
 
 export interface TranscriptProps {
   sessionId: string;
@@ -82,12 +92,15 @@ export function Transcript({
   const conn = useSyncStore((s) => s.connection.state);
   const loadOlder = useSyncStore((s) => s.loadOlderTranscript);
   const loadTranscript = useSyncStore((s) => s.loadTranscript);
-  const collapse = usePrefs((s) => s.collapseWork);
+  const level = usePrefs((s) => s.transcriptDetail);
   const busy = session ? isBusy(session) : false;
-  const entries = useMemo(() => {
-    const base = buildTimeline(t.items, streams, pending);
-    return collapse ? foldTimeline(base, busy) : base;
-  }, [t.items, streams, pending, collapse, busy]);
+  const entries = useMemo(
+    () => foldTimeline(buildTimeline(t.items, streams, pending), busy, level),
+    [t.items, streams, pending, level, busy],
+  );
+  // The Working line ends the transcript unless a folded running turn already says it.
+  const working =
+    session?.runtime === "running" && !entries.some((e) => e.type === "work" && e.live);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -158,7 +171,7 @@ export function Transcript({
       if (doc) el.scrollTop = Math.max(0, doc.offsetTop - 8);
       else el.scrollTop = el.scrollHeight;
     }
-  }, [entries.length, lastKey, firstKey, streamSize, t.loaded]);
+  }, [entries.length, lastKey, firstKey, streamSize, t.loaded, working]);
 
   // Showing the Chat tab again: back to the bottom, or to where the reader was.
   useLayoutEffect(() => {
@@ -285,30 +298,42 @@ export function Transcript({
                 No messages yet. Write a prompt below to start.
               </p>
             ) : (
-              entries.map((entry) => (
-                <div key={entry.key} className={ROW}>
-                  {entry.type === "work" ? (
-                    <WorkRow
-                      entries={entry.entries}
-                      summary={entry.summary}
-                      sessionId={sessionId}
-                      interactionReadOnly={interactionReadOnly}
-                      draftEmpty={draftEmpty}
-                      onUseSuggestion={onUseSuggestion}
-                      highlightInteractionId={highlight}
-                    />
-                  ) : (
-                    <TimelineRow
-                      entry={entry}
-                      sessionId={sessionId}
-                      interactionReadOnly={interactionReadOnly}
-                      draftEmpty={draftEmpty}
-                      onUseSuggestion={onUseSuggestion}
-                      highlightInteractionId={highlight}
-                    />
-                  )}
-                </div>
-              ))
+              <div className="flex w-full min-w-0 flex-col">
+                {entries.map((entry, i) => (
+                  <div
+                    key={entry.key}
+                    className={cn(ROW, SPACING[entrySpacing(entries[i - 1] ?? null, entry)])}
+                  >
+                    {entry.type === "work" ? (
+                      <WorkRow
+                        entries={entry.entries}
+                        summary={entry.summary}
+                        live={entry.live}
+                        startAt={entry.startAt}
+                        sessionId={sessionId}
+                        interactionReadOnly={interactionReadOnly}
+                        draftEmpty={draftEmpty}
+                        onUseSuggestion={onUseSuggestion}
+                        highlightInteractionId={highlight}
+                      />
+                    ) : (
+                      <TimelineRow
+                        entry={entry}
+                        sessionId={sessionId}
+                        interactionReadOnly={interactionReadOnly}
+                        draftEmpty={draftEmpty}
+                        onUseSuggestion={onUseSuggestion}
+                        highlightInteractionId={highlight}
+                      />
+                    )}
+                  </div>
+                ))}
+                {working && (
+                  <div className={cn(ROW, entries.length > 0 && "mt-3")}>
+                    <WorkingRow since={workingSince(entries)} />
+                  </div>
+                )}
+              </div>
             )}
             {starting && (
               <div className={ROW}>

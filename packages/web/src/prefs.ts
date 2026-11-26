@@ -27,8 +27,8 @@ export interface Prefs {
   railExpanded: boolean;
   /** Desktop composer: Enter sends, Shift+Enter inserts a newline. */
   sendWithEnter: boolean;
-  /** Fold the tool calls and thinking of finished turns into one row. */
-  collapseWork: boolean;
+  /** How much tool activity the transcript shows. */
+  transcriptDetail: "detailed" | "normal" | "summary";
   /** Navigation-only Vim shortcuts; text editing and terminal input remain native. */
   vimNavigation: boolean;
   /** Free-form per-view filter state, keyed by view (e.g. "board", "navigator"). */
@@ -52,6 +52,16 @@ function defaultSendWithEnter(): boolean {
   return window.matchMedia("(min-width: 768px) and (pointer: fine)").matches;
 }
 
+/**
+ * Upgrade stored preferences. Version 2 replaced the "Fold finished turns" switch with the three
+ * levels of tool activity: a device that had folding off keeps every tool call visible.
+ */
+export function migratePrefs(persisted: unknown, version: number): unknown {
+  if (version >= 2 || persisted === null || typeof persisted !== "object") return persisted;
+  const { collapseWork, ...rest } = persisted as Record<string, unknown>;
+  return { ...rest, transcriptDetail: collapseWork === false ? "detailed" : "normal" };
+}
+
 export const usePrefs = create<PrefsStore>()(
   persist(
     (set) => ({
@@ -66,7 +76,7 @@ export const usePrefs = create<PrefsStore>()(
       inspectorCollapsed: false,
       railExpanded: false,
       sendWithEnter: defaultSendWithEnter(),
-      collapseWork: true,
+      transcriptDetail: "normal",
       vimNavigation: true,
       filters: {},
       set: (key, value) => set({ [key]: value } as Partial<Prefs>),
@@ -76,7 +86,8 @@ export const usePrefs = create<PrefsStore>()(
     }),
     {
       name: "sy:prefs",
-      version: 1,
+      version: 2,
+      migrate: (persisted, version) => migratePrefs(persisted, version) as PrefsStore,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _s, setPaneSize: _p, setFilter: _f, ...prefs }) => prefs,
     },

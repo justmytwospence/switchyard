@@ -1,23 +1,21 @@
 import type { Interaction, ToolItemData, TranscriptItem } from "@switchyard/protocol";
 import {
-  Bot,
-  Brain,
   ChevronRight,
   CircleAlert,
   CircleCheck,
   CircleX,
   Copy,
+  FileCode,
   Info,
   LoaderCircle,
   type LucideIcon,
   Network,
   TriangleAlert,
-  User,
   Wand2,
-  Wrench,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { CodeBlock } from "../../components/intent/CodeBlock";
+import { DiffView } from "../../components/intent/DiffView";
 import { InteractionCard } from "../../components/intent/InteractionCard";
 import { Markdown } from "../../components/intent/Markdown";
 import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
@@ -39,14 +37,15 @@ import { useCodeContext } from "./context";
 import { useNow } from "./hooks";
 import { UserMessageMenu } from "./MessageActions";
 import {
+  entrySpacing,
   formatWorkSummary,
   interactionDomId,
   outputPreview,
-  stringifyArgs,
   type TimelineEntry,
   type WorkSummary,
 } from "./model";
 import { initialPromptFor } from "./startingPrompts";
+import { describeTool, type ToolView, toolLabel } from "./toolView";
 
 export interface TimelineRowProps {
   entry: TimelineEntry;
@@ -58,30 +57,82 @@ export interface TimelineRowProps {
   highlightInteractionId: string | null;
 }
 
-/** A finished turn's tool calls and thinking folded into one summary row. */
+/**
+ * A turn's tool calls, thinking and interim text folded into one line that says what was done.
+ * `live` is a turn still running (the Summary level): the line counts up from `startAt`.
+ */
 export function WorkRow({
   entries,
   summary,
+  live,
+  startAt,
   ...rest
-}: Omit<TimelineRowProps, "entry"> & { entries: TimelineEntry[]; summary: WorkSummary }) {
+}: Omit<TimelineRowProps, "entry"> & {
+  entries: TimelineEntry[];
+  summary: WorkSummary;
+  live: boolean;
+  startAt: string | null;
+}) {
+  const now = useNow(live);
+  const started = startAt ? Date.parse(startAt) : Number.NaN;
+  const text = live
+    ? formatWorkSummary(
+        { ...summary, durationMs: Number.isNaN(started) ? null : Math.max(0, now - started) },
+        true,
+      )
+    : formatWorkSummary(summary);
   return (
-    <details data-testid="work-row" className="group min-w-0">
-      <summary className="tap flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted">
-        <ChevronRight aria-hidden className="size-3.5 transition-transform group-open:rotate-90" />
-        <Wrench aria-hidden className="size-3.5" />
-        {formatWorkSummary(summary)}
+    <details data-testid="work-row" data-live={live ? "" : undefined} className="group min-w-0">
+      <summary className="tap flex cursor-pointer list-none items-center gap-1.5 px-1 text-sm text-muted">
+        <ChevronRight
+          aria-hidden
+          className="size-3.5 shrink-0 text-subtle transition-transform group-open:rotate-90"
+        />
+        {live && <Spinner className="size-3.5" />}
+        <span className="min-w-0 tabular-nums">{text}</span>
       </summary>
-      <div className="mt-2 flex flex-col gap-3">
-        {entries.map((e) => (
-          <TimelineRow key={e.key} entry={e} {...rest} />
-        ))}
+      <div className="mt-1.5 ml-2.5 flex min-w-0 flex-col border-l border-border pl-2">
+        {entries.map((e, i) => {
+          const spacing = entrySpacing(entries[i - 1] ?? null, e);
+          return (
+            <div
+              key={e.key}
+              className={cn(
+                "min-w-0",
+                spacing === "tight" ? "mt-0.5" : spacing !== "none" && "mt-2",
+              )}
+            >
+              <TimelineRow entry={e} quiet {...rest} />
+            </div>
+          );
+        })}
       </div>
     </details>
   );
 }
 
-/** One transcript entry. */
-export function TimelineRow(props: TimelineRowProps) {
+/** Ends the transcript while Pi works and nothing else on screen says so. */
+export function WorkingRow({ since }: { since: string | null }) {
+  const now = useNow(true);
+  const started = since ? Date.parse(since) : Number.NaN;
+  const elapsed = Number.isNaN(started) ? "" : formatDuration(Math.max(0, now - started));
+  return (
+    <div
+      role="status"
+      data-testid="working-row"
+      className="flex items-center gap-1.5 px-1 text-sm text-muted"
+    >
+      <Spinner className="size-3.5" />
+      Working…
+      <span aria-hidden className="tabular-nums">
+        {elapsed}
+      </span>
+    </div>
+  );
+}
+
+/** One transcript entry. `quiet` dims interim text inside a folded turn. */
+export function TimelineRow(props: TimelineRowProps & { quiet?: boolean }) {
   const { entry } = props;
   if (entry.type === "stream") return <StreamEntry stream={entry.stream} />;
   if (entry.type === "interaction") {
@@ -103,12 +154,13 @@ export function TimelineRow(props: TimelineRowProps) {
           text={item.data.text + (stream?.text ?? "")}
           thinking={stream?.thinking ?? ""}
           streaming={!!stream || item.data.streaming === true}
+          quiet={props.quiet}
         />
       );
     case "thinking":
       return <ThinkingItem text={item.data.text + (stream?.thinking ?? "")} live={!!stream} />;
     case "tool":
-      return <ToolCard data={item.data} stream={stream} sessionId={props.sessionId} />;
+      return <ToolRow data={item.data} stream={stream} sessionId={props.sessionId} />;
     case "notice":
       return item.data.card && item.data.adapterId ? (
         <NoticeCard
@@ -150,6 +202,10 @@ function RowLabel({ icon: Icon, children }: { icon: LucideIcon; children: ReactN
   );
 }
 
+/** A message longer than this folds to eight lines behind "Show full message". */
+const LONG_MESSAGE_LINES = 12;
+const LONG_MESSAGE_CHARS = 1200;
+
 function UserMessage({
   item,
   sessionId,
@@ -157,21 +213,37 @@ function UserMessage({
   item: Extract<TranscriptItem, { kind: "user" }>;
   sessionId: string;
 }) {
+  const [full, setFull] = useState(false);
+  const text = item.data.text;
+  const long = text.length > LONG_MESSAGE_CHARS || text.split("\n").length > LONG_MESSAGE_LINES;
   return (
-    <div className="group/msg min-w-0 rounded-lg border border-border bg-surface-2 px-3 py-2">
-      <div className="flex items-start justify-between gap-2">
-        <RowLabel icon={User}>
-          You <span className="font-normal text-subtle">· {formatTime(item.at)}</span>
-        </RowLabel>
+    <article
+      aria-label={`You, ${formatTime(item.at)}`}
+      className="group/msg flex min-w-0 flex-col items-end"
+    >
+      <div className="max-w-[85%] min-w-0 rounded-2xl border border-border bg-surface-2 px-3.5 py-2">
+        <p
+          className={cn("text-sm break-words whitespace-pre-wrap", long && !full && "line-clamp-8")}
+        >
+          {text}
+        </p>
+        {long && (
+          <TextLink size="xs" className="mt-1" onClick={() => setFull((v) => !v)}>
+            {full ? "Show less" : "Show full message"}
+          </TextLink>
+        )}
+        {item.data.images ? (
+          <p className="mt-1 text-xs text-muted">
+            {item.data.images} image{item.data.images === 1 ? "" : "s"} attached
+          </p>
+        ) : null}
+      </div>
+      {/* Opacity only, so showing the row never changes the height of the transcript. */}
+      <div className="mt-0.5 flex items-center gap-1 text-xs text-subtle opacity-0 group-focus-within/msg:opacity-100 group-hover/msg:opacity-100 pointer-coarse:opacity-100">
+        <span>{formatTime(item.at)}</span>
         <UserMessageMenu item={item} sessionId={sessionId} />
       </div>
-      <p className="text-sm break-words whitespace-pre-wrap">{item.data.text}</p>
-      {item.data.images ? (
-        <p className="mt-1 text-xs text-muted">
-          {item.data.images} image{item.data.images === 1 ? "" : "s"} attached
-        </p>
-      ) : null}
-    </div>
+    </article>
   );
 }
 
@@ -179,51 +251,70 @@ function AssistantMessage({
   text,
   thinking,
   streaming,
+  quiet,
 }: {
   text: string;
   thinking: string;
   streaming: boolean;
+  /** Interim text inside a folded turn: smaller and dim. */
+  quiet?: boolean;
 }) {
   const shownText = useSmoothText(text, streaming);
   const shownThinking = useSmoothText(thinking, streaming);
   return (
     <div data-assistant-reply={streaming ? "live" : "done"} className="min-w-0 px-1">
-      <RowLabel icon={Bot}>
-        Pi
-        {streaming && (
-          <span className="inline-flex items-center gap-1 font-normal">
-            <Spinner className="size-3" />
-            Writing…
-          </span>
-        )}
-      </RowLabel>
+      <span className="sr-only select-none">Pi: </span>
       {thinking && <ThinkingItem text={shownThinking} live />}
-      {text ? <Markdown text={shownText} /> : !thinking && <p className="text-sm text-muted">…</p>}
+      {text ? (
+        <Markdown text={shownText} className={quiet ? "text-[13px] text-muted" : undefined} />
+      ) : (
+        !thinking &&
+        (streaming ? (
+          <p className="flex items-center gap-1.5 text-sm text-muted">
+            <Spinner className="size-3.5" />
+            Writing…
+          </p>
+        ) : (
+          <p className="text-sm text-muted">…</p>
+        ))
+      )}
     </div>
   );
 }
 
 function ThinkingItem({ text, live }: { text: string; live?: boolean }) {
   return (
-    <details className="group min-w-0 rounded-md border border-border bg-surface px-3 py-1.5">
-      <summary className="tap flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted">
-        <ChevronRight aria-hidden className="size-3.5 transition-transform group-open:rotate-90" />
-        <Brain aria-hidden className="size-3.5" />
-        {live ? "Thinking…" : "Thinking"}
+    <details className="group min-w-0">
+      <summary className="tap flex cursor-pointer list-none items-center gap-1.5 px-1 text-sm text-muted">
+        {live ? (
+          <Spinner className="size-3.5" />
+        ) : (
+          <ChevronRight
+            aria-hidden
+            className="size-3.5 shrink-0 text-subtle transition-transform group-open:rotate-90"
+          />
+        )}
+        {live ? "Thinking…" : "Thought"}
       </summary>
-      <p className="mt-1 text-xs break-words whitespace-pre-wrap text-muted">{text}</p>
+      <p className="mt-1 ml-2.5 border-l border-border pl-3 text-xs break-words whitespace-pre-wrap text-muted">
+        {text}
+      </p>
     </details>
   );
 }
 
-const TOOL_STATUS: Record<ToolItemData["status"], { label: string; icon: LucideIcon }> = {
-  running: { label: "Running", icon: LoaderCircle },
-  ok: { label: "Done", icon: CircleCheck },
-  error: { label: "Failed", icon: CircleX },
+const TOOL_STATUS: Record<ToolItemData["status"], { label: string }> = {
+  running: { label: "Running" },
+  ok: { label: "Done" },
+  error: { label: "Failed" },
 };
 
-/** Restrained tool card: name, status (icon + text), summary, elapsed, expandable args/output. */
-export function ToolCard({
+/**
+ * A tool call as one line: what it did and to what. Opening it shows the detail for its kind,
+ * in place on desktop and in a sheet on a phone. An adapter's card shows under the line, open,
+ * on every device.
+ */
+export function ToolRow({
   data,
   stream,
   sessionId,
@@ -233,16 +324,12 @@ export function ToolCard({
   sessionId: string;
 }) {
   const { mobile, openFile } = useCodeContext();
-  const [fullOutput, setFullOutput] = useState(false);
   const running = data.status === "running";
+  const failed = data.status === "error";
   const now = useNow(running);
   const elapsed =
     data.durationMs ?? (running ? Math.max(0, now - Date.parse(data.startedAt)) : null);
   const st = TOOL_STATUS[data.status];
-  const Icon = st.icon;
-  const args = stringifyArgs(data.args) || stream?.toolArgs || "";
-  const output = data.output + (stream?.toolOutput ?? "");
-  const preview = outputPreview(output);
 
   const session = useSyncStore((s) => s.sessions[sessionId]);
   const host = useSyncStore((s) => (session ? s.hosts[session.hostId] : undefined));
@@ -275,114 +362,237 @@ export function ToolCard({
     }
   };
 
+  const view = describeTool(data, session?.cwd ?? null);
+  const label = toolLabel(view, data.name, data.status);
+  const [open, setOpen] = useState(!!data.card);
+  const inSheet = mobile && !data.card;
+  const showElapsed = elapsed !== null && (running || elapsed >= 1000);
+
+  const detail = (
+    <ToolDetailView
+      data={data}
+      view={view}
+      output={data.output + (stream?.toolOutput ?? "")}
+      pendingArgs={stream?.toolArgs ?? ""}
+      facts={[st.label, formatDuration(elapsed)]}
+      mobile={mobile}
+      openFile={openFile}
+      card={
+        data.card ? (
+          <>
+            <UINodeRenderer
+              node={data.card}
+              onAction={(id) => void onAction(id)}
+              onOpenFile={openFile}
+              disabled={disabled}
+              busy={actionBusy}
+            />
+            {stale && <p className="text-sm text-muted">{STALE_ADAPTER_VIEW}</p>}
+            {actionError && (
+              <p role="alert" className="text-sm text-danger">
+                {actionError}
+              </p>
+            )}
+          </>
+        ) : null
+      }
+    />
+  );
+
   return (
     <article
-      data-testid="tool-card"
+      data-testid="tool-row"
+      data-kind={view.kind}
+      data-status={data.status}
       aria-label={`Tool ${data.name}: ${st.label}`}
-      className="min-w-0 rounded-md border border-border bg-surface"
+      className="min-w-0"
     >
-      <header className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup={inSheet ? "dialog" : undefined}
+        onClick={() => setOpen((v) => !v)}
+        className="tap flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm hover:bg-surface-2"
+      >
         {running ? (
-          <Spinner className="size-4 text-info" />
+          <Spinner className="size-3.5 text-info" />
         ) : (
-          <Icon
+          <ChevronRight
             aria-hidden
             className={cn(
-              "size-4 shrink-0",
-              data.status === "ok" && "text-success",
-              data.status === "error" && "text-danger",
+              "size-3.5 shrink-0 text-subtle transition-transform",
+              open && !inSheet && "rotate-90",
             )}
           />
         )}
-        <span className="min-w-0 truncate font-mono text-sm font-medium">{data.name}</span>
         <span
           className={cn(
-            "text-xs",
-            data.status === "error" ? "text-danger" : running ? "text-info" : "text-muted",
+            "shrink-0",
+            label.mono && "font-mono text-xs",
+            failed ? "text-danger" : "text-muted",
           )}
         >
-          {st.label}
+          {label.text}
         </span>
-        {elapsed !== null && (
-          <span className="ml-auto text-xs text-subtle tabular-nums">
+        {view.target && (
+          <span className="min-w-0 truncate font-mono text-xs" title={view.target}>
+            {view.target}
+          </span>
+        )}
+        {view.stat && (
+          <span className="shrink-0 font-mono text-xs">
+            <span className="text-success">
+              +{view.stat.added}
+              <span className="sr-only"> added</span>
+            </span>
+            {view.stat.removed > 0 && (
+              <>
+                {" "}
+                <span className="text-danger">
+                  −{view.stat.removed}
+                  <span className="sr-only"> deleted</span>
+                </span>
+              </>
+            )}
+          </span>
+        )}
+        {view.meta.map((m) => (
+          <span key={m} className="shrink-0 text-xs text-subtle">
+            {m}
+          </span>
+        ))}
+        {failed && <span className="shrink-0 text-xs text-danger">failed</span>}
+        {showElapsed && (
+          <span className="ml-auto shrink-0 pl-2 text-xs text-subtle tabular-nums">
             {formatDuration(elapsed)}
           </span>
         )}
-        {data.summary && (
-          <p className="w-full min-w-0 truncate text-xs text-muted" title={data.summary}>
-            {data.summary}
-          </p>
-        )}
-      </header>
-      {data.card && (
-        <div className="border-t border-border px-3 py-2">
-          <UINodeRenderer
-            node={data.card}
-            onAction={(id) => void onAction(id)}
-            onOpenFile={openFile}
-            disabled={disabled}
-            busy={actionBusy}
-          />
-          {stale && <p className="text-sm text-muted">{STALE_ADAPTER_VIEW}</p>}
-          {actionError && (
-            <p role="alert" className="text-sm text-danger">
-              {actionError}
-            </p>
-          )}
-        </div>
-      )}
-      {(args || output) && (
-        <div className="flex flex-col gap-1 border-t border-border px-3 py-1.5">
-          {args && (
-            <details className="group min-w-0">
-              <summary className="tap flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted">
-                <ChevronRight
-                  aria-hidden
-                  className="size-3.5 transition-transform group-open:rotate-90"
-                />
-                Arguments
-              </summary>
-              <CodeBlock text={args} className="mt-1" maxHeight="16rem" />
-            </details>
-          )}
-          {output &&
-            (mobile ? (
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-muted">
-                  Output{preview.truncated ? " (last lines)" : ""}
-                </div>
-                <CodeBlock text={preview.text} className="mt-1" />
-                {preview.truncated && (
-                  <Button size="sm" variant="ghost" onClick={() => setFullOutput(true)}>
-                    Show full output
-                  </Button>
-                )}
-                <Sheet
-                  open={fullOutput}
-                  onClose={() => setFullOutput(false)}
-                  title={`${data.name} output`}
-                >
-                  <CodeBlock text={output} />
-                </Sheet>
-              </div>
-            ) : (
-              <details className="group min-w-0">
-                <summary className="tap flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted">
-                  <ChevronRight
-                    aria-hidden
-                    className="size-3.5 transition-transform group-open:rotate-90"
-                  />
-                  Output
-                  <span className="font-normal text-subtle">
-                    ({output.split("\n").length} lines)
-                  </span>
-                </summary>
-                <CodeBlock text={output} className="mt-1" maxHeight="24rem" />
-              </details>
-            ))}
-        </div>
+      </button>
+      {inSheet ? (
+        <Sheet
+          open={open}
+          onClose={() => setOpen(false)}
+          title={`${label.text} ${view.target}`.trim()}
+        >
+          <div className="flex min-w-0 flex-col gap-2">{detail}</div>
+        </Sheet>
+      ) : (
+        open && (
+          <div className="mt-1 mb-1 ml-2.5 flex min-w-0 flex-col gap-2 border-l border-border pl-3">
+            {detail}
+          </div>
+        )
       )}
     </article>
+  );
+}
+
+/** What opening a tool row shows: facts, the adapter's card, the typed detail, then the output. */
+function ToolDetailView({
+  data,
+  view,
+  output,
+  pendingArgs,
+  facts,
+  mobile,
+  openFile,
+  card,
+}: {
+  data: ToolItemData;
+  view: ToolView;
+  output: string;
+  /** Arguments still streaming in, before the tool item has them. */
+  pendingArgs: string;
+  facts: string[];
+  mobile: boolean;
+  openFile?: (path: string) => void;
+  card: ReactNode;
+}) {
+  const running = data.status === "running";
+  const d = view.detail;
+  const showOutput = data.status === "error" || (d.t !== "edit" && d.t !== "write");
+  const filePath = view.filePath;
+  const lineCount = output.replace(/\n+$/, "").split("\n").length;
+  const outputNote = running ? "last lines" : `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
+  return (
+    <>
+      <p className="text-xs text-subtle">
+        <span className="font-mono">{data.name}</span>
+        {facts.filter(Boolean).map((f) => (
+          <span key={f}> · {f}</span>
+        ))}
+      </p>
+      {card}
+      {d.t === "command" && d.command && <CodeBlock text={`$ ${d.command}`} />}
+      {d.t === "edit" &&
+        (d.files.length > 0 ? (
+          <DiffView files={d.files} />
+        ) : (
+          <p className="text-xs text-muted">No changes.</p>
+        ))}
+      {d.t === "write" && d.content && (
+        <CodeBlock text={d.content} lang={view.target || undefined} maxHeight="24rem" />
+      )}
+      {d.t === "read" && d.range && <p className="text-xs text-muted">{d.range}</p>}
+      {d.t === "search" && (
+        <>
+          <CodeBlock text={d.query} />
+          {d.where && <p className="text-xs text-muted">in {d.where}</p>}
+        </>
+      )}
+      {d.t === "args" && d.rows.length > 0 && (
+        <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+          {d.rows.map(([k, v]) => (
+            <div key={k} className="contents">
+              <dt className="font-mono text-xs text-subtle">{k}</dt>
+              <dd className="min-w-0 font-mono text-xs break-words whitespace-pre-wrap">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {d.t === "args" && d.raw && (
+        <details className="group min-w-0">
+          <summary className="tap flex cursor-pointer list-none items-center gap-1 text-xs text-muted">
+            <ChevronRight
+              aria-hidden
+              className="size-3.5 transition-transform group-open:rotate-90"
+            />
+            Raw arguments
+          </summary>
+          <CodeBlock text={d.raw} className="mt-1" maxHeight="16rem" />
+        </details>
+      )}
+      {d.t === "args" && d.rows.length === 0 && !d.raw && pendingArgs && (
+        <CodeBlock text={pendingArgs} maxHeight="16rem" />
+      )}
+      {filePath && openFile && (
+        <div>
+          <TextLink
+            size="xs"
+            icon={<FileCode aria-hidden className="size-3.5" />}
+            onClick={() => openFile(filePath)}
+          >
+            Open file
+          </TextLink>
+        </div>
+      )}
+      {showOutput &&
+        (output ? (
+          <div className="min-w-0">
+            <p className="text-xs text-muted">
+              Output <span className="text-subtle">({outputNote})</span>
+            </p>
+            <CodeBlock
+              text={running ? outputPreview(output, 12).text : output}
+              lang={view.kind === "read" && view.target ? view.target : undefined}
+              className="mt-1"
+              maxHeight={mobile ? undefined : "24rem"}
+            />
+          </div>
+        ) : (
+          d.t === "command" && !running && <p className="text-xs text-muted">No output.</p>
+        ))}
+    </>
   );
 }
 
@@ -546,9 +756,6 @@ function SystemItem({
 }
 
 function SubagentRow({ data }: { data: Extract<TranscriptItem, { kind: "subagent" }>["data"] }) {
-  const linked = useSyncStore((s) =>
-    data.linkedSessionId ? s.sessions[data.linkedSessionId] : undefined,
-  );
   const status = data.status.toLowerCase();
   const Icon = /run|start|progress/.test(status)
     ? LoaderCircle
@@ -558,29 +765,30 @@ function SubagentRow({ data }: { data: Extract<TranscriptItem, { kind: "subagent
         ? CircleCheck
         : Network;
   return (
-    <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-surface px-3 py-2">
+    <div className="flex min-w-0 items-center gap-1.5 px-1 text-sm">
       {Icon === LoaderCircle ? (
-        <Spinner className="mt-0.5 size-4 text-muted" />
+        <Spinner className="size-3.5 text-muted" />
       ) : (
-        <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted" />
+        <Icon aria-hidden className="size-3.5 shrink-0 text-muted" />
       )}
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-          <span className="text-xs font-medium text-muted">Subagent</span>
-          <span className="min-w-0 truncate text-sm font-medium">{data.label}</span>
-          <span className="text-xs text-muted">{data.status}</span>
-        </div>
-        {data.linkedSessionId ? (
-          <TextLink to={`/code/${encodeURIComponent(data.linkedSessionId)}`} size="sm">
-            Open {linked?.title ?? "subagent session"}
-          </TextLink>
-        ) : (
-          <p className="text-xs break-all text-muted">
-            {data.sessionFile ? `Session file: ${data.sessionFile}` : "Session not linked yet."}
-          </p>
-        )}
-        <p className="text-xs text-muted">Subagent: view only. Live control is not supported.</p>
-      </div>
+      <span className="shrink-0 text-muted">Subagent</span>
+      <span className="min-w-0 truncate" title={data.label}>
+        {data.label}
+      </span>
+      <span className="shrink-0 text-xs text-subtle">{data.status}</span>
+      {data.linkedSessionId ? (
+        <TextLink
+          to={`/code/${encodeURIComponent(data.linkedSessionId)}`}
+          size="xs"
+          className="shrink-0"
+        >
+          Open
+        </TextLink>
+      ) : (
+        <span className="shrink-0 text-xs text-subtle" title={data.sessionFile ?? undefined}>
+          Not linked yet
+        </span>
+      )}
     </div>
   );
 }

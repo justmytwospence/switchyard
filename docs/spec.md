@@ -398,9 +398,13 @@ Attach is navigation to this view, not an action that creates a process.
 
 ### Transcript
 
-Readable messages with restrained tool cards.
+The transcript reads as a document: your messages, Pi's replies, and one line per tool call.
 
-Tool cards show name, status, useful summary, elapsed time, and expandable arguments/output.
+Your message is a right-aligned card with its time and actions under it; a long one folds to eight lines behind Show full message. A reply is plain prose with no header.
+
+A tool call is one line: a verb and what it acted on (`Read src/a.ts`, `Edited src/b.ts +12 −3`, `Ran pnpm test`), the tool's own name when Switchyard has no verb for it, and `failed` when it failed. Opening the line shows the detail for its kind (a command and its output, an edit as a diff, a written or read file, a search and its results, or any other tool's arguments and output) with the tool's name, status and elapsed time. An adapter's tool card shows under its line, open.
+
+A finished turn folds its tool calls, thinking and interim text into one line (`Worked for 2m 14s · edited 2 files · ran 3 commands · 1 failed`); the final reply stays outside the fold. While Pi runs, a `Working…` line with the elapsed time ends the transcript. Settings > This device > Tool activity chooses Detailed (nothing folds), Normal, or Summary (a running turn folds too).
 
 Maintain scroll position when the user reads history. Show "Jump to latest" with unseen-event count; do not pull the viewport downward.
 
@@ -462,7 +466,7 @@ View switcher:
 
 Same authoritative transcript and interactions as desktop.
 
-Collapse verbose tool output by default. Preserve access to full output.
+A tool line opens its detail in a sheet, with the full output.
 
 Composer remains above the keyboard, grows to approximately one-third of viewport height, then scrolls internally.
 

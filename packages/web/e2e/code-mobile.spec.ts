@@ -205,6 +205,27 @@ test.describe("mobile coding view", () => {
     await expect(page.locator('[data-testid="session-status"][data-kind="answer"]')).toHaveCount(0);
   });
 
+  test("A tool call opens its detail in a sheet", async ({ page, state, api }, info) => {
+    const id = await createSession(
+      api,
+      state,
+      `Mobile tool rows ${uid(info)}`,
+      "TOOL-ROWS check",
+      (s) => s.runtime === "idle" && !!s.lastAssistantText,
+    );
+    await page.goto(`/code/${id}`);
+    const work = page.getByTestId("transcript").getByTestId("work-row").first();
+    await work.locator("> summary").tap();
+    const row = work.getByTestId("tool-row").first();
+    await expect(row).toContainText("echo tool-rows-out; exit 3");
+    await row.getByRole("button").first().tap();
+    const sheet = page.getByRole("dialog");
+    await expect(sheet).toContainText("$ echo tool-rows-out; exit 3");
+    await expect(sheet.locator("pre").filter({ hasText: /^tool-rows-out/ })).toBeVisible();
+    await sheet.getByRole("button", { name: "Close" }).tap();
+    await expect(sheet).toHaveCount(0);
+  });
+
   test("bottom nav hides while composing with the keyboard", async ({ page, state }) => {
     // Any text field: the visual viewport shrinking under focus hides the nav.
     await page.goto("/tasks");

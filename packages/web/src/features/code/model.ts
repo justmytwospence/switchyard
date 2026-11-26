@@ -39,6 +39,7 @@ import {
   sessionWhereToken,
   type Where,
 } from "../scopes/where";
+import { describeTool } from "./toolView";
 
 /**
  * Pure helpers for the Code feature (navigator tree, composer state,
@@ -1168,10 +1169,15 @@ export function buildTimeline(
   return out;
 }
 
+/** How much tool activity the transcript shows (Settings > This device). */
+export type TranscriptDetail = "detailed" | "normal" | "summary";
+
 export interface WorkSummary {
   durationMs: number | null;
-  edits: number;
-  reads: number;
+  /** Distinct files edited or written. */
+  editedFiles: number;
+  /** Distinct files read. */
+  readFiles: number;
   commands: number;
   searches: number;
   other: number;
@@ -1181,7 +1187,16 @@ export interface WorkSummary {
 
 export type FoldedEntry =
   | TimelineEntry
-  | { type: "work"; key: string; entries: TimelineEntry[]; summary: WorkSummary };
+  | {
+      type: "work";
+      key: string;
+      entries: TimelineEntry[];
+      summary: WorkSummary;
+      /** The turn is still running: the row counts up instead of giving a total. */
+      live: boolean;
+      /** When the turn's user message was sent. */
+      startAt: string | null;
+    };
 
 function isToolEntry(e: TimelineEntry): e is Extract<TimelineEntry, { type: "item" }> {
   return e.type === "item" && e.item.kind === "tool";
@@ -1191,14 +1206,16 @@ function isToolEntry(e: TimelineEntry): e is Extract<TimelineEntry, { type: "ite
 export function summarizeWork(entries: TimelineEntry[], turnStartAt: string | null): WorkSummary {
   const s: WorkSummary = {
     durationMs: null,
-    edits: 0,
-    reads: 0,
+    editedFiles: 0,
+    readFiles: 0,
     commands: 0,
     searches: 0,
     other: 0,
     thinking: 0,
     failed: 0,
   };
+  const edited = new Set<string>();
+  const read = new Set<string>();
   let toolSum: number | null = null;
   let maxEnd: number | null = null;
   for (const e of entries) {
@@ -1208,21 +1225,19 @@ export function summarizeWork(entries: TimelineEntry[], turnStartAt: string | nu
     if (item.kind === "tool") {
       const d = item.data;
       if (d.status === "error") s.failed += 1;
-      switch (d.name) {
+      const view = describeTool(d, null);
+      switch (view.kind) {
         case "edit":
         case "write":
-          s.edits += 1;
+          edited.add(view.path ?? d.toolCallId);
           break;
         case "read":
-          s.reads += 1;
+          read.add(view.path ?? d.toolCallId);
           break;
-        case "bash":
-        case "powershell":
+        case "command":
           s.commands += 1;
           break;
-        case "grep":
-        case "find":
-        case "ls":
+        case "search":
           s.searches += 1;
           break;
         default:
@@ -1238,6 +1253,8 @@ export function summarizeWork(entries: TimelineEntry[], turnStartAt: string | nu
       if (!Number.isNaN(at)) maxEnd = Math.max(maxEnd ?? at, at);
     }
   }
+  s.editedFiles = edited.size;
+  s.readFiles = read.size;
   const startMs = turnStartAt ? Date.parse(turnStartAt) : Number.NaN;
   if (!Number.isNaN(startMs) && maxEnd !== null) s.durationMs = Math.max(0, maxEnd - startMs);
   else s.durationMs = toolSum;
@@ -1248,15 +1265,19 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** "Worked 7s · 2 edits · 3 reads · 1 command". */
-export function formatWorkSummary(s: WorkSummary): string {
+/**
+ * "Worked for 7s · edited 2 files · ran 1 command". A live summary reads "Working… 7s · …" and
+ * takes its duration from the caller's clock.
+ */
+export function formatWorkSummary(s: WorkSummary, live = false): string {
   const dur = formatDuration(s.durationMs);
-  const parts = [dur ? `Worked ${dur}` : "Worked"];
-  if (s.edits) parts.push(plural(s.edits, "edit", "edits"));
-  if (s.reads) parts.push(plural(s.reads, "read", "reads"));
-  if (s.commands) parts.push(plural(s.commands, "command", "commands"));
+  const head = live ? (dur ? `Working… ${dur}` : "Working…") : dur ? `Worked for ${dur}` : "Worked";
+  const parts = [head];
+  if (s.editedFiles) parts.push(`edited ${plural(s.editedFiles, "file", "files")}`);
+  if (s.commands) parts.push(`ran ${plural(s.commands, "command", "commands")}`);
+  if (s.readFiles) parts.push(`read ${plural(s.readFiles, "file", "files")}`);
   if (s.searches) parts.push(plural(s.searches, "search", "searches"));
-  if (s.other) parts.push(`${s.other} other`);
+  if (s.other) parts.push(plural(s.other, "other tool call", "other tool calls"));
   if (s.failed) parts.push(`${s.failed} failed`);
   return parts.join(" · ");
 }
@@ -1274,11 +1295,19 @@ function turnIsOpen(turn: TimelineEntry[], busy: boolean): boolean {
 }
 
 /**
- * Collapse the tool calls and thinking of each finished turn into one "work" entry. The last
- * turn stays open while the session is busy or anything in it is still streaming. Interactions,
+ * Collapse the tool calls and thinking of each finished turn into one "work" entry. Interactions,
  * subagents, notices, system and user items and the turn's final reply never fold.
+ *
+ * The last turn stays open while the session is busy or anything in it is still streaming:
+ * "normal" shows it unfolded, "summary" folds what it has done so far into one live entry (its
+ * tool calls, thinking, and the text Pi wrote before a tool call). "detailed" folds nothing.
  */
-export function foldTimeline(entries: TimelineEntry[], busy: boolean): FoldedEntry[] {
+export function foldTimeline(
+  entries: TimelineEntry[],
+  busy: boolean,
+  level: TranscriptDetail = "normal",
+): FoldedEntry[] {
+  if (level === "detailed") return entries;
   const turns: TimelineEntry[][] = [];
   for (const e of entries) {
     if (turns.length === 0 || (e.type === "item" && e.item.kind === "user")) turns.push([e]);
@@ -1288,20 +1317,25 @@ export function foldTimeline(entries: TimelineEntry[], busy: boolean): FoldedEnt
   turns.forEach((turn, idx) => {
     const first = turn[0];
     const startsWithUser = first?.type === "item" && first.item.kind === "user";
-    if (idx === turns.length - 1 && turnIsOpen(turn, busy)) {
+    const live = idx === turns.length - 1 && turnIsOpen(turn, busy);
+    if (live && level !== "summary") {
       out.push(...turn);
       return;
     }
     let lastAssistant = -1;
+    let lastTool = -1;
     turn.forEach((e, i) => {
-      if (e.type === "item" && e.item.kind === "assistant") lastAssistant = i;
+      if (e.type !== "item") return;
+      if (e.item.kind === "assistant") lastAssistant = i;
+      if (e.item.kind === "tool") lastTool = i;
     });
     const foldable = new Set<number>();
     turn.forEach((e, i) => {
       if (e.type !== "item") return;
       const k = e.item.kind;
-      if (k === "tool" || k === "thinking" || (k === "assistant" && i !== lastAssistant))
-        foldable.add(i);
+      // A finished turn keeps its last reply; a running one keeps whatever follows its last tool.
+      const interim = k === "assistant" && (live ? i < lastTool : i !== lastAssistant);
+      if (k === "tool" || k === "thinking" || interim) foldable.add(i);
     });
     const folded = turn.filter((_, i) => foldable.has(i));
     if (!folded.some(isToolEntry)) {
@@ -1322,10 +1356,34 @@ export function foldTimeline(entries: TimelineEntry[], busy: boolean): FoldedEnt
         key: `work:${e.key}`,
         entries: folded,
         summary: summarizeWork(folded, startAt),
+        live,
+        startAt,
       });
     });
   });
   return out;
+}
+
+/** Vertical rhythm between two transcript rows: tool and thinking lines sit close together. */
+export function entrySpacing(
+  prev: FoldedEntry | null,
+  cur: FoldedEntry,
+): "none" | "tight" | "normal" | "turn" {
+  if (!prev) return "none";
+  const quiet = (e: FoldedEntry) =>
+    e.type === "item" && (e.item.kind === "tool" || e.item.kind === "thinking");
+  if (quiet(prev) && quiet(cur)) return "tight";
+  if (cur.type === "item" && cur.item.kind === "user") return "turn";
+  return "normal";
+}
+
+/** When the running turn began: the time of the last user message. */
+export function workingSince(entries: FoldedEntry[]): string | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e?.type === "item" && e.item.kind === "user") return e.item.at;
+  }
+  return null;
 }
 
 /** The host's subscription usage for the provider a session's model uses. */
@@ -1413,16 +1471,7 @@ export function checkoutLabel(c: Checkout, hosts: Record<string, Host>): string 
   return `${hosts[c.hostId]?.name ?? "Unknown host"}: ${c.path}`;
 }
 
-/** First line of a tool's args for a compact summary. */
-export function stringifyArgs(args: unknown): string {
-  if (args === undefined || args === null) return "";
-  if (typeof args === "string") return args;
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
-}
+export { stringifyArgs } from "./toolView";
 
 /** Tail of verbose output for the collapsed mobile preview. */
 export function outputPreview(output: string, maxLines = 6): { text: string; truncated: boolean } {
