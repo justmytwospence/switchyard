@@ -118,5 +118,5 @@ Recorded against v0.2.0 (`ghcr.io/justmytwospence/switchyard:0.2.0`, linux/amd64
 | Host self-enrollment with a shared secret; host waits without config | Verified | `integration/enrollment.test.ts`; `host-agent/test/wait-for-config.test.ts` |
 | Per-project worktree folder | Verified | `host-agent/test/git.test.ts`; `integration/worktrees.test.ts` |
 | Plugin adapters loaded from pi-plugins through the plugin tier | Verified | `host-agent/test/compat/*` (real Pi 1.4.0, real plugins) |
-| Live deployment (container behind a reverse proxy, external OIDC provider): published image, owned at first start through the declared OIDC owner, host connected, Authelia accepts the `switchyard` client (authorize URL reaches Authelia's sign-in flow), OIDC discovery `ready` | Verified | live checks on the NUC |
+| Live deployment (container behind a reverse proxy, external OIDC provider): published image, owned at first start through the declared OIDC owner, host connected, Authelia accepts the `switchyard` client (authorize URL reaches Authelia's sign-in flow), OIDC discovery `ready` | Verified | live checks on the owner's server |
 | Real Authelia sign-in with 2FA on phone and Mac, passkey on a real device, iOS PWA handoff | **Unverified** | needs the owner's own sign-in |
