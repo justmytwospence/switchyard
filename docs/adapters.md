@@ -78,6 +78,7 @@ The real-world example is [pi-plugins](https://github.com/justmytwospence/pi-plu
 ```ts
 interface ServerAdapter {
   toolCard?(tool, ctx): UINode | undefined;
+  toolView?(tool, ctx): ToolViewData | undefined; // contract v2
   customMessageCard?(message, ctx): UINode | undefined;
   claimInteraction?(req: PiUiRequest, ctx): Claim | undefined;
   onToolStart?(e, ctx); onToolUpdate?(e, ctx); onToolEnd?(e, ctx);
@@ -90,7 +91,7 @@ interface ServerAdapter {
 
 Every hook is optional and may be async. The host calls them in precedence order:
 
-- `toolCard`, `customMessageCard` and `claimInteraction`: the first valid result in precedence order wins.
+- `toolCard`, `toolView`, `customMessageCard` and `claimInteraction`: the first valid result in precedence order wins.
 - Observation hooks (`onToolStart`, `onToolUpdate`, `onToolEnd`, `onEntry`, `onCustomMessage`, `onStatus`, `onWidget`): every adapter is called. `onToolUpdate` gets each `tool_execution_update` with the partial result and its `details`. `onStatus` and `onWidget` may return `true` to say they presented the value: the host then leaves that status key out of the generic Status panel, or removes the generic `widget:<key>` panel. Return nothing (or `false`) to keep the generic presentation; if the adapter is later disabled, the key's next update shows in the generic panel again.
 - `onAction`: only the adapter named in the action.
 
@@ -192,6 +193,150 @@ await session.onToolEnd({ toolCallId, name, args, result, isError, details });
 
 `emit` receives `panel`, `attention`, `subagent`, `state`, `log` and `diagnostic` effects.
 
+## Contract v2
+
+Contract v2 adds to version 1 without changing it: the manifest's `protocolVersion` stays `1`, every v1 adapter keeps working, and a v2 adapter loads on a v1 host. The whole contract is one dependency-free type file, [`packages/adapter-sdk/src/contract.ts`](../packages/adapter-sdk/src/contract.ts): copy it next to an adapter that ships in a Pi package and use it with `import type`. The SDK checks it against its own types at compile time.
+
+### Feature detection
+
+`ctx.features` lists what the host supports; it is `undefined` on a host from before v2. Guard every v2 feature, because a v1 host rejects a v2 node or placement as invalid and disables the adapter for the session:
+
+```ts
+const supports = (ctx, feature) => ctx.features?.includes(feature) === true;
+```
+
+| Feature | What it allows |
+|---|---|
+| `tool.views.v1` | The host calls `toolView`. A v1 host never calls it, so the hook itself needs no guard. |
+| `ui.nodes.v2` | `checklist`, `facts`, `rows` and `badge` nodes, `section.open` and `url` refs. |
+| `adapter.trackers.v1` | The `composer.tracker` and `session.badge` placements. |
+| `interaction.kinds.v1` | `Claim.kind` reaches clients. A v1 host ignores the field, so it needs no guard. |
+
+The host has contract v2 whatever its coordinator runs. With a coordinator from before v2, or a client that did not announce a capability, the same data is sent in its v1 shape: a tracker as a `composer.pill` whose text is its title, count and step; a badge is left out; a checklist as a list of `[x] text` lines, facts as a two-column table, rows as a list, a badge as text, a URL as its label and address; a tool view is dropped, and the client derives the row. An adapter never has to do that itself.
+
+### Tool views
+
+`toolView(tool, ctx)` describes a tool call's one-line row in the transcript. It is called when the call starts (no `result`) and again when it ends. Every field is optional and overrides what the client derives from the tool's name and arguments (the name in mono and the first string argument):
+
+```ts
+interface ToolViewData {
+  kind?: "read" | "edit" | "write" | "command" | "search" | "other"; // how a finished turn counts it
+  verb?: string;        // finished: "Updated todo" (1 to 40 characters)
+  activeVerb?: string;  // running: "Updating todo"; defaults to verb
+  target?: string;      // what it acted on, in mono (at most 500 characters; "" for none)
+  meta?: string[];      // up to six short facts after the target: ["2/5"]
+  stat?: { added: number; removed: number };
+  detail?: UINode;      // shown when the row is opened, in place of the arguments; no forms
+  hide?: boolean;       // do not draw the row: a dock question or a tracker stands for the call
+}
+```
+
+The host adds what Pi's result says about its built-in tools before the adapter's view is applied on top: an `edit` gets its real diff with line numbers, and a failed `bash` its exit code. `toolCard` still works and shows under the row, open; prefer `toolView` with a `detail`, which stays one line until it is opened. An unknown field or an invalid view disables the adapter like any invalid result.
+
+### Nodes
+
+| Node | Shape | Draws |
+|---|---|---|
+| `checklist` | `{t, items: [{text, state: "todo" \| "doing" \| "done" \| "skipped", note?}]}` | Steps with their state |
+| `facts` | `{t, items: [{label, value, mono?}]}` | Label and value pairs (an approval's tool, command and directory) |
+| `rows` | `{t, rows: [{title, status?, tone?, meta?, ref?}]}` | One line per job or subagent, with an Open link for `ref` |
+| `badge` | `{t, text, tone?}` | A short word in a pill |
+| `section` | `open: false` | A collapsible section that starts closed |
+| `ref` | `ref: {kind: "url", url}` | An http(s) link, opened in a new tab |
+
+### Trackers and badges
+
+A `composer.tracker` contribution is a live summary in the row above the input: its `title`, then `tracker.count` and `tracker.step`, with a mark for `tracker.status` (`idle`, `running`, `ok`, `error`, `attention`). Opening it shows `node`, which may hold actions (with `actionId`, as for a panel). A `session.badge` contribution is a short word on the session's row in the navigator: its `node` is `text` or `badge` with at most 24 characters, and it takes no action. `composer.pill` stays valid and draws as before.
+
+```ts
+ctx.setContribution("todo", {
+  placement: "composer.tracker",
+  title: "Todo",
+  node: { t: "checklist", items },
+  mobileFallback: "2 of 5 done",
+  tracker: { count: "2/5", status: "running", step: "Write the tests" },
+});
+```
+
+Statuses that no adapter presented (`onStatus` returning `true`) show as one tracker named Status, from the host, in place of the Status panel.
+
+### Dialog kinds
+
+`Claim.kind` says what a dialog is: `"question"`, `"approval"` or `"plan"`. A question hides the row of the tool call it belongs to (the dock shows the question, and the transcript its answer) and can be answered with the number keys 1 to 9. An approval keeps its row, which is the command being approved, and is never answered by a key. Leave `kind` out when the adapter cannot tell: such a dialog gets neither. The tool call is the claim's `ownerToolCallId` when it names a running call, otherwise the running call when there is exactly one; Pi does not say which call opened a dialog, so with several in flight it stays unknown.
+
+### A complete v2 adapter
+
+`tasks` (`packages/adapter-examples/src/tasks/server.ts`, tested in `test/tasks.test.ts` against a v2 host and against a v1 context) is for a fictional extension with a `tasks` tool that keeps a list and an `ask_owner` tool that asks through a `select` dialog:
+
+```ts
+import type {
+  AdapterContext, AdapterFeature, Claim, PiUiRequest, ServerAdapter, ToolInfo, ToolViewData, UINode,
+} from "./contract.ts"; // your copy of packages/adapter-sdk/src/contract.ts
+
+const supports = (ctx: Pick<AdapterContext, "features">, f: AdapterFeature) =>
+  ctx.features?.includes(f) === true;
+
+// A checklist where the host draws one, else a plain list.
+const tasksNode = (tasks: Task[], ctx: Pick<AdapterContext, "features">): UINode =>
+  supports(ctx, "ui.nodes.v2")
+    ? { t: "checklist", items: tasks }
+    : { t: "list", items: tasks.map((t) => ({ t: "text", text: `${MARK[t.state]} ${t.text}` })) };
+
+function publish(tasks: Task[], ctx: AdapterContext): void {
+  ctx.state.set("tasks", tasks);
+  const s = summary(tasks); // { count: "1/3", step: "Write the adapter" }
+  if (!supports(ctx, "adapter.trackers.v1")) {
+    // Before v2: a pill with the same words.
+    ctx.setContribution("tasks", {
+      placement: "composer.pill", title: "Tasks", mobileFallback: fallback(tasks),
+      node: { t: "text", text: `Tasks ${s.count}` },
+    });
+    return;
+  }
+  ctx.setContribution("tasks", {
+    placement: "composer.tracker", title: "Tasks", mobileFallback: fallback(tasks),
+    node: tasksNode(tasks, ctx),
+    tracker: { count: s.count, status: "running", ...(s.step ? { step: s.step } : {}) },
+  });
+  ctx.setContribution("tasks-badge", {
+    placement: "session.badge", title: "Tasks", mobileFallback: `Tasks ${s.count}`,
+    node: { t: "badge", text: `Tasks ${s.count}` },
+  });
+}
+
+const adapter: ServerAdapter = {
+  onRestore(ctx) {
+    const tasks = ctx.state.get<Task[]>("tasks");
+    if (tasks) publish(tasks, ctx);
+  },
+  onToolEnd(e, ctx) {
+    const tasks = e.name === "tasks" && !e.isError ? parseTasks(e.args) : null;
+    if (tasks) publish(tasks, ctx);
+  },
+  // Only called on a host with tool.views.v1.
+  toolView(tool: ToolInfo, ctx): ToolViewData | undefined {
+    if (tool.name === "ask_owner") return { hide: true }; // the dock and the outcome line say it
+    if (tool.name !== "tasks") return undefined;
+    const tasks = parseTasks(tool.args) ?? [];
+    return {
+      verb: "Updated tasks", activeVerb: "Updating tasks", target: "",
+      meta: tasks.length ? [summary(tasks).count] : [],
+      detail: tasksNode(tasks, ctx),
+    };
+  },
+  claimInteraction(req: PiUiRequest): Claim | undefined {
+    if (req.method !== "select" || !req.title.startsWith("Owner question:")) return undefined;
+    return {
+      title: req.title.slice("Owner question:".length).trim(),
+      kind: "question", // ignored by a v1 host
+      presentation: { t: "form", formId: "ask-owner", submitLabel: "Answer", fields: [/* one select */] },
+      toPiResponse: (resp) => (resp.kind === "form" ? { value: String(resp.values.answer) } : { cancelled: true }),
+    };
+  },
+};
+export default adapter;
+```
+
 ## Inspection and reload
 
 Session Details exposes adapter inspection and **Reload adapters** on capable hosts: runtime status, provenance, diagnostics, generation and any blocking reason. Reload is explicit and only succeeds for a live, writable, idle session without compaction, active tools, adapter actions, pending or unsupported dialogs, or queued answers. It prepares and restores a fresh context before swapping; it does not restart Pi. Actions carry the generation that rendered them; stale generations are rejected, and after a swap generation-less actions are rejected as well. Refresh the view and act again rather than retrying a stale action.
@@ -240,7 +385,7 @@ These ship in [pi-plugins](https://github.com/justmytwospence/pi-plugins) (`pack
 
 ## Worked example: hello
 
-`@switchyard/adapter-examples` holds one documented example, `hello` (`packages/adapter-examples/src/hello/`), for a fictional extension `pi-hello` that registers a `hello` tool and reports progress with `ctx.ui.setStatus("hello", text)`. Switchyard does not load it; `exampleAdapters()` returns it for tests and experiments.
+`@switchyard/adapter-examples` holds two documented examples: `tasks`, on contract v2 ([above](#a-complete-v2-adapter)), and `hello` (`packages/adapter-examples/src/hello/`), for a fictional extension `pi-hello` that registers a `hello` tool and reports progress with `ctx.ui.setStatus("hello", text)`. Switchyard does not load it; `exampleAdapters()` returns it for tests and experiments.
 
 The manifest is the one at the top of this page. The server module (`server.ts`) has no runtime imports, only `import type`, so the same file would work shipped inside a Pi package:
 

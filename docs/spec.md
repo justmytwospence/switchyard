@@ -208,6 +208,9 @@ Portable components:
 - Progress.
 - Sections/tabs.
 - File/session references.
+- Contract v2: checklist, facts, rows, badge, sections that start closed, and http(s) links.
+
+Contract v2 ([adapters.md](adapters.md#contract-v2)) adds, without changing version 1: a tool view (the verb, target, counts and detail of a tool call's one-line row, or hiding it), trackers above the input and a badge on the navigator row, and a dialog's kind (question, approval or plan). Host and coordinator, and coordinator and client, negotiate it; anything that did not gets the same data in its version 1 shape.
 
 State remains server-authoritative.
 
@@ -402,13 +405,13 @@ The transcript reads as a document: your messages, Pi's replies, and one line pe
 
 Your message is a right-aligned card with its time and actions under it; a long one folds to eight lines behind Show full message. A reply is plain prose with no header.
 
-A tool call is one line: a verb and what it acted on (`Read src/a.ts`, `Edited src/b.ts +12 −3`, `Ran pnpm test`), the tool's own name when Switchyard has no verb for it, and `failed` when it failed. Opening the line shows the detail for its kind (a command and its output, an edit as a diff, a written or read file, a search and its results, or any other tool's arguments and output) with the tool's name, status and elapsed time. An adapter's tool card shows under its line, open.
+A tool call is one line: a verb and what it acted on (`Read src/a.ts`, `Edited src/b.ts +12 −3`, `Ran pnpm test`), the tool's own name when Switchyard has no verb for it, and `failed` when it failed. Opening the line shows the detail for its kind (a command and its output, an edit as a diff, a written or read file, a search and its results, or any other tool's arguments and output) with the tool's name, status and elapsed time. An adapter's tool card shows under its line, open. The host and the tool's adapter can describe the line (contract v2 tool views): an edit shows its real diff with line numbers, a failed command its exit code, and a plugin's tool its own verb, counts and detail; an adapter can also hide a line that something else on screen stands for.
 
 A finished turn folds its tool calls, thinking and interim text into one line (`Worked for 2m 14s · edited 2 files · ran 3 commands · 1 failed`); the final reply stays outside the fold. While Pi runs, a `Working…` line with the elapsed time ends the transcript. Settings > This device > Tool activity chooses Detailed (nothing folds), Normal, or Summary (a running turn folds too).
 
 Maintain scroll position when the user reads history. Show "Jump to latest" with unseen-event count; do not pull the viewport downward.
 
-A pending question, approval or plan answer is not in the transcript: it is docked above the composer. A plan awaiting approval keeps its text in the transcript and its answers in the dock. Once answered, the transcript shows one line where it was asked: the question and the answer.
+A pending question, approval or plan answer is not in the transcript: it is docked above the composer. A plan awaiting approval keeps its text in the transcript and its answers in the dock. Once answered, the transcript shows one line where it was asked: the question and the answer. When the dialog's adapter says it is a question and the host knows its tool call, that call's line is not drawn; an approval keeps the line of the call it approves.
 
 Subagents appear as linked rows/cards with status. Opening one uses the same session interface where supported.
 
@@ -422,7 +425,7 @@ Desktop Enter sends; Shift+Enter adds a newline. Allow configuration.
 
 The context ring shows how full the context is and opens the context tokens, the session's tokens and cost, the subscription limits and Compact now.
 
-Above the card, top to bottom: the pending question (Needs input) with its form or answers, one at a time with a pager when several wait; a tracker row with a Changes pill (the count of uncommitted files when there are any; it opens Changes) and the adapters' pills (each opens its panel); and the queued messages, steering first. A suggested next message from Pi is a chip in the card that fills an empty draft.
+Above the card, top to bottom: the pending question (Needs input) with its form or answers, one at a time with a pager when several wait; a tracker row with a Changes pill (the count of uncommitted files when there are any; it opens Changes) the adapters' trackers (a title with its count, current step and a status mark; each opens its detail), the Status tracker for statuses no adapter presents, and the adapters' pills (each opens its panel); and the queued messages, steering first, with Edit queue to take them back into the draft where the host supports it. With a question in the dock, the number keys 1 to 9 pick an option when focus is not in a text field; an approval never takes keys. A suggested next message from Pi is a chip in the card that fills an empty draft.
 
 Show takeover state clearly.
 

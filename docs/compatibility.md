@@ -31,6 +31,23 @@ Resource inspection uses its own authenticated read-only binding, independently 
 
 Older hosts still work with a new coordinator and retain their legacy panels and tool cards. New adapter contribution APIs require a new host; upgrade the coordinator before the host, since an old coordinator cannot reliably downgrade new host contribution fields to safe text-only UI. SDK clients connecting to older coordinators can still use baseline REST, cursor replay and snapshots, but do not receive acknowledgement of new slots/cards.
 
+### Adapter contract v2
+
+Contract v2 (tool views, the `checklist`, `facts`, `rows` and `badge` nodes, `section.open`, URL refs, the `composer.tracker` and `session.badge` placements, and an interaction's `kind` and `toolCallId`) is negotiated at both hops, so every pairing of old and new works:
+
+| Pairing | What happens |
+|---|---|
+| New host, new coordinator | The host advertises `adapterContract.v2` in `hello`; the coordinator echoes it in `welcome`; events carry the v2 shapes. |
+| New host, old coordinator | No echo. The host sends each event in its v1 shape (`projectHostEvent`): no tool view, no `kind` or `toolCallId`, a tracker as a `composer.pill`, no badge, v2 nodes redrawn with v1 nodes. Unclaimed statuses stay the legacy Status panel. Adapters still see contract v2 (`ctx.features`). |
+| Old host, new coordinator | Nothing new arrives. The web derives each tool row from its name and arguments, as it does for stored items. |
+| New coordinator, old client | A client announces `tool.views.v1`, `ui.nodes.v2` and `adapter.trackers.v1`; without one, the coordinator projects that part to its v1 shape per connection, as it does for slots and cards. The projection id covers the new names, so a changed set gets a fresh snapshot. |
+| New client, old coordinator | The coordinator acknowledges only the names it knows; the client gets v1 data and draws it. |
+| v2 adapter, v1 host | It loads (`protocolVersion` is still 1). `toolView` is never called and `Claim.kind` is ignored. `ctx.features` is undefined, so an adapter that guards its v2 nodes and placements falls back to v1 ones ([adapters.md](adapters.md#feature-detection)). |
+
+The transcript, interaction and panel REST reads are not projected per client; a browser tab older than its coordinator ignores a tool view and draws nothing for a node it does not know.
+
+`queueClear.v1` is a host feature like `gitLog.v1`: the coordinator sends `session.clearQueue` (Edit queue) only to a host that advertised it, and the host reports `capabilities.queueEdit` so clients offer the action only there.
+
 [The typed Node SDK](client-sdk.md) exposes reset notices when replay history is gone; its `sessions.waitForFinish` observes session quiescence, not the completion of a specific submitted message. Pre-provider `model_request` enforcement remains deferred.
 
 ## Capabilities
@@ -58,6 +75,8 @@ Older hosts still work with a new coordinator and retain their legacy panels and
 | Feature | Meaning |
 |---|---|
 | Enrolment | A Pi started outside Switchyard with `switchyard-terminal.js` loaded listens on `<runtime>/ext-*.sock` (meta in `ext-*.sock.json`) and plays the holder's control side; the host agent adopts it with the terminal reattach path. The session reports `terminal: false` and `external`. |
+| `adapterContract.v2` | Negotiated in `welcome`: the coordinator reads the contract v2 shapes ([above](#adapter-contract-v2)). Without the echo the host sends v1 shapes. |
+| `queueClear.v1` | The host answers `session.clearQueue`: Pi's `clear_queue` without an abort, returning the queued messages. Without it Edit queue is not offered. |
 | `trackers.v1` | GitHub issue sync for scopes: the host answers `tracker.sync`, `tracker.prepareBranch`, `tracker.startIssue` and `tracker.setStatus`. The feature and its commands keep the names they had when a scope's GitHub source was a tracker, so hosts one release behind keep working. Without it, GitHub scopes on that host report "does not support GitHub issue sync" and nothing else changes. `workspace.remove` `deleteBranch` and `GitState.head` are optional and ignored or absent on older hosts. |
 
 ## Scopes and clients (0.21)
