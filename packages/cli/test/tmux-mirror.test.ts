@@ -38,7 +38,13 @@ const win = (windowId: string, over: Partial<TmuxWindow> = {}): TmuxWindow => ({
 
 describe("planTmux", () => {
   it("creates windows for viewed sessions without one, honouring pending and grace", () => {
-    const st = state({ sessions: [session("ses_1"), session("ses_2"), session("ses_3")] });
+    const st = state({
+      sessions: [
+        session("ses_1", { cwd: "/a" }),
+        session("ses_2", { cwd: "/b" }),
+        session("ses_3", { cwd: "/c" }),
+      ],
+    });
     const mem = emptyTmuxMemory();
     mem.pending.ses_2 = { windowId: "@9", at: NOW - 1000 };
     const plan = planTmux(st, null, [], mem, NOW);
@@ -119,5 +125,31 @@ describe("planTmux", () => {
     const s = st.sessions[0]!;
     expect(titleFromWindowName("switchyard · Fix it", s, st)).toBe("Fix it");
     expect(titleFromWindowName("Fix it", s, st)).toBe("Fix it");
+  });
+});
+
+describe("one window per active branch", () => {
+  const old = { runtime: "stopped" as const, lastActivityAt: "2026-10-01T00:00:00Z" };
+
+  it("closes a window it opened once the branch is inactive; one you opened or are in stays", () => {
+    const st = state({ sessions: [session("ses_1", { ...old, cwd: "/a" })] });
+    const w = win("@1", { sessionId: "ses_1", name: windowName(st.sessions[0]!, st) });
+    const mem = emptyTmuxMemory();
+    expect(planTmux(st, null, [w], mem, NOW).closeWindows).toEqual([]);
+    mem.ownWindows["@1"] = "ses_1";
+    expect(planTmux(st, null, [w], mem, NOW).closeWindows).toEqual([
+      { windowId: "@1", sessionId: "ses_1" },
+    ]);
+    expect(planTmux(st, null, [{ ...w, active: true }], mem, NOW).closeWindows).toEqual([]);
+  });
+
+  it("opens one window per branch and none for a window you closed", () => {
+    const st = state({ sessions: [session("ses_1"), session("ses_2")] });
+    const mem = emptyTmuxMemory();
+    expect(planTmux(st, null, [], mem, NOW).createWindows.map((c) => c.sessionId)).toEqual([
+      "ses_1",
+    ]);
+    mem.hidden.ses_1 = st.sessions[0]!.lastActivityAt;
+    expect(planTmux(st, null, [], mem, NOW).createWindows).toEqual([]);
   });
 });

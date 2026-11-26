@@ -6,9 +6,21 @@ import type { Ctx } from "../context.js";
 import { offMessage, pickerBinding, pinNote, terminalId } from "../mirror/binding.js";
 import { chooseSession } from "../mirror/choose.js";
 import { Screen, type TerminalIO } from "../mirror/picker.js";
-import { loadMirrorState } from "../mirror/state.js";
-import { tmuxSessionName } from "./client.js";
+import { loadMirrorState, type MirrorState } from "../mirror/state.js";
+import { tmuxRun, tmuxSessionName } from "./client.js";
+import { WINDOW_OPTION } from "./mirror.js";
 import { tmuxPane } from "./pane.js";
+
+/** The workspace of the session in the window you came from (tmux's last window), if any. */
+async function lastWindowWorkspace(st: MirrorState): Promise<string | undefined> {
+  try {
+    const sid = (await tmuxRun(["display-message", "-p", "-t", "!", `#{${WINDOW_OPTION}}`])).trim();
+    const ws = st.sessions.find((s) => s.id === sid)?.workspaceId;
+    return ws && st.workspaces.some((w) => w.id === ws && w.archivedAt === null) ? ws : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * `switchyard tmux new`: start a session from a tmux window. The window then becomes the
@@ -34,9 +46,12 @@ export async function tmuxNew(
     io ?? { input: process.stdin, output: process.stdout, color: !("NO_COLOR" in ctx.env) },
   );
   let created: Session | null = null;
+  let opened: string | null = null;
+  // `prefix S` opens this window from another: offer that window's workspace first.
+  const workspace = flags.workspace ?? (io ? undefined : await lastWindowWorkspace(state()));
   try {
     const choice = await chooseSession(state(), screen, {
-      ...(flags.workspace ? { workspaceId: flags.workspace } : {}),
+      ...(workspace ? { workspaceId: workspace } : {}),
     });
     screen.leave();
     if (!choice) {
@@ -44,19 +59,24 @@ export async function tmuxNew(
       if (!io) spawnSync(ctx.env.SHELL || "/bin/sh", [], { stdio: "inherit" });
       return;
     }
-    created = await client.api.post<Session>("/api/sessions", {
-      ...choice,
-      prompt: "",
-      ...(bound ? { viewId: bound.id } : {}),
-    });
-    ctx.err(`Starting ${created.title}…`);
-    if (bound) {
-      const note = await pinNote(client.api, bound, created.id);
-      if (note) ctx.err(note);
+    if ("openSessionId" in choice) {
+      opened = choice.openSessionId;
+    } else {
+      created = await client.api.post<Session>("/api/sessions", {
+        ...choice,
+        prompt: "",
+        ...(bound ? { viewId: bound.id } : {}),
+      });
+      ctx.err(`Starting ${created.title}…`);
+      if (bound) {
+        const note = await pinNote(client.api, bound, created.id);
+        if (note) ctx.err(note);
+      }
     }
   } finally {
     screen.leave();
     client.close();
   }
-  if (created) await tmuxPane(ctx, created.id, flags);
+  const show = created?.id ?? opened;
+  if (show) await tmuxPane(ctx, show, flags);
 }

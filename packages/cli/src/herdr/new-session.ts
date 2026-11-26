@@ -42,6 +42,7 @@ export async function herdrNew(ctx: Ctx, flags: NewFlags, io?: TerminalIO): Prom
     },
   );
   let created: Session | null = null;
+  let opened: string | null = null;
   try {
     const choice = await chooseSession(state(), screen, {
       ...(flags.workspace ? { workspaceId: flags.workspace } : {}),
@@ -51,21 +52,26 @@ export async function herdrNew(ctx: Ctx, flags: NewFlags, io?: TerminalIO): Prom
       ctx.err("Kept this tab as a shell.");
       return;
     }
-    created = await client.api.post<Session>("/api/sessions", {
-      ...choice,
-      prompt: "",
-      ...(bound ? { viewId: bound.id } : {}),
-    });
-    ctx.err(`Starting ${created.title}…`);
-    if (bound) {
-      const note = await pinNote(client.api, bound, created.id);
-      if (note) ctx.err(note);
+    if ("openSessionId" in choice) {
+      opened = choice.openSessionId;
+    } else {
+      created = await client.api.post<Session>("/api/sessions", {
+        ...choice,
+        prompt: "",
+        ...(bound ? { viewId: bound.id } : {}),
+      });
+      ctx.err(`Starting ${created.title}…`);
+      if (bound) {
+        const note = await pinNote(client.api, bound, created.id);
+        if (note) ctx.err(note);
+      }
     }
   } finally {
     screen.leave();
     client.close();
   }
-  if (created) await herdrPane(ctx, created.id, flags);
+  const show = created?.id ?? opened;
+  if (show) await herdrPane(ctx, show, flags);
 }
 
 /** The `new` action: a new tab in the focused space, running the picker. */

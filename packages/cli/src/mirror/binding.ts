@@ -126,7 +126,7 @@ export function syncTerminal(opts: {
   /** Whether it was mirroring under 0.19 (owns spaces or windows). */
   wasMirroring: boolean;
   /** Sessions in its mirror tabs or windows. */
-  shows?: () => string[];
+  shows?: () => string[] | undefined;
   /** The name 0.19 would look a view up by (tmux: the current session name). */
   legacyName?: () => string;
   log: (line: string) => void;

@@ -12,6 +12,11 @@ export interface SessionChoice {
   title?: string;
 }
 
+/** An existing session to show in this tab (an extra, or one the mirror does not open). */
+export interface OpenChoice {
+  openSessionId: string;
+}
+
 type WorkspacePick =
   | { kind: "existing"; workspaceId: string }
   | { kind: "new"; checkoutId: string; branch: string | null };
@@ -116,6 +121,20 @@ export function workspaceItems(st: MirrorState, projectId: string): PickItem<Wor
     .map((x) => x.item);
 }
 
+/** A workspace's sessions that a tab can show: top-level, not archived, primary first. */
+export function openableSessions(st: MirrorState, workspaceId: string): Session[] {
+  const hosts = terminalHostIds(st);
+  return liveSessions(st)
+    .filter(
+      (s) => s.workspaceId === workspaceId && hosts.has(s.hostId) && s.provenance !== "subagent",
+    )
+    .sort(
+      (a, b) =>
+        Number(b.primary === true) - Number(a.primary === true) ||
+        b.lastActivityAt.localeCompare(a.lastActivityAt),
+    );
+}
+
 /**
  * "New worktree" entries, one per terminal-capable checkout, always shown after the matches. A
  * typed query becomes the branch name.
@@ -149,7 +168,7 @@ export async function chooseSession(
   st: MirrorState,
   screen: Screen,
   opts: { workspaceId?: string } = {},
-): Promise<SessionChoice | null> {
+): Promise<SessionChoice | OpenChoice | null> {
   const hosts = terminalHostIds(st);
   const projects = projectItems(st);
   const projectName = (id: string) => st.projects.find((p) => p.id === id)?.name ?? id;
@@ -192,11 +211,19 @@ export async function chooseSession(
         { crumbs: crumbs(), heading: "Start a session here?", hint: HINT_PICK },
         [
           { label: `Start a session in ${spaceLabel(here!.id, st)}`, value: "here" },
+          ...openableSessions(st, here!.id).map((s) => ({
+            label: `Open ${s.title}`,
+            detail: s.primary ? `${s.runtime} · primary` : s.runtime,
+            value: `open:${s.id}`,
+          })),
           { label: "Choose another project or workspace…", value: "other" },
         ],
       );
       if (out.kind === "ok") {
         typed[step] = out.query;
+        if (typeof out.value === "string" && out.value.startsWith("open:")) {
+          return { openSessionId: out.value.slice(5) };
+        }
         if (out.value === "here") {
           projectId = here!.projectId;
           workspace = { kind: "existing", workspaceId: here!.id };

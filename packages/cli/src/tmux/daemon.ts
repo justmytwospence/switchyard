@@ -4,7 +4,7 @@ import type { ApiClient } from "@switchyard/terminal";
 import { launcherCommand } from "../herdr/util.js";
 import { archiveSession, renameSession } from "../mirror/actions.js";
 import type { Bound } from "../mirror/binding.js";
-import { type MirrorState, PENDING_MS, viewedSessions } from "../mirror/state.js";
+import { type MirrorState, PENDING_MS, primaryIds, viewedSessions } from "../mirror/state.js";
 import { type TmuxControl, type TmuxEvent, type TmuxRun, tmuxTarget } from "./client.js";
 import {
   emptyTmuxMemory,
@@ -29,6 +29,10 @@ export interface TmuxDaemonDeps {
   onStateChange: (fn: () => void) => () => void;
   /** What it mirrors: a view, null for everything, "off" for nothing (idle). */
   view?: () => Bound;
+  /** This terminal's id: sessions whose Pi runs by hand in it get no window. */
+  terminalId?: string;
+  /** Called after each reconcile with the sessions its windows show. */
+  onShows?: (sessionIds: string[]) => void;
   /** The session's current name (it can be renamed); defaults to `session`. */
   sessionName?: () => Promise<string>;
   stateDir: string;
@@ -221,7 +225,7 @@ export class TmuxDaemon {
     this.sessionOfWindow = new Map(
       windows.filter((w) => w.sessionId).map((w) => [w.windowId, w.sessionId as string]),
     );
-    const plan = planTmux(st, bound, windows, this.mem, now);
+    const plan = planTmux(st, bound, windows, this.mem, now, this.deps.terminalId ?? null);
     const launcher = this.deps.launcherPath;
     const exists = this.deps.exists ?? existsSync;
     const q = (args: string[]) => launcherCommand(launcher, args);
@@ -282,6 +286,9 @@ export class TmuxDaemon {
       note(`offered a new session in ${o.windowId}`);
     }
     const claimed = new Set(windows.map((w) => w.sessionId).filter(Boolean) as string[]);
+    for (const [sid, at] of Object.entries(this.mem.hidden)) {
+      if (st.sessions.find((s) => s.id === sid)?.lastActivityAt !== at) delete this.mem.hidden[sid];
+    }
     for (const [sid, p] of Object.entries(this.mem.pending)) {
       if (claimed.has(sid) || now - p.at >= PENDING_MS * 4) delete this.mem.pending[sid];
     }
@@ -292,6 +299,7 @@ export class TmuxDaemon {
       }
     }
     this.save();
+    this.deps.onShows?.([...claimed].sort());
     return done;
   }
 
@@ -329,6 +337,11 @@ export class TmuxDaemon {
         ([w, other]) => w !== e.windowId && other === sid,
       );
       if (!s || elsewhere) return;
+      // Closing a primary's window archives it; closing an extra's only hides it.
+      if (!primaryIds(st).has(s.id)) {
+        this.mem.hidden[s.id] = s.lastActivityAt;
+        return;
+      }
       try {
         const r = await archiveSession(this.deps.api, s.id, s.title);
         if (r.ok) this.deps.log(`archived ${s.id} (its window was closed)`);

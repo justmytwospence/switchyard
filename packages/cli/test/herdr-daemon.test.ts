@@ -103,6 +103,16 @@ class FakeHerdr {
     return { tab, pane };
   }
 
+  /** A tab you opened yourself showing `sid` (an extra opened from the picker). */
+  openByHand(ws: string, sid: string): string {
+    const { tab, pane } = this.addTab(ws, `Title ${sid}`);
+    const p = this.panes.find((x) => x.pane_id === pane)!;
+    p.tokens = { switchyard_session: sid };
+    p.agent = "switchyard";
+    this.busy.add(pane);
+    return tab;
+  }
+
   /** Simulate the typed pane command starting: it claims its pane. */
   claimTyped(): void {
     for (const r of this.requests) {
@@ -207,11 +217,10 @@ describe("MirrorDaemon", () => {
     expect(herdr.of("pane.send_text").map((p) => p.text)).toEqual([
       "sh '/state/switchyard-herdr' 'pane' 'ses_1'",
     ]);
-    // ses_2 waits for the space's first pass; the next pass adds its tab.
+    // ses_2 is an extra on ses_1's branch: no tab until you open one; then it is kept.
     await daemon.reconcile();
-    expect(herdr.of("tab.create")).toEqual([
-      { workspace_id: "w1", label: "Title ses_2", cwd: "/repo", focus: false },
-    ]);
+    expect(herdr.of("tab.create")).toEqual([]);
+    herdr.openByHand("w1", "ses_2");
     herdr.claimTyped();
     await daemon.reconcile();
     const reports = herdr.of("pane.report_agent");
@@ -227,14 +236,14 @@ describe("MirrorDaemon", () => {
     expect(herdr.requests.slice(before).map((r) => r.method)).toEqual(["session.snapshot"]);
   });
 
-  it("archives a session whose tab was closed, and keeps a running one", async () => {
+  it("closing a primary's tab archives it (a running one is kept); an extra's only hides it", async () => {
     const { herdr, st, api, responses, daemon } = setup([
       session("ses_1"),
-      session("ses_2", { runtime: "running" }),
+      session("ses_2", { runtime: "running", primary: true }),
     ]);
     await daemon.start();
     await daemon.reconcile();
-    await daemon.reconcile();
+    herdr.openByHand("w1", "ses_1");
     herdr.claimTyped();
     await daemon.reconcile();
     const tabOf = (sid: string) =>
@@ -246,22 +255,27 @@ describe("MirrorDaemon", () => {
     });
     const t1 = tabOf("ses_1");
     const t2 = tabOf("ses_2");
+    const opened = herdr.of("tab.create").length;
     await herdr.call("tab.close", { tab_id: t1 });
     herdr.onEvent!({ type: "tab_closed", tab_id: t1, workspace_id: "w1" });
     await herdr.call("tab.close", { tab_id: t2 });
     herdr.onEvent!({ type: "tab_closed", tab_id: t2, workspace_id: "w1" });
     await new Promise((r) => setTimeout(r, 20));
     await daemon.idle();
-    expect(api.map((a) => a.path)).toEqual([
-      "/api/sessions/ses_1/archive",
-      "/api/sessions/ses_2/archive",
-    ]);
+    expect(api.map((a) => a.path)).toEqual(["/api/sessions/ses_2/archive"]);
     expect(herdr.of("notification.show")[0].body).toBe(
       "Title ses_2 is still running: stop it before closing its tab",
     );
-    // The archived one is gone from Switchyard; the running one gets its tab back.
+    // The running primary gets its tab back; the extra stays closed (extras open on demand).
+    await daemon.reconcile();
+    expect(
+      herdr
+        .of("tab.create")
+        .slice(opened)
+        .map((t) => t.label),
+    ).toEqual(["Title ses_2"]);
     st.sessions = st.sessions.map((s) =>
-      s.id === "ses_1" ? { ...s, archivedAt: "2026-11-02T02:00:00Z" } : s,
+      s.id === "ses_1" ? { ...s, lastActivityAt: "2026-11-02T03:00:00Z" } : s,
     );
     await daemon.reconcile();
     expect(herdr.of("tab.create").at(-1)).toMatchObject({ label: "Title ses_2" });
