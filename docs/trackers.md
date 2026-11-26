@@ -3,12 +3,13 @@
 A tracker connects Switchyard to your GitHub issues (those assigned to you, or every open issue on a Projects board), so that work arrives on the Board, gets a worktree and a session, and is cleaned up when it merges. It is one of three layers:
 
 ```
-Trackers ──annotate──> Branch ──has──> Sessions <──query── Views <──shown on── Surfaces
-(GitHub issues,        (project + branch,                  (saved           (browser, phone,
- GitHub Projects)       its worktrees)                      filters)         herdr, tmux)
+Trackers ──annotate──> Branch ──has──> Sessions <──query── Views <──mirrored by── Terminals
+(GitHub issues,        (project + branch,                  (saved             (herdr, tmux; the
+ GitHub Projects)       its worktrees)                      filters)            browser and phone
+                                                                                select a view too)
 ```
 
-Trackers and surfaces never talk to each other; both meet at branches and sessions. A view is a named part of your work: projects you choose and pins, or a tracker's issues ([terminal-sessions.md](terminal-sessions.md#views-and-surfaces)). See [model.md](model.md) for the whole model.
+Trackers and terminals never talk to each other; both meet at branches and sessions. A view is a named part of your work: projects you choose and pins, or a tracker's issues ([terminal-sessions.md](terminal-sessions.md#views-and-terminals)). See [model.md](model.md) for the whole model.
 
 | Concept | What it is | Who owns the truth |
 |---|---|---|

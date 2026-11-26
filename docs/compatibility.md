@@ -49,7 +49,7 @@ Older hosts still work with a new coordinator and retain their legacy panels and
 | `tokenAccounting`  | Supported   | `get_session_stats.tokens.total`                                                                                                                                                                                                                                                    |
 | `costAccounting`   | Supported   | `get_session_stats.cost` (USD, from the model's configured prices)                                                                                                                                                                                                                  |
 | `sessionControls`  | Supported   | `get_available_models`, `set_model`, `set_thinking_level`, `get_commands`, `compact` and `get_session_stats.contextUsage`, plus `model_state` from the bridge or terminal extension |
-| Slash commands in terminal sessions | Supported | `pi.sendUserMessage(..., {expandPromptTemplates: true})` |
+| Slash commands in TUI sessions | Supported | `pi.sendUserMessage(..., {expandPromptTemplates: true})` |
 | `customUi`         | Unsupported | ctx.ui.custom() returns undefined in RPC mode. Pi sends no request; the bridge reports `ui_prompt_start`/`ui_prompt_end` with kind `custom` so Switchyard can show an unsupported-interaction notice.                                                                               |
 | `widgetsComponent` | Unsupported | component widget factories are ignored in RPC mode                                                                                                                                                                                                                                  |
 
@@ -62,7 +62,7 @@ Older hosts still work with a new coordinator and retain their legacy panels and
 
 ## Terminal transport
 
-Hosts with [terminal sessions](terminal-sessions.md) enabled run interactive `pi` in a pty instead of `pi --mode rpc`, with the `switchyard-terminal.js` extension as the control channel. `gate-terminal.test.ts` runs the same real-Pi checks through it: prompt, a select answered remotely and one answered in the terminal, steer, abort, detach and reattach, stop. Pi features the extension API does not expose are listed under the doc's Limits.
+Hosts with [TUI sessions](terminal-sessions.md) enabled run interactive `pi` in a pty instead of `pi --mode rpc`, with the `switchyard-terminal.js` extension as the control channel. `gate-terminal.test.ts` runs the same real-Pi checks through it: prompt, a select answered remotely and one answered in the terminal, steer, abort, detach and reattach, stop. Pi features the extension API does not expose are listed under the doc's Limits.
 
 ## Gate tests
 

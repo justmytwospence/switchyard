@@ -45,7 +45,7 @@ For the core, plugin and adapter boundary and feature checklist, see [plugin own
 
 | Area | Owner |
 |---|---|
-| Tasks, automations, dispatch decisions, devices, surfaces, notifications | Coordinator |
+| Tasks, automations, dispatch decisions, devices, terminals and their bindings, notifications | Coordinator |
 | Which session is a branch's primary, subagent parents, where a session was started | Coordinator |
 | Branches and their stages | Nobody: derived from workspaces, sessions and tracked issues ([model.md](model.md)) |
 | Pi processes, interactions, filesystem and git state | Host |
