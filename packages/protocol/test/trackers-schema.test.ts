@@ -24,6 +24,7 @@ describe("tracker schemas", () => {
       follow: "assigned",
       writeBack: false,
       moveShared: true,
+      worktrees: true,
       enabled: true,
     });
     const followed = TrackerInput.parse({

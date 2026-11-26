@@ -70,7 +70,7 @@ A tracker keeps a view of its own name pointed at the projects in its owner and 
 
 When something else already starts and finishes your work (for example pi-issues' `issue` tool, which links a branch, makes the worktree and sets the board status, and herdr's worktree-reaper, which removes merged worktrees), let Switchyard watch instead of act, so two tools never move the same card or remove the same worktree:
 
-- create the tracker without `--write-back` (or `switchyard trackers edit <name> --no-write-back`);
+- create the tracker without `--write-back` and with `--no-worktrees` (or `switchyard trackers edit <name> --no-write-back --no-worktrees`), so it neither moves cards nor makes a worktree for an issue branch that has none;
 - leave "Keep a session in every worktree" and "Remove merged worktrees" off for its projects;
 - start work your usual way. The Pi you start is adopted ([terminal-sessions.md](terminal-sessions.md#sessions-you-start-yourself)), its worktree is found, and a branch GitHub links to an issue shows that issue, its pull request and its board column.
 

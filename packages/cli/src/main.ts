@@ -460,6 +460,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     noPriorityField: o.priorityField === false,
     writeBack: o.writeBack,
     moveShared: o.moveShared,
+    worktrees: o.worktrees,
     enable: o.enable,
     disable: o.disable,
   });
@@ -491,6 +492,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--priority-field <name>", "single-select board field that ranks issues")
     .option("--write-back", "let Switchyard move board cards")
     .option("--no-move-shared", "never move cards assigned to someone else too")
+    .option("--no-worktrees", "never make a worktree for an issue branch; link the ones you make")
     .action((name, o) => trackersCreate(ctx, name, trackerFlags(o)));
   connectionOptions(trackers.command("edit <tracker>").description("Change a tracker"))
     .option("--name <name>", "new name")
@@ -525,6 +527,8 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     .option("--no-write-back", "never move board cards")
     .option("--move-shared", "also move cards assigned to someone else too")
     .option("--no-move-shared", "never move cards assigned to someone else too")
+    .option("--worktrees", "make a worktree for an issue branch that has none")
+    .option("--no-worktrees", "never make a worktree for an issue branch; link the ones you make")
     .option("--enable", "sync this tracker")
     .option("--disable", "stop syncing this tracker")
     .action((ref, o) => trackersEdit(ctx, ref, trackerFlags(o)));

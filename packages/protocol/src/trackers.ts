@@ -54,6 +54,8 @@ export const Tracker = z.object({
   follow: TrackerFollow.optional(),
   writeBack: z.boolean(),
   moveShared: z.boolean(),
+  /** Make a worktree for an issue branch that has none; absent means true. */
+  worktrees: z.boolean().optional(),
   enabled: z.boolean(),
   /** The host's `gh` user, from the last sync. */
   login: z.string().nullable(),
@@ -67,6 +69,8 @@ export type Tracker = z.infer<typeof Tracker>;
 /** Stored trackers lack the newer fields: always read them through these. */
 export const trackerFollow = (t: Pick<Tracker, "follow" | "board">): TrackerFollow =>
   t.follow === "board" && t.board ? "board" : "assigned";
+export const trackerMakesWorktrees = (t: Pick<Tracker, "worktrees">): boolean =>
+  t.worktrees !== false;
 export const trackerBacklog = (t: Pick<Tracker, "board">): string[] => t.board?.backlog ?? [];
 
 export const TrackerInput = z.object({
@@ -79,6 +83,7 @@ export const TrackerInput = z.object({
   follow: TrackerFollow.default("assigned"),
   writeBack: z.boolean().default(false),
   moveShared: z.boolean().default(true),
+  worktrees: z.boolean().default(true),
   enabled: z.boolean().default(true),
 });
 export type TrackerInput = z.input<typeof TrackerInput>;
@@ -93,6 +98,7 @@ export const TrackerPatch = z.object({
   follow: TrackerFollow.optional(),
   writeBack: z.boolean().optional(),
   moveShared: z.boolean().optional(),
+  worktrees: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });
 export type TrackerPatch = z.input<typeof TrackerPatch>;

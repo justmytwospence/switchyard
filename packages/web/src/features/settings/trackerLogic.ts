@@ -5,6 +5,7 @@ import {
   type TrackerInput,
   trackerBacklog,
   trackerFollow,
+  trackerMakesWorktrees,
 } from "@switchyard/protocol";
 
 /** The tracker form's fields, as typed. */
@@ -29,6 +30,7 @@ export interface TrackerDraft {
   priorityField: string;
   writeBack: boolean;
   moveShared: boolean;
+  worktrees: boolean;
   enabled: boolean;
 }
 
@@ -68,6 +70,7 @@ export function draftOf(t: Tracker | null, defaultHostId: string): TrackerDraft 
       priorityField: "",
       writeBack: false,
       moveShared: true,
+      worktrees: true,
       enabled: true,
     };
   return {
@@ -85,6 +88,7 @@ export function draftOf(t: Tracker | null, defaultHostId: string): TrackerDraft 
     priorityField: t.board?.priorityField ?? "",
     writeBack: t.writeBack,
     moveShared: t.moveShared,
+    worktrees: trackerMakesWorktrees(t),
     enabled: t.enabled,
   };
 }
@@ -132,6 +136,7 @@ export function bodyOf(d: TrackerDraft): TrackerInput {
     follow: board ? d.follow : "assigned",
     writeBack: board ? d.writeBack : false,
     moveShared: d.moveShared,
+    worktrees: d.worktrees,
     enabled: d.enabled,
   };
 }

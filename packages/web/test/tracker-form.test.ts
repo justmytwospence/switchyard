@@ -47,6 +47,7 @@ describe("tracker form", () => {
       follow: "assigned",
       writeBack: true,
       moveShared: true,
+      worktrees: true,
       enabled: true,
     });
     const followed = tracker({

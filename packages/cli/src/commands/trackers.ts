@@ -32,6 +32,7 @@ export interface TrackerFlags extends ConnectionFlags {
   noBacklog?: boolean;
   writeBack?: boolean;
   moveShared?: boolean;
+  worktrees?: boolean;
   enable?: boolean;
   disable?: boolean;
 }
@@ -132,6 +133,7 @@ export async function trackersCreate(ctx: Ctx, name: string, flags: TrackerFlags
     ...(follow ? { follow } : {}),
     ...(flags.writeBack ? { writeBack: true } : {}),
     ...(flags.moveShared === false ? { moveShared: false } : {}),
+    ...(flags.worktrees === false ? { worktrees: false } : {}),
   });
   ctx.out(`Created tracker ${t.name} (${t.id})`);
 }
@@ -178,6 +180,7 @@ export async function trackersEdit(ctx: Ctx, ref: string, flags: TrackerFlags): 
     ...(flags.noBoard ? { follow: "assigned" } : follow ? { follow } : {}),
     ...(flags.writeBack !== undefined ? { writeBack: flags.writeBack } : {}),
     ...(flags.moveShared !== undefined ? { moveShared: flags.moveShared } : {}),
+    ...(flags.worktrees !== undefined ? { worktrees: flags.worktrees } : {}),
     ...(flags.enable ? { enabled: true } : flags.disable ? { enabled: false } : {}),
   };
   await api.request<Tracker>("PATCH", `/api/trackers/${encodeURIComponent(t.id)}`, body);

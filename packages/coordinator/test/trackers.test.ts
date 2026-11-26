@@ -288,6 +288,15 @@ describe("tracker sync", () => {
     expect(commandsOf(h.host, "workspace.create")).toHaveLength(1);
   });
 
+  it("never makes a worktree when the tracker only watches", async () => {
+    items = [item(1, { branches: ["feat/x"] })];
+    const t = await create({ worktrees: false });
+    expect(commandsOf(h.host, "tracker.prepareBranch")).toHaveLength(0);
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
+    const [issue] = tracked(t.id);
+    expect(issue?.workspaceId ?? null).toBeNull();
+  });
+
   it("links a worktree that already exists instead of creating one", async () => {
     const base = h.override!;
     const wt = `${ROOT}/.worktrees/feat-x`;

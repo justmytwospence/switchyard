@@ -14,6 +14,7 @@ import {
   trackedIssueId,
   trackerBacklog,
   trackerFollow,
+  trackerMakesWorktrees,
   type View,
 } from "@switchyard/protocol";
 import { openBranch } from "./branches.js";
@@ -404,6 +405,8 @@ export class TrackerService {
         ws = find();
       }
     }
+    // A tracker that only watches links the worktree you made; it never makes one.
+    if (!ws && !trackerMakesWorktrees(tracker)) return;
     if (!ws && checkout) {
       store.setSetting(key, store.nowIso());
       try {

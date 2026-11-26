@@ -526,6 +526,12 @@ function TrackerForm({
           </>
         )}
         <SwitchRow
+          label="Make worktrees for issue branches"
+          description="Off: Switchyard only links the worktrees you make and never creates one."
+          checked={draft.worktrees}
+          onChange={(v) => set("worktrees", v)}
+        />
+        <SwitchRow
           label="Sync this tracker"
           checked={draft.enabled}
           onChange={(v) => set("enabled", v)}
