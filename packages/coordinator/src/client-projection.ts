@@ -1,12 +1,17 @@
-import type {
-  Client,
-  ClientCapability,
-  EventEnvelope,
-  Panel,
-  Scope,
-  ServerToClient,
-  SyncState,
-  TranscriptItem,
+import {
+  type Client,
+  type ClientCapability,
+  type EventEnvelope,
+  type Interaction,
+  type Panel,
+  projectInteraction,
+  projectItem,
+  projectPanel,
+  type Scope,
+  type ServerToClient,
+  type SyncState,
+  type TranscriptItem,
+  type UiReader,
 } from "@switchyard/protocol";
 import { legacyTerminal, legacyView } from "./legacy.js";
 
@@ -14,20 +19,14 @@ export function projectionIdFor(capabilities: ReadonlySet<ClientCapability>): st
   return `v1:${[...capabilities].sort().join(",")}`;
 }
 
-function projectPanel(panel: Panel, slots: boolean): Panel {
-  if (slots || !panel.contribution) return panel;
-  const { contribution: _contribution, state: _state, ...legacy } = panel;
+function readerFor(capabilities: ReadonlySet<ClientCapability>): UiReader {
   return {
-    ...legacy,
-    webRenderer: false,
-    node: panel.node === null ? null : { t: "text", text: panel.mobileFallback ?? panel.title },
+    slots: capabilities.has("adapter.slots.v1"),
+    cards: capabilities.has("timeline.cards.v1"),
+    views: capabilities.has("tool.views.v1"),
+    nodes: capabilities.has("ui.nodes.v2"),
+    trackers: capabilities.has("adapter.trackers.v1"),
   };
-}
-
-function projectItem(item: TranscriptItem, cards: boolean): TranscriptItem {
-  if (cards || item.kind !== "notice") return item;
-  const { customType: _customType, card: _card, adapterId: _adapterId, ...data } = item.data;
-  return { ...item, data };
 }
 
 /**
@@ -60,21 +59,19 @@ function legacyState(state: SyncState): SyncState {
   } as unknown as SyncState;
 }
 
-function projectEvent(
-  event: EventEnvelope,
-  slots: boolean,
-  cards: boolean,
-  scopes: boolean,
-): EventEnvelope {
+function projectEvent(event: EventEnvelope, reader: UiReader, scopes: boolean): EventEnvelope {
   if (!scopes) {
     const legacy = legacyEvent(event);
     if (legacy !== event) return legacy;
   }
   if (event.type === "panel.updated") {
-    return { ...event, data: projectPanel(event.data as Panel, slots) };
+    return { ...event, data: projectPanel(event.data as Panel, reader) };
   }
   if (event.type === "transcript.item") {
-    return { ...event, data: projectItem(event.data as TranscriptItem, cards) };
+    return { ...event, data: projectItem(event.data as TranscriptItem, reader) };
+  }
+  if (event.type === "interaction.updated") {
+    return { ...event, data: projectInteraction(event.data as Interaction, reader) };
   }
   return event;
 }
@@ -84,24 +81,27 @@ export function projectClientMessage(
   message: ServerToClient,
   capabilities: ReadonlySet<ClientCapability>,
 ): ServerToClient {
-  const slots = capabilities.has("adapter.slots.v1");
-  const cards = capabilities.has("timeline.cards.v1");
+  const reader = readerFor(capabilities);
   const scopes = capabilities.has("scopes.v1");
   switch (message.type) {
     case "snapshot": {
       const state: SyncState = {
         ...message.state,
-        panels: message.state.panels.map((p) => projectPanel(p, slots)),
+        panels: message.state.panels.map((p) => projectPanel(p, reader)),
+        // Partial states in tests have no interactions.
+        ...(message.state.interactions
+          ? { interactions: message.state.interactions.map((i) => projectInteraction(i, reader)) }
+          : {}),
       };
       return { ...message, state: scopes ? state : legacyState(state) };
     }
     case "replay":
       return {
         ...message,
-        events: message.events.map((event) => projectEvent(event, slots, cards, scopes)),
+        events: message.events.map((event) => projectEvent(event, reader, scopes)),
       };
     case "event":
-      return { ...message, event: projectEvent(message.event, slots, cards, scopes) };
+      return { ...message, event: projectEvent(message.event, reader, scopes) };
     default:
       return message;
   }

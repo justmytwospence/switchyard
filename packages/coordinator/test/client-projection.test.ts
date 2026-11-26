@@ -66,6 +66,81 @@ describe("client capability projection", () => {
     expect(full).toEqual(original);
   });
 
+  it("gives contract v2 only to a client that announced each part of it", () => {
+    const tracker: Panel = {
+      ...panel,
+      slot: "@slot/todo",
+      title: "Todo",
+      webRenderer: false,
+      node: { t: "checklist", items: [{ text: "a", state: "doing" }] },
+      contribution: { id: "todo", placement: "composer.tracker", tracker: { count: "0/1" } },
+      state: undefined,
+    };
+    const tool = {
+      ...notice,
+      kind: "tool",
+      data: {
+        toolCallId: "c",
+        name: "todo",
+        status: "ok",
+        args: {},
+        summary: "todo",
+        output: "",
+        startedAt: notice.at,
+        durationMs: 1,
+        card: null,
+        adapterId: null,
+        view: { verb: "Updated todo", detail: { t: "badge", text: "2/5" } },
+      },
+    } as TranscriptItem;
+    const interaction = {
+      id: "int_1",
+      sessionId: "ses_1",
+      revision: 1,
+      source: { kind: "extension_ui", method: "select", piRequestIds: ["r"] },
+      adapterId: "a",
+      kind: "question",
+      toolCallId: "c",
+      title: "Q",
+      presentation: { t: "facts", items: [{ label: "k", value: "v" }] },
+      state: "pending",
+      resolution: null,
+      createdAt: notice.at,
+    };
+    const message = {
+      type: "replay",
+      seq: 3,
+      events: [
+        event("panel.updated", tracker),
+        event("transcript.item", tool),
+        event("interaction.updated", interaction),
+      ],
+    } as ServerToClient;
+    const v1 = new Set(["adapter.slots.v1", "timeline.cards.v1", "scopes.v1"] as const);
+    const old = projectClientMessage(message, v1);
+    if (old.type !== "replay") throw new Error("expected replay");
+    expect(old.events[0]!.data).toMatchObject({
+      contribution: { id: "todo", placement: "composer.pill" },
+      node: { t: "text", text: "Todo 0/1" },
+    });
+    expect((old.events[1]!.data as TranscriptItem).data).not.toHaveProperty("view");
+    expect(old.events[2]!.data).toMatchObject({
+      kind: "question",
+      presentation: { t: "table", rows: [["k", "v"]] },
+    });
+
+    const v2 = new Set([...v1, "tool.views.v1", "ui.nodes.v2", "adapter.trackers.v1"] as const);
+    expect(projectClientMessage(message, v2)).toEqual(message);
+    expect(projectionIdFor(v2)).not.toBe(projectionIdFor(v1));
+
+    // Views without the new nodes: the view stays, its detail is redrawn.
+    const mixed = projectClientMessage(message, new Set([...v1, "tool.views.v1"] as const));
+    if (mixed.type !== "replay") throw new Error("expected replay");
+    expect((mixed.events[1]!.data as TranscriptItem).data).toMatchObject({
+      view: { verb: "Updated todo", detail: { t: "text", text: "2/5" } },
+    });
+  });
+
   it("preserves tombstones and projects snapshot panels", () => {
     const snapshot = {
       type: "snapshot",

@@ -746,6 +746,30 @@ describe("session controls", () => {
     await host!.event("session.updated", hostSession("ses_c", { runtime: "idle" }));
   }
 
+  it("negotiates contract v2 and clears the queue only on a host that can", async () => {
+    await controlSetup();
+    // The fake host's default hello is from before contract v2 and the queue command.
+    expect(t!.c.hostHub.negotiatedFeatures(host!.hostId).has("adapterContract.v2")).toBe(false);
+    const old = await t!.admin("POST", "/api/sessions/ses_c/queue/clear");
+    expect(old.status).toBe(409);
+    expect(old.body.error.code).toBe("unsupported_capability");
+
+    await host!.close();
+    const welcome = await host!.open({
+      features: ["adapterContract.v2", "queueClear.v1"],
+      capabilities: fullCapabilities({ sessionControls: true }),
+    });
+    expect(welcome).toMatchObject({ type: "welcome", features: ["adapterContract.v2"] });
+    host!.handler = (cmd) =>
+      cmd.type === "session.clearQueue"
+        ? { cleared: { steering: ["now"], followUp: ["later", 3] } }
+        : gitHandler(cmd);
+    await host!.event("session.updated", hostSession("ses_c", { runtime: "running" }));
+    const r = await t!.admin("POST", "/api/sessions/ses_c/queue/clear");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ steering: ["now"], followUp: ["later"] });
+  });
+
   it("forwards models, model, thinking and compact", async () => {
     await controlSetup();
     const models = await t!.admin("GET", "/api/sessions/ses_c/models");

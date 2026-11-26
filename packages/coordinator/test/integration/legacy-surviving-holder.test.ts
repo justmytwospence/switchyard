@@ -182,7 +182,7 @@ describe("a real surviving legacy terminal holder", { timeout: 180_000 }, () => 
       terminal: true,
     });
     expect(env.c.hostHub.negotiatedFeatures(env.hostId)).toEqual(
-      new Set(["agentRequests.v1", "policies.v1"]),
+      new Set(["adapterContract.v2", "agentRequests.v1", "policies.v1"]),
     );
     expect(upgraded.spawnedPiProcesses).toBe(0);
     expect(upgraded.supervisor.isLive(sid)).toBe(true);

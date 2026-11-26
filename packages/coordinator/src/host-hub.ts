@@ -1,4 +1,5 @@
 import {
+  ADAPTER_CONTRACT_FEATURE,
   AdapterInfo,
   AGENT_FRAME_MAX_BYTES,
   AgentRequestFrame,
@@ -25,6 +26,7 @@ import {
   PROTOCOL_VERSION,
   type Profile,
   type ProviderUsage,
+  QUEUE_CLEAR_FEATURE,
   type Receipt,
   Session,
   StreamDelta,
@@ -81,6 +83,8 @@ interface Conn {
   githubBoard: boolean;
   /** The host answers `workspace.log` and `workspace.diff` with `rev`. */
   gitLog: boolean;
+  /** The host answers `session.clearQueue`. */
+  queueClear: boolean;
 }
 
 export type AgentRequestHandler = (
@@ -386,6 +390,7 @@ export class HostHub {
       return conn.features.has("agentRequests.v1");
     }
     if (command.type === "workspace.log") return conn.gitLog;
+    if (command.type === "session.clearQueue") return conn.queueClear;
     if (command.type === "workspace.diff" && command.rev !== undefined) return conn.gitLog;
     if (
       command.type === "tracker.sync" &&
@@ -548,7 +553,9 @@ export class HostHub {
     const hostId = hello.hostId;
     const old = this.conns.get(hostId);
     const features = new Set(
-      [...this.availableAgentFeatures].filter((f) => hello.features?.includes(f)),
+      [...this.availableAgentFeatures, ADAPTER_CONTRACT_FEATURE].filter((f) =>
+        hello.features?.includes(f),
+      ),
     );
     // An unresolved external merge is never automatically replayed, including on replacement.
     if (old) this.rejectPendingMerges(hostId);
@@ -560,6 +567,7 @@ export class HostHub {
       githubIssues: hello.features?.includes(GITHUB_ISSUES_FEATURE) === true,
       githubBoard: hello.features?.includes(GITHUB_BOARD_FEATURE) === true,
       gitLog: hello.features?.includes(GIT_LOG_FEATURE) === true,
+      queueClear: hello.features?.includes(QUEUE_CLEAR_FEATURE) === true,
     });
     if (old && old.socket !== socket) old.socket.close(4000, "replaced by a newer connection");
     const t = this.unreachableTimers.get(hostId);

@@ -512,6 +512,23 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     return { ok: true };
   });
 
+  /** Edit queue: empty Pi's queue without stopping the run and return what was waiting. */
+  app.post("/api/sessions/:id/queue/clear", async (req) => {
+    const s = get(idOf(req));
+    requireWritableSession(s);
+    requireConnected(ctx, s.hostId);
+    const result = (await ctx.hostHub.request(s.hostId, {
+      type: "session.clearQueue",
+      sessionId: s.id,
+    })) as { cleared?: { steering?: unknown; followUp?: unknown } | null } | null;
+    const texts = (v: unknown) =>
+      Array.isArray(v) ? v.filter((t): t is string => typeof t === "string") : [];
+    return {
+      steering: texts(result?.cleared?.steering),
+      followUp: texts(result?.cleared?.followUp),
+    };
+  });
+
   app.post("/api/sessions/:id/abort", async (req) => {
     const s = get(idOf(req));
     const body = parse(AbortRequest, req.body);

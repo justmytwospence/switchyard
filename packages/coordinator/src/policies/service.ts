@@ -1144,6 +1144,7 @@ export class PolicyService {
               : 1,
             source: { kind: "extension_ui", method: "confirm", piRequestIds: [] },
             adapterId: null,
+            kind: "approval",
             permission: {
               kind: "policy",
               decisionId,
