@@ -23,6 +23,7 @@ import { useOpenAttention, useSyncStore } from "../../sync/store";
 import { dismissAttentionItem } from "../code/SessionActions";
 import { UnfilteredNote } from "../views/UnfilteredNote";
 import {
+  ATTENTION_ACTION_HELP,
   ATTENTION_GROUPS,
   type AttentionShow,
   attentionMeta,
@@ -188,7 +189,7 @@ export default function AttentionView() {
   );
 }
 
-function AttentionRow({ item }: { item: AttentionItem }) {
+export function AttentionRow({ item }: { item: AttentionItem }) {
   const project = useSyncStore((s) => (item.projectId ? s.projects[item.projectId] : undefined));
   const task = useSyncStore((s) => (item.taskId ? s.tasks[item.taskId] : undefined));
   const session = useSyncStore((s) => (item.sessionId ? s.sessions[item.sessionId] : undefined));
@@ -243,7 +244,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       variant="ghost"
       busy={clearing}
       onClick={() => void clear()}
-      title="Resolve it by hand: it stops flagging the session and moves to History"
+      description={ATTENTION_ACTION_HELP.clear}
     >
       Clear
     </Button>
@@ -375,7 +376,13 @@ function AttentionRow({ item }: { item: AttentionItem }) {
             {formatRelative(item.createdAt)}
           </time>
           {!item.acknowledgedAt && (
-            <Button size="sm" variant="ghost" busy={busy} onClick={() => void acknowledge()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              busy={busy}
+              onClick={() => void acknowledge()}
+              description={ATTENTION_ACTION_HELP.dismiss}
+            >
               Dismiss
             </Button>
           )}
@@ -439,7 +446,12 @@ function AttentionRow({ item }: { item: AttentionItem }) {
             Dismissed {formatRelative(item.acknowledgedAt)}
           </span>
         ) : (
-          <Button size="sm" busy={busy} onClick={() => void acknowledge()}>
+          <Button
+            size="sm"
+            busy={busy}
+            onClick={() => void acknowledge()}
+            description={ATTENTION_ACTION_HELP.dismiss}
+          >
             Dismiss
           </Button>
         )}

@@ -26,6 +26,7 @@ import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { useSyncStore } from "../../sync/store";
+import { ATTENTION_ACTION_HELP } from "../attention/logic";
 import { type SessionContext, useElementWidth } from "./hooks";
 import { AUTOMATION_LABEL, viewNote, workspaceLabel } from "./model";
 import { useSessionPlace } from "./place";
@@ -95,6 +96,7 @@ export function sessionMenuItems(
           {
             id: "dismiss-attention",
             label: "Clear Needs input",
+            description: ATTENTION_ACTION_HELP.clearNeedsInput,
             icon: <BellOff className="size-4" />,
             onSelect: a.dismissAttention,
           },

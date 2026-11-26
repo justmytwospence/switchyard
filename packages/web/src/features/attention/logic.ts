@@ -19,6 +19,15 @@ export function groupAttention(items: AttentionItem[]): Record<AttentionReason, 
   return out;
 }
 
+/** Tooltips and accessible descriptions of the attention actions: what each does and leaves. */
+export const ATTENTION_ACTION_HELP = {
+  dismiss:
+    "Marks it as seen and moves it to Dismissed; it stays open, and a question keeps flagging its session.",
+  clear: "Resolves it now: the session loses this flag and the item moves to History.",
+  clearNeedsInput:
+    "Removes this session's Needs input flag and moves it to History; a question Pi is still waiting on stays.",
+} as const;
+
 export type AttentionShow = "open" | "dismissed" | "history";
 
 /** Stored prefs from before History: "all" (open + dismissed) and unknown values read as "open". */

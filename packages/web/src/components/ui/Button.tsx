@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, forwardRef, type ReactNode } from "react";
+import { type ButtonHTMLAttributes, forwardRef, type ReactNode, useId } from "react";
 import { cn } from "../../lib/cn";
 import { Spinner } from "./Spinner";
 
@@ -13,6 +13,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** Shows a spinner and sets aria-busy; the button is disabled while busy. */
   busy?: boolean;
   block?: boolean;
+  /**
+   * What the button does, in one sentence: shown as a tooltip on hover and given to assistive
+   * technology as the button's description.
+   */
+  description?: string;
 }
 
 const VARIANTS: Record<ButtonVariant, string> = {
@@ -52,22 +57,34 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     children,
     disabled,
     type,
+    description,
     ...rest
   },
   ref,
 ) {
-  return (
+  const descriptionId = useId();
+  const button = (
     <button
       ref={ref}
       type={type ?? "button"}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       className={buttonClasses(variant, size, cn(block && "w-full", className))}
+      {...(description ? { title: description, "aria-describedby": descriptionId } : {})}
       {...rest}
     >
       {busy ? <Spinner /> : icon}
       {children}
     </button>
+  );
+  if (!description) return button;
+  return (
+    <>
+      {button}
+      <span id={descriptionId} hidden>
+        {description}
+      </span>
+    </>
   );
 });
 

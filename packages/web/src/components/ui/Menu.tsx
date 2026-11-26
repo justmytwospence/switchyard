@@ -14,6 +14,8 @@ export interface MenuItem {
   disabled?: boolean;
   /** Short explanation shown under the label (e.g. why it is disabled). */
   hint?: string;
+  /** What the item does, in one sentence: a hover tooltip and the item's accessible description. */
+  description?: string;
   /** A radio or checkbox item shows a check mark when `checked`. */
   kind?: "radio" | "checkbox";
   checked?: boolean;
@@ -176,6 +178,8 @@ export function Menu({
                       : "menuitem"
                 }
                 aria-checked={item.kind ? !!item.checked : undefined}
+                title={item.description}
+                aria-describedby={item.description ? `${id}-${item.id}-desc` : undefined}
                 disabled={item.disabled}
                 className={cn(
                   "tap flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2 focus:bg-surface-2 focus:outline-none disabled:opacity-55",
@@ -196,6 +200,11 @@ export function Menu({
                 <span className="min-w-0">
                   <span className="block">{item.label}</span>
                   {item.hint && <span className="block text-xs text-muted">{item.hint}</span>}
+                  {item.description && (
+                    <span id={`${id}-${item.id}-desc`} hidden>
+                      {item.description}
+                    </span>
+                  )}
                 </span>
               </button>
             ),
