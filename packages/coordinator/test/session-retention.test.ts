@@ -45,9 +45,11 @@ describe("archiving ended sessions", () => {
     });
 
     const archived = archiveEndedSessions(store).map((s) => s.id);
-    expect(archived.sort()).toEqual(["ses_mid", "ses_old"]);
+    // A pin is membership only: the pinned session is archived like any other, and unpinned.
+    expect(archived.sort()).toEqual(["ses_mid", "ses_old", "ses_older_pinned"]);
     expect(store.sessions.require("ses_old").archivedAt).not.toBeNull();
-    for (const id of ["ses_recent", "ses_latest", "ses_live_old", "ses_alone", "ses_older_pinned"])
+    expect(store.views.require("viw_pin").sessionIds).toEqual([]);
+    for (const id of ["ses_recent", "ses_latest", "ses_live_old", "ses_alone"])
       expect(store.sessions.require(id).archivedAt, id).toBeNull();
     expect(archiveEndedSessions(store)).toEqual([]);
     expect(archiveEndedSessions(store, 0)).toEqual([]);

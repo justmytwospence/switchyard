@@ -1,6 +1,12 @@
 // @module-tag slow
 import { afterEach, describe, expect, it } from "vitest";
-import { startCoordinator, type TestCoordinator } from "./helpers.js";
+import {
+  enrollHost,
+  FakeHost,
+  hostSession,
+  startCoordinator,
+  type TestCoordinator,
+} from "./helpers.js";
 
 let t: TestCoordinator | undefined;
 afterEach(async () => {
@@ -62,6 +68,23 @@ describe("views", () => {
     t = await startCoordinator();
     const id = (await t.admin("POST", "/api/views", { name: "work" })).body.id;
     expect((await t.admin("POST", `/api/views/${id}/sessions/ses_nope`)).status).toBe(404);
+  });
+
+  it("an archived session leaves every view and cannot be pinned again", async () => {
+    t = await startCoordinator();
+    const host = await FakeHost.connect(t, await enrollHost(t));
+    await host.event("session.updated", hostSession("ses_p", { runtime: "stopped" }));
+    const a = (await t.admin("POST", "/api/views", { name: "a" })).body.id as string;
+    const b = (await t.admin("POST", "/api/views", { name: "b" })).body.id as string;
+    for (const v of [a, b]) {
+      expect((await t.admin("POST", `/api/views/${v}/sessions/ses_p`)).status).toBe(200);
+    }
+    expect((await t.admin("POST", "/api/sessions/ses_p/archive")).status).toBe(200);
+    expect(t.c.store.views.require(a).sessionIds).toEqual([]);
+    expect(t.c.store.views.require(b).sessionIds).toEqual([]);
+    const again = await t.admin("POST", `/api/views/${a}/sessions/ses_p`);
+    expect(again.status).toBe(409);
+    await host.close();
   });
 
   it("an unknown viewId creates no session, and snapshots include views", async () => {

@@ -603,6 +603,20 @@ export class Store {
     });
   }
 
+  /** Remove a session from every view's pins. */
+  unpinSession(sessionId: string): void {
+    this.tx(() => {
+      for (const v of this.views.list()) {
+        if (!v.sessionIds.includes(sessionId)) continue;
+        this.putView({
+          ...v,
+          sessionIds: v.sessionIds.filter((id) => id !== sessionId),
+          updatedAt: this.nowIso(),
+        });
+      }
+    });
+  }
+
   deleteView(id: string): void {
     this.tx(() => {
       this.views.delete(id);
@@ -642,7 +656,10 @@ export class Store {
 
   putSession(s: Session): Session {
     return this.tx(() => {
+      const archiving = s.archivedAt !== null && this.sessions.get(s.id)?.archivedAt === null;
       this.sessions.upsert(s);
+      // A pin is membership of a view: an archived session leaves every view it was pinned to.
+      if (archiving) this.unpinSession(s.id);
       this.appendEvent(
         "session.updated",
         {
