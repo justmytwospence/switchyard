@@ -1162,7 +1162,9 @@ export class HostHub {
       next.stats = stats;
     }
     const failed = next.runtime === "failed" && prev !== "failed";
-    if ((finished || failed) && !next.unreadSince && !this.beingViewed(id)) {
+    // A session that started and went idle without a turn has nothing to review.
+    const produced = (next.stats?.tokens ?? 0) > 0 || !!next.lastAssistantText;
+    if (((finished && produced) || failed) && !next.unreadSince && !this.beingViewed(id)) {
       next.unreadSince = this.store.nowIso();
     }
     if (next.external?.client && !next.startedIn) next.startedIn = next.external.client;

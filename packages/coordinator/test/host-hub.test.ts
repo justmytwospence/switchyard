@@ -604,7 +604,10 @@ describe("host link", () => {
     const dev = await enrollDevice(t);
     const h = await connect(t, creds);
     await h.event("session.updated", hostSession("ses_u", { runtime: "running" }));
-    await h.event("session.updated", hostSession("ses_u", { runtime: "idle" }));
+    await h.event(
+      "session.updated",
+      hostSession("ses_u", { runtime: "idle", lastAssistantText: "Done." }),
+    );
     expect(t.c.store.sessions.get("ses_u")?.unreadSince).toBeTruthy();
 
     await h.event("session.updated", hostSession("ses_f", { runtime: "running" }));
@@ -621,6 +624,14 @@ describe("host link", () => {
     await h.event("session.updated", hostSession("ses_v", { runtime: "running" }));
     await h.event("session.updated", hostSession("ses_v", { runtime: "idle" }));
     expect(t.c.store.sessions.get("ses_v")?.unreadSince ?? null).toBeNull();
+  });
+
+  it("leaves a session that went idle without a turn read", async () => {
+    t = await startCoordinator();
+    const h = await connect(t, await enrollHost(t));
+    await h.event("session.updated", hostSession("ses_e", { runtime: "running" }));
+    await h.event("session.updated", hostSession("ses_e", { runtime: "idle" }));
+    expect(t.c.store.sessions.get("ses_e")?.unreadSince ?? null).toBeNull();
   });
 
   it("projects promptCache from the host and keeps cacheAlert and transcriptEpoch", async () => {

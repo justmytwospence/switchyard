@@ -247,7 +247,10 @@ describe("unread", () => {
     const creds = await enrollHost(t);
     const h = await FakeHost.connect(t, creds);
     await h.event("session.updated", hostSession("ses_r", { runtime: "running" }));
-    await h.event("session.updated", hostSession("ses_r", { runtime: "idle" }));
+    await h.event(
+      "session.updated",
+      hostSession("ses_r", { runtime: "idle", lastAssistantText: "Done." }),
+    );
     expect(t.c.store.sessions.get("ses_r")?.unreadSince).toBeTruthy();
     const dev = await enrollDevice(t);
     const c = await FakeClient.connect(t, { token: dev.credential });
