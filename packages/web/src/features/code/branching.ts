@@ -4,7 +4,6 @@ import { loadDraft, setDraftNow } from "../../drafts";
 import { useSyncStore } from "../../sync/store";
 import { codeApi } from "./api";
 import { rememberInitialPrompt } from "./startingPrompts";
-import { useSelectedView } from "./views";
 
 /** Whether a prefill goes into the draft: only when there is one and the draft is empty. */
 export function prefillDecision(draft: string, prefill: string | null): "set" | "kept" | "none" {
@@ -22,8 +21,6 @@ export function applyPrefill(sessionId: string, prefill: string | null) {
 /** Open the session a fork or clone produced (or start a new one when nothing was written). */
 export function useOpenBranch(session: Session) {
   const navigate = useNavigate();
-  const [selectedView] = useSelectedView();
-  const views = useSyncStore((st) => st.views);
   const openSession = (id: string) => navigate(`/code/${encodeURIComponent(id)}`);
   const startNew = async (prompt: string): Promise<Session> => {
     if (!session.projectId || !session.workspaceId) {
@@ -33,7 +30,6 @@ export function useOpenBranch(session: Session) {
       projectId: session.projectId,
       workspace: { existingId: session.workspaceId },
       prompt,
-      ...(selectedView && views[selectedView] ? { viewId: selectedView } : {}),
     });
     useSyncStore.getState().upsertSessionIfMissing(s);
     if (prompt) rememberInitialPrompt(s.id, prompt);

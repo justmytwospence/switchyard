@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import type { Session } from "@switchyard/protocol";
 import type { ConnectionFlags } from "../config.js";
 import type { Ctx } from "../context.js";
-import { bindingRef, noViewMessage, viewOrMissing } from "../mirror/binding.js";
+import { bindingRef, noViewMessage, pinNote, viewOrMissing } from "../mirror/binding.js";
 import { chooseSession } from "../mirror/choose.js";
 import { Screen, type TerminalIO } from "../mirror/picker.js";
 import { loadMirrorState } from "../mirror/state.js";
@@ -48,6 +48,8 @@ export async function tmuxNew(
       viewId: bound.id,
     });
     ctx.err(`Starting ${created.title}…`);
+    const note = await pinNote(client.api, bound, created.id);
+    if (note) ctx.err(note);
   } finally {
     screen.leave();
     client.close();
