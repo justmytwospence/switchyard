@@ -70,6 +70,10 @@ test.describe("branch board", () => {
     await api("POST", "/api/workspaces", { checkoutId: project.checkouts[0].id, branch });
     await page.goto("/board");
     const card = page.getByTestId("work-card").filter({ hasText: branch });
+    // A worktree nobody works in stays off the Board until asked for.
+    await expect(page.getByTestId("workboard")).toBeVisible();
+    await expect(card).toHaveCount(0);
+    await page.getByRole("button", { name: /worktrees? without a session/ }).click();
     await expect(card).toBeVisible();
     await expect(card.getByText("No session")).toBeVisible();
     await card.getByRole("button", { name: "Start session" }).click();

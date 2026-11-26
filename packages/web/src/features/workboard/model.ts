@@ -138,11 +138,38 @@ const order = (a: BoardCard, b: BoardCard) =>
     ? compareIssues(a.issue, b.issue)
     : b.lastActivityAt.localeCompare(a.lastActivityAt));
 
+export interface BoardOptions {
+  view: View | null;
+  query: string;
+  mode: BoardMode;
+  tracker: Tracker | null;
+  /** Show worktrees nobody is working in (no session, issue or pull request). Default true. */
+  showEmpty?: boolean;
+}
+
+/** A worktree with no work to show: no session, no issue and no pull request. */
+export function isEmptyWorktree(b: Branch): boolean {
+  return !b.primary && b.extras.length === 0 && !b.issue && !b.pullRequest;
+}
+
 /** The board's columns for a view, a search and a mode. */
-export function buildBoard(
+export function buildBoard(input: BoardInput, opts: BoardOptions): BoardColumn[] {
+  return buildBoardWithEmpty(input, opts).columns;
+}
+
+/** The board's columns, and how many empty worktrees the view has (shown or not). */
+export function buildBoardWithEmpty(
   input: BoardInput,
-  opts: { view: View | null; query: string; mode: BoardMode; tracker: Tracker | null },
-): BoardColumn[] {
+  opts: BoardOptions,
+): { columns: BoardColumn[]; empty: number } {
+  let empty = 0;
+  const columns = columnsOf(input, opts, () => {
+    empty++;
+  });
+  return { columns, empty };
+}
+
+function columnsOf(input: BoardInput, opts: BoardOptions, onEmpty: () => void): BoardColumn[] {
   const q = opts.query.trim().toLowerCase();
   const attn = sessionsNeedingAttention(input.attention, input.interactions);
   const { branches, unstarted } = buildBranches({
@@ -156,6 +183,10 @@ export function buildBoard(
     if (!b.primary && (b.main || b.kind === "scratch")) continue;
     const view = opts.view;
     if (view && !branchInView(view, b, input.workspaces, scope)) continue;
+    if (isEmptyWorktree(b)) {
+      onEmpty();
+      if (opts.showEmpty === false) continue;
+    }
     const leaves =
       !!scope &&
       !!view &&

@@ -51,6 +51,7 @@ export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
         <ViewSelect allLabel="All work" />
         <BoardSearch board={board} className="w-56 max-w-full" />
         {board.trackerBoard && <ColumnsControl board={board} />}
+        <EmptyWorktreesToggle board={board} />
         {board.view && (
           <p className="ml-auto truncate text-xs text-subtle">{board.describe(board.view)}</p>
         )}
@@ -112,6 +113,24 @@ export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
         </DndContext>
       )}
     </div>
+  );
+}
+
+/** Worktrees with no session, issue or pull request stay off the Board until asked for. */
+export function EmptyWorktreesToggle({ board }: { board: WorkBoard }) {
+  if (board.emptyCount === 0) return null;
+  const n = board.emptyCount;
+  return (
+    <button
+      type="button"
+      aria-pressed={board.prefs.empty}
+      title="Worktrees with no session, issue or pull request"
+      onClick={() => board.setPrefs({ ...board.prefs, empty: !board.prefs.empty })}
+      className="rounded-md px-2 py-1 text-xs text-subtle hover:bg-surface-2 hover:text-fg"
+    >
+      {board.prefs.empty ? "Hide" : "Show"} {n} {n === 1 ? "worktree" : "worktrees"} without a
+      session
+    </button>
   );
 }
 

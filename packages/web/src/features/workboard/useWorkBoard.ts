@@ -15,7 +15,7 @@ import {
   type BoardCard,
   type BoardColumn,
   type BoardMode,
-  buildBoard,
+  buildBoardWithEmpty,
   canDrop,
   trackerBoardOf,
 } from "./model";
@@ -23,6 +23,8 @@ import {
 export interface WorkBoardPrefs {
   mode: BoardMode;
   query: string;
+  /** Show worktrees with no session, issue or pull request. */
+  empty?: boolean;
 }
 
 export interface WorkBoard {
@@ -35,6 +37,8 @@ export interface WorkBoard {
   mode: BoardMode;
   trackerBoard: { tracker: Tracker; options: TrackerStatusOption[] } | null;
   columns: BoardColumn[];
+  /** Worktrees in the view with no session, issue or pull request (hidden unless `prefs.empty`). */
+  emptyCount: number;
   total: number;
   canDrop: (card: BoardCard, column: BoardColumn) => { ok: true } | { ok: false; reason: string };
   /** Open a card: its session, or start its branch or issue. */
@@ -58,18 +62,22 @@ export function useWorkBoard(): WorkBoard {
   const view = (viewId ? views[viewId] : null) ?? null;
   const { trackers } = useTrackers();
   const [stored, setPrefs] = useFilter<WorkBoardPrefs>("workboard", { mode: "stage", query: "" });
-  const prefs = { mode: stored.mode ?? "stage", query: stored.query ?? "" };
+  const prefs = {
+    mode: stored.mode ?? "stage",
+    query: stored.query ?? "",
+    empty: stored.empty ?? false,
+  };
   const trackerBoard = useMemo(
     () => trackerBoardOf(view, trackers ?? [], Object.values(issues)),
     [view, trackers, issues],
   );
   const mode: BoardMode = prefs.mode === "tracker" && trackerBoard ? "tracker" : "stage";
   const tracker = trackerBoard?.tracker ?? null;
-  const columns = useMemo(
+  const { columns, empty: emptyCount } = useMemo(
     () =>
-      buildBoard(
+      buildBoardWithEmpty(
         { projects, workspaces, sessions, hosts, attention, interactions, issues },
-        { view, query: prefs.query, mode, tracker },
+        { view, query: prefs.query, mode, tracker, showEmpty: prefs.empty },
       ),
     [
       projects,
@@ -81,6 +89,7 @@ export function useWorkBoard(): WorkBoard {
       issues,
       view,
       prefs.query,
+      prefs.empty,
       mode,
       tracker,
     ],
@@ -135,6 +144,7 @@ export function useWorkBoard(): WorkBoard {
     mode,
     trackerBoard,
     columns,
+    emptyCount,
     total: columns.reduce((n, c) => n + c.cards.length, 0),
     canDrop: (card, column) => canDrop(card, column, mode, tracker),
     activate,

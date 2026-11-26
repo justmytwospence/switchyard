@@ -5,7 +5,7 @@ import { useFilter } from "../../prefs";
 import { ViewSelect } from "../views/ViewSelect";
 import { BoardSearch } from "./BoardSearch";
 import type { WorkBoard } from "./useWorkBoard";
-import { BoardEmpty, ColumnsControl } from "./WorkBoardDesktop";
+import { BoardEmpty, ColumnsControl, EmptyWorktreesToggle } from "./WorkBoardDesktop";
 import { WorkCard } from "./WorkCard";
 
 /** Mobile Board: one column at a time as tabs; cards move with their Move to… menu. */
@@ -19,6 +19,7 @@ export function WorkBoardMobile({ board }: { board: WorkBoard }) {
         <ViewSelect allLabel="All work" labelVisible />
         <BoardSearch board={board} />
         <ColumnsControl board={board} block />
+        <EmptyWorktreesToggle board={board} />
         <Tabs
           label="Board columns"
           idPrefix="work-tab"

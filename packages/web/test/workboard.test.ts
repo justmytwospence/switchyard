@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   type BoardInput,
   buildBoard,
+  buildBoardWithEmpty,
   canDrop,
   trackerBoardOf,
 } from "../src/features/workboard/model";
@@ -131,6 +132,20 @@ const keys = (cols: ReturnType<typeof buildBoard>) =>
   Object.fromEntries(cols.map((c) => [c.id, c.cards.map((x) => x.key)]));
 
 describe("work board", () => {
+  it("leaves out worktrees with no session, issue or pull request when asked", () => {
+    const data = input({ workspaces: { ...input().workspaces, w9: ws("w9") } });
+    const opts = { view: null, query: "", mode: "stage" as const, tracker: null };
+    const shown = buildBoardWithEmpty(data, opts);
+    expect(shown.empty).toBe(1);
+    expect(shown.columns.flatMap((c) => c.cards).some((c) => c.key.endsWith("feat/w9"))).toBe(true);
+    const hidden = buildBoardWithEmpty(data, { ...opts, showEmpty: false });
+    expect(hidden.empty).toBe(1);
+    const cards = hidden.columns.flatMap((c) => c.cards);
+    expect(cards.some((c) => c.key.endsWith("feat/w9"))).toBe(false);
+    // Worktrees with a session, an issue or a pull request stay.
+    expect(cards.length).toBe(shown.columns.flatMap((c) => c.cards).length - 1);
+  });
+
   it("puts branches and issues in stage columns from facts", () => {
     const cols = buildBoard(input(), { view: null, query: "", mode: "stage", tracker: null });
     expect(cols.map((c) => c.label)).toEqual(["Not started", "Working", "In review", "Merged"]);
