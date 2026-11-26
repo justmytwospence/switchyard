@@ -2,6 +2,8 @@
 
 **Run [Pi](https://github.com/earendil-works/pi) coding agents on your own machines, and drive them from your phone, your browser or your terminal.**
 
+Website and documentation: **https://switchyard-site.pages.dev**
+
 A coding agent has to run where your repositories, toolchains and logins are: your laptop, a workstation, a home server. You, on the other hand, are not always sitting in front of that machine. Switchyard keeps the agents where the work is and lets you follow along from anywhere: start a session from your phone, answer the question it asks while you are on your laptop, take over from a terminal, and get a notification when the result is ready for review. Every client looks at the same live session, and closing one never stops the work.
 
 Switchyard tracks what you are working on as branches: each has a worktree and one agent session, wherever it runs, and the issues, pull requests and board columns that go with it. On top of that it adds GitHub trackers, scheduled automations and a review flow, so an agent can work through a backlog while you are away and hand everything back for you to accept. Switchyard aims to preserve continuity with your evolving Pi setup: plugins own their workflows and optional adapters translate supported interactions, not arbitrary custom terminal UIs. See [plugin ownership](docs/plugin-boundaries.md).
@@ -166,6 +168,7 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.7.0`
 
 | Guide | Covers |
 |---|---|
+| [Getting started](docs/getting-started.md) | Install, first host, first session, phone and terminal |
 | [Model](docs/model.md) | Branches, sessions, trackers, views, devices and terminals, and how they fit together |
 | [Trackers](docs/trackers.md) | GitHub issues, worktrees for their branches, Projects board write-back |
 | [Deployment](docs/deployment.md) | Single machine, server, reverse proxies, VPNs, hosts, environment reference, privilege model |
