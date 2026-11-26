@@ -2,6 +2,7 @@ import type { View } from "@switchyard/protocol";
 import {
   Archive,
   ArchiveRestore,
+  BellOff,
   Bot,
   CircleDot,
   EllipsisVertical,
@@ -89,6 +90,16 @@ export function sessionMenuItems(
           disabled: !!a.archiveBlocked,
           hint: a.archiveBlocked ?? undefined,
         },
+    ...(a.dismissAttention
+      ? [
+          {
+            id: "dismiss-attention",
+            label: "Clear Needs input",
+            icon: <BellOff className="size-4" />,
+            onSelect: a.dismissAttention,
+          },
+        ]
+      : []),
     ...(ctx.session.provenance !== "subagent" && !ctx.session.archivedAt
       ? [
           {

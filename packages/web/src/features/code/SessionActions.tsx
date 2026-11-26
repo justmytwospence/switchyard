@@ -1,5 +1,10 @@
-import { primarySession, type TrackedIssue } from "@switchyard/protocol";
-import { type ReactNode, useState } from "react";
+import {
+  type AttentionItem,
+  isInputAttentionReason,
+  primarySession,
+  type TrackedIssue,
+} from "@switchyard/protocol";
+import { type ReactNode, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
@@ -34,6 +39,8 @@ export interface SessionActions {
   openInfo: () => void;
   toggleCacheAlert: () => void;
   unarchive: () => void;
+  /** Clear this session's "Needs input" flag (its open input attention), or null when it has none. */
+  dismissAttention: (() => void) | null;
   /** Pin the session to a view, or unpin it. */
   setPinned: (viewId: string, pinned: boolean) => void;
   /** This session is its branch's primary session. */
@@ -65,6 +72,14 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
   const [selectedView] = useSelectedView();
   const link = useIssueLink(session.provenance === "subagent" ? null : ctx.workspace);
   const views = useSyncStore((st) => st.views);
+  const attention = useSyncStore((st) => st.attention);
+  const inputAttention = useMemo(
+    () =>
+      Object.values(attention).filter(
+        (a) => a.sessionId === session.id && !a.resolvedAt && isInputAttentionReason(a.reason),
+      ),
+    [attention, session.id],
+  );
   const isPrimary = useSyncStore((st) => {
     if (session.provenance === "subagent" || session.archivedAt) return false;
     const peers = Object.values(st.sessions).filter(
@@ -237,6 +252,14 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
     openInfo: () => setDialog("info"),
     toggleCacheAlert: () => void cacheAlert.run(),
     unarchive: () => void unarchive.run(),
+    dismissAttention:
+      inputAttention.length > 0
+        ? () => {
+            void Promise.all(inputAttention.map(dismissAttentionItem))
+              .then(() => toast.success("Cleared. A question Pi is still waiting on stays."))
+              .catch((e) => toast.error(errorMessage(e)));
+          }
+        : null,
     setPinned: (viewId, pinned) => {
       const path = `/api/views/${encodeURIComponent(viewId)}/sessions/${encodeURIComponent(session.id)}`;
       void (pinned ? apiPost(path) : apiDelete(path)).catch((e) => toast.error(errorMessage(e)));
@@ -285,4 +308,17 @@ export function useSessionActions(ctx: SessionContext): SessionActions {
     },
     dialogs,
   };
+}
+
+/** Resolve one attention item by hand and store the result. */
+export async function dismissAttentionItem(item: AttentionItem): Promise<AttentionItem> {
+  const res = await apiPost<AttentionItem>(`/api/attention/${encodeURIComponent(item.id)}/dismiss`);
+  const next =
+    res && typeof res === "object" && "id" in res
+      ? res
+      : { ...item, resolvedAt: new Date().toISOString() };
+  useSyncStore.setState((st) =>
+    st.attention[item.id] ? { attention: { ...st.attention, [item.id]: next } } : {},
+  );
+  return next;
 }

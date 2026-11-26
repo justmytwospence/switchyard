@@ -188,6 +188,15 @@ export class AttentionService {
     });
   }
 
+  /** Dismiss: resolve one item by hand, so it stops flagging its session or task. */
+  dismiss(id: string): AttentionItem {
+    return this.store.tx(() => {
+      const a = this.store.attention.require(id);
+      if (a.resolvedAt) return a;
+      return this.resolveItem(a, { acknowledgedAt: a.acknowledgedAt ?? this.store.nowIso() });
+    });
+  }
+
   acknowledge(id: string): AttentionItem {
     return this.store.tx(() => {
       const a = this.store.attention.require(id);

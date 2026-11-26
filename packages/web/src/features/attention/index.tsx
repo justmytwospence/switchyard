@@ -20,6 +20,7 @@ import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { apiPost, errorMessage } from "../../sync/api";
 import { useOpenAttention, useSyncStore } from "../../sync/store";
+import { dismissAttentionItem } from "../code/SessionActions";
 import { UnfilteredNote } from "../views/UnfilteredNote";
 import {
   ATTENTION_GROUPS,
@@ -212,13 +213,50 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       useSyncStore.setState((s) =>
         s.attention[item.id] ? { attention: { ...s.attention, [item.id]: next } } : {},
       );
-      toast.success("Dismissed. It stays under All until the task or question is resolved.");
+      toast.success("Dismissed from the badge. Clear it to stop flagging the session.");
     } catch (e) {
       setAckError(e);
     } finally {
       setBusy(false);
     }
   };
+
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<unknown>(null);
+  const clear = async () => {
+    setClearing(true);
+    setClearError(null);
+    try {
+      await dismissAttentionItem(item);
+      toast.success("Cleared. It is in History.");
+    } catch (e) {
+      setClearError(e);
+    } finally {
+      setClearing(false);
+    }
+  };
+  // A question Pi is still waiting on is answered, not cleared.
+  const clearable = interaction?.state !== "pending";
+  const clearButton = clearable ? (
+    <Button
+      size="sm"
+      variant="ghost"
+      busy={clearing}
+      onClick={() => void clear()}
+      title="Resolve it by hand: it stops flagging the session and moves to History"
+    >
+      Clear
+    </Button>
+  ) : null;
+  const clearFailed =
+    clearError !== null ? (
+      <ErrorState
+        compact
+        title="Could not clear"
+        error={errorMessage(clearError)}
+        onRetry={() => void clear()}
+      />
+    ) : null;
 
   const sessionHref = item.sessionId
     ? item.interactionId
@@ -394,6 +432,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
           </Link>
         )}
         <span className="ml-auto" />
+        {clearButton}
         {item.acknowledgedAt ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted">
             <CircleCheck aria-hidden className="size-3.5" />
@@ -413,6 +452,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
           onRetry={() => void acknowledge()}
         />
       )}
+      {clearFailed}
     </article>
   );
 }
