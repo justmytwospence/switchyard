@@ -269,6 +269,43 @@ describe("unread", () => {
   });
 });
 
+describe("terminal presence", () => {
+  it("keeps a terminal's focus apart from its device, and a focused session is not marked unread", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await FakeHost.connect(t, creds);
+    const dev = await enrollDevice(t);
+    const c = await FakeClient.connect(t, { token: dev.credential });
+    await c.hello(null);
+    c.send({
+      type: "presence",
+      presence: {
+        foreground: true,
+        interactedAt: null,
+        viewing: { sessionId: "ses_h" },
+        terminalId: "herdr:default@mac",
+      },
+    });
+    c.send({
+      type: "presence",
+      presence: { foreground: false, interactedAt: null, viewing: null },
+    });
+    await until(() => t!.c.store.listPresence().length === 2);
+    expect(t.c.store.getPresence(dev.deviceId)?.viewingSessionId).toBeNull();
+    expect(
+      t.c.store.listPresence().find((p) => p.terminalId === "herdr:default@mac"),
+    ).toMatchObject({ deviceId: dev.deviceId, viewingSessionId: "ses_h" });
+    await h.event("session.updated", hostSession("ses_h", { runtime: "running" }));
+    await h.event(
+      "session.updated",
+      hostSession("ses_h", { runtime: "idle", lastAssistantText: "Done." }),
+    );
+    expect(t.c.store.sessions.get("ses_h")?.unreadSince ?? null).toBeNull();
+    c.close();
+    await h.close();
+  });
+});
+
 describe("static web", () => {
   it("serves webDist with SPA fallback and JSON 404s for API paths", async () => {
     const web = tempDir("sy-web-");

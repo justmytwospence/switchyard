@@ -6,6 +6,7 @@ import type { Session } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags, localHostId } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
 import { pickerBinding, syncTerminal, terminalId } from "../mirror/binding.js";
+import { startFocusPresence } from "../mirror/focus.js";
 import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
 import { tmuxControl, tmuxRun, tmuxSessionName, tmuxTarget } from "../tmux/client.js";
 import { TmuxDaemon } from "../tmux/daemon.js";
@@ -165,7 +166,29 @@ export async function tmuxDaemon(ctx: Ctx, flags: TmuxDaemonFlags): Promise<void
     log,
   });
   await daemon.start();
-  const leave = () => void terminal.stop().finally(() => process.exit(0));
+  const focus = startFocusPresence({
+    terminalId: id,
+    send: (presence) => client.send({ type: "presence", presence }),
+    // Polled: a window or pane switch shows within one check (5 s).
+    pollMs: 5_000,
+    focused: async () => {
+      const out = await tmuxRun([
+        "display-message",
+        "-p",
+        "-t",
+        // A pane target: `=name` alone names no pane here.
+        session.startsWith("$") ? session : `${tmuxTarget(session)}:`,
+        `#{session_attached}\t#{${WINDOW_OPTION}}`,
+      ]);
+      const [attached, sid] = out.trim().split("\t");
+      return Number(attached) > 0 && sid ? sid : null;
+    },
+    log,
+  });
+  const leave = () => {
+    focus.stop();
+    void terminal.stop().finally(() => process.exit(0));
+  };
   process.once("SIGTERM", leave);
   process.once("SIGINT", leave);
   await new Promise(() => {});

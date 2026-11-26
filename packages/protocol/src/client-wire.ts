@@ -50,6 +50,11 @@ export const Presence = z.object({
   foreground: z.boolean(),
   interactedAt: z.string().nullable(),
   viewing: z.object({ sessionId: z.string() }).nullable(),
+  /**
+   * A herdr or tmux daemon reporting the session focused in its terminal (kept apart from the
+   * device's own presence). Older coordinators ignore it.
+   */
+  terminalId: z.string().min(1).max(200).optional(),
 });
 export type Presence = z.infer<typeof Presence>;
 

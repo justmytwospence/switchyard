@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import type { Session, View } from "@switchyard/protocol";
 import { CliError, type ConnectionFlags, localHostId, resolveConnection } from "../config.js";
 import { type Ctx, connect, table } from "../context.js";
@@ -22,9 +23,12 @@ import {
   writeStableLauncher,
 } from "../herdr/util.js";
 import { pickerBinding, syncTerminal, terminalId } from "../mirror/binding.js";
+import { herdrClientAttached, startFocusPresence } from "../mirror/focus.js";
 import { loadMirrorState, mirrorStateOf } from "../mirror/state.js";
 import type { Env } from "../paths.js";
 import { bindingFromFlags, mirrorText, recordBinding } from "./terminals.js";
+
+const execFileP = promisify(execFile);
 
 export { herdrNew } from "../herdr/new-session.js";
 export { herdrPane } from "../herdr/pane.js";
@@ -148,9 +152,27 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     wasMirroring: ownsSpaces(dir),
     log,
   });
+  const focus = startFocusPresence({
+    terminalId: id,
+    send: (presence) => client.send({ type: "presence", presence }),
+    focused: async () => {
+      if (!herdrClientAttached(await psLines(), name)) return null;
+      const snap = (await call("session.snapshot", {}))?.snapshot ?? {};
+      const pane = (snap.panes ?? []).find((p: any) => p.pane_id === snap.focused_pane_id);
+      return pane ? claimedSession(pane) : null;
+    },
+    log,
+  });
   const daemon = new MirrorDaemon({
     call,
-    subscribe: (types, onEvent, onEnd) => herdrSubscribe(types, onEvent, onEnd, socket),
+    // Focus events only update what this terminal reports as viewed.
+    subscribe: (types, onEvent, onEnd) =>
+      herdrSubscribe(
+        [...types, ...FOCUS_EVENTS],
+        (data) => (data.type.endsWith("_focused") ? focus.check() : onEvent(data)),
+        onEnd,
+        socket,
+      ),
     api: client.api,
     state: () => (client.store.getState().synced ? mirrorStateOf(client) : null),
     onStateChange: (fn) => client.store.subscribe(fn),
@@ -165,10 +187,21 @@ export async function herdrDaemon(ctx: Ctx, flags: DaemonFlags): Promise<void> {
     log,
   });
   await daemon.start();
-  const leave = () => void terminal.stop().finally(() => process.exit(0));
+  const leave = () => {
+    focus.stop();
+    void terminal.stop().finally(() => process.exit(0));
+  };
   process.once("SIGTERM", leave);
   process.once("SIGINT", leave);
   await new Promise(() => {});
+}
+
+const FOCUS_EVENTS = ["pane.focused", "tab.focused", "workspace.focused"];
+
+/** `ps -axo args=`: every process's command line. */
+export async function psLines(): Promise<string[]> {
+  const { stdout } = await execFileP("ps", ["-axo", "args="], { maxBuffer: 8 * 1024 * 1024 });
+  return stdout.split("\n");
 }
 
 /** Whether the mirror in this state directory created spaces (it was mirroring a view). */

@@ -121,6 +121,7 @@ export class ClientHub {
         const p = msg.presence;
         this.store.upsertPresence({
           deviceId: conn.deviceId,
+          terminalId: p.terminalId ?? null,
           foregroundUntil: p.foreground
             ? new Date(now.getTime() + this.opts.foregroundLeaseMs).toISOString()
             : null,
