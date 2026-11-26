@@ -1276,9 +1276,12 @@ export class Store {
   runRetention(): { deleted: number; minRetainedSeq: number } {
     return this.tx(() => {
       const cutoff = new Date(this.now().getTime() - this.retentionDays * 86_400_000).toISOString();
-      const r = this.st.get("SELECT MAX(seq) AS m FROM events WHERE at < ?").get(cutoff) as {
-        m: number | null;
-      };
+      // By the `at` index: MAX(seq) walks the whole table by seq when nothing is old enough,
+      // which blocked a 6 GB log for over a minute every sweep. seq and at grow together.
+      const row = this.st
+        .get("SELECT seq FROM events INDEXED BY events_at WHERE at < ? ORDER BY at DESC LIMIT 1")
+        .get(cutoff) as { seq: number } | undefined;
+      const r = { m: row?.seq ?? null };
       let deleted = 0;
       let min = this.minRetainedSeq();
       if (r.m !== null) {
