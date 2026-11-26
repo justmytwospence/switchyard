@@ -62,9 +62,10 @@ export const SIDEBAR: Group[] = [
   {
     label: "Extending it",
     items: [
+      doc("modules"),
       doc("adapters"),
       doc("client-sdk"),
-      doc("plugin-boundaries", "Plugin ownership"),
+      doc("plugin-boundaries", "Ownership"),
       doc("architecture"),
     ],
   },

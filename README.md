@@ -6,7 +6,7 @@ Website and documentation: **https://switchyard-site.pages.dev**
 
 A coding agent has to run where your repositories, toolchains and logins are: your laptop, a workstation, a home server. You, on the other hand, are not always sitting in front of that machine. Switchyard keeps the agents where the work is and lets you follow along from anywhere: start a session from your phone, answer the question it asks while you are on your laptop, take over from a terminal, and get a notification when the result is ready for review. Every client looks at the same live session, and closing one never stops the work.
 
-Switchyard tracks what you are working on as branches: each has a worktree and one agent session, wherever it runs, and the issues, pull requests and board columns that go with it. On top of that it adds scopes fed by your GitHub issues, scheduled automations and a review flow, so an agent can work through a backlog while you are away and hand everything back for you to accept. Switchyard aims to preserve continuity with your evolving Pi setup: plugins own their workflows and optional adapters translate supported interactions, not arbitrary custom terminal UIs. See [plugin ownership](docs/plugin-boundaries.md).
+Switchyard tracks what you are working on as branches: each has a worktree and one agent session, wherever it runs, and the issues, pull requests and board columns that go with it. On top of that it adds scopes fed by your GitHub issues, scheduled automations and a review flow, so an agent can work through a backlog while you are away and hand everything back for you to accept. Switchyard aims to preserve continuity with your evolving Pi setup: plugins own their workflows and optional adapters translate supported interactions, not arbitrary custom terminal UIs. See [the ownership contract](docs/plugin-boundaries.md).
 
 ## How it fits together
 
@@ -113,6 +113,7 @@ sequenceDiagram
 | **Terminal session** | A session whose Pi runs its own TUI in a pseudo-terminal Switchyard holds; the other kind is an RPC session |
 | **Task** | A unit of dispatched work, with an objective and acceptance criteria, on the task board |
 | **Run** | One attempt at a task, carried out in a session |
+| **Module** | Code that adds one kind of host, client, scope or trigger: herdr and tmux are client modules, GitHub is a scope module |
 | **Adapter** | Code that renders a specific Pi plugin's questions and state as structured UI |
 
 A seeded **Vanilla** profile runs stock Pi (no extensions, skills or prompt templates).
@@ -181,6 +182,7 @@ Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.7.0`
 | [Operations](docs/operations.md) | Backup, restore, migrations, retention, logs, health, diagnostics |
 | [Policies](docs/policies.md) | Agent tools, guardrails, approvals and budgets |
 | [GitHub](docs/github.md) | Host authentication, PR review and merge, issue tasks |
+| [Modules](docs/modules.md) | The kinds of host, client, scope and trigger, and what another project can add |
 | [Adapters](docs/adapters.md) | Rendering a Pi plugin's UI in every client; shipping an adapter with your Pi package |
 | [Architecture](docs/architecture.md) | Components, data ownership, the host and client protocols, packages |
 | [Development](docs/development.md) | Building, testing (including against real Pi), contributing |

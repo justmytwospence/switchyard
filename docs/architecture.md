@@ -43,7 +43,7 @@ flowchart TB
 
 ## Who owns what
 
-For the core, plugin and adapter boundary and feature checklist, see [plugin ownership](plugin-boundaries.md).
+For the core, module, plugin and adapter boundary and feature checklist, see [the ownership contract](plugin-boundaries.md); for the kinds of host, client, scope and trigger and who can add one, see [modules](modules.md).
 
 | Area | Owner |
 |---|---|

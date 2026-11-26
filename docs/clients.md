@@ -12,7 +12,7 @@ A client is anything signed in that shows your work. All of them look at the sam
 
 A **device** is the credential a client signs in with: a browser, an installed app, or a machine's CLI. The herdr and tmux sessions on a machine are clients under that machine's CLI device. Settings > Clients lists the devices, with the herdr and tmux sessions on each; revoking a device signs all of them out.
 
-herdr and tmux are **client modules**: each is a plugin for that multiplexer plus a daemon in the Switchyard CLI ([herdr](../modules/herdr/README.md), [tmux](../modules/tmux/README.md)). Another multiplexer can be added the same way: the coordinator accepts any kind.
+herdr and tmux are **client modules**: each is a plugin for that multiplexer plus a daemon in the Switchyard CLI ([herdr](../modules/herdr/README.md), [tmux](../modules/tmux/README.md)). Another multiplexer can be added the same way: the coordinator accepts any kind ([modules.md](modules.md#what-another-project-can-write-today)).
 
 Every herdr or tmux session where the Switchyard plugin runs and the CLI is signed in is a client, with the id `<kind>:<session>@<machine>` (`herdr:work@mac`). It does two separate things:
 
