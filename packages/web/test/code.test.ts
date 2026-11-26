@@ -37,7 +37,9 @@ import {
   type NavGroup,
   type NavTree,
   navGroupKeys,
+  navNeedsInput,
   navOutsideRow,
+  navRowCount,
   navTreeIsEmpty,
   newSessionDefaults,
   newSessionProject,
@@ -55,7 +57,6 @@ import {
   sessionStatus,
   sessionUsage,
   statusBucket,
-  statusSummary,
   TERMINAL_COMMANDS,
   uniqueBranch,
   viewNote,
@@ -186,7 +187,7 @@ describe("navigator tree", () => {
     return out;
   };
 
-  it("defaults to Projects, attention first, and puts a shared host on the header", () => {
+  it("defaults to Projects, attention first, and names no host when there is one", () => {
     const tree = buildNavTree(input, { filter: "active", query: "" });
     expect(tree.rows).toEqual([]);
     expect(tree.groups.map((p) => p.label)).toEqual(["beta", "Other sessions"]);
@@ -194,9 +195,9 @@ describe("navigator tree", () => {
     expect(beta.groups).toEqual([]);
     // b is stopped without attention; c is stopped but needs attention; d is archived.
     expect(beta.rows.map((r) => r.session.id)).toEqual(["c", "a"]);
-    expect(beta.detail).toBe("Host hst_1");
+    expect(beta.detail).toBeNull();
     const a = beta.rows[1]!;
-    expect(a).toMatchObject({ host: null, branch: "feat/w1", project: null });
+    expect(a).toMatchObject({ where: null, branch: "feat/w1", project: null });
     expect(tree.groups[1]!.rows[0]).toMatchObject({ branch: "x" });
   });
 
@@ -237,9 +238,11 @@ describe("navigator tree", () => {
       keepId: "b",
     });
     expect(ids(elsewhere)).toEqual(["b"]);
+    expect(navTreeIsEmpty(elsewhere)).toBe(true);
+    expect(navOutsideRow(elsewhere)).toMatchObject({ session: { id: "b" }, outside: "where" });
   });
 
-  it("Projects shows the host on each row when a project spans hosts", () => {
+  it("with several hosts, every row names its host", () => {
     const tree = buildNavTree(
       {
         ...input,
@@ -251,8 +254,40 @@ describe("navigator tree", () => {
     );
     const beta = tree.groups[0]!;
     expect(beta.detail).toBeNull();
-    const hosts = Object.fromEntries(beta.rows.map((r) => [r.session.id, r.host]));
-    expect(hosts).toEqual({ a: "Host hst_1", c: "Host hst_1", f: "Host hst_2" });
+    const hosts = Object.fromEntries(beta.rows.map((r) => [r.session.id, r.where]));
+    expect(hosts).toEqual({
+      a: { kind: "host", label: "Host hst_1" },
+      c: { kind: "host", label: "Host hst_1" },
+      f: { kind: "host", label: "Host hst_2" },
+    });
+  });
+
+  it("a revoked host does not count as one of several", () => {
+    const tree = buildNavTree(
+      { ...input, hosts: { ...input.hosts, hst_2: host("hst_2", { revokedAt: T0 }) } },
+      { filter: "active", query: "", layout: "recent" },
+    );
+    expect(tree.rows.every((r) => r.where === null)).toBe(true);
+  });
+
+  it("a Pi started by hand names its terminal through its host's name", () => {
+    const tree = buildNavTree(
+      {
+        ...input,
+        sessions: {
+          ...input.sessions,
+          a: { ...input.sessions.a!, external: { client: "herdr:default@mac-pro" } },
+          e: { ...input.sessions.e!, external: { client: null } },
+        },
+      },
+      { filter: "active", query: "", layout: "recent" },
+    );
+    const where = Object.fromEntries(tree.rows.map((r) => [r.session.id, r.where]));
+    expect(where).toEqual({
+      a: { kind: "terminal", label: "herdr default on Host hst_1" },
+      c: null,
+      e: { kind: "terminal", label: "Terminal" },
+    });
   });
 
   it("rows on the main checkout show no branch", () => {
@@ -409,7 +444,7 @@ describe("navigator tree", () => {
     expect(withAttn.rows[0]).toMatchObject({ othersNeedInput: true, session: { id: "a" } });
   });
 
-  it("the same branch on two hosts is one row, and two rows in the Hosts layout", () => {
+  it("the same branch on two hosts is one row, and two rows in the Where layout", () => {
     const two = {
       ...input,
       hosts: { ...input.hosts, hst_2: host("hst_2") },
@@ -424,7 +459,7 @@ describe("navigator tree", () => {
       attention: {},
     };
     expect(buildNavTree(two, { filter: "all", query: "", layout: "recent" }).rows).toHaveLength(1);
-    const byHost = buildNavTree(two, { filter: "all", query: "", layout: "hosts" });
+    const byHost = buildNavTree(two, { filter: "all", query: "", layout: "where" });
     expect(byHost.groups.map((g) => g.sessionCount)).toEqual([1, 1]);
   });
 
@@ -524,7 +559,7 @@ describe("navigator tree", () => {
       keepId: "f",
     });
     expect(ids(tree).sort()).toEqual(["a", "c", "f"]);
-    expect(rowOf(tree, "f").outside).toBe(true);
+    expect(rowOf(tree, "f").outside).toBe("view");
     const active = buildNavTree(input, {
       filter: "active",
       query: "",
@@ -533,6 +568,32 @@ describe("navigator tree", () => {
     });
     expect(ids(active)).toContain("b");
     expect(active.rows.every((r) => !r.outside)).toBe(true);
+    expect(rowOf(active, "a").others[0]).toMatchObject({ session: { id: "b" }, outside: "status" });
+  });
+
+  it("an open stopped session alone under Active is marked, and the list counts as empty", () => {
+    const only = {
+      ...input,
+      sessions: { b: session("b", { workspaceId: "w1", runtime: "stopped" }) },
+      attention: {},
+    };
+    const tree = buildNavTree(only, { filter: "active", query: "", keepId: "b" });
+    expect(navTreeIsEmpty(tree)).toBe(true);
+    expect(navOutsideRow(tree)).toMatchObject({ session: { id: "b" }, outside: "status" });
+    expect(navRowCount(tree)).toBe(0);
+    const attn = buildNavTree(only, { filter: "attention", query: "", keepId: "b" });
+    expect(navOutsideRow(attn)?.outside).toBe("status");
+  });
+
+  it("counts listed branches and those needing input, matching the rows", () => {
+    const tree = buildNavTree(input, { filter: "all", query: "", layout: "recent" });
+    expect(navRowCount(tree)).toBe(tree.rows.length);
+    expect(navNeedsInput(tree)).toEqual({ count: 1, first: "c" });
+    const searched = buildNavTree(input, { filter: "all", query: "feat/w1", layout: "recent" });
+    expect(navRowCount(searched)).toBe(1);
+    expect(navNeedsInput(searched)).toEqual({ count: 0, first: null });
+    const kept = buildNavTree(input, { filter: "attention", query: "", keepId: "e" });
+    expect(navRowCount(kept)).toBe(1);
   });
 
   it("a tree holding only the open session counts as empty and exposes its row", () => {
@@ -544,7 +605,8 @@ describe("navigator tree", () => {
 
   it("a stored worktrees layout falls back", () => {
     expect(normalizeLayout("worktrees", "projects")).toBe("projects");
-    expect(normalizeLayout("hosts", "projects")).toBe("hosts");
+    expect(normalizeLayout("hosts", "projects")).toBe("where");
+    expect(normalizeLayout("where", "projects")).toBe("where");
     expect(normalizeLayout(undefined, "recent")).toBe("recent");
   });
 
@@ -554,28 +616,53 @@ describe("navigator tree", () => {
     expect(tree.rows.map((r) => r.session.id).sort()).toEqual(["a", "c", "e"]);
     expect(tree.rows.find((r) => r.session.id === "a")!.others[0]!.session.id).toBe("b");
     expect(tree.rows[0]!.session.id).toBe("c");
-    for (const r of tree.rows) {
-      expect(r.project).not.toBeNull();
-      expect(r.host).not.toBeNull();
-    }
+    for (const r of tree.rows) expect(r.project).not.toBeNull();
     expect(tree.rows.find((r) => r.session.id === "e")!.project).toBe("Other sessions");
   });
 
-  it("Hosts groups host -> project with the host's state", () => {
+  it("Where groups host -> terminal or Switchyard, with the host's state and Only this", () => {
     const tree = buildNavTree(
       {
         ...input,
         hosts: { ...input.hosts, hst_2: host("hst_2", { connectivity: "unreachable" }) },
         workspaces: { ...input.workspaces, w3: workspace("w3", { hostId: "hst_2" }) },
-        sessions: { ...input.sessions, f: session("f", { workspaceId: "w3", hostId: "hst_2" }) },
+        sessions: {
+          ...input.sessions,
+          a: { ...input.sessions.a!, external: { client: "herdr:default@mac-pro" } },
+          g: session("g", { workspaceId: "w2", runtime: "idle", external: { client: null } }),
+          f: session("f", { workspaceId: "w3", hostId: "hst_2" }),
+        },
       },
-      { filter: "active", query: "", layout: "hosts" },
+      { filter: "active", query: "", layout: "where" },
     );
     expect(tree.groups.map((g) => g.label)).toEqual(["Host hst_1", "Host hst_2"]);
-    expect(tree.groups[0]!.groups.map((g) => g.label)).toEqual(["beta", "Other sessions"]);
-    expect(tree.groups[0]!.hostState).toBe("connected");
-    expect(tree.groups[1]!.hostState).toBe("unreachable");
-    expect(tree.groups[1]!.sessionCount).toBe(1);
+    const [one, two] = tree.groups as [NavGroup, NavGroup];
+    expect(one.groups.map((g) => [g.label, g.kind])).toEqual([
+      ["herdr default", "terminal"],
+      ["Terminal", "terminal"],
+      ["Switchyard", "held"],
+    ]);
+    expect(one.where).toEqual({ kind: "host", id: "hst_1" });
+    expect(one.groups[0]!.where).toEqual({
+      kind: "terminal",
+      id: "herdr:default@mac-pro",
+      hostId: "hst_1",
+    });
+    expect(one.groups[1]!.where).toBeNull();
+    expect(one.groups[2]!.where).toBeNull();
+    // Rows say what and where in the project, not where they run: the group does.
+    expect(one.groups[0]!.rows[0]).toMatchObject({ project: "beta", where: null });
+    expect(one.hostState).toBe("connected");
+    expect(two.hostState).toBe("unreachable");
+    expect(two.sessionCount).toBe(1);
+  });
+
+  it("Where never offers a revoked host", () => {
+    const tree = buildNavTree(
+      { ...input, hosts: { hst_1: host("hst_1", { revokedAt: T0 }) } },
+      { filter: "active", query: "", layout: "where" },
+    );
+    expect(tree.groups[0]).toMatchObject({ where: null, hostState: "unreachable" });
   });
 
   it("hides subagents unless asked", () => {
@@ -606,10 +693,10 @@ describe("navigator tree", () => {
     expect(navTreeIsEmpty(empty)).toBe(true);
     expect(navTreeIsEmpty(buildNavTree(input, { filter: "all", query: "" }))).toBe(false);
     const keys = navGroupKeys(
-      buildNavTree(input, { filter: "active", query: "", layout: "hosts" }),
+      buildNavTree(input, { filter: "active", query: "", layout: "where" }),
     );
     expect(keys).toContain("h:hst_1");
-    expect(keys).toContain("h:hst_1/p:prj_1");
+    expect(keys).toContain("h:hst_1/t:__held");
   });
 });
 
@@ -1474,25 +1561,6 @@ describe("status buckets", () => {
     );
     expect(statusBucket(session("a", { runtime: "idle", unreadSince: at }), false)).toBe("review");
     expect(statusBucket(session("a", { runtime: "stopped" }), false)).toBe("idle");
-  });
-
-  it("summarizes non-idle buckets in order with the latest session first", () => {
-    const mk = (id: string, runtime: Session["runtime"], last: string, unread = false) => {
-      const s = session(id, { runtime, lastActivityAt: last, unreadSince: unread ? at : null });
-      return { session: s, bucket: statusBucket(s, false) };
-    };
-    const out = statusSummary([
-      mk("r1", "running", "2026-11-01T10:00:00.000Z"),
-      mk("r2", "running", "2026-11-01T11:00:00.000Z"),
-      mk("v1", "idle", at, true),
-      mk("i1", "idle", at),
-      mk("n1", "waiting_input", at),
-    ]);
-    expect(out).toEqual([
-      { bucket: "needs_input", count: 1, first: "n1" },
-      { bucket: "running", count: 2, first: "r2" },
-      { bucket: "review", count: 1, first: "v1" },
-    ]);
   });
 
   it("lays out the status layout in bucket order", () => {

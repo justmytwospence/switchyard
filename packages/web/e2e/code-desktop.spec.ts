@@ -734,19 +734,26 @@ test.describe("desktop coding view", () => {
     }
   });
 
-  test("the view selector explains the selected view", async ({ page, api, state }, info) => {
+  test("the view chip explains the selected view", async ({ page, api, state }, info) => {
     const v = await api("POST", "/api/views", { name: `pins-${uid(info)}`, mode: "pinned" });
     await page.goto(`/code/${state.sessions.long}`);
     await expect(page.getByTestId("conversation")).toBeVisible();
     const nav = page.getByTestId("navigator");
     await nav.getByLabel("View", { exact: true }).selectOption(v.id);
-    await expect(nav.getByText("Only sessions you pin", { exact: true })).toBeVisible();
+    await expect(nav.getByLabel("View", { exact: true })).toHaveAttribute(
+      "title",
+      "Only sessions you pin",
+    );
     await expect(nav.getByText(/^No (active )?sessions in pins-/)).toBeVisible();
     await expect(nav.getByTestId("row-outside")).toContainText("Not in pins-");
     await expect(page.getByTestId("view-note")).toContainText("Not in pins-");
     await expect(nav.getByText("This view holds only sessions you pin.")).toBeVisible();
+    // The empty state comes first, then the open session it keeps.
+    const emptyY = (await nav.getByText("This view holds only sessions you pin.").boundingBox())!.y;
+    const keptY = (await nav.getByRole("list", { name: "Open session" }).boundingBox())!.y;
+    expect(keptY).toBeGreaterThan(emptyY);
 
-    await nav.getByRole("button", { name: "Edit", exact: true }).click();
+    await nav.getByRole("button", { name: "Edit view", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Edit view" });
     const about = dialog.getByTestId("view-about");
     await expect(about).toContainText("Contains");
