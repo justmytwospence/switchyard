@@ -37,8 +37,11 @@ import {
   type UiResolved,
 } from "@switchyard/pi-runtime";
 import {
+  ADAPTER_CONTRACT_FEATURE,
   type AnswerResult,
+  builtinToolView,
   canonicalPolicyJson,
+  contributionSlot,
   type Diagnostic,
   type HostPolicyBoundary,
   HostPolicySampleRequest,
@@ -48,6 +51,7 @@ import {
   type Interaction,
   type InteractionResponse,
   isPlaceholderTitle,
+  mergeToolViewData,
   type NativeHandle,
   newId,
   type Panel,
@@ -142,6 +146,16 @@ export const REATTACH_EXPIRED =
   "Host agent restarted; if Pi is still asking, the question appears again";
 /** Panel adapter id for the generic status and widget panels. */
 export const GENERIC_ADAPTER_ID = "generic";
+/** Slot of the generic Status tracker (a `composer.tracker` contribution). */
+export const STATUS_TRACKER_SLOT = contributionSlot("status");
+
+/** What a claim says about its dialog beyond how to draw it: its kind and its tool call. */
+function claimFacts(outcome: ClaimedInteraction): Pick<Interaction, "kind" | "toolCallId"> {
+  return {
+    ...(outcome.claim.kind ? { kind: outcome.claim.kind } : {}),
+    ...(outcome.toolCallId ? { toolCallId: outcome.toolCallId } : {}),
+  };
+}
 
 /** The host's own record of a session (table `sessions`). */
 export interface HostSessionRecord {
@@ -1608,6 +1622,12 @@ export class SessionSupervisor {
     }
   }
 
+  /** Empty Pi's queue without touching the run; returns what was queued. */
+  async clearQueue(sessionId: string) {
+    const ms = this.requireLive(sessionId, "abort");
+    return { cleared: await ms.clearQueue() };
+  }
+
   async abort(sessionId: string, clearQueue: boolean) {
     const ms = this.requireLive(sessionId, "abort");
     const { cleared } = await ms.abort(clearQueue);
@@ -2563,7 +2583,7 @@ export class SessionSupervisor {
       }
       case "tool_execution_end": {
         this.opts.observeToolOutput?.(l.rec.cwd, ev.result);
-        if (ev.parentToolCallId || !adapters) return;
+        if (ev.parentToolCallId) return;
         const result = ev.result;
         const details =
           result && typeof result === "object" && "details" in result
@@ -2578,7 +2598,7 @@ export class SessionSupervisor {
           isError: ev.isError === true,
           details,
         };
-        await adapters.onToolEnd(e);
+        await adapters?.onToolEnd(e);
         await this.applyToolCard(l, e);
         return;
       }
@@ -2625,6 +2645,7 @@ export class SessionSupervisor {
     }
   }
 
+  /** The adapter's card and the tool view (the host's, then an adapter's on top) for a call. */
   private async applyToolCard(
     l: Live,
     tool: {
@@ -2636,17 +2657,21 @@ export class SessionSupervisor {
       details?: unknown;
     },
   ): Promise<void> {
-    if (!l.adapters || !l.ms) return;
+    if (!l.ms) return;
     const generation = l.rec.adapterGeneration;
     const adapterSession = l.adapters;
-    const card = await adapterSession.toolCard(tool);
-    if (!card || l.adapters !== adapterSession || generation !== l.rec.adapterGeneration) return;
+    const card = await adapterSession?.toolCard(tool);
+    const adapterView = await adapterSession?.toolView(tool);
+    if (l.adapters !== adapterSession || generation !== l.rec.adapterGeneration) return;
+    const view = mergeToolViewData(builtinToolView(tool, l.rec.cwd), adapterView?.view);
+    if (!card && !view) return;
     const item = l.ms?.toolItem(tool.toolCallId);
     if (item)
       l.ms?.patchItem(item.id, {
-        card: card.node,
-        adapterId: card.adapterId,
-        adapterGeneration: generation,
+        ...(card
+          ? { card: card.node, adapterId: card.adapterId, adapterGeneration: generation }
+          : {}),
+        ...(view ? { view } : {}),
       });
   }
 
@@ -2670,14 +2695,7 @@ export class SessionSupervisor {
         if (presented || req.statusText === undefined || req.statusText === "") {
           l.statuses.delete(req.statusKey);
         } else l.statuses.set(req.statusKey, req.statusText);
-        l.genericPanels.offer("status", {
-          adapterId: GENERIC_ADAPTER_ID,
-          slot: "status",
-          title: "Status",
-          node: genericStatusPanel(l.statuses),
-          webRenderer: false,
-          mobileFallback: null,
-        });
+        this.offerStatus(l);
         return;
       }
       case "setWidget": {
@@ -2726,6 +2744,7 @@ export class SessionSupervisor {
       l.claims.set(current.id, outcome);
       this.updateInteraction(latest, {
         adapterId: outcome.adapterId,
+        ...claimFacts(outcome),
         title: outcome.claim.title,
         presentation: outcome.claim.presentation,
       });
@@ -2767,6 +2786,7 @@ export class SessionSupervisor {
       revision: 1,
       source: { kind: "extension_ui", method: req.method, piRequestIds: [req.id] },
       adapterId: outcome.adapterId,
+      ...claimFacts(outcome),
       title: outcome.claim.title,
       presentation: outcome.claim.presentation,
       state: "pending",
@@ -2865,6 +2885,38 @@ export class SessionSupervisor {
         });
       }
     }
+  }
+
+  /**
+   * Statuses no adapter presented. A coordinator on contract v2 gets one "Status" tracker above
+   * the input; an older one keeps the legacy Status panel.
+   */
+  private offerStatus(l: Live): void {
+    const tracker = this.link.negotiatedFeatures.has(ADAPTER_CONTRACT_FEATURE);
+    const entries = [...l.statuses.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const base = { adapterId: GENERIC_ADAPTER_ID, webRenderer: false };
+    l.genericPanels.offer("status", {
+      ...base,
+      slot: "status",
+      title: "Status",
+      node: tracker ? null : genericStatusPanel(l.statuses),
+      mobileFallback: null,
+    });
+    l.genericPanels.offer(STATUS_TRACKER_SLOT, {
+      ...base,
+      slot: STATUS_TRACKER_SLOT,
+      title: "Status",
+      node:
+        tracker && entries.length > 0
+          ? { t: "facts", items: entries.map(([label, value]) => ({ label, value })) }
+          : null,
+      mobileFallback: entries.map(([k, v]) => `${k}: ${v}`).join("\n") || null,
+      contribution: {
+        id: "status",
+        placement: "composer.tracker",
+        tracker: { count: String(entries.length) },
+      },
+    });
   }
 
   // ---- internals: adapters ----

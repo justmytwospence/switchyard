@@ -811,6 +811,13 @@ export class ManagedSession extends EventEmitter<ManagedSessionEventMap> {
     }
   }
 
+  /** Clear Pi's steering and follow-up queues and return what they held. */
+  async clearQueue(): Promise<QueueState> {
+    const proc = this.requireAlive();
+    const data = await this.call<QueueState>(proc, { type: "clear_queue" });
+    return { steering: data?.steering ?? [], followUp: data?.followUp ?? [] };
+  }
+
   /** Abort the current run; with `clearQueue`, first clear and return queued messages. */
   async abort(clearQueue = false): Promise<{ cleared: QueueState | null }> {
     const proc = this.requireAlive();

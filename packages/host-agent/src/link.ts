@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
+  ADAPTER_CONTRACT_FEATURE,
   AGENT_FRAME_MAX_BYTES,
   type AgentMethod,
   AgentReceiptPeekRequest,
@@ -18,6 +19,8 @@ import {
   type HostToolPolicyContext,
   newId,
   type ProviderUsage,
+  projectHostEvent,
+  QUEUE_CLEAR_FEATURE,
   type Receipt,
   reconnectDelay,
   type StreamDelta,
@@ -39,6 +42,7 @@ const ACKED_META = "outbox.ackedHostSeq";
 const AGENT_FEATURES = ["agentRequests.v1", "policies.v1"] as const;
 /** Host features the coordinator gates commands on; not negotiated in `welcome`. */
 const HOST_FEATURES: readonly string[] = [
+  QUEUE_CLEAR_FEATURE,
   GITHUB_ISSUES_FEATURE,
   GITHUB_BOARD_FEATURE,
   GIT_LOG_FEATURE,
@@ -429,8 +433,8 @@ export class CoordinatorLink {
       this.lastPong = Date.now();
       const hello = this.opts.hello();
       this.advertisedFeatures = new Set(
-        (hello.features ?? AGENT_FEATURES).filter((f) =>
-          AGENT_FEATURES.some((known) => known === f),
+        (hello.features ?? AGENT_FEATURES).filter(
+          (f) => f === ADAPTER_CONTRACT_FEATURE || AGENT_FEATURES.some((known) => known === f),
         ),
       );
       const hostFeatures = (hello.features ?? []).filter((f) => HOST_FEATURES.includes(f));
@@ -611,7 +615,11 @@ export class CoordinatorLink {
     if (!this.ready) return;
     const rows = this.pending(this.sentUpTo, FLUSH_PAGE);
     for (const row of rows) {
-      if (!this.send({ type: "event", hostSeq: row.hostSeq, event: row.event })) return;
+      // A coordinator from before contract v2 gets each event in the shape it can parse.
+      const event = this.features.has(ADAPTER_CONTRACT_FEATURE)
+        ? row.event
+        : projectHostEvent(row.event);
+      if (!this.send({ type: "event", hostSeq: row.hostSeq, event })) return;
       this.sentUpTo = row.hostSeq;
     }
     // A long replay is sent a page per turn of the event loop, so pings and acks get through.

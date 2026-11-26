@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { piAgentDir } from "@switchyard/adapter-sdk";
 import { detectPi, type PiDetection, terminalSupport } from "@switchyard/pi-runtime";
 import {
+  ADAPTER_CONTRACT_FEATURE,
   GIT_LOG_FEATURE,
   GITHUB_BOARD_FEATURE,
   GITHUB_ISSUES_FEATURE,
   PROTOCOL_VERSION,
+  QUEUE_CLEAR_FEATURE,
   type Receipt,
 } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
@@ -207,10 +209,13 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
             messageDelivery: agentSupport,
             policies: agentSupport,
             adapterDevelopment: true,
+            queueEdit: true,
           }
         : null,
       features: [
         ...(agentSupport ? ["agentRequests.v1", "policies.v1"] : []),
+        ADAPTER_CONTRACT_FEATURE,
+        QUEUE_CLEAR_FEATURE,
         GITHUB_ISSUES_FEATURE,
         GITHUB_BOARD_FEATURE,
         GIT_LOG_FEATURE,

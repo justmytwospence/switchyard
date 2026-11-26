@@ -59,6 +59,8 @@ export class FakeCoordinator {
   autoAck = true;
   /** Answer every hello with this rejection and close the socket (4401), as a real coordinator does. */
   rejectWith: { code: string; message: string } | null = null;
+  /** Echo these host features in `welcome` (a coordinator that negotiates them). */
+  welcomeFeatures: string[] | null = null;
   socket: WebSocket | null = null;
   private wss: WebSocketServer | null = null;
   private waiters: { pred: () => boolean; resolve: () => void }[] = [];
@@ -97,6 +99,9 @@ export class FakeCoordinator {
               type: "welcome",
               coordinatorVersion: "test",
               ackedHostSeq: this.ackedHostSeq,
+              ...(this.welcomeFeatures
+                ? { features: this.welcomeFeatures.filter((f) => frame.features?.includes(f)) }
+                : {}),
             });
             break;
           case "event":
@@ -256,6 +261,8 @@ export interface HarnessOptions {
   terminalSessions?: boolean;
   /** Pi binary the agent runs (default: the real one). */
   piBin?: string;
+  /** Host features the fake coordinator negotiates (default none: a coordinator before v2). */
+  welcomeFeatures?: string[];
 }
 
 /**
@@ -278,6 +285,7 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarne
   const withPi = opts.withPi !== false;
   if (withPi) requirePi();
   const coord = await FakeCoordinator.start();
+  coord.welcomeFeatures = opts.welcomeFeatures ?? null;
   const state = tempDir();
   const mock = withPi ? await startMockModel(opts.script ?? []) : null;
   const pi = mock ? makePiEnv({ mockUrl: mock.url }) : null;

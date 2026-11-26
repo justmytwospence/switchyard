@@ -154,6 +154,7 @@ export function queueKey(command: HostCommand): string | null {
   if (
     command.type === "session.answer" ||
     command.type === "session.abort" ||
+    command.type === "session.clearQueue" ||
     command.type === "session.stop" ||
     command.type === "session.setControl" ||
     command.type === "session.adapterAction" ||
@@ -442,6 +443,8 @@ export class CommandRouter {
       }
       case "session.abort":
         return sup.abort(c.sessionId, c.clearQueue);
+      case "session.clearQueue":
+        return sup.clearQueue(c.sessionId);
       case "session.stop":
         return sup.stop(c.sessionId);
       case "session.answer":
