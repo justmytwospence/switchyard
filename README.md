@@ -105,9 +105,9 @@ sequenceDiagram
 | **Tracker** | The GitHub issues assigned to you (or a board's open issues) in one owner, optionally with a Projects board |
 | **Issue** | One issue a tracker follows, attached to the branch it is worked on |
 | **Stage** | Where a branch is: Not started, Working, In review, Merged |
-| **View** | A saved filter over branches: projects, hosts, pins, and an optional source |
+| **View** | A named part of your work: a set of projects (yours, or a tracker's) and pins, optionally limited to hosts |
 | **Device** | A signed-in client: a browser, an installed web app or a terminal |
-| **Surface** | A herdr or tmux session showing a view, under the device it is signed in with |
+| **Surface** | Where you look at sessions: the web app, the phone, or a herdr or tmux session, which shows one view under the device it is signed in with |
 | **Task** | A unit of dispatched work, with an objective and acceptance criteria, on the task board |
 | **Run** | One attempt at a task, carried out in a session |
 | **Adapter** | Code that renders a specific Pi plugin's questions and state as structured UI |

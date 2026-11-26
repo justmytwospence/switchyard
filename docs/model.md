@@ -9,6 +9,18 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
                                                                                 are devices)
 ```
 
+## Three questions
+
+Every component answers one of three questions:
+
+| Question | Components |
+|---|---|
+| What work is it? | Project, branch, session, and the issues a tracker attaches. A **view** is a named part of this work |
+| Where does it run? | Host, workspace (the checkout), and the Pi process in its terminal |
+| Where do you look at it? | Device and **surface**: the web app, the phone, a herdr or tmux session. Each shows everything or one view |
+
+A view never depends on the terminal a session was started in or is shown in, so a session is in the same views on every surface. One herdr session can show everything, a herdr session per view can each show a part, or both: the views are the same either way.
+
 ## The components
 
 | Component | What it is | Who owns the truth |
@@ -20,9 +32,9 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 | Session | A Pi agent in a workspace. One per branch is **primary**; other sessions on the branch are **extras**; subagents hang off the session that started them | Pi owns the conversation; Switchyard owns which session is primary |
 | Tracker | A GitHub owner's open issues that Switchyard follows (those assigned to you, or every open issue on a Projects board), optionally with a Projects board ([trackers.md](trackers.md)) | GitHub |
 | Issue (tracked issue) | One issue a tracker follows: its branch, pull request and board column | GitHub; Switchyard keeps a snapshot |
-| View | A saved filter: projects, hosts, pins, and an optional source (a tracker, or the terminal sessions are started in) | Switchyard |
+| View | A named part of your work: a set of projects (chosen by you, or kept by a tracker) and pins, optionally limited to hosts | Switchyard |
 | Device | A sign-in credential: a browser, the installed app, a terminal | Switchyard |
-| Surface | A herdr or tmux session that shows one view, reported by the device it is signed in with, and on a host when there is one | Switchyard |
+| Surface | Where you look at sessions: the web app, the phone, or a herdr or tmux session. A paired herdr or tmux session shows one view and is reported by the device it is signed in with, and on a host when there is one | Switchyard |
 | Task, Run | Automation: scheduled or dispatched work that makes its own worktree and session | Switchyard |
 
 ## How they work together
@@ -33,7 +45,7 @@ Trackers ──annotate──> Branch ──has──> Sessions <──query─�
 - **Trackers decorate branches.** An issue with a branch shows its issue, pull request and board column on that branch. An issue with no branch waits in the Board's Not started column; starting it makes the branch, its worktree on the project's default host, and an idle session.
 - **A tracker's view is its issues' work.** It holds the sessions on branches linked to the tracker's issues, whatever their state, plus any session in the tracker's repositories that is live right now. A stopped session with no issue is not in it; it is under All sessions.
 - **A view decides which branches you see; a surface decides where.** Every surface bound to a view shows the same sessions, and the web app and phone select a view of their own. Closing a tab in one surface archives the session everywhere.
-- **Where a session was started is a fact on the session.** A view whose source is a terminal (`--client herdr:<session>`) holds every Pi started there, including ones that started before the view existed.
+- **Where a session runs is a fact on the session, not a view.** A Pi you start in your own terminal shows its host and terminal under Details (Runs in), and belongs to the same views as any other session in its project. A herdr session you only work in by hand needs no view and no pairing.
 - **Cleanup follows the branch.** When the pull request merges and the worktree is clean and idle, its sessions are archived and the worktree removed (with "Remove merged worktrees" on).
 - **A branch keeps its latest session.** Ended sessions that are not the primary are archived after three days, with their subagents ([operations.md](operations.md#ended-sessions)).
 - **One owner starts and cleans up work.** Switchyard can do it (Start session, "Keep a session in every worktree", "Remove merged worktrees", board write-back), or your terminal tools can (a Pi plugin that starts issues in worktrees, a multiplexer that removes merged ones) while Switchyard only watches: sessions you start yourself are adopted, branches and issues are matched, nothing is created or removed. Pick one per project and turn the other off ([trackers.md](trackers.md#watching-only)).
