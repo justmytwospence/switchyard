@@ -1,6 +1,6 @@
 import type { Project, TrackedIssue, Tracker } from "@switchyard/protocol";
 import { CircleDot, Pencil, Plus, RefreshCw, Trash } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
 import { Badge } from "../../components/ui/Badge";
@@ -32,6 +32,9 @@ import {
 /** Settings › Trackers: GitHub issues and boards that feed the board. */
 export function TrackersSection() {
   const { trackers, error, reload } = useTrackers();
+  // Trackers are not in the sync stream: show the current sync times whenever the page opens.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per mount
+  useEffect(() => reload(), []);
   const [editing, setEditing] = useState<Tracker | "new" | null>(null);
   const [deleting, setDeleting] = useState<Tracker | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);

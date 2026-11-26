@@ -71,12 +71,14 @@ export function describeView(
   if (source === "tracker") {
     const t = tracker;
     if (!t) return "Kept by a GitHub tracker";
+    // A paused tracker has stopped following issues: say so where its view looks empty.
+    const paused = t.enabled === false ? " (tracker paused: issues are not updated)" : "";
     if (t.board && trackerFollow(t) === "board") {
       const backlog = trackerBacklog(t);
-      return `Issues on ${t.owner}'s board #${t.board.projectNumber}${backlog.length ? `, except ${backlog.join(", ")}` : ""}, and live sessions there`;
+      return `Issues on ${t.owner}'s board #${t.board.projectNumber}${backlog.length ? `, except ${backlog.join(", ")}` : ""}, and live sessions there${paused}`;
     }
     const board = t.board ? ` (board #${t.board.projectNumber})` : "";
-    return `Issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}, and live sessions there`;
+    return `Issues assigned to ${t.login ?? "you"} in ${t.owner}${also}${board}, and live sessions there${paused}`;
   }
   if (source === "client") return `Pi you start in ${clientLabel(v.clientId ?? "")}`;
   if (v.mode === "pinned") return "Only sessions you pin";

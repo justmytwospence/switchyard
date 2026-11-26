@@ -1,4 +1,4 @@
-import type { CommandView, Session } from "@switchyard/protocol";
+import { type CommandView, isLiveRuntime, type Session } from "@switchyard/protocol";
 import {
   Camera,
   ImagePlus,
@@ -145,7 +145,12 @@ export function Composer({
     error: cmdError,
     loading: cmdLoading,
     refresh,
-  } = useSessionCommands(session.id, controls, session.adapterGeneration);
+  } = useSessionCommands(
+    session.id,
+    // Pi's commands can only be read from a live Pi; a stopped session has none to ask.
+    controls && isLiveRuntime(session.runtime),
+    session.adapterGeneration,
+  );
   const contributions = useContributions(session.id);
   const slash = contributions.filter((p) => p.contribution?.placement === "slash.command");
   const [adapterRequest, setAdapterRequest] = useState<AdapterCommandRequest | null>(null);
