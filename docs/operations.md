@@ -63,7 +63,9 @@ The same hourly sweep archives ended sessions nobody will come back to, so a che
 - an ended (stopped, failed or interrupted) session that is not its branch's primary, with no activity for 3 days;
 - an ended subagent with no activity for 3 days, or whose parent session is archived.
 
-A branch's primary session, live sessions, sessions pinned to a view, task sessions and sessions with an open question are never archived this way. An archived session is hidden, not deleted: it is unarchived when its Pi comes back (resumed in a terminal) or from the session menu. The window is the `sessionArchiveDays` row in the `settings` table (`0` turns it off), reported under `sessions.archiveEndedAfterDays` in `GET /api/diagnostics`.
+A branch's primary session, live sessions, task sessions and sessions with an open question are never archived this way. A pin does not keep a session: archiving removes it from every view it was pinned to. An archived session is hidden, not deleted: it is unarchived when its Pi comes back (resumed in a terminal) or from the session menu. The window is the `sessionArchiveDays` row in the `settings` table (`0` turns it off), reported under `sessions.archiveEndedAfterDays` in `GET /api/diagnostics`.
+
+Before archiving, the sweep (and every coordinator start) clears what older releases left behind: questions of sessions whose Pi is gone expire and their "Needs input" attention is resolved, and views lose pins of archived sessions.
 
 ## Logs
 
