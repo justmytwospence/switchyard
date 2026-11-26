@@ -4,6 +4,8 @@ Switchyard has three kinds of components. The [README](../README.md#how-it-fits-
 
 ```mermaid
 flowchart TB
+  accTitle: Inside Switchyard's components
+  accDescr: Clients (the web app, the Pi terminal and the CLI) call the coordinator's REST API. The coordinator holds the event log, tasks and dispatcher, scheduler, attention and push, and sign-in, and its host hub exchanges commands and events with each host agent's coordinator link. In the host agent, a command router drives the session supervisor, which runs one Pi process per live session over a bridge socket, alongside the adapter registry and git worktrees.
   subgraph clients["Clients"]
     web["Web app (React PWA)"]
     tui["Pi terminal (switchyard tui, herdr)"]
