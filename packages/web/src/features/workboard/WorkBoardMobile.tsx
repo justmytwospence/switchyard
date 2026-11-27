@@ -79,6 +79,7 @@ export function WorkBoardMobile({ board }: { board: WorkBoard }) {
         <Tabs
           label="Board columns"
           idPrefix="work-tab"
+          progress={swipe.progress}
           scrollable
           className="border-b-0"
           value={column?.id ?? ""}

@@ -384,6 +384,7 @@ export function MobileSession({
                 <div className="min-w-0 flex-1 pr-1.5" data-testid="session-panel-tabs">
                   <SegmentedControl<MobileTab>
                     label="Session panel"
+                    progress={swipe.progress}
                     block
                     value={tab}
                     onChange={setTab}

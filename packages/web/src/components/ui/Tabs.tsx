@@ -1,7 +1,9 @@
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import { horizontalNavigationDelta } from "../../features/palette/shortcuts";
 import { cn } from "../../lib/cn";
+import type { SwipeProgress } from "../../lib/swipeProgress";
 import { usePrefs } from "../../prefs";
+import { useIndicator } from "./useIndicator";
 
 export interface TabItem {
   id: string;
@@ -22,6 +24,8 @@ export interface TabsProps {
   idPrefix?: string;
   /** Allow the list to scroll horizontally (mobile status tabs). */
   scrollable?: boolean;
+  /** A swipe between the tabs' panels; the underline follows it. */
+  progress?: SwipeProgress;
 }
 
 export function tabId(prefix: string, id: string) {
@@ -32,10 +36,20 @@ export function panelId(prefix: string, id: string) {
 }
 
 /** WAI-ARIA tabs (automatic activation with arrow keys, Home, End). */
-export function Tabs({ tabs, value, onChange, label, className, idPrefix, scrollable }: TabsProps) {
+export function Tabs({
+  tabs,
+  value,
+  onChange,
+  label,
+  className,
+  idPrefix,
+  scrollable,
+  progress,
+}: TabsProps) {
   const autoId = useId();
   const prefix = idPrefix ?? autoId;
   const listRef = useRef<HTMLDivElement>(null);
+  const indicator = useIndicator(listRef, value, progress);
   const enabled = tabs.filter((t) => !t.disabled);
   // A swipe elsewhere can change the tab: keep the selected one in view.
   // biome-ignore lint/correctness/useExhaustiveDependencies: only the selection matters
@@ -71,6 +85,7 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
       ref={listRef}
       role="tablist"
       aria-label={label}
+      data-indicator-root
       className={cn(
         // Positioned, so a tab's absolutely placed parts (its badge's sr-only text) stay inside
         // the list instead of widening the page behind it.
@@ -103,6 +118,7 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
           <button
             key={t.id}
             id={tabId(prefix, t.id)}
+            data-indicator-key={t.id}
             type="button"
             role="tab"
             aria-selected={selected}
@@ -114,9 +130,8 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
               "tap inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap",
               // The selected underline covers the list's border, except where the list scrolls.
               !scrollable && "-mb-px",
-              selected
-                ? "border-accent text-text"
-                : "border-transparent text-muted hover:text-text",
+              "border-transparent transition-colors",
+              selected ? "text-text" : "text-muted hover:text-text",
               "disabled:opacity-55",
             )}
           >
@@ -125,6 +140,15 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
           </button>
         );
       })}
+      {/* The selected tab's underline: one bar that slides between tabs. */}
+      <span
+        ref={indicator}
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute left-0 h-0.5 rounded-full bg-accent opacity-0",
+          scrollable ? "bottom-0" : "-bottom-px",
+        )}
+      />
     </div>
   );
 }

@@ -211,6 +211,7 @@ export function BoardMobile() {
             <Tabs
               label="Task status"
               idPrefix="board-tab"
+              progress={swipe.progress}
               scrollable
               className="border-b-0"
               value={tab}

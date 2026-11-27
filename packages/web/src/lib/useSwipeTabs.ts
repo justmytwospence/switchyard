@@ -1,6 +1,14 @@
-import { type MouseEvent, type PointerEvent, type RefObject, useLayoutEffect, useRef } from "react";
+import {
+  type MouseEvent,
+  type PointerEvent,
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { EDGE, lockAxis, pageResult, rubberBand, velocity } from "./gestures";
 import { haptic } from "./haptics";
+import { createSwipeProgress, type SwipeProgress } from "./swipeProgress";
 
 /** Drags that start here belong to the element (fields, swipeable rows, opt-outs). */
 const IGNORE = "input, textarea, select, [contenteditable], [data-no-swipe], [data-swipe-row]";
@@ -27,6 +35,8 @@ export interface SwipeTabs {
   };
   /** The content that follows the finger and slides in when the tab changes. */
   innerRef: RefObject<HTMLDivElement | null>;
+  /** Pass to the tab strip so its indicator follows the finger. */
+  progress: SwipeProgress;
 }
 
 /**
@@ -43,6 +53,7 @@ export function useSwipeTabs(
   onBeforeFirst?: () => void,
 ): SwipeTabs {
   const innerRef = useRef<HTMLDivElement>(null);
+  const [progress] = useState(createSwipeProgress);
   const drag = useRef<{
     id: number;
     x: number;
@@ -87,6 +98,7 @@ export function useSwipeTabs(
     const d = drag.current;
     drag.current = null;
     if (d?.axis !== "x") return;
+    progress.emit(null);
     swallow.current = true;
     window.setTimeout(() => {
       swallow.current = false;
@@ -121,6 +133,7 @@ export function useSwipeTabs(
 
   return {
     innerRef,
+    progress,
     bind: {
       onPointerUp: up,
       onPointerCancel: up,
@@ -163,6 +176,7 @@ export function useSwipeTabs(
         const shown = hasNeighbor ? dx : rubberBand(dx, el.offsetWidth || 320) * 0.4;
         el.style.transition = "none";
         el.style.transform = `translateX(${shown}px)`;
+        if (hasNeighbor) progress.emit(-dx / (el.offsetWidth || 320));
       },
       onClickCapture(e) {
         if (swallow.current) {
