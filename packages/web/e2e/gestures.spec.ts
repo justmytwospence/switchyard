@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import {
   centerOf,
   createSession,
@@ -11,6 +12,17 @@ import {
 
 test.skip(({ isMobile }) => !isMobile, "Phone gestures only");
 
+async function findSessionForTouch(page: Page, title: string) {
+  const nav = page.getByTestId("navigator");
+  await nav.getByTestId("toggle-search").tap();
+  await nav.getByRole("searchbox", { name: "Search sessions" }).fill(title);
+  // Other specs share the seeded branch. Isolate the row before measuring touch coordinates.
+  await expect(nav.getByTestId("session-row")).toHaveCount(1);
+  const row = nav.getByRole("link", { name: new RegExp(title) });
+  await row.scrollIntoViewIfNeeded();
+  return row;
+}
+
 test.describe("phone gestures", () => {
   test("swipe a session row left to archive it, and Undo brings it back", async ({
     page,
@@ -22,8 +34,7 @@ test.describe("phone gestures", () => {
     const title = `Swipe ${uid(info)}`;
     const id = await createSession(api, state, title, "Ready");
     await page.goto("/code");
-    const row = page.getByRole("link", { name: new RegExp(title) });
-    await expect(row).toBeVisible();
+    const row = await findSessionForTouch(page, title);
     const at = await centerOf(row);
     await touchDrag(page, { x: at.x + 140, y: at.y }, { x: at.x - 150, y: at.y });
     await expect(row).toHaveCount(0);
@@ -37,7 +48,7 @@ test.describe("phone gestures", () => {
     const title = `Hold ${uid(info)}`;
     await createSession(api, state, title, "Ready");
     await page.goto("/code");
-    const row = page.getByRole("link", { name: new RegExp(title) });
+    const row = await findSessionForTouch(page, title);
     await longPress(page, row);
     const sheet = page.getByTestId("action-sheet");
     await expect(sheet).toBeVisible();

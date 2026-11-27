@@ -7,6 +7,7 @@ import {
   Ellipsis,
   FolderGit2,
   Layers,
+  ListFilter,
   MessageCircleQuestion,
   Pencil,
   Plus,
@@ -29,10 +30,11 @@ import {
 import { Link, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { ActionSheet } from "../../components/ui/ActionSheet";
-import { TONE_TEXT } from "../../components/ui/Badge";
+import { TONE_CLASSES, TONE_TEXT } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { Spinner } from "../../components/ui/Spinner";
 import {
   REVIEW_STATUS,
@@ -69,6 +71,7 @@ import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import { AdapterSlot } from "./AdapterSlots";
 import { sessionMenuItems } from "./ConversationHeader";
 import { useSessionContext } from "./hooks";
+import { branchActivity, recentSections, shortActivity } from "./mobileSessions";
 import {
   buildNavTree,
   DEFAULT_SORT,
@@ -101,6 +104,7 @@ interface NavPrefs {
   collapsed: string[];
   layout: NavLayout;
   showSubagents: boolean;
+  showSessionDetails: boolean;
   sorts: Partial<Record<NavLayout, NavSort>>;
   needsInputFirst: boolean;
   /** Branch rows showing their other sessions. */
@@ -115,6 +119,7 @@ function defaultPrefs(screen: boolean): NavPrefs {
     collapsed: [],
     layout: screen ? "recent" : "projects",
     showSubagents: false,
+    showSessionDetails: false,
     sorts: {},
     needsInputFirst: true,
     expanded: [],
@@ -274,6 +279,17 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     },
   ];
 
+  if (screen) {
+    viewItems.push({
+      id: "session-details",
+      label: "Show session details",
+      hint: "Run location and latest reply",
+      kind: "checkbox",
+      checked: prefs.showSessionDetails,
+      onSelect: () => setPrefs({ ...prefs, showSessionDetails: !prefs.showSessionDetails }),
+    });
+  }
+
   const filterInfo: Record<NavFilter, { label: string; title?: string }> = {
     active: { label: "Active", title: "Live sessions, and stopped ones that need you" },
     attention: { label: "Needs input" },
@@ -329,6 +345,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const rowProps = {
     selectedId,
     screen,
+    now: screen ? new Date() : undefined,
+    showSessionDetails: prefs.showSessionDetails,
     scopeName,
     outsideLabel,
     badges,
@@ -445,11 +463,33 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       </>
     );
   } else if (prefs.layout === "recent") {
+    const sections =
+      rowProps.now && sort === "activity"
+        ? recentSections(
+            tree.rows,
+            prefs.needsInputFirst && prefs.filter !== "attention",
+            rowProps.now,
+          )
+        : [{ label: "", rows: tree.rows }];
     body = (
-      <ul aria-label="Recent sessions" className="flex min-w-0 flex-col gap-0.5 pb-4">
-        {tree.rows.map((row) => (
-          <SessionRow key={row.key} row={row} indent={0} expansion={expansion} {...rowProps} />
-        ))}
+      <ul
+        aria-label="Recent sessions"
+        className={cn("flex min-w-0 flex-col pb-4", !screen && "gap-0.5")}
+      >
+        {sections.flatMap(({ label, rows }) => [
+          label && (
+            <li
+              key={`section:${label}`}
+              data-testid="recent-section"
+              className="bg-bg px-3 pt-3 pb-1.5"
+            >
+              <h3 className="text-[13px] font-semibold text-muted">{label}</h3>
+            </li>
+          ),
+          ...rows.map((row) => (
+            <SessionRow key={row.key} row={row} indent={0} expansion={expansion} {...rowProps} />
+          )),
+        ])}
       </ul>
     );
   } else {
@@ -467,6 +507,28 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     );
   }
 
+  const scopePicker = (
+    <ViewFilter
+      scopes={scopes}
+      scope={scope}
+      title={scope ? describeScope(scope) : undefined}
+      onChange={setSelectedScopeId}
+      onNew={() => setEditingScope("new")}
+      onEdit={screen && scope ? () => setEditingScope(scope.id) : undefined}
+      screen={screen}
+    />
+  );
+  const clearButton = anyFilter && (
+    <button
+      type="button"
+      data-testid="clear-filters"
+      onClick={clearFilters}
+      className="tap ml-auto inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-xs font-medium text-accent hover:underline"
+    >
+      Clear
+    </button>
+  );
+
   return (
     <nav
       data-testid="navigator"
@@ -480,18 +542,28 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     >
       <div
         data-testid="navigator-header"
-        className="@container flex shrink-0 flex-col gap-1.5 border-b border-border px-3 pt-3 pb-1.5"
+        className={cn(
+          "@container flex shrink-0 flex-col gap-1.5 border-b border-border px-3 pt-3 pb-1.5",
+          screen && "gap-2 pt-2 pb-2",
+        )}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className={cn("min-w-0 flex-1 font-semibold", screen ? "text-lg" : "text-sm")}>
+        <div className={cn("flex min-w-0 items-center gap-2", screen && "gap-1.5")}>
+          <h2
+            className={cn(
+              "font-semibold",
+              screen ? "mr-auto shrink-0 text-[22px] tracking-tight" : "min-w-0 flex-1 text-sm",
+            )}
+          >
             Sessions
           </h2>
+          {screen && ready && scopePicker}
           {screen && ready && (
             <IconButton
               data-testid="toggle-search"
               label="Search sessions"
               aria-expanded={searchShown}
-              icon={<Search className="size-4" />}
+              className="size-11"
+              icon={<Search aria-hidden className="size-[18px]" />}
               onClick={() => {
                 if (searchShown) {
                   setSearchOpen(false);
@@ -504,7 +576,9 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             data-testid="new-session"
             size="sm"
             variant="primary"
-            icon={<Plus className="size-4" />}
+            aria-label={screen ? "New session" : undefined}
+            className={screen ? "h-11 shrink-0 rounded-lg" : undefined}
+            icon={<Plus aria-hidden className="size-4" />}
             onClick={() => onNewSession()}
             disabled={!hydrated || hosts.length === 0 || projectList.length === 0}
             title={
@@ -515,7 +589,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
                   : undefined
             }
           >
-            New session
+            {screen ? "New" : "New session"}
           </Button>
         </div>
         {ready && searchShown && (
@@ -537,49 +611,25 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
             />
           </div>
         )}
-        {ready && (
+        {ready && !screen && (
           <div
             data-testid="navigator-filters"
             className="flex min-w-0 flex-wrap items-center gap-x-2"
           >
             <div className="flex min-w-0 flex-1 basis-48 items-center gap-0.5">
-              <ViewFilter
-                scopes={scopes}
-                scope={scope}
-                title={scope ? describeScope(scope) : undefined}
-                onChange={setSelectedScopeId}
-                onNew={() => setEditingScope("new")}
-              />
+              {scopePicker}
               <IconButton
                 size="sm"
                 label={scope ? "Edit scope" : "New scope"}
                 icon={scope ? <Pencil className="size-3.5" /> : <Plus className="size-4" />}
                 onClick={() => setEditingScope(scope?.id ?? "new")}
               />
-              {!where && anyFilter && (
-                <button
-                  type="button"
-                  data-testid="clear-filters"
-                  onClick={clearFilters}
-                  className="tap ml-auto inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-xs font-medium text-accent hover:underline"
-                >
-                  Clear
-                </button>
-              )}
+              {!where && clearButton}
             </div>
             {where && whereName && (
               <div className="flex min-w-0 flex-1 basis-48 items-center gap-0.5">
                 <WhereFilter value={whereName} onClear={() => setWhere(null)} />
-                {anyFilter && (
-                  <button
-                    type="button"
-                    data-testid="clear-filters"
-                    onClick={clearFilters}
-                    className="tap ml-auto inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-xs font-medium text-accent hover:underline"
-                  >
-                    Clear
-                  </button>
-                )}
+                {clearButton}
               </div>
             )}
           </div>
@@ -590,13 +640,30 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           onSaved={(id) => setSelectedScopeId(id)}
         />
         {ready && (
-          <div className="flex min-w-0 items-center gap-1">
-            <QuietRadio
-              label="Session filter"
-              options={filterOptions}
-              value={prefs.filter}
-              onChange={(v) => setPrefs({ ...prefs, filter: v })}
-            />
+          <div
+            data-testid={screen ? "phone-session-filters" : undefined}
+            className="flex min-w-0 items-center gap-1"
+          >
+            {screen ? (
+              <SegmentedControl
+                label="Session filter"
+                block
+                className="min-w-0 flex-1 [&>button]:min-h-11 [&>button]:px-1.5 [&>button]:text-[13px]"
+                options={filterOptions.map(({ count, ...option }) => ({
+                  ...option,
+                  badge: <FilterCount value={option.value} count={count} />,
+                }))}
+                value={prefs.filter}
+                onChange={(v) => setPrefs({ ...prefs, filter: v })}
+              />
+            ) : (
+              <QuietRadio
+                label="Session filter"
+                options={filterOptions}
+                value={prefs.filter}
+                onChange={(v) => setPrefs({ ...prefs, filter: v })}
+              />
+            )}
             {!screen && needs.count > 0 && needs.first && (
               <button
                 type="button"
@@ -622,18 +689,28 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
                     {...p}
                     size="sm"
                     label="View options"
-                    icon={<SlidersHorizontal className="size-4" />}
+                    className={screen ? "size-11" : undefined}
+                    icon={<SlidersHorizontal aria-hidden className="size-[18px]" />}
                   />
                 )}
               />
             </div>
           </div>
         )}
+        {ready && screen && (whereName || anyFilter) && (
+          <div data-testid="navigator-filters" className="flex min-w-0 items-center gap-2">
+            {whereName && <WhereFilter value={whereName} onClear={() => setWhere(null)} />}
+            {clearButton}
+          </div>
+        )}
       </div>
       <AdapterSlot sessionId={selectedId} placement="sidebar.header" />
       <div
         data-scroll-root
-        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 pt-2"
+        className={cn(
+          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain",
+          screen ? "bg-bg" : "px-2 pt-2",
+        )}
       >
         {body}
       </div>
@@ -696,12 +773,7 @@ function QuietRadio<T extends string>({
             )}
           >
             {o.label}
-            <span
-              data-testid={`filter-count-${o.value}`}
-              className="text-xs tabular-nums text-muted"
-            >
-              {o.count}
-            </span>
+            <FilterCount value={o.value} count={o.count} />
           </button>
         );
       })}
@@ -709,42 +781,81 @@ function QuietRadio<T extends string>({
   );
 }
 
-/** The scope filter: a borderless labelled select, in the accent colour with a clear when set. */
+function FilterCount({ value, count }: { value: string; count: number }) {
+  return (
+    <span data-testid={`filter-count-${value}`} className="text-xs tabular-nums text-muted">
+      {count}
+    </span>
+  );
+}
+
+/** The scope filter: a compact chip on the phone, a labelled select in the pane. */
 function ViewFilter({
   scopes,
   scope,
   title,
   onChange,
   onNew,
+  onEdit,
+  screen,
 }: {
   scopes: Record<string, Scope>;
   scope: Scope | null;
   title?: string;
   onChange: (id: string | null) => void;
   onNew: () => void;
+  onEdit?: () => void;
+  screen: boolean;
 }) {
   const id = useId();
   return (
     <div
       data-testid="scope-chip"
       data-active={scope ? "true" : undefined}
-      className="flex h-8 min-w-0 items-center gap-1.5 text-sm"
+      className={cn("flex min-w-0 items-center text-sm", screen ? "h-11 max-w-40" : "h-8 gap-1.5")}
     >
-      <label htmlFor={id} className="shrink-0 text-xs text-muted">
-        Scope
-      </label>
-      <span className="relative flex min-w-0 items-center">
+      {!screen && (
+        <label htmlFor={id} className="shrink-0 text-xs text-muted">
+          Scope
+        </label>
+      )}
+      <span
+        className={cn("relative flex min-w-0 items-center", screen && "rounded-lg bg-surface-2")}
+      >
+        {screen && (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none flex min-h-11 min-w-0 items-center gap-1 px-2 text-[13px] font-medium",
+              scope ? "text-accent" : "text-muted",
+            )}
+          >
+            <ListFilter className="size-3.5 shrink-0" />
+            <span className="truncate">{scope?.name ?? "Scope"}</span>
+            <ChevronDown className="size-3 shrink-0" />
+          </span>
+        )}
         <select
           id={id}
+          aria-label={screen ? "Scope" : undefined}
           value={scope?.id ?? ""}
           title={title}
-          onChange={(e) =>
-            e.target.value === "__new" ? onNew() : onChange(e.target.value || null)
+          onChange={(e) => {
+            const value = e.currentTarget.value;
+            if (value === "__new" || value === "__edit") {
+              e.currentTarget.value = scope?.id ?? "";
+              if (value === "__new") onNew();
+              else onEdit?.();
+            } else onChange(value || null);
+          }}
+          className={
+            screen
+              ? "tap absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-lg bg-transparent text-transparent [&>option]:text-text"
+              : cn(
+                  "tap h-8 min-w-0 max-w-full cursor-pointer appearance-none truncate rounded-md bg-transparent pr-5 pl-1 font-medium outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent",
+                  scope ? "text-accent" : "text-text",
+                )
           }
-          className={cn(
-            "tap h-8 min-w-0 max-w-full cursor-pointer appearance-none truncate rounded-md bg-transparent pr-5 pl-1 font-medium outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent",
-            scope ? "text-accent" : "text-text",
-          )}
         >
           <option value="">All sessions</option>
           {Object.values(scopes).map((v) => (
@@ -752,14 +863,17 @@ function ViewFilter({
               {scopeOptionLabel(v)}
             </option>
           ))}
+          {onEdit && <option value="__edit">Edit scope…</option>}
           <option value="__new">New scope…</option>
         </select>
-        <ChevronDown
-          aria-hidden
-          className="pointer-events-none absolute right-1 size-3.5 shrink-0 text-muted"
-        />
+        {!screen && (
+          <ChevronDown
+            aria-hidden
+            className="pointer-events-none absolute right-1 size-3.5 shrink-0 text-muted"
+          />
+        )}
       </span>
-      {scope && (
+      {scope && !screen && (
         <IconButton
           size="sm"
           label="Clear scope"
@@ -845,6 +959,8 @@ interface RowExpansion {
 interface RowProps {
   selectedId: string | null;
   screen: boolean;
+  now?: Date;
+  showSessionDetails: boolean;
   scopeName: string | null;
   /** The marker on the open session's row when a filter excludes it. */
   outsideLabel: (r: NavOutside) => string;
@@ -867,18 +983,26 @@ const BADGE_TONE = {
 const NO_BADGES: ReturnType<typeof useSessionBadges>[string] = [];
 
 /** A row's state as a mark: the icon's shape and a spoken label, colour only reinforcing. */
-function StatusMark({ status }: { status: StatusInfo }) {
+function StatusMark({ status, tile }: { status: StatusInfo; tile?: boolean }) {
   const Icon = status.icon;
   return (
     <span
       data-testid="row-status"
       title={status.label}
-      className={cn("inline-flex size-3.5 shrink-0 items-center", TONE_TEXT[status.tone])}
+      className={cn(
+        "inline-flex shrink-0 items-center",
+        tile
+          ? cn("size-7 justify-center rounded-lg", TONE_CLASSES[status.tone])
+          : cn("size-3.5", TONE_TEXT[status.tone]),
+      )}
     >
       {status.spin ? (
-        <Spinner className="size-3.5" />
+        <Spinner className={tile ? "size-4" : "size-3.5"} />
       ) : (
-        <Icon aria-hidden className={cn("size-3.5", status.pulse && "animate-pulse")} />
+        <Icon
+          aria-hidden
+          className={cn(tile ? "size-4" : "size-3.5", status.pulse && "motion-safe:animate-pulse")}
+        />
       )}
       <span className="sr-only">{status.label}</span>
     </span>
@@ -910,7 +1034,12 @@ function GroupNode({
   const only = group.where && !sameWhere(group.where, where) ? group.where : null;
   return (
     <li className="min-w-0">
-      <div className="group/row flex min-w-0 items-center">
+      <div
+        className={cn(
+          "group/row flex min-w-0 items-center",
+          rowProps.screen && depth === 0 && "bg-bg px-1.5 pt-2",
+        )}
+      >
         <button
           type="button"
           aria-expanded={open}
@@ -980,6 +1109,149 @@ function GroupNode({
 
 const INDENT = ["pl-2", "pl-7", "pl-9", "pl-11"] as const;
 
+function PhoneRowContent({
+  row,
+  nested,
+  now,
+  showDetails,
+  pending,
+  badges,
+  scopeName,
+  outsideLabel,
+}: {
+  row: NavRow;
+  nested: boolean;
+  now: Date;
+  showDetails: boolean;
+  pending: string | null;
+  badges: typeof NO_BADGES;
+  scopeName: string | null;
+  outsideLabel: RowProps["outsideLabel"];
+}) {
+  const { session, where, issue } = row;
+  const status = row.attention ? RUNTIME_STATUS.waiting_input : rowStatusFor(row);
+  const branch = row.branch !== session.title && row.branch !== row.project ? row.branch : null;
+  const identity = [
+    nested ? (row.role === "subagent" ? "Subagent" : "Session") : null,
+    row.project,
+    branch,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const preview =
+    showDetails || pending?.trim() || session.runtime === "failed"
+      ? rowPreview(session, pending)
+      : null;
+  const at = nested ? session.lastActivityAt : branchActivity(row);
+  const activity = new Date(at);
+  const valid = Number.isFinite(activity.getTime());
+  const activityLabel = `${nested ? "Last activity" : "Last branch activity"}: ${valid ? activity.toLocaleString() : "unknown"}`;
+  return (
+    <>
+      <StatusMark status={status} tile />
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span
+          data-testid="mobile-session-title"
+          className="line-clamp-2 break-words text-base leading-5 font-semibold"
+          title={session.title}
+        >
+          {session.title}
+        </span>
+        <span className="flex min-w-0 items-baseline gap-1.5 text-[13px] leading-4 text-muted">
+          {identity && (
+            <span className="min-w-0 flex-[0_1_auto] truncate" title={identity}>
+              {identity}
+            </span>
+          )}
+          {issue && (
+            <span className="shrink-0 tabular-nums" title={issue.title}>
+              #{issue.number}
+            </span>
+          )}
+          {(identity || issue) && (
+            <span aria-hidden className="shrink-0 text-subtle">
+              ·
+            </span>
+          )}
+          <span aria-hidden className={cn("min-w-0 shrink-0 font-medium", TONE_TEXT[status.tone])}>
+            {status.label}
+          </span>
+        </span>
+        {showDetails && where && (
+          <span
+            data-testid="row-where"
+            title={where.label}
+            className="flex min-w-0 items-center gap-1.5 text-xs text-muted"
+          >
+            {where.kind === "terminal" ? (
+              <SquareTerminal aria-hidden className="size-3.5 shrink-0" />
+            ) : (
+              <Server aria-hidden className="size-3.5 shrink-0" />
+            )}
+            <span className="truncate">{where.label}</span>
+          </span>
+        )}
+        {preview && preview.trim() !== session.title.trim() && (
+          <span data-testid="row-preview" className="truncate text-xs text-muted" title={preview}>
+            {preview}
+          </span>
+        )}
+        {(row.leaves || row.outside || badges.length > 0) && (
+          <span
+            data-testid="row-annotations"
+            className="flex min-w-0 flex-wrap gap-1 text-xs text-muted"
+          >
+            {row.leaves && (
+              <span
+                data-testid="row-no-issue"
+                className="rounded bg-surface-2 px-1.5"
+                title={`In ${scopeName ?? "this scope"} only while it is live. Pin it or link an issue to keep it.`}
+              >
+                No issue
+              </span>
+            )}
+            {row.outside && (
+              <span
+                data-testid="row-outside"
+                data-reason={row.outside}
+                className="min-w-0 truncate rounded bg-surface-2 px-1.5"
+                title="Listed because it is open"
+              >
+                {outsideLabel(row.outside)}
+              </span>
+            )}
+            {badges.map((b) => (
+              <span
+                key={`${b.adapterId}:${b.id}`}
+                data-testid="row-badge"
+                title={b.text}
+                className={cn(
+                  "min-w-0 truncate rounded bg-surface-2 px-1.5",
+                  BADGE_TONE[b.tone ?? "muted"],
+                )}
+              >
+                {b.text}
+              </span>
+            ))}
+          </span>
+        )}
+      </span>
+      <time
+        data-testid="row-activity"
+        dateTime={valid ? activity.toISOString() : undefined}
+        title={activityLabel}
+        className={cn(
+          "max-w-16 shrink-0 truncate text-right text-xs leading-5 text-muted tabular-nums",
+          row.others.length > 0 && "w-16",
+        )}
+      >
+        <span aria-hidden>{shortActivity(at, now)}</span>
+        <span className="sr-only">{activityLabel}</span>
+      </time>
+    </>
+  );
+}
+
 function SessionRow({
   row,
   indent,
@@ -992,7 +1264,8 @@ function SessionRow({
   expansion?: RowExpansion;
   nested?: boolean;
 }) {
-  const { selectedId, screen, scopeName, outsideLabel, onRowActions } = rowProps;
+  const { selectedId, screen, now, showSessionDetails, scopeName, outsideLabel, onRowActions } =
+    rowProps;
   const { session, attention } = row;
   const press = useLongPress(() => onRowActions?.(session.id, "sheet"), {
     enabled: !!onRowActions,
@@ -1000,7 +1273,8 @@ function SessionRow({
   const selected = session.id === selectedId;
   const context = [row.project, row.branch].filter(Boolean).join(" · ");
   const status = rowStatusFor(row);
-  const preview = rowPreview(session, rowProps.pendingTitles.get(session.id) ?? null);
+  const pending = rowProps.pendingTitles.get(session.id) ?? null;
+  const preview = screen ? null : rowPreview(session, pending);
   const badges = rowProps.badges[session.id] ?? NO_BADGES;
   const count = row.others.length;
   const open =
@@ -1058,7 +1332,7 @@ function SessionRow({
     }
   }
   const line = (
-    <div className="flex min-w-0 items-center">
+    <div className={cn("flex min-w-0", screen ? "relative" : "items-center")}>
       <Link
         {...(swipeable ? press : {})}
         data-testid={nested ? "session-subrow" : "session-row"}
@@ -1067,103 +1341,125 @@ function SessionRow({
         state={BACK_STATE}
         aria-current={selected ? "page" : undefined}
         className={cn(
-          "tap flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1.5 pr-2 hover:bg-surface-2",
+          "tap flex min-w-0 flex-1 hover:bg-surface-2",
+          screen
+            ? cn(
+                "min-h-16 items-start gap-2.5 bg-surface px-3 py-2.5 outline-offset-[-2px]",
+                count > 0 && "min-h-[68px]",
+              )
+            : cn("flex-col gap-0.5 rounded-md py-1.5 pr-2", INDENT[indent]),
           swipeable && cn(LONG_PRESS_CLASS, "sy-press-row active:bg-surface-2"),
-          INDENT[indent],
-          screen && "py-2.5",
           selected && "bg-accent-soft hover:bg-accent-soft",
         )}
       >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <StatusMark status={status} />
-          <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
-          {needsInput && session.runtime !== "waiting_input" && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
-              <MessageCircleQuestion aria-hidden className="size-3.5" />
-              Needs input
-            </span>
-          )}
-          <span className="shrink-0 text-xs text-subtle tabular-nums">
-            {formatRelative(session.lastActivityAt)}
-          </span>
-        </span>
-        {/* Always one line tall, so a preview or badge arriving never moves the list. */}
-        <span className="flex min-h-4 min-w-0 items-center gap-x-1.5 pl-5">
-          {nested && (
-            <span className="shrink-0 text-xs text-muted">
-              {row.role === "subagent" ? "Subagent" : "Extra"}
-            </span>
-          )}
-          {row.issue && (
-            <span className="shrink-0 text-xs text-muted" title={row.issue.title}>
-              #{row.issue.number}
-            </span>
-          )}
-          {row.leaves && (
-            <span
-              data-testid="row-no-issue"
-              className="shrink-0 text-xs text-subtle"
-              title={`In ${scopeName ?? "this scope"} only while it is live. Pin it or link an issue to keep it.`}
-            >
-              No issue
-            </span>
-          )}
-          {row.outside && (
-            <span
-              data-testid="row-outside"
-              data-reason={row.outside}
-              className="shrink-0 text-xs text-subtle"
-              title="Listed because it is open"
-            >
-              {outsideLabel(row.outside)}
-            </span>
-          )}
-          {row.where && (
-            <span
-              data-testid="row-where"
-              title={
-                row.where.kind === "terminal"
-                  ? `Runs in ${row.where.label}`
-                  : `Runs on ${row.where.label}`
-              }
-              className="inline-flex min-w-0 items-center gap-0.5 text-xs text-muted"
-            >
-              {row.where.kind === "terminal" ? (
-                <SquareTerminal aria-hidden className="size-3 shrink-0" />
-              ) : (
-                <Server aria-hidden className="size-3 shrink-0" />
+        {screen && now ? (
+          <PhoneRowContent
+            row={row}
+            nested={nested}
+            now={now}
+            showDetails={showSessionDetails}
+            pending={pending}
+            badges={badges}
+            scopeName={scopeName}
+            outsideLabel={outsideLabel}
+          />
+        ) : (
+          <>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <StatusMark status={status} />
+              <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
+              {needsInput && session.runtime !== "waiting_input" && (
+                <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
+                  <MessageCircleQuestion aria-hidden className="size-3.5" />
+                  Needs input
+                </span>
               )}
-              <span className="truncate">{row.where.label}</span>
+              <span className="shrink-0 text-xs text-subtle tabular-nums">
+                {formatRelative(session.lastActivityAt)}
+              </span>
             </span>
-          )}
-          {badges.map((b) => (
-            <span
-              key={`${b.adapterId}:${b.id}`}
-              data-testid="row-badge"
-              className={cn("max-w-24 shrink-0 truncate text-xs", BADGE_TONE[b.tone ?? "muted"])}
-              title={b.text}
-            >
-              {b.text}
+            {/* Always one line tall, so a preview or badge arriving never moves the list. */}
+            <span className="flex min-h-4 min-w-0 items-center gap-x-1.5 pl-5">
+              {nested && (
+                <span className="shrink-0 text-xs text-muted">
+                  {row.role === "subagent" ? "Subagent" : "Extra"}
+                </span>
+              )}
+              {row.issue && (
+                <span className="shrink-0 text-xs text-muted" title={row.issue.title}>
+                  #{row.issue.number}
+                </span>
+              )}
+              {row.leaves && (
+                <span
+                  data-testid="row-no-issue"
+                  className="shrink-0 text-xs text-subtle"
+                  title={`In ${scopeName ?? "this scope"} only while it is live. Pin it or link an issue to keep it.`}
+                >
+                  No issue
+                </span>
+              )}
+              {row.outside && (
+                <span
+                  data-testid="row-outside"
+                  data-reason={row.outside}
+                  className="shrink-0 text-xs text-subtle"
+                  title="Listed because it is open"
+                >
+                  {outsideLabel(row.outside)}
+                </span>
+              )}
+              {row.where && (
+                <span
+                  data-testid="row-where"
+                  title={
+                    row.where.kind === "terminal"
+                      ? `Runs in ${row.where.label}`
+                      : `Runs on ${row.where.label}`
+                  }
+                  className="inline-flex min-w-0 items-center gap-0.5 text-xs text-muted"
+                >
+                  {row.where.kind === "terminal" ? (
+                    <SquareTerminal aria-hidden className="size-3 shrink-0" />
+                  ) : (
+                    <Server aria-hidden className="size-3 shrink-0" />
+                  )}
+                  <span className="truncate">{row.where.label}</span>
+                </span>
+              )}
+              {badges.map((b) => (
+                <span
+                  key={`${b.adapterId}:${b.id}`}
+                  data-testid="row-badge"
+                  className={cn(
+                    "max-w-24 shrink-0 truncate text-xs",
+                    BADGE_TONE[b.tone ?? "muted"],
+                  )}
+                  title={b.text}
+                >
+                  {b.text}
+                </span>
+              ))}
+              {context && (
+                <span className="max-w-[45%] min-w-0 shrink-0 truncate text-xs text-muted">
+                  {context}
+                </span>
+              )}
+              {/* The preview gives way first, so where it runs stays readable. */}
+              <span
+                data-testid="row-preview"
+                className="min-w-0 flex-1 basis-0 truncate text-xs text-subtle"
+              >
+                {preview}
+              </span>
             </span>
-          ))}
-          {context && (
-            <span className="max-w-[45%] min-w-0 shrink-0 truncate text-xs text-muted">
-              {context}
-            </span>
-          )}
-          {/* The preview gives way first, so where it runs stays readable. */}
-          <span
-            data-testid="row-preview"
-            className="min-w-0 flex-1 basis-0 truncate text-xs text-subtle"
-          >
-            {preview}
-          </span>
-        </span>
+          </>
+        )}
       </Link>
       {swipeable && (
         <button
           type="button"
-          className="sr-only focus:not-sr-only"
+          className="sr-only focus:not-sr-only focus:absolute focus:inset-y-1 focus:left-1 focus:z-10 focus:rounded-md focus:bg-surface-2 focus:px-2"
           onClick={() => onRowActions?.(session.id, "sheet")}
         >
           Actions for {session.title}
@@ -1176,15 +1472,39 @@ function SessionRow({
           aria-expanded={open}
           aria-label={`${count} more ${count === 1 ? "session" : "sessions"} in this branch`}
           onClick={() => expansion?.toggleRow(row.key)}
-          className="tap shrink-0 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2"
+          className={cn(
+            "tap shrink-0 rounded text-xs text-muted hover:bg-surface-2",
+            screen
+              ? "absolute top-6 right-1 flex h-11 min-w-11 items-center justify-end gap-0.5 px-2 tabular-nums outline-offset-[-2px]"
+              : "px-1.5 py-0.5",
+            screen && row.othersNeedInput && !attention && "font-semibold text-warning",
+          )}
         >
+          {screen && row.othersNeedInput && !attention && (
+            <MessageCircleQuestion
+              className="size-3"
+              aria-label="One of these sessions needs input"
+            />
+          )}
           +{count}
+          {screen &&
+            (open ? (
+              <ChevronDown aria-hidden className="size-3.5 rotate-180" />
+            ) : (
+              <ChevronDown aria-hidden className="size-3.5" />
+            ))}
         </button>
       )}
     </div>
   );
   return (
-    <li className="min-w-0">
+    <li
+      className={cn(
+        "min-w-0",
+        screen &&
+          "relative after:pointer-events-none after:absolute after:inset-x-3 after:bottom-0 after:border-b after:border-border",
+      )}
+    >
       {swipeable ? (
         <SwipeRow leading={leading} trailing={trailing}>
           {line}
@@ -1193,7 +1513,12 @@ function SessionRow({
         line
       )}
       {open && (
-        <ul className="flex min-w-0 flex-col gap-0.5">
+        <ul
+          className={cn(
+            "flex min-w-0 flex-col",
+            screen ? "ml-6 border-l border-border-strong" : "gap-0.5",
+          )}
+        >
           {row.others.map((o) => (
             <SessionRow
               key={o.session.id}

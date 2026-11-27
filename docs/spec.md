@@ -375,7 +375,7 @@ At compact widths, inspector overlays or replaces conversation temporarily; do n
 
 Every row is a branch (a project on a branch, see [model.md](model.md)) and shows its primary session. The branch's other sessions nest under it behind a "+N" toggle, which opens on its own when one of them needs input or is selected; the same branch on two hosts is one row.
 
-A row is two lines. First: a status mark (an icon whose shape says idle, running, needs input, ready to review, failed or stopped, with the word as its tooltip and spoken label), the title, and the time of the last activity. Second: where it belongs (issue, where it runs, project and branch as the layout needs), the adapters' badges (`session.badge`), and a preview in one line: the question it asks, why it failed or stopped, else the first line of Pi's last reply. The second line is always there, so a preview or badge arriving never moves the list. The phone session list uses the same row.
+A row is two lines. First: a status mark (an icon whose shape says idle, running, needs input, ready to review, failed or stopped, with the word as its tooltip and spoken label), the title, and the time of the last activity. Second: where it belongs (issue, where it runs, project and branch as the layout needs), the adapters' badges (`session.badge`), and a preview in one line: the question it asks, why it failed or stopped, else the first line of Pi's last reply. The second line is always there, so a preview or badge arriving never moves the list. The phone session list has a roomier row and its own presentation (see [Session list](#session-list)).
 
 Layouts, chosen from View options (persisted per device):
 
@@ -505,7 +505,11 @@ When a plugin panel is not mobile-compatible, show its fallback and exact limita
 
 ### Session list
 
-Same layouts and filters as the desktop navigator; defaults to Recent. Status filters (Active, Needs input, All, each with its count) and search, which collapses to an icon in the title row.
+Same layouts and filters as the desktop navigator; defaults to Recent. The header has a Scope picker (including scope creation and editing), Search and New. A segmented control below it filters Active, Needs input or All, with the number of branches in each. Where and Clear appear only when applicable.
+
+Recent sorted by activity uses Today, Yesterday and Earlier, with a separate Needs input section when prioritized and not already filtered to Needs input. A branch's activity is the latest across its listed sessions. Other sorts in Recent stay unsectioned. Projects, Where and Status retain their collapsible groups.
+
+Each row leads with a status icon, up to two lines of title, and project, branch, issue and state as applicable. The trailing time is compact; the count and chevron expand other sessions in the branch. Those sessions are visually nested. Scope exceptions and adapter badges appear only when present; pending questions and failures can show a preview. View options → Show session details also shows the run location and ordinary reply previews.
 
 Start a new session from mobile using the same creation fields as desktop, presented as sequential sheets.
 

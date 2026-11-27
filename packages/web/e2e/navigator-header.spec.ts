@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test, uid, viewportOf } from "./support";
+import { expect, poll, test, uid, viewportOf } from "./support";
 
 /** Rewrite what the client socket receives with a JSON reviver, then `after` on the message. */
 async function rewriteSync(
@@ -97,7 +97,7 @@ test.describe("Sessions navigator header", () => {
     const top = (await nav.boundingBox())!.y;
     const offset = Math.round((await row.boundingBox())!.y - top);
     info.annotations.push({ type: "header-height", description: `${offset}px` });
-    expect(offset).toBeLessThan(phone ? 281 : 255);
+    expect(offset).toBeLessThan(phone ? 175 : 255);
 
     const header = nav.getByTestId("navigator-header");
     await expect(header.getByLabel("Scope", { exact: true })).toHaveValue("");
@@ -111,6 +111,17 @@ test.describe("Sessions navigator header", () => {
     if (phone) {
       await expect(nav.getByTestId("filter-count-attention")).not.toHaveText("0");
       await expect(nav.getByTestId("needs-input-jump")).toHaveCount(0);
+      await expect(nav.getByTestId("filter-count-all")).toHaveText(/^\d+$/);
+      await expect(nav.getByTestId("phone-session-filters")).toBeVisible();
+      await expect(header.getByRole("heading", { name: "Sessions" })).toBeVisible();
+      await expect(header.getByRole("button", { name: "New session" })).toBeVisible();
+      const headingBox = (await header.getByRole("heading", { name: "Sessions" }).boundingBox())!;
+      const filtersBox = (await nav.getByTestId("phone-session-filters").boundingBox())!;
+      expect(filtersBox.y).toBeGreaterThan(headingBox.y);
+      await expect(nav.getByTestId("recent-section").first()).toBeVisible();
+      await expect(nav.getByTestId("filter-count-active")).toHaveText(
+        String(await nav.getByTestId("session-row").count()),
+      );
     } else {
       await expect(nav.getByTestId("needs-input-jump")).toBeVisible();
     }
@@ -131,8 +142,16 @@ test.describe("Sessions navigator header", () => {
     const v = await api("POST", "/api/scopes", { name: `chip-${uid(info)}`, mode: "pinned" });
     await header.getByLabel("Scope", { exact: true }).selectOption(v.id);
     await expect(nav.getByTestId("scope-chip")).toHaveAttribute("data-active", "true");
-    await expect(nav.getByRole("button", { name: "Clear scope" })).toBeVisible();
-    await expect(nav.getByRole("button", { name: "Edit scope" })).toBeVisible();
+    if (phone) {
+      await expect(nav.getByRole("button", { name: "Clear scope" })).toHaveCount(0);
+      await expect(nav.getByRole("button", { name: "Edit scope" })).toHaveCount(0);
+      await header.getByLabel("Scope", { exact: true }).selectOption("__edit");
+      await expect(page.getByRole("dialog", { name: "Edit scope" })).toBeVisible();
+      await page.keyboard.press("Escape");
+    } else {
+      await expect(nav.getByRole("button", { name: "Clear scope" })).toBeVisible();
+      await expect(nav.getByRole("button", { name: "Edit scope" })).toBeVisible();
+    }
     await nav.getByTestId("clear-filters").click();
     await expect(nav.getByTestId("clear-filters")).toHaveCount(0);
     await expect(header.getByLabel("Scope", { exact: true })).toHaveValue("");
@@ -140,7 +159,14 @@ test.describe("Sessions navigator header", () => {
     if (phone) await expect(header.getByRole("searchbox")).toHaveCount(0);
     else await expect(search).toHaveValue("");
     await header.getByLabel("Scope", { exact: true }).selectOption(v.id);
-    await nav.getByRole("button", { name: "Clear scope" }).click();
+    if (phone) {
+      await header.getByLabel("Scope", { exact: true }).selectOption("");
+      await header.getByLabel("Scope", { exact: true }).selectOption("__new");
+      await expect(page.getByRole("dialog", { name: "New scope" })).toBeVisible();
+      await page.keyboard.press("Escape");
+    } else {
+      await nav.getByRole("button", { name: "Clear scope" }).click();
+    }
     await expect(header.getByLabel("Scope", { exact: true })).toHaveValue("");
     await api("DELETE", `/api/scopes/${v.id}`);
   });
@@ -155,9 +181,15 @@ test.describe("Sessions navigator header", () => {
     const nav = page.getByTestId("navigator");
     const long = nav.getByTestId("session-row").filter({ hasText: "Long transcript session" });
     // Labelled through the host's Switchyard name, not the machine's.
+    if (phone) {
+      await expect(long.getByTestId("row-where")).toHaveCount(0);
+      await nav.getByRole("button", { name: "View options" }).click();
+      await page.getByRole("menuitemcheckbox", { name: "Show session details" }).click();
+    }
     await expect(long.getByTestId("row-where")).toHaveText(`herdr default on ${state.hostName}`);
 
     await chooseLayout(page, /^Where/);
+    if (phone) await expect(long.getByTestId("row-where")).toHaveCount(0);
     await expect(nav.getByRole("list", { name: "Where" })).toBeVisible();
     await expect(nav.getByRole("button", { name: new RegExp(`^${state.hostName}`) })).toBeVisible();
     await expect(nav.getByRole("button", { name: /^herdr default/ })).toBeVisible();
@@ -206,9 +238,11 @@ test.describe("Sessions navigator header", () => {
     await expect(nav.getByTestId("session-row").first()).toBeVisible();
     const sep = page.getByRole("separator", { name: "Resize navigator" });
     // The navigator's minimum, and its default.
-    const widths = phone ? [null] : ["Home", "Enter"];
+    const widths = phone ? [360, 390] : ["Home", "Enter"];
     for (const key of widths) {
-      if (key) {
+      if (typeof key === "number") {
+        await page.setViewportSize({ width: key, height: 844 });
+      } else {
         await sep.focus();
         await page.keyboard.press(key);
       }
@@ -224,6 +258,76 @@ test.describe("Sessions navigator header", () => {
       await chooseLayout(page, phone ? /^Recent(?! activity)/ : /^Projects/);
     }
     await api("DELETE", `/api/scopes/${v.id}`);
+  });
+
+  test("phone rows expose branch details without crowding the title", async ({
+    page,
+    api,
+    state,
+  }, info) => {
+    test.skip(viewportOf(info) !== "mobile", "Phone list only");
+    const branch = `phone-${uid(info)}`;
+    const title = `A long primary session title that wraps onto two lines ${branch}`;
+    const first = await api("POST", "/api/branches/open", {
+      projectId: state.projectId,
+      branch,
+      title,
+    });
+    await poll("the phone branch worktree", async () => {
+      const session = await api("GET", `/api/sessions/${first.session.id}`);
+      return session.workspaceId && session.runtime === "idle";
+    });
+    await api("POST", "/api/branches/open", {
+      projectId: state.projectId,
+      branch,
+      title: `Extra ${branch}`,
+      another: true,
+    });
+    await page.goto("/code");
+    const nav = page.getByTestId("navigator");
+    const row = nav.getByTestId("session-row").filter({ hasText: title });
+    const disclosure = row.locator("xpath=..").getByTestId("row-others");
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("row-annotations")).toHaveCount(0);
+    await expect(disclosure).toHaveAccessibleName("1 more session in this branch");
+    for (const width of [360, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const colorScheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme });
+        const titleBox = (await row.getByTestId("mobile-session-title").boundingBox())!;
+        const timeBox = (await row.locator("xpath=..").getByTestId("row-activity").boundingBox())!;
+        const disclosureBox = (await disclosure.boundingBox())!;
+        const lineHeight = await row
+          .getByTestId("mobile-session-title")
+          .evaluate((el) => Number.parseFloat(getComputedStyle(el).lineHeight));
+        expect(titleBox.height).toBeGreaterThan(lineHeight * 1.5);
+        expect(titleBox.height).toBeLessThanOrEqual(lineHeight * 2 + 1);
+        expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(timeBox.x + 1);
+        expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(disclosureBox.x + 1);
+      }
+    }
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      nav.getByTestId("session-subrow").filter({ hasText: `Extra ${branch}` }),
+    ).toBeVisible();
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await row.click();
+    await expect(page).toHaveURL(new RegExp(`/code/${first.session.id}$`));
+  });
+
+  test("phone keeps an urgent preview without session details", async ({ page, state }, info) => {
+    test.skip(viewportOf(info) !== "mobile", "Phone list only");
+    await page.goto("/code");
+    const nav = page.getByTestId("navigator");
+    const question = nav
+      .locator(`[data-testid="session-row"], [data-testid="session-subrow"]`)
+      .filter({ hasText: "Question session" });
+    await expect(question).toBeVisible();
+    await expect(question.getByTestId("row-preview")).not.toBeEmpty();
+    await expect(question.getByTestId("row-where")).toHaveCount(0);
+    await expect(question).toHaveAttribute("href", `/code/${state.sessions.question}`);
   });
 
   test("with no projects, Pi history suggestions are one line linking to Settings", async ({
