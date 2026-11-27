@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { NavigationEditor } from "../../app/NavigationEditor";
 import { useNavLayout } from "../../app/navigation";
+import { useBreakpoint } from "../../app/useBreakpoint";
 import { CountBadge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Sheet } from "../../components/ui/Overlay";
@@ -14,6 +15,8 @@ export default function MoreView() {
   const { more } = useNavLayout();
   const count = useAttentionCount();
   const [editing, setEditing] = useState(false);
+  // Keyboard shortcuts only matter with a keyboard: not on a phone.
+  const phone = useBreakpoint() === "mobile";
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 pb-4 safe-pt-4">
       <div className="flex items-center gap-2">
@@ -52,9 +55,11 @@ export default function MoreView() {
           </li>
         ))}
       </ul>
-      <Button variant="secondary" onClick={() => usePalette.getState().setHelpOpen(true)}>
-        Keyboard shortcuts
-      </Button>
+      {!phone && (
+        <Button variant="secondary" onClick={() => usePalette.getState().setHelpOpen(true)}>
+          Keyboard shortcuts
+        </Button>
+      )}
       <Sheet
         open={editing}
         onClose={() => setEditing(false)}
