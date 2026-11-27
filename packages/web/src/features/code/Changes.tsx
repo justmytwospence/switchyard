@@ -246,7 +246,10 @@ function ScopePicker({
       <h3 className="text-xs font-semibold text-muted">{commitsHeading(log)}</h3>
       <ul
         aria-label="Commits"
-        className={cn("flex min-w-0 flex-col overflow-y-auto", !resizable && "max-h-56")}
+        className={cn(
+          "flex min-w-0 flex-col overflow-y-auto overscroll-contain",
+          !resizable && "max-h-56",
+        )}
         style={resizable ? { maxHeight: height } : undefined}
       >
         <ScopeRow
@@ -486,7 +489,7 @@ function CommentForm({
       }
     >
       {draft?.excerpt && (
-        <pre className="mb-2 max-w-full overflow-x-auto rounded bg-surface-2 px-2 py-1 font-mono text-xs">
+        <pre className="mb-2 max-w-full overflow-x-auto overscroll-x-contain rounded bg-surface-2 px-2 py-1 font-mono text-xs">
           {draft.excerpt}
         </pre>
       )}

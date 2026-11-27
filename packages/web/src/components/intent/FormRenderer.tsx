@@ -315,7 +315,7 @@ function FieldView({
         />
       )}
       {selectedPreview && (
-        <pre className="max-h-64 max-w-full overflow-auto rounded-md border border-border bg-surface-2 px-3 py-2 text-xs leading-5">
+        <pre className="max-h-64 max-w-full overflow-auto overscroll-contain rounded-md border border-border bg-surface-2 px-3 py-2 text-xs leading-5">
           {selectedPreview}
         </pre>
       )}

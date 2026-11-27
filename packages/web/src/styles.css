@@ -131,6 +131,12 @@
     font-family: var(--font-sans);
     /* Guard against page-level horizontal overflow; wide content scrolls inside its own block. */
     overflow-x: clip;
+    /*
+     * The page never scrolls (the shell is one screen and its parts scroll inside it), so no
+     * rubber band drags the whole app on iOS and no pull-to-refresh or glow on Android. Every
+     * scroller inside contains its own overscroll, so reaching its end moves nothing behind it.
+     */
+    overscroll-behavior: none;
   }
   body {
     margin: 0;

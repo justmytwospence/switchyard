@@ -26,11 +26,13 @@ export function AdapterSlot({
   const session = useSyncStore((s) => (sessionId ? s.sessions[sessionId] : undefined));
   const ctx = useSessionContext(session);
   if (!ctx || !panels.length) return null;
+  // The pills' touch targets reach 10 px above and below them: the row's padding holds them, so
+  // it scrolls sideways only and never wobbles up and down on a phone.
   if (placement === "composer.pill")
     return (
       <section
         aria-label="Adapter pills"
-        className="flex min-w-0 items-center gap-1.5 overflow-x-auto"
+        className="-my-2.5 flex min-w-0 items-center gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain py-2.5"
       >
         {panels.map((p) => (
           <AdapterPill
@@ -44,7 +46,7 @@ export function AdapterSlot({
   return (
     <section
       aria-label={placement === "sidebar.header" ? "Adapter header" : "Adapter footer"}
-      className="flex max-h-48 min-w-0 shrink-0 flex-col gap-2 overflow-y-auto border-t border-border px-2 py-2"
+      className="flex max-h-48 min-w-0 shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-border px-2 py-2"
     >
       {panels.map((p) => (
         <AdapterPanel key={JSON.stringify([p.adapterId, p.contribution?.id])} ctx={ctx} panel={p} />
@@ -67,7 +69,10 @@ export function TrackerSlot({ sessionId }: { sessionId: string }) {
   const ctx = useSessionContext(session);
   if (!ctx || !panels.length) return null;
   return (
-    <section aria-label="Trackers" className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+    <section
+      aria-label="Trackers"
+      className="-my-2.5 flex min-w-0 items-center gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain py-2.5"
+    >
       {panels.map((p) => (
         <TrackerPill key={JSON.stringify([p.adapterId, p.contribution?.id])} ctx={ctx} panel={p} />
       ))}

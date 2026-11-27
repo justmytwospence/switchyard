@@ -60,7 +60,9 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
       aria-label={label}
       className={cn(
         "flex gap-1 border-b border-border",
-        scrollable && "overflow-x-auto overscroll-x-contain [scrollbar-width:none]",
+        // Sideways only: a tab reaching past the list (below) would make it wobble up and down.
+        scrollable &&
+          "overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none]",
         className,
       )}
       onKeyDown={(e) => {
@@ -94,7 +96,9 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
             disabled={t.disabled}
             onClick={() => onChange(t.id)}
             className={cn(
-              "tap -mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap",
+              "tap inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap",
+              // The selected underline covers the list's border, except where the list scrolls.
+              !scrollable && "-mb-px",
               selected
                 ? "border-accent text-text"
                 : "border-transparent text-muted hover:text-text",

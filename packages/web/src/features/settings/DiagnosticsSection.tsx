@@ -61,7 +61,7 @@ export function DiagnosticsSection() {
           <ErrorState compact title="Refresh failed" error={res.error} onRetry={res.reload} />
         ) : null}
         <Card title="Versions">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overscroll-x-contain">
             <table className="w-full min-w-0 text-left text-sm">
               <thead>
                 <tr className="border-b border-border text-muted">

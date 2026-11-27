@@ -47,7 +47,7 @@ export function SlashCompletions({
         id={id}
         aria-label="Arguments"
         data-testid="arg-completions"
-        className="max-h-72 overflow-y-auto"
+        className="max-h-72 overflow-y-auto overscroll-contain"
       >
         {items.map((e, i) => (
           <div
@@ -101,7 +101,7 @@ export function SlashPicker({
         role="listbox"
         id={id}
         aria-label="Commands"
-        className="max-h-72 overflow-y-auto"
+        className="max-h-72 overflow-y-auto overscroll-contain"
       >
         {entries.map((e, i) => (
           <div

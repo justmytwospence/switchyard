@@ -124,7 +124,7 @@ export function AdapterPreview({ initialJson = "" }: AdapterPreviewProps) {
         {error && (
           <pre
             role="alert"
-            className="max-h-52 overflow-auto whitespace-pre-wrap break-words text-sm text-danger"
+            className="max-h-52 overflow-auto overscroll-contain whitespace-pre-wrap break-words text-sm text-danger"
           >
             {error}
           </pre>
@@ -161,7 +161,7 @@ export function AdapterPreview({ initialJson = "" }: AdapterPreviewProps) {
           {log.length === 0 && <p className="text-sm text-muted">No preview actions yet.</p>}
           <pre
             aria-live="polite"
-            className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs"
+            className="max-h-64 overflow-auto overscroll-contain whitespace-pre-wrap break-words text-xs"
           >
             {log.join("\n\n")}
           </pre>
@@ -244,7 +244,7 @@ export function PreviewFrame({ preview, phone, disabled, onAction }: PreviewFram
   return (
     <section
       aria-label={phone ? "Phone preview 390px" : "Desktop preview"}
-      className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-border bg-surface-1 p-3"
+      className="min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-surface-1 p-3"
       // Refs/Markdown links are inspectable but never navigate a live route or remote URL.
       onClickCapture={(event) => {
         const anchor = (event.target as HTMLElement).closest("a");

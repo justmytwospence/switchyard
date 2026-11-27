@@ -145,7 +145,7 @@ export function CommandPalette() {
           id={resultsId}
           role="listbox"
           aria-label="Results"
-          className="max-h-80 overflow-y-auto"
+          className="max-h-80 overflow-y-auto overscroll-contain"
         >
           {rows.length === 0 && <p className="px-2 py-4 text-sm text-muted">No matches.</p>}
           {rows.map(({ item, label }, i) => (

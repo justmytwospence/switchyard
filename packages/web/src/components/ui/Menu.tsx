@@ -118,7 +118,7 @@ export function Menu({
           aria-label={label}
           tabIndex={-1}
           className={cn(
-            "absolute z-40 min-w-48 max-w-[min(20rem,calc(100vw-1rem))] rounded-lg border border-border bg-surface py-1 shadow-pop",
+            "absolute z-40 max-h-[min(28rem,calc(100dvh-8rem))] min-w-48 max-w-[min(20rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-lg border border-border bg-surface py-1 shadow-pop",
             side === "top" ? "bottom-full mb-1" : "top-full mt-1",
             align === "end" ? "right-0" : "left-0",
           )}

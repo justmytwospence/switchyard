@@ -64,10 +64,23 @@ export function Popover({
       if (!rect) return;
       const width = Math.min(288, window.innerWidth - 16);
       const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8);
+      // As tall as the room between the trigger and the screen edge; taller content scrolls inside.
       setFixed(
         side === "top"
-          ? { position: "fixed", width, left, bottom: window.innerHeight - rect.top + 4 }
-          : { position: "fixed", width, left, top: rect.bottom + 4 },
+          ? {
+              position: "fixed",
+              width,
+              left,
+              bottom: window.innerHeight - rect.top + 4,
+              maxHeight: rect.top - 12,
+            }
+          : {
+              position: "fixed",
+              width,
+              left,
+              top: rect.bottom + 4,
+              maxHeight: window.innerHeight - rect.bottom - 12,
+            },
       );
     };
     place();
@@ -104,7 +117,7 @@ export function Popover({
           style={fixed ?? undefined}
           className={cn(
             fixed ? "fixed" : "absolute",
-            "z-40 max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-surface p-3 shadow-pop",
+            "z-40 max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-lg border border-border bg-surface p-3 shadow-pop",
             !fixed && (side === "top" ? "bottom-full mb-1" : "top-full mt-1"),
             !fixed && (align === "end" ? "right-0" : "left-0"),
             className,

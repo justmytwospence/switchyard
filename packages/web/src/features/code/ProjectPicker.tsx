@@ -117,7 +117,7 @@ export function ProjectPicker({
         // biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: combobox listbox pattern
         role="listbox"
         aria-label="Projects"
-        className="mt-2 max-h-64 overflow-y-auto"
+        className="mt-2 max-h-64 overflow-y-auto overscroll-contain"
       >
         {shown.length === 0 && <li className="px-2 py-2 text-sm text-muted">No projects match.</li>}
         {shown.map((p, i) => (

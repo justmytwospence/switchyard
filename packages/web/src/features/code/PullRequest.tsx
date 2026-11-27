@@ -438,7 +438,9 @@ export function PullRequest({
                 {j.truncated ? " · truncated" : ""}
               </summary>
               {j.outputTail !== null ? (
-                <pre className="overflow-x-auto text-xs">{cleanGitHubText(j.outputTail)}</pre>
+                <pre className="overflow-x-auto overscroll-x-contain text-xs">
+                  {cleanGitHubText(j.outputTail)}
+                </pre>
               ) : (
                 <p>{j.reason}</p>
               )}

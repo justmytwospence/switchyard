@@ -215,7 +215,9 @@ export function PoliciesSection() {
               )}
             </div>
             <p>{r.enabled ? "Enabled" : "Disabled"}</p>
-            <pre className="overflow-auto whitespace-pre-wrap break-words">{r.expression}</pre>
+            <pre className="overflow-auto overscroll-contain whitespace-pre-wrap break-words">
+              {r.expression}
+            </pre>
           </article>
         ))}
       </section>
@@ -489,7 +491,7 @@ export function PoliciesSection() {
               ))}
             </ul>
             <p>Proposed updates (not applied):</p>
-            <pre className="overflow-auto">
+            <pre className="overflow-auto overscroll-contain">
               {JSON.stringify(result.proposedStateUpdates, null, 2)}
             </pre>
           </div>

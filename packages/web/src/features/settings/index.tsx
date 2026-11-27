@@ -85,7 +85,7 @@ function SectionNav({ compact }: { compact: boolean }) {
         tabIndex={-1}
         data-keyboard-scope
         data-keyboard-default
-        className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent sticky top-0 flex max-h-dvh flex-col gap-1 overflow-y-auto px-2 py-4"
+        className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent sticky top-0 flex max-h-dvh flex-col gap-1 overflow-y-auto overscroll-contain px-2 py-4"
       >
         <h2 className="mb-1 px-3 py-1 text-base font-semibold">Settings</h2>
         {SECTION_GROUPS.map((g) => (

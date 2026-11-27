@@ -19,6 +19,38 @@ async function setKeyboard(page: Page, open: boolean) {
   }, open);
 }
 
+/**
+ * Scrollers whose overscroll can chain to what is behind them: every element that scrolls in an
+ * axis (auto or scroll) must contain that axis, and the page itself must not overscroll at all.
+ */
+async function overscrollLeaks(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    for (const el of [document.documentElement, document.body]) {
+      const s = getComputedStyle(el);
+      if (s.overscrollBehaviorY !== "none") out.push(`${el.tagName} y=${s.overscrollBehaviorY}`);
+    }
+    for (const el of document.body.querySelectorAll<HTMLElement>("*")) {
+      const s = getComputedStyle(el);
+      const scrolls = (v: string) => v === "auto" || v === "scroll";
+      const leaksY =
+        scrolls(s.overflowY) &&
+        el.scrollHeight > el.clientHeight &&
+        s.overscrollBehaviorY === "auto";
+      const leaksX =
+        scrolls(s.overflowX) && el.scrollWidth > el.clientWidth && s.overscrollBehaviorX === "auto";
+      if (leaksY || leaksX) {
+        const id =
+          el.dataset.testid ??
+          el.getAttribute("aria-label") ??
+          el.className.toString().slice(0, 60);
+        out.push(`${el.tagName.toLowerCase()} [${id}]${leaksY ? " y" : ""}${leaksX ? " x" : ""}`);
+      }
+    }
+    return out;
+  });
+}
+
 test.describe("mobile coding view", () => {
   test.beforeEach(async ({ signIn }) => {
     await signIn();
@@ -127,6 +159,39 @@ test.describe("mobile coding view", () => {
       page.getByTestId("composer").getByRole("button", { name: "Send" }),
     ).toBeInViewport();
     await box.fill("");
+  });
+
+  test("no scroller lets its overscroll reach the page or what is behind it", async ({
+    page,
+    state,
+  }) => {
+    await page.goto(`/code/${state.sessions.long}`);
+    await expect(page.getByTestId("transcript")).toBeVisible();
+    // A composer long enough to scroll.
+    await page
+      .getByLabel("Message to Pi")
+      .fill(Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n"));
+    expect(await overscrollLeaks(page)).toEqual([]);
+    await page.getByLabel("Message to Pi").fill("");
+    await openSessionPanel(page, "Changes");
+    expect(await overscrollLeaks(page)).toEqual([]);
+    await openSessionPanel(page, "Details");
+    expect(await overscrollLeaks(page)).toEqual([]);
+    await backToChat(page);
+    for (const path of [
+      "/code",
+      "/board",
+      "/tasks",
+      "/attention",
+      "/queue",
+      "/automations",
+      "/more",
+      "/settings",
+    ]) {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+      expect(await overscrollLeaks(page), path).toEqual([]);
+    }
   });
 
   test("full-screen diff with previous and next", async ({ page, state }) => {

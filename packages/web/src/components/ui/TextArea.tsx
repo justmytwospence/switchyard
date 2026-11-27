@@ -52,7 +52,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
       value={value}
       style={{ maxHeight, ...style }}
       className={cn(
-        "block w-full resize-none overflow-y-auto px-3 py-2",
+        "block w-full resize-none overflow-y-auto overscroll-contain px-3 py-2",
         bare
           ? "bg-transparent text-base text-text outline-none placeholder:text-subtle md:text-sm disabled:cursor-not-allowed disabled:opacity-55"
           : CONTROL_CLASSES,

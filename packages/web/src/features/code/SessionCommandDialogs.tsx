@@ -68,7 +68,7 @@ export function TreeDialog({ session, mode, open, mobile, onClose, onPick }: Tre
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted">Nothing to branch from yet</p>
       ) : (
-        <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+        <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto overscroll-contain">
           {shown.map((r) => (
             <li key={r.entryId} style={{ paddingLeft: `${Math.min(r.depth, 8) * 12}px` }}>
               <button
@@ -150,7 +150,7 @@ export function ResumeDialog({ session, open, mobile, onClose, onOpen }: ResumeD
       ) : list.length === 0 ? (
         <p className="text-sm text-muted">No other Pi sessions in this folder</p>
       ) : (
-        <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+        <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto overscroll-contain">
           {list.map((r) => {
             const usable = r.importedSessionId !== null || r.inactive;
             return (

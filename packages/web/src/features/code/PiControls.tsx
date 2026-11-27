@@ -144,7 +144,7 @@ function ModelList({
         />
       )}
       {changeError != null && <ErrorState compact title="Could not change" error={changeError} />}
-      <div className="flex max-h-[60vh] min-w-0 flex-col gap-3 overflow-y-auto">
+      <div className="flex max-h-[60vh] min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain">
         {error != null ? (
           <ErrorState title="Could not load models" error={error} onRetry={load} />
         ) : !models ? (

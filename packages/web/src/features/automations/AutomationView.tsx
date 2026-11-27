@@ -699,7 +699,7 @@ function TriggerSection({
           <span aria-hidden className="text-sm font-medium">
             Trigger kind
           </span>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overscroll-x-contain">
             <SegmentedControl
               label="Trigger kind"
               value={draft.triggerKind}

@@ -127,7 +127,7 @@ export function AppShell() {
         <main
           id="main"
           tabIndex={-1}
-          className="relative min-h-0 min-w-0 flex-1 overflow-y-auto outline-none"
+          className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain outline-none"
         >
           <ScrollReset />
           <Outlet />

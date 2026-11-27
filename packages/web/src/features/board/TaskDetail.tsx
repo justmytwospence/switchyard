@@ -973,7 +973,7 @@ export function DependencyPicker({
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <ul className="max-h-48 overflow-y-auto rounded-md border border-border">
+          <ul className="max-h-48 overflow-y-auto overscroll-contain rounded-md border border-border">
             {shown.map((t) => (
               <li key={t.id}>
                 <Checkbox
