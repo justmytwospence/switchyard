@@ -30,6 +30,12 @@ async function overscrollLeaks(page: Page): Promise<string[]> {
       const s = getComputedStyle(el);
       if (s.overscrollBehaviorY !== "none") out.push(`${el.tagName} y=${s.overscrollBehaviorY}`);
     }
+    // The page scroller pans up and down only: anything wider than it (a tab badge's sr-only
+    // text that escaped its tab list) lets a phone drag the whole page sideways.
+    const main = document.getElementById("main");
+    if (main && main.scrollWidth > main.clientWidth) {
+      out.push(`main is ${main.scrollWidth}px wide in ${main.clientWidth}px`);
+    }
     for (const el of document.body.querySelectorAll<HTMLElement>("*")) {
       const s = getComputedStyle(el);
       const scrolls = (v: string) => v === "auto" || v === "scroll";

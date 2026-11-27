@@ -59,7 +59,9 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
       role="tablist"
       aria-label={label}
       className={cn(
-        "flex gap-1 border-b border-border",
+        // Positioned, so a tab's absolutely placed parts (its badge's sr-only text) stay inside
+        // the list instead of widening the page behind it.
+        "relative flex gap-1 border-b border-border",
         // Sideways only: a tab reaching past the list (below) would make it wobble up and down.
         scrollable &&
           "overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none]",
