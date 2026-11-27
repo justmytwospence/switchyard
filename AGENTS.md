@@ -4,6 +4,8 @@
 
 Follow [the ownership contract](docs/plugin-boundaries.md). Every meaningful feature plan or PR identifies authoritative state, core/module/plugin/adapter placement, absent-module and absent-plugin behavior and compatibility tests. Do not add plugin-ID or module-kind conditionals to coordinator or web core, workflow reducers to adapters, fake prompts to invoke plugin actions, or security checks enforced only by optional plugins.
 
+For plugin or adapter development, read [skills/switchyard-plugin-development/SKILL.md](skills/switchyard-plugin-development/SKILL.md) before implementation.
+
 Build, test and release details are in [docs/development.md](docs/development.md).
 
 ## Branches and worktrees

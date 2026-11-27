@@ -1,0 +1,13 @@
+# Authoring portable plugin behavior
+
+Pi and its plugins own plugin workflows and their authoritative state. Switchyard owns host/session lifecycle and security, including authorization and policy; security must never depend solely on an optional adapter. Optional plugin-owned adapters translate published structured semantics into portable presentation, not workflow reducers. Preserve generic readable tool, message and dialog evidence if an adapter is missing, fails or does not recognize a payload. An adapter is not mandatory when generic support is sufficient; document genuinely terminal-only behavior explicitly.
+
+Ship a package-owned `switchyard-adapter.json` and server entrypoint and declare `switchyard.adapter` in the provider package. Set the target component and its supported and tested versions; optional `target.entrypoints` restricts activation to enabled, runtime-reported extension paths. Discovery honors Pi resource filtering and project trust; installation alone does not enable every component. Do not bypass these checks.
+
+Keep the server module self-contained, without runtime Switchyard dependencies. Copy the contract types from `packages/adapter-sdk/src/contract.ts` and use `import type`. Node 24 strips only erasable TypeScript: avoid enums, namespaces and parameter properties. Node refuses to strip types in `node_modules`; ship compiled JavaScript for npm installations.
+
+Contract v2 adds four features: `tool.views.v1`, `ui.nodes.v2`, `adapter.trackers.v1`, and `interaction.kinds.v1`. Detect support with `ctx.features?.includes(feature) === true`; undefined features mean a pre-v2 host. Preserve v1 nodes and placements when needed, and provide meaningful mobile fallbacks. The host does not call `toolView` on v1; v1 ignores `Claim.kind`.
+
+Route explicit controls through adapter actions, never fake prompts. Claims must honor dialog ownership, cancellation and valid Pi responses. Restore presentation only: do not replay workflows or side effects. Handle stale actions safely. Reload adapters only when idle, and do not blindly retry an unknown Pi reload result; a browser refresh is not adapter reload.
+
+Public references: [ownership contract](https://github.com/justmytwospence/switchyard/blob/dev/docs/plugin-boundaries.md), [adapter guide](https://github.com/justmytwospence/switchyard/blob/dev/docs/adapters.md), [contract](https://github.com/justmytwospence/switchyard/blob/dev/packages/adapter-sdk/src/contract.ts), and [tasks example](https://github.com/justmytwospence/switchyard/blob/dev/packages/adapter-examples/src/tasks/server.ts) (`packages/adapter-examples/src/tasks/server.ts`).

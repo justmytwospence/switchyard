@@ -195,6 +195,8 @@ await session.onToolEnd({ toolCallId, name, args, result, isError, details });
 
 ## Authoring portable presentation
 
+For compatibility assessment and portable verification guidance, see the bundled [plugin-development skill](../skills/switchyard-plugin-development/SKILL.md) and its references. [Development](development.md#plugin-development-skill) describes public installation and reproducible updates.
+
 Present meaningful facts, rows or tables, checklists, sections and text rather than serializing arguments or plugin state into strings. For a custom tool, `toolView.detail` can contain separately labeled input and result sections; reserve code nodes for actual code. Supply presentable `mobileFallback` text for contributions. Do not put forms in tool details.
 
 For a pending Pi dialog, provide `Claim.presentation` and map its response with `toPiResponse`. For an adapter-owned panel or slash command, use portable form fields and `onAction` to update portable presentation; do not simulate a prompt to invoke a control. When an adapter is absent or disabled, generic tool and dialog presentation remains available. Switchyard does not rewrite arbitrary authored content or custom renderer HTML.
