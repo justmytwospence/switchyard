@@ -401,6 +401,8 @@ export default function switchyardTerminal(pi: any): void {
   ): Promise<any> => {
     const dflt = method === "confirm" ? false : undefined;
     if (signal?.aborted) return Promise.resolve(dflt);
+    // Entries describing this dialog must reach the host before its request.
+    flushEntries();
     const id = randomUUID();
     const request: Json = { type: "extension_ui_request", id, method, title, ...fields };
     return new Promise((resolve) => {
