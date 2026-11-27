@@ -3,6 +3,7 @@ import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PiTerminalProcess } from "@switchyard/pi-runtime";
 import {
   type CoordinatorToHost,
   type HostCommand,
@@ -23,8 +24,10 @@ import {
   piBin,
   requirePi,
   startMockModel,
+  type TerminalScope,
 } from "@switchyard/test-fixtures";
 import { WebSocket, WebSocketServer } from "ws";
+import { makeRuntimeTerminalScope } from "../../pi-runtime/test/terminal-scope.js";
 import {
   type HostAgentHandle,
   type HostSessionRecord,
@@ -246,6 +249,7 @@ export interface HostHarness {
   coord: FakeCoordinator;
   agent: HostAgentHandle;
   stateDir: string;
+  scope: TerminalScope;
   pi: PiEnv | null;
   mock: MockModelServer | null;
   /** Start another agent on the same state dir (after the first was stopped or crashed). */
@@ -284,52 +288,99 @@ export function slowPi(delaySeconds: number): { path: string; cleanup(): void } 
 export async function startHarness(opts: HarnessOptions = {}): Promise<HostHarness> {
   const withPi = opts.withPi !== false;
   if (withPi) requirePi();
-  const coord = await FakeCoordinator.start();
-  coord.welcomeFeatures = opts.welcomeFeatures ?? null;
-  const state = tempDir();
-  const mock = withPi ? await startMockModel(opts.script ?? []) : null;
-  const pi = mock ? makePiEnv({ mockUrl: mock.url }) : null;
-  const config = {
-    coordinatorUrl: coord.url,
-    hostId: "hst_test",
-    credential: "secret",
-    name: "test host",
-  };
+  const scope = makeRuntimeTerminalScope(PiTerminalProcess);
   const agents: HostAgentHandle[] = [];
-  const launch = async (hooks?: HostTestHooks) => {
-    const agent = await runHostAgent({
-      config,
-      stateDir: state.path,
-      piBin: opts.piBin ?? piBin(),
-      env: pi?.env ?? { PI_CODING_AGENT_DIR: join(state.path, "no-pi") },
-      extraExtensions: [fixtureExtensionPath()],
-      ownerAdapterDir: join(state.path, "owner-adapters"),
-      handleSignals: false,
-      backoffMs: [50, 100, 200],
-      logger: silentLogger(),
-      testHooks: hooks,
-      terminalSessions: opts.terminalSessions ?? false,
-    });
-    agents.push(agent);
-    return agent;
-  };
-  const agent = await launch(opts.testHooks);
-  await coord.waitUntil(() => coord.connected, 10000, "host hello");
-  return {
-    coord,
-    agent,
-    stateDir: state.path,
-    pi,
-    mock,
-    restartAgent: launch,
-    async dispose() {
-      for (const a of agents) await a.stop({ terminals: "stop" }).catch(() => {});
-      await coord.close();
-      await mock?.close();
-      pi?.cleanup();
-      state.cleanup();
-    },
-  };
+  let coord: FakeCoordinator | undefined;
+  let mock: MockModelServer | null = null;
+  let pi: PiEnv | null = null;
+  scope.onStop(async () => {
+    const results = await Promise.allSettled(agents.map((a) => a.stop({ terminals: "stop" })));
+    const errors = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (errors.length)
+      throw new AggregateError(
+        errors.map((r) => r.reason),
+        "host stop failed",
+      );
+  });
+  let disposal: Promise<void> | undefined;
+  const dispose = () =>
+    (disposal ??= (async () => {
+      const errors: unknown[] = [];
+      let terminalClean = false;
+      try {
+        await scope.dispose();
+        terminalClean = true;
+      } catch (err) {
+        errors.push(err);
+      }
+      try {
+        await coord?.close();
+      } catch (err) {
+        errors.push(err);
+      }
+      try {
+        await mock?.close();
+      } catch (err) {
+        errors.push(err);
+      }
+      if (terminalClean)
+        try {
+          pi?.cleanup();
+        } catch (err) {
+          errors.push(err);
+        }
+      if (errors.length) throw new AggregateError(errors, "host harness cleanup failed");
+    })());
+  try {
+    coord = await FakeCoordinator.start();
+    coord.welcomeFeatures = opts.welcomeFeatures ?? null;
+    mock = withPi ? await startMockModel(opts.script ?? []) : null;
+    pi = mock ? makePiEnv({ mockUrl: mock.url }) : null;
+    const config = {
+      coordinatorUrl: coord.url,
+      hostId: "hst_test",
+      credential: "secret",
+      name: "test host",
+    };
+    const launch = (hooks?: HostTestHooks) =>
+      scope.launch(async () => {
+        const agent = await runHostAgent({
+          config,
+          stateDir: scope.root,
+          piBin: opts.piBin ?? piBin(),
+          env: pi?.env ?? { PI_CODING_AGENT_DIR: join(scope.root, "no-pi") },
+          extraExtensions: [fixtureExtensionPath()],
+          ownerAdapterDir: join(scope.root, "owner-adapters"),
+          handleSignals: false,
+          backoffMs: [50, 100, 200],
+          logger: silentLogger(),
+          testHooks: hooks,
+          terminalSessions: opts.terminalSessions ?? false,
+        });
+        agents.push(agent);
+        return agent;
+      });
+    const agent = await launch(opts.testHooks);
+    const connectedCoord = coord;
+    await connectedCoord.waitUntil(() => connectedCoord.connected, 10000, "host hello");
+    return {
+      coord,
+      agent,
+      stateDir: scope.root,
+      scope,
+      pi,
+      mock,
+      restartAgent: launch,
+      dispose,
+    };
+  } catch (err) {
+    try {
+      await dispose();
+    } catch (cleanup) {
+      throw new AggregateError([err, cleanup], "host setup and cleanup failed");
+    }
+    throw err;
+  }
 }
 
 /** Write a session record into the agent's database, as an earlier agent would have left it. */

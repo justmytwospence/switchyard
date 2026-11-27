@@ -22,6 +22,11 @@ export {
 } from "./mock-oidc.js";
 export { piBin, realPiSkipReason, requirePi, skipRealPi } from "./pi-bin.js";
 export { makePiEnv, type PiEnv, type PiEnvOptions } from "./pi-env.js";
+export {
+  makeTerminalScope,
+  type TerminalScope,
+  type TerminalScopeOptions,
+} from "./terminal-scope.js";
 
 /** Absolute path of the compiled fixture extension, for `pi -e`. */
 export function fixtureExtensionPath(): string {

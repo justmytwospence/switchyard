@@ -6,6 +6,16 @@ import { RESTART_NOTICE } from "../src/index.js";
 import { type HostHarness, startCommand, startHarness, waitFor } from "./helpers.js";
 import { isSettled, script, sid, startSession } from "./sessions-helpers.js";
 
+async function stopWithoutRecordingPiExit(h: HostHarness, id: string): Promise<void> {
+  // Simulate a crash by hiding Pi's exit from the supervisor, leaving the persisted runtime stale.
+  const ms = h.agent.supervisor.managedSession(id)!;
+  ms.removeAllListeners();
+  await h.agent.link.stop();
+  await ms.stop({ graceMs: 500, termMs: 500 });
+  // Finish shutting down the in-process agent while the broker can still write to the database.
+  await h.agent.stop();
+}
+
 describe("host agent restart", () => {
   let h: HostHarness;
   beforeAll(async () => {
@@ -21,12 +31,7 @@ describe("host agent restart", () => {
     await h.coord.waitEvent(isSettled(id), 30000, "settled");
     expect(h.agent.supervisor.record(id)?.runtime).toBe("idle");
 
-    // Crash: the agent vanishes without recording anything, and its Pi dies with it.
-    const ms = h.agent.supervisor.managedSession(id)!;
-    ms.removeAllListeners();
-    await h.agent.link.stop();
-    await ms.stop({ graceMs: 500, termMs: 500 });
-    h.agent.db.close();
+    await stopWithoutRecordingPiExit(h, id);
 
     const hellos = h.coord.hellos.length;
     const mark = h.coord.events.length;
@@ -99,11 +104,7 @@ describe("host agent restart", () => {
       });
       await waitFor(() => w.agent.supervisor.record(id)?.runtime === "running", 30000, "running");
 
-      const ms = w.agent.supervisor.managedSession(id)!;
-      ms.removeAllListeners();
-      await w.agent.link.stop();
-      await ms.stop({ graceMs: 500, termMs: 500 });
-      w.agent.db.close();
+      await stopWithoutRecordingPiExit(w, id);
 
       const mark = w.coord.events.length;
       const agent2 = await w.restartAgent();

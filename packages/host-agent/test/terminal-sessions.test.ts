@@ -1,14 +1,34 @@
 // @module-tag slow
-import { existsSync } from "node:fs";
-import { terminalSupport } from "@switchyard/pi-runtime";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
+import { PiTerminalProcess, terminalSupport } from "@switchyard/pi-runtime";
 import type { HostEvent } from "@switchyard/protocol";
 import { skipRealPi, when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { socketDirs } from "../../pi-runtime/src/bridge/socket-paths.js";
 import { NO_TERMINAL } from "../src/index.js";
 import { type HostHarness, slowPi, startCommand, startHarness, waitFor } from "./helpers.js";
 
 let n = 0;
 const sid = () => `ses_term${Date.now()}${++n}`;
+
+function parentPid(pid: number): number {
+  return Number(
+    execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim(),
+  );
+}
+
+function expectGone(pid: number) {
+  expect(() => process.kill(pid, 0)).toThrow();
+}
+
+function expectNoOwnedSockets(h: HostHarness) {
+  for (const dir of socketDirs(h.scope.runtimeDir)) {
+    expect(
+      existsSync(dir) ? readdirSync(dir).filter((name) => /^term-.*\.sock$/.test(name)) : [],
+    ).toEqual([]);
+  }
+}
 
 const isSettled =
   (sessionId: string, after = 0) =>
@@ -141,6 +161,144 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions on the h
     expect(r.items.every((i) => i.sessionId === id)).toBe(true);
     await h.coord.ok({ type: "session.stop", sessionId: id });
   });
+});
+
+describe.skipIf(skipRealPi || !terminalSupport().ok)("fixture-owned terminal teardown", () => {
+  it("disposes a detached holder without affecting another harness", async () => {
+    const first = await startHarness({ terminalSessions: true });
+    let second: HostHarness | undefined;
+    try {
+      second = await startHarness({
+        terminalSessions: true,
+        script: [{ when: when.userSays("hello"), reply: { text: "hi" } }],
+      });
+      const a = sid();
+      const b = sid();
+      await first.coord.ok(startCommand(a, first.pi!.cwd));
+      await second.coord.ok(startCommand(b, second.pi!.cwd));
+      const proc = first.agent.supervisor.managedSession(a)!.process!;
+      await waitFor(() => !!proc.pid, 10000, "first Pi pid");
+      const pid = proc.pid!;
+      const holder = parentPid(pid);
+      expect(holder).toBeGreaterThan(1);
+      const socket = first.agent.supervisor.record(a)!.terminal!.socketPath;
+      await first.agent.stop();
+      await first.dispose();
+      await first.dispose();
+      await waitFor(
+        () => {
+          try {
+            process.kill(holder, 0);
+            return false;
+          } catch {
+            return true;
+          }
+        },
+        10000,
+        "holder exit",
+      );
+      expectGone(pid);
+      expectGone(holder);
+      expect(existsSync(socket)).toBe(false);
+      expectNoOwnedSockets(first);
+      const t0 = Date.now();
+      await second.coord.ok({
+        type: "session.prompt",
+        sessionId: b,
+        text: "hello",
+        images: [],
+        mode: "prompt",
+        origin: "human",
+        controlRevision: 1,
+      });
+      await second.coord.waitEvent(isSettled(b, t0), 30000, "surviving session settled");
+    } finally {
+      try {
+        await first.dispose();
+      } finally {
+        await second?.dispose();
+      }
+    }
+  }, 90000);
+
+  it("disposes a holder while slow Pi is starting", async () => {
+    const slow = slowPi(20);
+    const h = await startHarness({ terminalSessions: true, piBin: slow.path });
+    try {
+      const id = sid();
+      const started = h.coord.command(startCommand(id, h.pi!.cwd)).catch(() => null);
+      await waitFor(() => !!h.agent.supervisor.record(id)?.terminal, 15000, "starting holder");
+      const socket = h.agent.supervisor.record(id)!.terminal!.socketPath;
+      const proc = h.agent.supervisor.managedSession(id)!.process!;
+      await waitFor(() => !!proc.pid, 10000, "slow Pi pid");
+      const pid = proc.pid!;
+      const holder = parentPid(pid);
+      await h.dispose();
+      await started;
+      await waitFor(
+        () => {
+          try {
+            process.kill(holder, 0);
+            return false;
+          } catch {
+            return true;
+          }
+        },
+        10000,
+        "holder exit",
+      );
+      expectGone(pid);
+      expectGone(holder);
+      expect(existsSync(socket)).toBe(false);
+      expectNoOwnedSockets(h);
+    } finally {
+      try {
+        await h.dispose();
+      } finally {
+        slow.cleanup();
+      }
+    }
+  }, 60000);
+
+  it("waits for a holder start delayed before binding", async () => {
+    const original = PiTerminalProcess.start;
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const called = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    PiTerminalProcess.start = async (opts) => {
+      entered();
+      await gate;
+      return original.call(PiTerminalProcess, opts);
+    };
+    let h: HostHarness | undefined;
+    try {
+      h = await startHarness({ terminalSessions: true });
+      const started = h.coord.command(startCommand(sid(), h.pi!.cwd)).catch(() => null);
+      await called;
+      let disposed = false;
+      const disposing = h.dispose().then(() => {
+        disposed = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(disposed).toBe(false);
+      release();
+      await disposing;
+      await started;
+      expectNoOwnedSockets(h);
+    } finally {
+      release();
+      try {
+        await h?.dispose();
+      } finally {
+        PiTerminalProcess.start = original;
+      }
+    }
+  }, 60000);
 });
 
 describe.skipIf(skipRealPi || !terminalSupport().ok)("terminal sessions still starting", () => {

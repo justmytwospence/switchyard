@@ -5,7 +5,6 @@ import type { TranscriptItem } from "@switchyard/protocol";
 import { when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PiUiRequest } from "../src/index.js";
-import { ManagedSession } from "../src/session-runtime.js";
 import { PiTerminalProcess, terminalSupport } from "../src/terminal-process.js";
 import { type PiHarness, record, setupPi, skipRealPi, waitFor } from "./helpers.js";
 
@@ -86,6 +85,7 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("gate: terminal transport",
 
     // A select answered in the terminal (Enter picks the first option).
     const v = viewer(socketPath);
+    h.terminalScope.onStop(async () => v.close());
     request = waitFor<PiUiRequest>(s, "ui_request", (r) => r.method === "select");
     settled = waitFor(s, "settled");
     await s.prompt("pick again");
@@ -112,7 +112,7 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("gate: terminal transport",
 
     // Detach and reattach.
     s.detach();
-    const again = new ManagedSession({
+    const again = h.newSession({
       sessionId: s.sessionId,
       cwd: h.env.cwd,
       title: "Gate test",
@@ -126,7 +126,6 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("gate: terminal transport",
       transport: "terminal",
       terminalSocket: socketPath,
     });
-    h.sessions.push(again);
     await again.start();
     expect(again.runtime).toBe("idle");
     expect(again.nativeHandle?.sessionId).toBe(s.nativeHandle?.sessionId);
@@ -203,6 +202,26 @@ describe.skipIf(skipRealPi || !terminalSupport().ok)("gate: terminal transport",
       expect(h.mock.requests).toHaveLength(requestCount);
     } finally {
       await s.stop({ graceMs: 3000, termMs: 1000 });
+    }
+  });
+
+  it("cleans a detached session when reattachment never starts", async () => {
+    const fixture = await setupPi([]);
+    let socketPath = "";
+    let pid = 0;
+    try {
+      const session = fixture.newSession({ transport: "terminal" });
+      await session.start();
+      socketPath = session.terminalSocket!;
+      pid = session.process!.pid!;
+      expect(pid).toBeGreaterThan(0);
+      session.detach();
+      await fixture.dispose();
+      expect(existsSync(socketPath)).toBe(false);
+      expect(() => process.kill(pid, 0)).toThrow();
+      await fixture.dispose();
+    } finally {
+      await fixture.dispose();
     }
   });
 
