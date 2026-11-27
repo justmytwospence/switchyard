@@ -15,7 +15,8 @@
       "!**/.tmp*",
       "!dist-npm",
       "!site/.astro",
-      "!.worktrees"
+      "!.worktrees",
+      "!.pi"
     ]
   },
   "formatter": {
