@@ -647,6 +647,8 @@ test.describe("desktop coding view", () => {
   test("keyboard-only navigation through the navigator", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
     const nav = page.getByTestId("navigator");
+    await nav.getByRole("button", { name: "View options" }).click();
+    await page.getByRole("menuitemradio", { name: /^Projects/ }).click();
     await expect(nav.getByRole("link", { name: /Question session/ })).toBeVisible();
     await nav.getByLabel("Search sessions").focus();
 
@@ -690,10 +692,6 @@ test.describe("desktop coding view", () => {
     await page.goto(`/code/${state.sessions.long}`);
     const nav = page.getByTestId("navigator");
     const projectBtn = nav.getByRole("button", { name: /^Demo project/ });
-    await expect(projectBtn).toBeVisible();
-
-    await nav.getByRole("button", { name: "View options" }).click();
-    await page.getByRole("menuitemradio", { name: /^Recent(?! activity)/ }).click();
     await expect(projectBtn).toHaveCount(0);
     await expect(nav.getByRole("list", { name: "Recent sessions" })).toBeVisible();
     await expect(nav.getByRole("link", { name: /Question session/ })).toBeVisible();
@@ -707,6 +705,8 @@ test.describe("desktop coding view", () => {
       "true",
     );
     await page.getByRole("menuitemradio", { name: /Projects/ }).click();
+    await expect(projectBtn).toBeVisible();
+    await page.reload();
     await expect(projectBtn).toBeVisible();
   });
 
@@ -783,7 +783,7 @@ test.describe("desktop coding view", () => {
       const s = await api("GET", `/api/sessions/${first.session.id}`);
       return s.workspaceId && s.runtime === "idle";
     });
-    await api("POST", "/api/branches/open", {
+    const second = await api("POST", "/api/branches/open", {
       projectId: state.projectId,
       branch,
       title: `Second ${branch}`,
@@ -797,9 +797,11 @@ test.describe("desktop coding view", () => {
       nav.getByTestId("session-row").filter({ hasText: `Second ${branch}` }),
     ).toHaveCount(0);
     await row.locator("xpath=..").getByTestId("row-others").click();
-    await expect(
-      nav.getByTestId("session-subrow").filter({ hasText: `Second ${branch}` }),
-    ).toBeVisible();
+    const child = nav.getByTestId("session-subrow").filter({ hasText: `Second ${branch}` });
+    await expect(child).toBeVisible();
+    await child.click();
+    await expect(page).toHaveURL(new RegExp(`/code/${second.session.id}$`));
+    await expect(child).toHaveAttribute("aria-current", "page");
   });
 
   test("New worktree suggests a branch from the prompt", async ({ page }) => {
@@ -824,6 +826,8 @@ test.describe("desktop coding view", () => {
   test("New session from a project group preselects the project", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
     const nav = page.getByTestId("navigator");
+    await nav.getByRole("button", { name: "View options" }).click();
+    await page.getByRole("menuitemradio", { name: /^Projects/ }).click();
     await nav.getByRole("button", { name: /^Demo project/ }).hover();
     await nav.getByRole("button", { name: "New session in Demo project" }).click();
     const dialog = page.getByRole("dialog", { name: "New session" });
@@ -863,7 +867,7 @@ test.describe("desktop coding view", () => {
     const keptY = (await nav.getByRole("list", { name: "Open session" }).boundingBox())!.y;
     expect(keptY).toBeGreaterThan(emptyY);
 
-    await nav.getByRole("button", { name: "Edit scope", exact: true }).click();
+    await nav.getByLabel("Scope", { exact: true }).selectOption("__edit");
     const dialog = page.getByRole("dialog", { name: "Edit scope" });
     const about = dialog.getByTestId("scope-about");
     await expect(about).toContainText("Contains");

@@ -84,7 +84,7 @@ test.describe("phone gestures", () => {
     const title = `Panel ${uid(info)}`;
     await createSession(api, state, title, "Ready");
     await page.goto("/code");
-    await page.getByRole("link", { name: new RegExp(title) }).tap();
+    await (await findSessionForTouch(page, title)).tap();
     await expect(page.getByTestId("conversation")).toBeVisible();
     await touchDrag(page, { x: 320, y: 300 }, { x: 80, y: 300 });
     await expect(page.getByTestId("session-panel-tabs")).toBeVisible();
@@ -176,7 +176,7 @@ test.describe("phone gestures", () => {
       const title = `Edge ${uid(info)}`;
       await createSession(api, state, title, "Ready");
       await page.goto("/code");
-      await page.getByRole("link", { name: new RegExp(title) }).tap();
+      await (await findSessionForTouch(page, title)).tap();
       await expect(page).toHaveURL(/\/code\/ses_/);
       await expect(page.getByTestId("conversation")).toBeVisible();
       await touchDrag(page, { x: 4, y: 400 }, { x: 300, y: 405 });

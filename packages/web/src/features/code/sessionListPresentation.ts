@@ -1,5 +1,15 @@
 import type { NavRow } from "./model";
 
+export function branchChildren(
+  row: NavRow,
+  selectedId: string | null,
+  expanded: boolean,
+): { visible: NavRow[]; optionalCount: number } {
+  const required = (child: NavRow) => child.attention || child.session.id === selectedId;
+  const optionalCount = row.others.filter((child) => !required(child)).length;
+  return { visible: expanded ? row.others : row.others.filter(required), optionalCount };
+}
+
 export function branchActivity(row: NavRow): string {
   let latest = row.session.lastActivityAt;
   let time = Date.parse(latest);
