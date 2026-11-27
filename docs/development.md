@@ -8,13 +8,15 @@ pnpm build      # tsc -b for every TypeScript package, then the web bundle
 pnpm lint       # Biome
 pnpm test       # Vitest, all packages
 pnpm test:fast  # Vitest without slow files (no coordinator, Pi or processes), seconds
+pnpm test:slow  # slow files except pinned plugin compatibility
+pnpm test:tiers # validate the CI partition and its negative controls
 pnpm test:e2e   # Playwright: every spec on desktop, layout specs at compact and phone sizes
 pnpm test:e2e:smoke  # the @smoke subset CI runs
 ```
 
 Register the pre-push check once per clone (worktrees share it): `git config hook.switchyard-check.command scripts/pre-push.sh && git config hook.switchyard-check.event pre-push`. It runs Biome, `tsc -b` and `pnpm test:fast`.
 
-Test files that start a coordinator, Pi, a mock model, a child process or a worker, or listen on a port, begin with `// @module-tag slow`. `pnpm test:tiers` (run by the hook and CI) rejects untagged ones. Tag by hand any other file that takes more than about half a second.
+Test files that start a coordinator, Pi, a mock model, a child process or a worker, or listen on a port, begin with `// @module-tag slow`. Tag by hand any other file that takes more than about half a second. The pinned plugin compatibility files under `packages/host-agent/test/compat/` also carry `// @module-tag compat`. CI partitions the configured Vitest inventory into fast (`!slow`), core slow (`slow && !compat`, five shards), and pinned compatibility (that path, across the required Pi matrix). `pnpm test:tiers` (run by the hook and CI) checks the inventory, tags and selectors; `pnpm test` remains unfiltered.
 
 For a live development loop, run `node packages/cli/dist/main.js up --dev` and, in another terminal, `pnpm --filter @switchyard/web dev` (Vite proxies the API and WebSockets to port 7400).
 
@@ -28,7 +30,7 @@ Most runtime, host and integration tests start the real `pi --mode rpc` with an 
 | `SWITCHYARD_SKIP_REAL_PI=1` | Skip tests that need Pi; without it, a missing Pi fails them |
 | `SWITCHYARD_PI_PLUGINS_DIR` | Pi suite checkout for plugin compatibility tests; direct Vitest invocation can skip when absent, but the required cross-repository check cannot |
 
-The browser tests start a real coordinator and host with the mock model, and use a mock OpenID Connect provider and a virtual WebAuthn authenticator for the sign-in flows.
+The browser tests start a real coordinator and host with the mock model, and use a mock OpenID Connect provider and a virtual WebAuthn authenticator for the sign-in flows. Fixtures must dispose their own terminals and other resources; a hard worker death bypasses `finally` and disposal, and is not a reason to sweep unrelated processes globally. Run one targeted local real-Pi test command at a time under `/usr/bin/lockf -k "$HOME/Library/Caches/agent-heavy.lock"`, for example `pnpm exec vitest run --maxWorkers=1 <test-file>` inside the lock. Leave the full shard and pinned compatibility matrix to CI.
 
 ## Plugin development skill
 
@@ -66,7 +68,7 @@ pnpm test:client-npm             # packs and checks SDK imports, declarations, R
 ## Workflow
 
 1. **Change** on `dev` (the main checkout's branch), or on a branch in `.worktrees/<branch>` from `dev` for larger or parallel work, merged back into `dev`. Never commit to `main` directly.
-2. **Check.** The pre-push hook runs lint, the TypeScript build and the fast tier. Run the tests of the packages you touched (`pnpm exec vitest run --project coordinator`; project names are the package directory names), and `pnpm test:e2e` when the web app changed. CI runs the whole suite in 5 parallel jobs on every push, plus a browser smoke test.
+2. **Check.** The pre-push hook runs lint, the TypeScript build and the fast tier. Run the tests of the packages you touched (`pnpm exec vitest run --project coordinator`; project names are the package directory names), and `pnpm test:e2e` when the web app changed. CI runs fast checks, five core-slow shards and the pinned compatibility matrix on every push, plus a browser smoke test.
 3. **Preview a branch.** CI builds, lints and tests every push, and every push to a branch other than `main` and `dev` publishes `ghcr.io/justmytwospence/switchyard:br-<slug>` and `:sha-<short>` (linux/amd64; `scripts/preview-slug.sh <branch>` gives the slug) as soon as the image builds, while the tests keep running. `scripts/preview.sh up`, run from the branch's worktree, deploys it as a throwaway preview at `https://<slug>.<preview domain>`: a coordinator on the development server (`scripts/lib.sh` names it and the domain) with its own data and pairing-only sign-in (`SWITCHYARD_PAIRING_ONLY`, [auth.md](auth.md)), plus a host agent on your workstation running the worktree's build (launchd `com.switchyard.host.pv-<slug>`). It prints a single-use sign-in link; `pair` prints another, `down` removes the preview, `ls` lists them and `prune` removes those whose branch is gone or merged into `dev`.
 4. **Deploy `dev`.** A push to `dev` publishes `:dev` and `:sha-<short>` once the image builds (the tests run alongside). `scripts/deploy-dev.sh`, run from the main checkout, deploys it to the dev deployment: it waits for the `:dev` image, recreates the dev coordinator and the development server's host, checks the running revision, and rebuilds (alongside CI) and restarts your workstation's dev host agent, and prints where the still-running tests can be followed. Anything handed over for review goes to a preview or dev first (see AGENTS.md).
 

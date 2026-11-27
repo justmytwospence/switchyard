@@ -52,7 +52,7 @@ jobs:
           key: vitest-${{ matrix.shard }}-${{ github.sha }}
           restore-keys: vitest-${{ matrix.shard }}-
       # hanging-process names whatever keeps a worker alive if the run does not exit.
-      - run: pnpm exec vitest run --shard=${{ matrix.shard }}/5 --reporter=default --reporter=hanging-process
+      - run: pnpm test:slow --shard=${{ matrix.shard }}/5 --reporter=default --reporter=hanging-process
 
   # A browser smoke test against the real stack; gates promote.sh with the rest of the run.
   e2e-smoke:
