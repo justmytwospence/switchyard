@@ -174,7 +174,7 @@ The portable [plugin-development skill](skills/switchyard-plugin-development/SKI
 npx skills add justmytwospence/switchyard -s switchyard-plugin-development -a codex claude-code --copy -y
 ```
 
-Choose the agents you use; these two are only an example and are not required to use Switchyard.
+Choose the agents you use; these two are only an example and are not required to use Switchyard. The skill is also listed in the [Agent Skills Directory](https://skills.sh/justmytwospence/switchyard/switchyard-plugin-development).
 
 ## Documentation
 
