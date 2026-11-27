@@ -1,4 +1,5 @@
 // @module-tag slow
+// @module-tag compat
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { terminalSupport } from "@switchyard/pi-runtime";

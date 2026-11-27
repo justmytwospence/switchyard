@@ -1,4 +1,5 @@
 // @module-tag slow
+// @module-tag compat
 import type { Interaction } from "@switchyard/protocol";
 import { type MockScript, when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

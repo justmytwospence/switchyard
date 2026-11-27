@@ -1,4 +1,5 @@
 // @module-tag slow
+// @module-tag compat
 import { existsSync } from "node:fs";
 import type { TranscriptItem } from "@switchyard/protocol";
 import { type MockScript, when } from "@switchyard/test-fixtures";
