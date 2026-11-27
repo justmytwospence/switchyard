@@ -10,7 +10,7 @@ import {
   PanelRightOpen,
   Server,
 } from "lucide-react";
-import type { HTMLAttributes, ReactNode, Ref } from "react";
+import { type HTMLAttributes, type ReactNode, type Ref, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
 import { BACK_STATE } from "../../app/useBackTo";
@@ -21,6 +21,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { ATTENTION_STATUS, TASK_STATUS } from "../../components/ui/StatusChip";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
+import { LONG_PRESS_CLASS, useLongPress } from "../../lib/useLongPress";
 import { useSyncStore } from "../../sync/store";
 import { type ChildProgress, dependencySummary, moveTargets, STATE_LABELS } from "./logic";
 import { useTaskMover } from "./MoveProvider";
@@ -66,6 +67,8 @@ export function TaskCard({
   progress,
 }: TaskCardProps) {
   const info = useTaskInfo(task);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const press = useLongPress(() => setMenuOpen(true), { enabled: !!full });
   const tasks = useSyncStore((s) => s.tasks);
   const mover = useTaskMover();
   const navigate = useNavigate();
@@ -115,8 +118,10 @@ export function TaskCard({
       data-depth={depth}
       style={{ marginInlineStart: `${Math.min(depth, 3) * 12}px`, ...drag?.style }}
       {...drag?.cardProps}
+      {...(full ? press : {})}
       className={cn(
         "group relative flex min-w-0 flex-col gap-1.5 rounded-lg border bg-surface p-3 text-sm shadow-sm",
+        full && LONG_PRESS_CLASS,
         selected ? "border-accent" : "border-border",
         drag?.dragging && "opacity-60",
         full ? "self-stretch" : "",
@@ -148,7 +153,11 @@ export function TaskCard({
         {busy && <Spinner label="Updating" className="mt-0.5 shrink-0" />}
         <Menu
           label={`Actions for ${task.title}`}
+          sheetTitle={task.title}
+          sheetDescription={STATE_LABELS[task.state]}
           items={items}
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
           trigger={(p) => (
             <button
               type="button"

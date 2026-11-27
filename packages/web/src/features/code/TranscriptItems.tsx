@@ -12,6 +12,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { useBreakpoint } from "../../app/useBreakpoint";
 import { CodeBlock } from "../../components/intent/CodeBlock";
 import { DiffView } from "../../components/intent/DiffView";
 import {
@@ -28,6 +29,7 @@ import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatRelative, formatTime } from "../../lib/time";
+import { LONG_PRESS_CLASS, useLongPress } from "../../lib/useLongPress";
 import { useSmoothText } from "../../lib/useSmoothText";
 import { errorMessage } from "../../sync/api";
 import type { StreamBuffer } from "../../sync/store";
@@ -198,6 +200,9 @@ function UserMessage({
   sessionId: string;
 }) {
   const [full, setFull] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const phone = useBreakpoint() === "mobile";
+  const press = useLongPress(() => setMenuOpen(true), { enabled: phone });
   const text = item.data.text;
   const long = text.length > LONG_MESSAGE_CHARS || text.split("\n").length > LONG_MESSAGE_LINES;
   return (
@@ -205,7 +210,13 @@ function UserMessage({
       aria-label={`You, ${formatTime(item.at)}`}
       className="group/msg flex min-w-0 flex-col items-end"
     >
-      <div className="max-w-[85%] min-w-0 rounded-2xl border border-border bg-surface-2 px-3.5 py-2">
+      <div
+        {...(phone ? press : {})}
+        className={cn(
+          "max-w-[85%] min-w-0 rounded-2xl border border-border bg-surface-2 px-3.5 py-2",
+          phone && LONG_PRESS_CLASS,
+        )}
+      >
         <p
           className={cn("text-sm break-words whitespace-pre-wrap", long && !full && "line-clamp-8")}
         >
@@ -225,7 +236,12 @@ function UserMessage({
       {/* Opacity only, so showing the row never changes the height of the transcript. */}
       <div className="mt-0.5 flex items-center gap-1 text-xs text-subtle opacity-0 group-focus-within/msg:opacity-100 group-hover/msg:opacity-100 pointer-coarse:opacity-100">
         <span>{formatTime(item.at)}</span>
-        <UserMessageMenu item={item} sessionId={sessionId} />
+        <UserMessageMenu
+          item={item}
+          sessionId={sessionId}
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+        />
       </div>
     </article>
   );

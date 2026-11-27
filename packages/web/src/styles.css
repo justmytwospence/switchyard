@@ -121,6 +121,8 @@
 
 @layer base {
   html {
+    /* Controls draw their own pressed state; no grey flash from the browser. */
+    -webkit-tap-highlight-color: transparent;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
@@ -233,6 +235,74 @@
   }
   .sy-prose input[type="checkbox"] {
     margin-right: 0.4em;
+  }
+}
+
+@layer components {
+  /* A long-press target sinks while held (useLongPress), and springs back on release. */
+  .sy-pressable {
+    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .sy-pressable[data-pressing] {
+    transform: scale(0.97);
+    transition-duration: 320ms;
+  }
+  /* A list row highlights instead of sinking. */
+  .sy-pressable.sy-press-row[data-pressing] {
+    transform: none;
+    background-color: var(--sy-surface-2);
+  }
+  .sy-sheet-in {
+    animation: sy-sheet-in 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .sy-drawer-in {
+    animation: sy-drawer-in 240ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .sy-pop-in {
+    animation: sy-pop-in 160ms ease-out;
+  }
+  .sy-fade-in {
+    animation: sy-fade-in 200ms ease-out;
+  }
+  .sy-slide-from-right {
+    animation: sy-slide-from-right 180ms ease-out;
+  }
+  .sy-slide-from-left {
+    animation: sy-slide-from-left 180ms ease-out;
+  }
+}
+
+@keyframes sy-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes sy-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes sy-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes sy-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sy-slide-from-right {
+  from {
+    opacity: 0.4;
+    transform: translateX(24px);
+  }
+}
+@keyframes sy-slide-from-left {
+  from {
+    opacity: 0.4;
+    transform: translateX(-24px);
   }
 }
 

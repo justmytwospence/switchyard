@@ -288,7 +288,7 @@ export function Transcript({
           aria-live="off"
           aria-label="Transcript"
           onScroll={onScroll}
-          className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 md:px-6 [overflow-anchor:none] focus-visible:outline-offset-[-2px]"
+          className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 max-md:touch-pan-y md:px-6 [overflow-anchor:none] focus-visible:outline-offset-[-2px]"
         >
           <div className="flex w-full min-w-0 flex-col gap-3">
             {t.loaded && t.hasMore && (

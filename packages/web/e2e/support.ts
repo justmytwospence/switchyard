@@ -1,4 +1,4 @@
-import { test as base, expect, type Page, type TestInfo } from "@playwright/test";
+import { test as base, expect, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { type E2EState, readState } from "./state";
 
 export type Api = <T = any>(method: string, path: string, body?: unknown) => Promise<T>;
@@ -135,4 +135,54 @@ export async function openExtensions(page: Page) {
   const box = page.getByTestId("extensions").filter({ visible: true });
   await expect(box).toBeVisible();
   if ((await box.getAttribute("open")) === null) await box.locator("> summary").click();
+}
+
+type Point = { x: number; y: number };
+
+/** Phone: a finger drag through real touch events (Chromium reports pointerType "touch"). */
+export async function touchDrag(
+  page: Page,
+  from: Point,
+  to: Point,
+  { steps = 12, holdMs = 0 }: { steps?: number; holdMs?: number } = {},
+) {
+  const cdp = await page.context().newCDPSession(page);
+  const send = (type: string, p?: Point) =>
+    cdp.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: p ? [{ x: p.x, y: p.y, id: 0 }] : [],
+    });
+  await send("touchStart", from);
+  if (holdMs) await page.waitForTimeout(holdMs);
+  for (let i = 1; i <= steps; i++) {
+    await send("touchMove", {
+      x: from.x + ((to.x - from.x) * i) / steps,
+      y: from.y + ((to.y - from.y) * i) / steps,
+    });
+    await page.waitForTimeout(8);
+  }
+  await send("touchEnd");
+  await cdp.detach();
+}
+
+/** Phone: press and hold the middle of an element until its long-press fires. */
+export async function longPress(page: Page, target: Locator) {
+  const box = await target.boundingBox();
+  if (!box) throw new Error("long-press target is not visible");
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: at.x, y: at.y, id: 0 }],
+  });
+  await page.waitForTimeout(650);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await cdp.detach();
+}
+
+/** The middle of an element, for touchDrag. */
+export async function centerOf(target: Locator): Promise<Point> {
+  const box = await target.boundingBox();
+  if (!box) throw new Error("element is not visible");
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }

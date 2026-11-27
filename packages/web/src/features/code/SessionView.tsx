@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { useHideBottomNav } from "../../app/chrome";
+import { useHideBottomNav, useSwipeBack } from "../../app/chrome";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { CountBadge } from "../../components/ui/Badge";
 import { buttonClasses } from "../../components/ui/Button";
@@ -19,6 +19,7 @@ import { Sheet } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { appendQuote, useDraft, useReplyNotes } from "../../drafts";
+import { useSwipeTabs } from "../../lib/useSwipeTabs";
 import { usePendingInteractions, useSyncStore } from "../../sync/store";
 import { useContributePalette } from "../palette/registry";
 import { TOGGLE_TERMINAL_EVENT } from "../palette/useGlobalShortcuts";
@@ -231,6 +232,7 @@ export function MobileSession({
   const d = useComposerDraft(session.id);
   useSubagentRefresh(session);
   useHideBottomNav(true); // Back replaces the bottom navigation here.
+  useSwipeBack(tab === "chat" ? back : () => setTab("chat"));
 
   // Changes and Details mount on first visit, then stay mounted.
   useEffect(() => setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab))), [tab]);
@@ -243,6 +245,20 @@ export function MobileSession({
   );
 
   const changed = ctx.workspace?.git.changedFiles ?? 0;
+  // Swipe between the chat and the panel's tabs, in the order of the switcher.
+  const swipeIds: MobileTab[] = [
+    "chat",
+    "changes",
+    ...(github.snapshot?.pullRequest || tab === "pr" ? (["pr"] as const) : []),
+    "details",
+  ];
+  const swipe = useSwipeTabs(
+    swipeIds,
+    tab,
+    (t) => setTab(t as MobileTab),
+    tab !== "terminal",
+    back,
+  );
   const scopes = useSyncStore((st) => st.scopes);
   const menuItems: MenuItem[] = [
     ...(github.snapshot?.pullRequest
@@ -284,7 +300,7 @@ export function MobileSession({
 
   return (
     <CodeContext.Provider value={codeCtx}>
-      <div className="absolute inset-0 flex min-w-0 flex-col bg-bg">
+      <div className="absolute inset-0 flex min-w-0 flex-col overflow-x-clip bg-bg">
         <div className="shrink-0 border-b border-border bg-surface safe-pt">
           {tab === "chat" ? (
             <header className="flex min-w-0 items-center gap-1 px-1.5 py-1">
@@ -391,7 +407,7 @@ export function MobileSession({
             </header>
           )}
         </div>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div ref={swipe.innerRef} {...swipe.bind} className="flex min-h-0 min-w-0 flex-1 flex-col">
           <section
             data-testid="conversation"
             aria-label="Chat"
@@ -407,36 +423,42 @@ export function MobileSession({
               active={tab === "chat"}
               footer={<SessionStatusBar ctx={ctx} actions={actions} />}
             />
-            <Composer
-              ctx={ctx}
-              draft={d.draft}
-              setDraft={d.setDraft}
-              clearDraft={d.clearDraft}
-              replyNotes={d.replyNotes}
-              mobile
-              suggestion={d.suggestion}
-              stop={{ can: actions.canStop, busy: actions.busy.stop, request: actions.requestStop }}
-              dock={({ collapsed }) => (
-                <RequestDock
-                  sessionId={session.id}
-                  readOnlyReason={interactionReadOnly(ctx)}
-                  focusInteractionId={focusInteractionId}
-                  collapsed={collapsed}
-                />
-              )}
-            />
+            <div data-no-swipe className="contents">
+              <Composer
+                ctx={ctx}
+                draft={d.draft}
+                setDraft={d.setDraft}
+                clearDraft={d.clearDraft}
+                replyNotes={d.replyNotes}
+                mobile
+                suggestion={d.suggestion}
+                stop={{
+                  can: actions.canStop,
+                  busy: actions.busy.stop,
+                  request: actions.requestStop,
+                }}
+                dock={({ collapsed }) => (
+                  <RequestDock
+                    sessionId={session.id}
+                    readOnlyReason={interactionReadOnly(ctx)}
+                    focusInteractionId={focusInteractionId}
+                    collapsed={collapsed}
+                  />
+                )}
+              />
+            </div>
           </section>
           <section
             aria-label="Changes"
             hidden={tab !== "changes"}
-            className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
+            className="relative min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain"
           >
             {(tab === "changes" || visited.has("changes")) && <MobileChanges ctx={ctx} />}
           </section>
           <section
             aria-label="PR"
             hidden={tab !== "pr"}
-            className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3"
+            className="relative min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-3"
           >
             {(tab === "pr" || visited.has("pr")) && (
               <PullRequest ctx={ctx} state={github} active={tab === "pr"} />
@@ -454,7 +476,7 @@ export function MobileSession({
           <section
             aria-label="Details"
             hidden={tab !== "details"}
-            className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
+            className="relative min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain"
           >
             {(tab === "details" || visited.has("details")) && (
               <MobileDetails ctx={ctx} actions={actions} github={github} />

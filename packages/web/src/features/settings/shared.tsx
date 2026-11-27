@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router";
+import { useSwipeBack } from "../../app/chrome";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { buttonClasses } from "../../components/ui/Button";
@@ -162,6 +163,7 @@ export function SectionPage({
   const backLink = back ?? (mobile ? { to: settingsPath(), label: "Settings" } : null);
   const goBack = useBackTo(backLink?.to ?? settingsPath());
   const compactBack = mobile && !!backLink;
+  useSwipeBack(compactBack ? goBack : null);
   return (
     <section data-testid={testId} className="flex w-full min-w-0 flex-col gap-4 px-4 py-4 md:px-6">
       {compactBack && backLink ? (

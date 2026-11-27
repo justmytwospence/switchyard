@@ -1,7 +1,9 @@
 import type { TranscriptItem } from "@switchyard/protocol";
-import { MoreHorizontal } from "lucide-react";
+import { Copy, MoreHorizontal } from "lucide-react";
 import { useId, useState } from "react";
+import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button } from "../../components/ui/Button";
+import { copyText } from "../../components/ui/Copy";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { ConfirmDialog, Dialog } from "../../components/ui/Overlay";
@@ -16,7 +18,18 @@ import { isLive, piControlsAvailable } from "./model";
 type UserItem = Extract<TranscriptItem, { kind: "user" }>;
 
 /** Per-message actions: fork, rewind and re-answer. */
-export function UserMessageMenu({ item, sessionId }: { item: UserItem; sessionId: string }) {
+export function UserMessageMenu({
+  item,
+  sessionId,
+  open,
+  onOpenChange,
+}: {
+  item: UserItem;
+  sessionId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const phone = useBreakpoint() === "mobile";
   const session = useSession(sessionId);
   const host = useHost(session?.hostId);
   const [dialog, setDialog] = useState<null | "rewind" | "reanswer">(null);
@@ -29,7 +42,7 @@ export function UserMessageMenu({ item, sessionId }: { item: UserItem; sessionId
     session ?? ({ projectId: null, workspaceId: null } as unknown as NonNullable<typeof session>),
   );
   const entryId = item.data.entryId;
-  if (!session || !entryId) return null;
+  if (!session) return null;
 
   const controls = piControlsAvailable(host, null);
   const fork = controls && !session.readOnly && isLive(session);
@@ -38,7 +51,15 @@ export function UserMessageMenu({ item, sessionId }: { item: UserItem; sessionId
   const hint = idle ? undefined : "Wait for the reply to finish";
 
   const items: MenuItem[] = [];
-  if (fork) {
+  if (phone) {
+    items.push({
+      id: "copy",
+      label: "Copy message",
+      icon: <Copy className="size-4" />,
+      onSelect: () => void copyText(item.data.text, "Message copied"),
+    });
+  }
+  if (fork && entryId) {
     items.push({
       id: "fork",
       label: "Fork from here",
@@ -50,7 +71,7 @@ export function UserMessageMenu({ item, sessionId }: { item: UserItem; sessionId
       },
     });
   }
-  if (nav) {
+  if (nav && entryId) {
     items.push({
       id: "rewind",
       label: "Rewind to here",
@@ -81,6 +102,7 @@ export function UserMessageMenu({ item, sessionId }: { item: UserItem; sessionId
     setBusy(false);
   };
   const rewind = async () => {
+    if (!entryId) return;
     setBusy(true);
     setError(null);
     try {
@@ -101,6 +123,7 @@ export function UserMessageMenu({ item, sessionId }: { item: UserItem; sessionId
     }
   };
   const reanswer = async () => {
+    if (!entryId) return;
     setBusy(true);
     setError(null);
     try {
@@ -123,6 +146,8 @@ export function UserMessageMenu({ item, sessionId }: { item: UserItem; sessionId
         <Menu
           label="Message actions"
           items={items}
+          open={open}
+          onOpenChange={onOpenChange}
           trigger={(p) => (
             <IconButton
               {...p}

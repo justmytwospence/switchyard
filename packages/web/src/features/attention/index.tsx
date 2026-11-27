@@ -1,12 +1,24 @@
 import type { AttentionItem, AttentionReason } from "@switchyard/protocol";
-import { Bell, CircleCheck, ExternalLink, Eye, History, ListTodo, Server } from "lucide-react";
+import {
+  Bell,
+  BellOff,
+  CheckCheck,
+  CircleCheck,
+  ExternalLink,
+  Eye,
+  History,
+  ListTodo,
+  Server,
+} from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
+import { useBreakpoint } from "../../app/useBreakpoint";
 import { InteractionCard, isDocumentPresentation } from "../../components/intent/InteractionCard";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { ATTENTION_STATUS, StatusChip } from "../../components/ui/StatusChip";
+import { type SwipeAction, SwipeRow } from "../../components/ui/SwipeRow";
 import {
   EmptyState,
   ErrorState,
@@ -16,6 +28,7 @@ import {
   UnsupportedCapability,
 } from "../../components/ui/states";
 import { toast } from "../../components/ui/Toast";
+import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { useFilter } from "../../prefs";
 import { apiPost, errorMessage } from "../../sync/api";
@@ -197,6 +210,8 @@ export function AttentionRow({ item }: { item: AttentionItem }) {
   const interaction = useSyncStore((s) =>
     item.interactionId ? s.interactions[item.interactionId] : undefined,
   );
+  const phone = useBreakpoint() === "mobile";
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [ackError, setAckError] = useState<unknown>(null);
 
@@ -404,12 +419,17 @@ export function AttentionRow({ item }: { item: AttentionItem }) {
     );
   }
 
-  return (
+  // On the phone every item swipes: right to open its session, left to clear or dismiss it.
+  const swipeable = phone;
+  const article = (
     <article
       aria-label={`${ATTENTION_STATUS[item.reason].label}: ${task?.title ?? session?.title ?? item.summary}`}
       tabIndex={-1}
       data-keyboard-item
-      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+      className={cn(
+        "flex min-w-0 flex-col gap-2 bg-surface p-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
+        !swipeable && "rounded-lg border border-border",
+      )}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <StatusChip kind="attention" value={item.reason} size="sm" />
@@ -470,6 +490,56 @@ export function AttentionRow({ item }: { item: AttentionItem }) {
       )}
       {clearFailed}
     </article>
+  );
+  if (!swipeable) return article;
+  const trailing: SwipeAction[] = [];
+  if (clearable) {
+    trailing.push({
+      id: "clear",
+      label: "Clear",
+      icon: <CheckCheck aria-hidden className="size-5" />,
+      tone: "green",
+      removes: true,
+      onAction: async () => {
+        try {
+          await dismissAttentionItem(item);
+          toast.success("Cleared. It is in History.");
+        } catch (e) {
+          toast.error(errorMessage(e));
+          throw e;
+        }
+      },
+    });
+  }
+  if (!item.acknowledgedAt) {
+    trailing.push({
+      id: "dismiss",
+      label: "Dismiss",
+      icon: <BellOff aria-hidden className="size-5" />,
+      tone: "gray",
+      onAction: () => acknowledge(),
+    });
+  }
+  return (
+    <SwipeRow
+      className="rounded-lg border border-border"
+      trailing={trailing}
+      leading={
+        sessionHref
+          ? [
+              {
+                id: "open",
+                label: "Open",
+                icon: <ExternalLink aria-hidden className="size-5" />,
+                tone: "blue",
+                onAction: () => navigate(sessionHref),
+              },
+            ]
+          : []
+      }
+    >
+      {article}
+    </SwipeRow>
   );
 }
 

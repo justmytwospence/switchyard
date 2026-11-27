@@ -1,7 +1,7 @@
-import { ArrowRightLeft, MessageCircleQuestion, Play } from "lucide-react";
-import type { CSSProperties, HTMLAttributes, Ref } from "react";
+import { ArrowRightLeft, MessageCircleQuestion, MoreHorizontal, Play } from "lucide-react";
+import { type CSSProperties, type HTMLAttributes, type Ref, useState } from "react";
 import { Button } from "../../components/ui/Button";
-import { Menu, type MenuItem } from "../../components/ui/Menu";
+import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
 import {
   REVIEW_STATUS,
   RUNTIME_STATUS,
@@ -10,6 +10,7 @@ import {
 } from "../../components/ui/StatusChip";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
+import { LONG_PRESS_CLASS, useLongPress } from "../../lib/useLongPress";
 import type { BoardCard, BoardColumn } from "./model";
 import type { WorkBoard } from "./useWorkBoard";
 
@@ -31,6 +32,7 @@ export function WorkCard({
   dragProps,
   style,
   dragging,
+  phone,
 }: {
   card: BoardCard;
   board: WorkBoard;
@@ -39,7 +41,11 @@ export function WorkCard({
   dragProps?: HTMLAttributes<HTMLDivElement>;
   style?: CSSProperties;
   dragging?: boolean;
+  /** Phone layout: one actions menu in the title row, also opened by a long-press. */
+  phone?: boolean;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const press = useLongPress(() => setMenuOpen(true), { enabled: !!phone });
   const status = statusOf(card);
   const pr = card.branch?.pullRequest ?? card.issue?.pullRequest ?? null;
   const context = [card.project, card.branchLabel, card.host].filter(Boolean).join(" · ");
@@ -55,33 +61,84 @@ export function WorkCard({
         onSelect: () => void board.move(card, c),
       };
     });
+  const pr0 = card.branch?.pullRequest ?? card.issue?.pullRequest ?? null;
+  const phoneItems: (MenuItem | MenuHeading)[] = [
+    {
+      id: "open",
+      label: card.sessionId ? "Open session" : "Start session",
+      icon: <Play className="size-4" />,
+      onSelect: () => void board.activate(card),
+    },
+    ...(targets.length > 0 ? [{ id: "move", heading: "Move to" }] : []),
+    ...targets,
+    ...(card.issue
+      ? [
+          {
+            id: "issue",
+            label: `Open issue #${card.issue.number}`,
+            onSelect: () => void window.open(card.issue?.url, "_blank", "noopener"),
+          },
+        ]
+      : []),
+    ...(pr0
+      ? [
+          {
+            id: "pr",
+            label: `Open pull request #${pr0.number}`,
+            onSelect: () => void window.open(pr0.url, "_blank", "noopener"),
+          },
+        ]
+      : []),
+  ];
   return (
     <div
       ref={dragRef}
       {...dragProps}
+      {...(phone ? press : {})}
       style={style}
       data-testid="work-card"
       className={cn(
         "flex min-w-0 flex-col gap-1.5 rounded-md border border-border bg-surface p-2.5 shadow-sm",
+        phone && LONG_PRESS_CLASS,
         dragging && "opacity-40",
       )}
     >
-      <button
-        type="button"
-        className="tap min-w-0 text-left"
-        onClick={() => void board.activate(card)}
-      >
-        <span className="flex min-w-0 items-start gap-1.5">
-          <span className="min-w-0 flex-1 text-sm font-medium break-words">{card.title}</span>
-          {card.attention && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
-              <MessageCircleQuestion aria-hidden className="size-3.5" />
-              Needs input
-            </span>
-          )}
-        </span>
-        {context && <span className="block truncate text-xs text-muted">{context}</span>}
-      </button>
+      <div className="flex min-w-0 items-start gap-1">
+        <button
+          type="button"
+          className="tap min-w-0 flex-1 text-left"
+          onClick={() => void board.activate(card)}
+        >
+          <span className="flex min-w-0 items-start gap-1.5">
+            <span className="min-w-0 flex-1 text-sm font-medium break-words">{card.title}</span>
+            {card.attention && card.branch?.primary?.runtime !== "waiting_input" && (
+              <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
+                <MessageCircleQuestion aria-hidden className="size-3.5" />
+                Needs input
+              </span>
+            )}
+          </span>
+          {context && <span className="block truncate text-xs text-muted">{context}</span>}
+        </button>
+        {phone && (
+          <Menu
+            label={`Actions for ${card.title}`}
+            items={phoneItems}
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            trigger={(p) => (
+              <button
+                type="button"
+                {...p}
+                aria-label={`Actions for ${card.title}`}
+                className="tap -mr-1.5 inline-flex size-7 shrink-0 items-center justify-center rounded text-muted"
+              >
+                <MoreHorizontal aria-hidden className="size-4" />
+              </button>
+            )}
+          />
+        )}
+      </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
         {status && <StatusChip kind="custom" status={status} size="sm" />}
         {card.branch && !card.sessionId && <span>No session</span>}
@@ -160,7 +217,7 @@ export function WorkCard({
             Start session
           </Button>
         )}
-        {targets.length > 0 && (
+        {!phone && targets.length > 0 && (
           <Menu
             label={`Move ${card.title}`}
             items={targets}

@@ -1,4 +1,4 @@
-import { type ReactNode, useId, useRef } from "react";
+import { type ReactNode, useEffect, useId, useRef } from "react";
 import { horizontalNavigationDelta } from "../../features/palette/shortcuts";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
@@ -37,6 +37,19 @@ export function Tabs({ tabs, value, onChange, label, className, idPrefix, scroll
   const prefix = idPrefix ?? autoId;
   const listRef = useRef<HTMLDivElement>(null);
   const enabled = tabs.filter((t) => !t.disabled);
+  // A swipe elsewhere can change the tab: keep the selected one in view.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only the selection matters
+  useEffect(() => {
+    if (!scrollable) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    listRef.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.scrollIntoView?.({
+        block: "nearest",
+        inline: "nearest",
+        behavior: reduced ? "auto" : "smooth",
+      });
+  }, [value, scrollable]);
   const move = (dir: number | "first" | "last") => {
     const idx = enabled.findIndex((t) => t.id === value);
     const next =

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useId, useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { useHideBottomNav } from "../../app/chrome";
+import { useHideBottomNav, useSwipeBack } from "../../app/chrome";
 import { ROUTES } from "../../app/routes";
 import { BACK_STATE, useBackTo } from "../../app/useBackTo";
 import { Badge } from "../../components/ui/Badge";
@@ -22,6 +22,7 @@ import { TASK_STATUS } from "../../components/ui/StatusChip";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TabPanel, Tabs } from "../../components/ui/Tabs";
 import { TextLink } from "../../components/ui/TextLink";
+import { useSwipeTabs } from "../../lib/useSwipeTabs";
 import { useFilter } from "../../prefs";
 import { useSyncStore, useTask } from "../../sync/store";
 import { ScopeSelect } from "../scopes/ScopeSelect";
@@ -70,6 +71,12 @@ export function BoardMobile() {
   const [searchOpen, setSearchOpen] = useState(() => board.filters.search !== "");
   const searchShown = searchOpen || board.filters.search !== "";
   const tab = board.states.includes(prefs.tab) ? prefs.tab : "ready";
+  const swipe = useSwipeTabs(
+    board.states,
+    tab,
+    (id) => setPrefs({ ...prefs, tab: id as TaskState }),
+    prefs.layout === "column",
+  );
 
   // Restore the vertical position when coming back from task detail.
   useLayoutEffect(() => {
@@ -125,7 +132,7 @@ export function BoardMobile() {
     );
 
   return (
-    <div data-testid="board" className="flex min-w-0 flex-col">
+    <div data-testid="board" className="flex min-h-full min-w-0 flex-col">
       <header
         data-testid="board-header"
         className="sticky top-0 z-20 flex min-w-0 flex-col border-b border-border bg-bg safe-pt"
@@ -236,7 +243,8 @@ export function BoardMobile() {
         tabIndex={-1}
         data-keyboard-scope
         data-keyboard-default
-        className="flex min-w-0 flex-col gap-3 px-3 py-3"
+        {...swipe.bind}
+        className="flex min-w-0 flex-1 touch-pan-y flex-col gap-3 overflow-x-clip px-3 py-3"
       >
         {!hydrated ? (
           <LoadingState label="Loading tasks…" />
@@ -264,18 +272,25 @@ export function BoardMobile() {
           />
         ) : prefs.layout === "column" ? (
           <TabPanel idPrefix="board-tab" id={tab}>
-            {tab === "done" && !board.filters.showCompleted ? (
-              <p className="text-sm text-muted">
-                Completed tasks are hidden.{" "}
-                <TextLink
-                  onClick={() => board.setFilters({ ...board.filters, showCompleted: true })}
-                >
-                  Show completed
-                </TextLink>
-              </p>
-            ) : (
-              renderList(tab)
-            )}
+            <div ref={swipe.innerRef}>
+              {tab === "done" && !board.filters.showCompleted ? (
+                <p className="text-sm text-muted">
+                  Completed tasks are hidden.{" "}
+                  <TextLink
+                    onClick={() => board.setFilters({ ...board.filters, showCompleted: true })}
+                  >
+                    Show completed
+                  </TextLink>
+                </p>
+              ) : board.columns[tab].length === 0 ? (
+                <div className="flex flex-col items-center gap-1 px-6 pt-16 text-center">
+                  <p className="text-sm font-medium">No {STATE_LABELS[tab]} tasks</p>
+                  <p className="text-xs text-muted">Swipe sideways for the other columns.</p>
+                </div>
+              ) : (
+                renderList(tab)
+              )}
+            </div>
           </TabPanel>
         ) : (
           board.states
@@ -320,6 +335,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
   const [moveOpen, setMoveOpen] = useState(false);
   const { eligibility } = useEligibility(task);
   const back = useBackTo(ROUTES.tasks);
+  useSwipeBack(back);
 
   useLayoutEffect(() => {
     const el = mainEl();

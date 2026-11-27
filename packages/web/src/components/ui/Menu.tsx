@@ -1,8 +1,10 @@
 import { Check } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { useBreakpoint } from "../../app/useBreakpoint";
 import { verticalNavigationDelta } from "../../features/palette/shortcuts";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
+import { ActionSheet } from "./ActionSheet";
 import { registerKeyboardLayer, topKeyboardLayer } from "./keyboardLayers";
 
 export interface MenuItem {
@@ -45,6 +47,14 @@ export interface MenuProps {
   className?: string;
   /** Accessible name of the menu. */
   label: string;
+  /** Controlled open state (a long-press can open the menu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** "auto" opens as a bottom sheet on the phone; "dropdown" always drops down. */
+  presentation?: "auto" | "dropdown";
+  /** Phone sheet heading (defaults to the label) and a line under it. */
+  sheetTitle?: ReactNode;
+  sheetDescription?: ReactNode;
 }
 
 /** Popup menu with arrow-key navigation, Escape and outside click to close. */
@@ -55,16 +65,32 @@ export function Menu({
   side = "bottom",
   label,
   className,
+  open: controlledOpen,
+  onOpenChange,
+  presentation = "auto",
+  sheetTitle,
+  sheetDescription,
 }: MenuProps) {
-  const [open, setOpen] = useState(false);
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = controlledOpen ?? innerOpen;
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  const setOpen = (next: boolean | ((o: boolean) => boolean)) => {
+    const value = typeof next === "function" ? next(open) : next;
+    setInnerOpen(value);
+    onOpenChangeRef.current?.(value);
+  };
+  const phone = useBreakpoint() === "mobile";
+  const sheet = presentation === "auto" && phone;
   const id = useId();
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const focusItem = (dir: 1 | -1 | "first" | "last") => focusMenuItem(menuRef.current, dir);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setOpen only reads the latest props
   useEffect(() => {
-    if (!open) return;
+    if (!open || sheet) return;
     const layer = {
       root: menuRef,
       onEscape: () => {
@@ -88,7 +114,7 @@ export function Menu({
       unregister();
       document.removeEventListener("pointerdown", onDoc);
     };
-  }, [open]);
+  }, [open, sheet]);
 
   const close = (refocus = true) => {
     setOpen(false);
@@ -110,7 +136,17 @@ export function Menu({
         "aria-expanded": open,
         "aria-controls": id,
       })}
-      {open && (
+      {sheet && (
+        <ActionSheet
+          open={open}
+          onClose={() => setOpen(false)}
+          title={sheetTitle ?? label}
+          description={sheetDescription}
+          label={label}
+          items={items}
+        />
+      )}
+      {open && !sheet && (
         <div
           ref={menuRef}
           id={id}

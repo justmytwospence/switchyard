@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { useSwipeBack } from "../../app/chrome";
 import { backLinkClick, useBackTo } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { Button } from "../../components/ui/Button";
@@ -196,6 +197,7 @@ function Editor({ automation }: { automation: Automation | null }) {
   const location = useLocation();
   const back = useBackTo(LIST_PATH);
   const bp = useBreakpoint();
+  useSwipeBack(bp === "mobile" ? back : null);
   const desktop = bp === "desktop";
   const projects = useProjects();
   const hosts = useHosts();

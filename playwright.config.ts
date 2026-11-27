@@ -54,6 +54,7 @@ export default defineConfig({
         "keyboard-layers.spec.ts",
         "keyboard-navigation.spec.ts",
         "workboard.spec.ts",
+        "gestures.spec.ts",
       ],
       use: {
         viewport: { width: 390, height: 844 },

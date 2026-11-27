@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { type ReactNode, type RefObject, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
+import { useDragDismiss } from "../../lib/useDragDismiss";
 import { errorMessage } from "../../sync/api";
 import { Button } from "./Button";
 import { IconButton } from "./IconButton";
@@ -57,6 +58,7 @@ function Surface({
   const descId = useId();
   useFocusTrap(ref, open, onClose, initialFocus);
   useScrollLock(open);
+  useDragDismiss(ref, open && placement === "bottom" && !fullHeight && dismissOnBackdrop, onClose);
   if (!open) return null;
   return createPortal(
     <div
@@ -68,7 +70,7 @@ function Surface({
       )}
     >
       <div
-        className="absolute inset-0 bg-overlay"
+        className="sy-fade-in absolute inset-0 bg-overlay"
         aria-hidden
         onClick={dismissOnBackdrop ? onClose : undefined}
       />
@@ -82,6 +84,9 @@ function Surface({
         style={style}
         className={cn(
           "relative flex flex-col bg-surface text-text shadow-pop outline-none",
+          placement === "bottom" && "sy-sheet-in",
+          placement === "right" && "sy-drawer-in",
+          placement === "center" && "sy-pop-in",
           placement === "right" && "h-full max-w-full border-l border-border safe-pt safe-pb",
           placement === "bottom" &&
             (fullHeight
@@ -93,8 +98,8 @@ function Surface({
         )}
       >
         {placement === "bottom" && !fullHeight && (
-          <div className="flex justify-center pt-2" aria-hidden>
-            <div className="h-1 w-10 rounded-full bg-border-strong" />
+          <div className="flex h-5 shrink-0 justify-center pt-2" aria-hidden>
+            <div className="h-1 w-9 rounded-full bg-border-strong" />
           </div>
         )}
         <div className="flex items-start gap-2 border-b border-border px-4 py-3">
@@ -112,6 +117,7 @@ function Surface({
           <IconButton label="Close" icon={<X className="size-4" />} onClick={onClose} />
         </div>
         <div
+          data-sheet-scroll
           className={cn(
             "min-h-0 flex-1 overflow-y-auto overscroll-contain",
             !flush && "px-4 py-3",

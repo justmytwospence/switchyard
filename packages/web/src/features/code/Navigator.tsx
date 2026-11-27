@@ -1,7 +1,10 @@
 import type { Scope, Session } from "@switchyard/protocol";
 import {
+  Archive,
+  BellOff,
   ChevronDown,
   ChevronRight,
+  Ellipsis,
   FolderGit2,
   Layers,
   MessageCircleQuestion,
@@ -10,12 +13,22 @@ import {
   Search,
   Server,
   SlidersHorizontal,
+  Square,
   SquareTerminal,
   X,
 } from "lucide-react";
-import { type CSSProperties, type ReactNode, useId, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
+import { ActionSheet } from "../../components/ui/ActionSheet";
 import { TONE_TEXT } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
@@ -27,12 +40,20 @@ import {
   StatusChip,
   type StatusInfo,
 } from "../../components/ui/StatusChip";
+import { type SwipeAction, SwipeRow } from "../../components/ui/SwipeRow";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
+import { LONG_PRESS_CLASS, useLongPress } from "../../lib/useLongPress";
 import { useFilter } from "../../prefs";
-import { useHosts, useProjects, useSessionBadges, useSyncStore } from "../../sync/store";
+import {
+  useHosts,
+  useProjects,
+  useSession,
+  useSessionBadges,
+  useSyncStore,
+} from "../../sync/store";
 import { isMac } from "../palette/CommandPalette";
 import { emptyScopeState, scopeOptionLabel } from "../scopes/describe";
 import { ScopeDialog } from "../scopes/ScopeDialog";
@@ -46,9 +67,12 @@ import {
 } from "../scopes/where";
 import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import { AdapterSlot } from "./AdapterSlots";
+import { sessionMenuItems } from "./ConversationHeader";
+import { useSessionContext } from "./hooks";
 import {
   buildNavTree,
   DEFAULT_SORT,
+  isBusy,
   NAV_LAYOUTS,
   NAV_SORTS,
   type NavFilter,
@@ -67,6 +91,8 @@ import {
   projectIdOfGroup,
   rowPreview,
 } from "./model";
+import { archiveWithUndo, clearNeedsInput } from "./rowActions";
+import { useSessionActions } from "./SessionActions";
 import { useSelectedScope } from "./scopes";
 
 interface NavPrefs {
@@ -294,7 +320,24 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           : "Not active";
   const badges = useSessionBadges();
   const pending = useMemo(() => pendingTitles(interactions), [interactions]);
-  const rowProps = { selectedId, screen, scopeName, outsideLabel, badges, pendingTitles: pending };
+  const [rowActions, setRowActions] = useState<{
+    id: string;
+    open: boolean;
+    intent: RowIntent;
+    n: number;
+  }>({ id: "", open: false, intent: "sheet", n: 0 });
+  const rowProps = {
+    selectedId,
+    screen,
+    scopeName,
+    outsideLabel,
+    badges,
+    pendingTitles: pending,
+    onRowActions: screen
+      ? (id: string, intent: RowIntent) =>
+          setRowActions((r) => ({ id, open: intent === "sheet", intent, n: r.n + 1 }))
+      : undefined,
+  };
   const groupProps = {
     collapsed,
     toggle,
@@ -588,9 +631,19 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         )}
       </div>
       <AdapterSlot sessionId={selectedId} placement="sidebar.header" />
-      <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 pt-2">
+      <div
+        data-scroll-root
+        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 pt-2"
+      >
         {body}
       </div>
+      <RowActionsHost
+        sessionId={rowActions.id || null}
+        intent={rowActions.intent}
+        n={rowActions.n}
+        open={rowActions.open}
+        onClose={() => setRowActions((r) => ({ ...r, open: false }))}
+      />
       <AdapterSlot sessionId={selectedId} placement="sidebar.footer" />
     </nav>
   );
@@ -799,6 +852,8 @@ interface RowProps {
   badges: ReturnType<typeof useSessionBadges>;
   /** The oldest pending question of each session. */
   pendingTitles: Map<string, string>;
+  /** Phone: open a session's actions sheet, or run one of them (long-press and swipe actions). */
+  onRowActions?: (sessionId: string, intent: RowIntent) => void;
 }
 
 const BADGE_TONE = {
@@ -937,8 +992,11 @@ function SessionRow({
   expansion?: RowExpansion;
   nested?: boolean;
 }) {
-  const { selectedId, screen, scopeName, outsideLabel } = rowProps;
+  const { selectedId, screen, scopeName, outsideLabel, onRowActions } = rowProps;
   const { session, attention } = row;
+  const press = useLongPress(() => onRowActions?.(session.id, "sheet"), {
+    enabled: !!onRowActions,
+  });
   const selected = session.id === selectedId;
   const context = [row.project, row.branch].filter(Boolean).join(" · ");
   const status = rowStatusFor(row);
@@ -951,121 +1009,189 @@ function SessionRow({
       row.othersNeedInput ||
       row.others.some((o) => o.session.id === selectedId));
   const needsInput = attention || (!nested && row.othersNeedInput);
+  const swipeable = !!onRowActions;
+  const trailing: SwipeAction[] = [];
+  const leading: SwipeAction[] = [];
+  if (onRowActions) {
+    if (isBusy(session)) {
+      trailing.push({
+        id: "stop",
+        label: "Stop",
+        icon: <Square aria-hidden className="size-5" />,
+        tone: "red",
+        onAction: () => onRowActions(session.id, "stop"),
+      });
+    } else if (!session.archivedAt && !session.readOnly) {
+      trailing.push({
+        id: "archive",
+        label: "Archive",
+        icon: <Archive aria-hidden className="size-5" />,
+        tone: "red",
+        removes: true,
+        onAction: () => archiveWithUndo(session),
+      });
+    }
+    trailing.push({
+      id: "more",
+      label: "More",
+      icon: <Ellipsis aria-hidden className="size-5" />,
+      tone: "gray",
+      onAction: () => onRowActions(session.id, "sheet"),
+    });
+    if (attention && session.runtime !== "waiting_input") {
+      leading.push({
+        id: "clear",
+        label: "Clear",
+        icon: <BellOff aria-hidden className="size-5" />,
+        tone: "orange",
+        onAction: () => clearNeedsInput(session.id),
+      });
+    }
+    if (!session.readOnly) {
+      leading.push({
+        id: "rename",
+        label: "Rename",
+        icon: <Pencil aria-hidden className="size-5" />,
+        tone: "blue",
+        onAction: () => onRowActions(session.id, "rename"),
+      });
+    }
+  }
+  const line = (
+    <div className="flex min-w-0 items-center">
+      <Link
+        {...(swipeable ? press : {})}
+        data-testid={nested ? "session-subrow" : "session-row"}
+        data-keyboard-item
+        to={`/code/${encodeURIComponent(session.id)}`}
+        state={BACK_STATE}
+        aria-current={selected ? "page" : undefined}
+        className={cn(
+          "tap flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1.5 pr-2 hover:bg-surface-2",
+          swipeable && cn(LONG_PRESS_CLASS, "sy-press-row active:bg-surface-2"),
+          INDENT[indent],
+          screen && "py-2.5",
+          selected && "bg-accent-soft hover:bg-accent-soft",
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <StatusMark status={status} />
+          <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
+          {needsInput && session.runtime !== "waiting_input" && (
+            <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
+              <MessageCircleQuestion aria-hidden className="size-3.5" />
+              Needs input
+            </span>
+          )}
+          <span className="shrink-0 text-xs text-subtle tabular-nums">
+            {formatRelative(session.lastActivityAt)}
+          </span>
+        </span>
+        {/* Always one line tall, so a preview or badge arriving never moves the list. */}
+        <span className="flex min-h-4 min-w-0 items-center gap-x-1.5 pl-5">
+          {nested && (
+            <span className="shrink-0 text-xs text-muted">
+              {row.role === "subagent" ? "Subagent" : "Extra"}
+            </span>
+          )}
+          {row.issue && (
+            <span className="shrink-0 text-xs text-muted" title={row.issue.title}>
+              #{row.issue.number}
+            </span>
+          )}
+          {row.leaves && (
+            <span
+              data-testid="row-no-issue"
+              className="shrink-0 text-xs text-subtle"
+              title={`In ${scopeName ?? "this scope"} only while it is live. Pin it or link an issue to keep it.`}
+            >
+              No issue
+            </span>
+          )}
+          {row.outside && (
+            <span
+              data-testid="row-outside"
+              data-reason={row.outside}
+              className="shrink-0 text-xs text-subtle"
+              title="Listed because it is open"
+            >
+              {outsideLabel(row.outside)}
+            </span>
+          )}
+          {row.where && (
+            <span
+              data-testid="row-where"
+              title={
+                row.where.kind === "terminal"
+                  ? `Runs in ${row.where.label}`
+                  : `Runs on ${row.where.label}`
+              }
+              className="inline-flex min-w-0 items-center gap-0.5 text-xs text-muted"
+            >
+              {row.where.kind === "terminal" ? (
+                <SquareTerminal aria-hidden className="size-3 shrink-0" />
+              ) : (
+                <Server aria-hidden className="size-3 shrink-0" />
+              )}
+              <span className="truncate">{row.where.label}</span>
+            </span>
+          )}
+          {badges.map((b) => (
+            <span
+              key={`${b.adapterId}:${b.id}`}
+              data-testid="row-badge"
+              className={cn("max-w-24 shrink-0 truncate text-xs", BADGE_TONE[b.tone ?? "muted"])}
+              title={b.text}
+            >
+              {b.text}
+            </span>
+          ))}
+          {context && (
+            <span className="max-w-[45%] min-w-0 shrink-0 truncate text-xs text-muted">
+              {context}
+            </span>
+          )}
+          {/* The preview gives way first, so where it runs stays readable. */}
+          <span
+            data-testid="row-preview"
+            className="min-w-0 flex-1 basis-0 truncate text-xs text-subtle"
+          >
+            {preview}
+          </span>
+        </span>
+      </Link>
+      {swipeable && (
+        <button
+          type="button"
+          className="sr-only focus:not-sr-only"
+          onClick={() => onRowActions?.(session.id, "sheet")}
+        >
+          Actions for {session.title}
+        </button>
+      )}
+      {count > 0 && (
+        <button
+          type="button"
+          data-testid="row-others"
+          aria-expanded={open}
+          aria-label={`${count} more ${count === 1 ? "session" : "sessions"} in this branch`}
+          onClick={() => expansion?.toggleRow(row.key)}
+          className="tap shrink-0 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2"
+        >
+          +{count}
+        </button>
+      )}
+    </div>
+  );
   return (
     <li className="min-w-0">
-      <div className="flex min-w-0 items-center">
-        <Link
-          data-testid={nested ? "session-subrow" : "session-row"}
-          data-keyboard-item
-          to={`/code/${encodeURIComponent(session.id)}`}
-          state={BACK_STATE}
-          aria-current={selected ? "page" : undefined}
-          className={cn(
-            "tap flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1.5 pr-2 hover:bg-surface-2",
-            INDENT[indent],
-            screen && "py-2.5",
-            selected && "bg-accent-soft hover:bg-accent-soft",
-          )}
-        >
-          <span className="flex min-w-0 items-center gap-1.5">
-            <StatusMark status={status} />
-            <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
-            {needsInput && session.runtime !== "waiting_input" && (
-              <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
-                <MessageCircleQuestion aria-hidden className="size-3.5" />
-                Needs input
-              </span>
-            )}
-            <span className="shrink-0 text-xs text-subtle tabular-nums">
-              {formatRelative(session.lastActivityAt)}
-            </span>
-          </span>
-          {/* Always one line tall, so a preview or badge arriving never moves the list. */}
-          <span className="flex min-h-4 min-w-0 items-center gap-x-1.5 pl-5">
-            {nested && (
-              <span className="shrink-0 text-xs text-muted">
-                {row.role === "subagent" ? "Subagent" : "Extra"}
-              </span>
-            )}
-            {row.issue && (
-              <span className="shrink-0 text-xs text-muted" title={row.issue.title}>
-                #{row.issue.number}
-              </span>
-            )}
-            {row.leaves && (
-              <span
-                data-testid="row-no-issue"
-                className="shrink-0 text-xs text-subtle"
-                title={`In ${scopeName ?? "this scope"} only while it is live. Pin it or link an issue to keep it.`}
-              >
-                No issue
-              </span>
-            )}
-            {row.outside && (
-              <span
-                data-testid="row-outside"
-                data-reason={row.outside}
-                className="shrink-0 text-xs text-subtle"
-                title="Listed because it is open"
-              >
-                {outsideLabel(row.outside)}
-              </span>
-            )}
-            {row.where && (
-              <span
-                data-testid="row-where"
-                title={
-                  row.where.kind === "terminal"
-                    ? `Runs in ${row.where.label}`
-                    : `Runs on ${row.where.label}`
-                }
-                className="inline-flex min-w-0 items-center gap-0.5 text-xs text-muted"
-              >
-                {row.where.kind === "terminal" ? (
-                  <SquareTerminal aria-hidden className="size-3 shrink-0" />
-                ) : (
-                  <Server aria-hidden className="size-3 shrink-0" />
-                )}
-                <span className="truncate">{row.where.label}</span>
-              </span>
-            )}
-            {badges.map((b) => (
-              <span
-                key={`${b.adapterId}:${b.id}`}
-                data-testid="row-badge"
-                className={cn("max-w-24 shrink-0 truncate text-xs", BADGE_TONE[b.tone ?? "muted"])}
-                title={b.text}
-              >
-                {b.text}
-              </span>
-            ))}
-            {context && (
-              <span className="max-w-[45%] min-w-0 shrink-0 truncate text-xs text-muted">
-                {context}
-              </span>
-            )}
-            {/* The preview gives way first, so where it runs stays readable. */}
-            <span
-              data-testid="row-preview"
-              className="min-w-0 flex-1 basis-0 truncate text-xs text-subtle"
-            >
-              {preview}
-            </span>
-          </span>
-        </Link>
-        {count > 0 && (
-          <button
-            type="button"
-            data-testid="row-others"
-            aria-expanded={open}
-            aria-label={`${count} more ${count === 1 ? "session" : "sessions"} in this branch`}
-            onClick={() => expansion?.toggleRow(row.key)}
-            className="tap shrink-0 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2"
-          >
-            +{count}
-          </button>
-        )}
-      </div>
+      {swipeable ? (
+        <SwipeRow leading={leading} trailing={trailing}>
+          {line}
+        </SwipeRow>
+      ) : (
+        line
+      )}
       {open && (
         <ul className="flex min-w-0 flex-col gap-0.5">
           {row.others.map((o) => (
@@ -1093,4 +1219,74 @@ function rowStatusFor(row: NavRow): StatusInfo {
 function rowStatus(runtime: Session["runtime"]): StatusInfo {
   const s = RUNTIME_STATUS[runtime];
   return runtime === "interrupted" ? { ...s, tone: "neutral" } : s;
+}
+
+/** The phone's session actions sheet: the same list as the session menu, opened by a long-press. */
+type RowIntent = "sheet" | "stop" | "rename";
+
+interface RowActionsProps {
+  intent: RowIntent;
+  /** Changes with every request, so the same request twice runs twice. */
+  n: number;
+  open: boolean;
+  onClose: () => void;
+}
+
+function RowActionsHost({ sessionId, ...props }: RowActionsProps & { sessionId: string | null }) {
+  const session = useSession(sessionId);
+  if (!sessionId || !session) return null;
+  return <RowActions key={sessionId} session={session} {...props} />;
+}
+
+function RowActions({ session, ...props }: RowActionsProps & { session: Session }) {
+  const ctx = useSessionContext(session);
+  if (!ctx) return null;
+  return <RowActionsSheet ctx={ctx} {...props} />;
+}
+
+function RowActionsSheet({
+  ctx,
+  intent,
+  n,
+  open,
+  onClose,
+}: RowActionsProps & { ctx: NonNullable<ReturnType<typeof useSessionContext>> }) {
+  const actions = useSessionActions(ctx);
+  const latest = useRef(actions);
+  latest.current = actions;
+  // A swipe action runs its dialog here, where the session's actions and dialogs live.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run once per request (n)
+  useEffect(() => {
+    if (intent === "stop") latest.current.requestStop();
+    else if (intent === "rename") latest.current.openRename();
+  }, [n]);
+  const scopes = useSyncStore((st) => st.scopes);
+  const { session, project, workspace } = ctx;
+  const items: (MenuItem | MenuHeading | "separator")[] = [
+    ...(actions.canStop
+      ? [
+          {
+            id: "stop",
+            label: "Stop",
+            icon: <Square className="size-4" />,
+            danger: true,
+            onSelect: actions.requestStop,
+          } satisfies MenuItem,
+        ]
+      : []),
+    ...sessionMenuItems(ctx, actions, Object.values(scopes)),
+  ];
+  return (
+    <>
+      <ActionSheet
+        open={open}
+        onClose={onClose}
+        title={session.title}
+        description={[project?.name, workspace?.branch].filter(Boolean).join(" · ") || undefined}
+        label={`Actions for ${session.title}`}
+        items={items}
+      />
+      {actions.dialogs}
+    </>
+  );
 }

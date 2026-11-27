@@ -29,7 +29,7 @@ test.describe("branch board", () => {
       ).toBeVisible();
     }
     await expect(card).toBeVisible();
-    await card.getByRole("button", { name: `Card ${branch}` }).click();
+    await card.getByRole("button", { name: new RegExp(`^Card ${branch}`) }).click();
     await expect(page).toHaveURL(new RegExp(`/code/${r.session.id}`));
   });
 
@@ -50,9 +50,21 @@ test.describe("branch board", () => {
     if (isMobile(info)) await page.getByRole("tab", { name: /Working/ }).tap();
     const card = page.getByTestId("work-card").filter({ hasText: `In view ${id}` });
     await expect(card).toBeVisible();
+    const openView = async () => {
+      if (!isMobile(info)) return;
+      await page.getByRole("button", { name: /^View options/ }).click();
+    };
+    const closeView = async () => {
+      if (!isMobile(info)) return;
+      await page.getByRole("button", { name: "Done" }).click();
+    };
+    await openView();
     await page.getByLabel("Scope", { exact: true }).selectOption(elsewhere.id);
+    await closeView();
     await expect(card).toHaveCount(0);
+    await openView();
     await page.getByLabel("Scope", { exact: true }).selectOption("");
+    await closeView();
     await expect(card).toBeVisible();
     await api("DELETE", `/api/scopes/${elsewhere.id}`);
   });

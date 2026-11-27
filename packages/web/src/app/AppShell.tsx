@@ -25,11 +25,13 @@ import { usePalette } from "../features/palette/registry";
 import { useGlobalShortcuts } from "../features/palette/useGlobalShortcuts";
 import { cn } from "../lib/cn";
 import { usePrefs } from "../prefs";
+import { isIos, isStandalone } from "../push";
 import { syncClient } from "../sync/client";
 import { useAttentionCount, useConnectionState, useStaleSince } from "../sync/store";
 import { useChrome } from "./chrome";
 import { useBreakpoint } from "./useBreakpoint";
 import { useComposingWithKeyboard } from "./useComposing";
+import { useEdgeSwipeBack } from "./useEdgeSwipeBack";
 
 interface Destination {
   to: string;
@@ -90,6 +92,16 @@ export const RAIL_DESTINATIONS = [CODE, BOARD, ATTENTION, TASKS, QUEUE, AUTOMATI
 /** Mobile bottom navigation; More holds Tasks, Queue, Automations and Settings. */
 export const BOTTOM_DESTINATIONS = [CODE, BOARD, ATTENTION, MORE];
 
+/** Re-tapping the current tab scrolls its list to the top. */
+function scrollToTop(): void {
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const behavior = reduced ? "auto" : "smooth";
+  document.getElementById("main")?.scrollTo({ top: 0, behavior });
+  for (const el of document.querySelectorAll<HTMLElement>("[data-scroll-root]")) {
+    el.scrollTo({ top: 0, behavior });
+  }
+}
+
 function isActive(d: Destination, pathname: string): boolean {
   return d.match.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
@@ -104,6 +116,7 @@ export function AppShell() {
   const staleSince = useStaleSince();
   const mobile = bp === "mobile";
   useGlobalShortcuts();
+  useEdgeSwipeBack(mobile && isIos() && isStandalone());
   return (
     <div
       className={cn(
@@ -325,6 +338,12 @@ function BottomNav() {
               <Link
                 to={d.to}
                 aria-current={active ? "page" : undefined}
+                onClick={(e) => {
+                  if (pathname === d.to) {
+                    e.preventDefault();
+                    scrollToTop();
+                  }
+                }}
                 className={cn(
                   "flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 text-xs font-medium",
                   active ? "text-accent" : "text-muted",
