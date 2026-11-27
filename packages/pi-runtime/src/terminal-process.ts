@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
   closeSync,
@@ -77,6 +77,8 @@ export interface PiTerminalStartOptions {
   rows?: number;
   /** Abort to stop waiting for the holder: it is killed and the start rejects. */
   signal?: AbortSignal;
+  /** Observe the exact holder process immediately after spawn. */
+  onHolderSpawn?: (child: ChildProcess, socketPath: string) => void;
 }
 
 interface PendingRequest {
@@ -273,6 +275,15 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
     mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
     const fd = openSync(logPath, "a", 0o600);
     let holderPid: number | undefined;
+    // The holder's SIGTERM handler stops Pi, or exits at once when Pi was never spawned.
+    const killHolder = () => {
+      if (holderPid === undefined) return;
+      try {
+        process.kill(holderPid, "SIGTERM");
+      } catch {
+        // already gone
+      }
+    };
     try {
       const child = spawn(process.execPath, [holderScriptPath()], {
         detached: true,
@@ -284,18 +295,15 @@ export class PiTerminalProcess extends EventEmitter implements PiTransport {
       });
       holderPid = child.pid;
       child.unref();
+      try {
+        opts.onHolderSpawn?.(child, socketPath);
+      } catch (error) {
+        killHolder();
+        throw error;
+      }
     } finally {
       closeSync(fd);
     }
-    // The holder's SIGTERM handler stops Pi, or exits at once when Pi was never spawned.
-    const killHolder = () => {
-      if (holderPid === undefined) return;
-      try {
-        process.kill(holderPid, "SIGTERM");
-      } catch {
-        // already gone
-      }
-    };
     const deadline = Date.now() + 10_000;
     const canceled = () => {
       killHolder();

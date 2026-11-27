@@ -13,13 +13,21 @@ import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { fallbackSocketDir, shortSocketPath } from "../src/bridge/socket-paths.js";
 import { HOLDER_QUEUE_FULL } from "../src/terminal/holder.js";
-import { holderScriptPath, sweepHolders, terminalSupport } from "../src/terminal-process.js";
+import {
+  holderScriptPath,
+  PiTerminalProcess,
+  sweepHolders,
+  terminalSupport,
+} from "../src/terminal-process.js";
+import { makeRuntimeTerminalScope } from "./terminal-scope.js";
 
 const dirs: string[] = [];
 const sockets: Socket[] = [];
 /** Holders still running after a failed test would keep the worker (and CI) alive. */
-const holders: ChildProcess[] = [];
+const holders: { child: ChildProcess; done: Promise<number | null>; socketPath: string }[] = [];
+const scopes: ReturnType<typeof makeRuntimeTerminalScope>[] = [];
 
 function startHolder(
   script: string,
@@ -49,8 +57,8 @@ function startHolder(
     stdio: ["ignore", "ignore", "inherit"],
     env: { ...process.env, SWITCHYARD_HOLDER_CONFIG: JSON.stringify(cfg) },
   });
-  holders.push(child);
   const done = new Promise<number | null>((resolve) => child.once("exit", (c) => resolve(c)));
+  holders.push({ child, done, socketPath });
   return { socketPath, pid: child.pid!, done };
 }
 
@@ -99,14 +107,90 @@ const decoded = (lines: any[]) =>
     .map((l) => Buffer.from(l.d, "base64").toString("utf8"))
     .join("");
 
-afterEach(() => {
-  for (const child of holders.splice(0))
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+afterEach(async () => {
+  const errors: unknown[] = [];
+  for (const scope of scopes.splice(0)) {
+    try {
+      await scope.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  for (const holder of holders.splice(0)) {
+    if (holder.child.exitCode === null && holder.child.signalCode === null) {
+      try {
+        const control = await connect(holder.socketPath, { role: "control" });
+        control.send({ type: "holder_kill", signal: "SIGKILL" });
+        await until(() => holder.child.exitCode !== null || holder.child.signalCode !== null, 5000);
+      } catch (error) {
+        errors.push(error);
+        holder.child.kill("SIGKILL");
+      }
+    }
+    await holder.done;
+  }
   for (const s of sockets.splice(0)) s.destroy();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
-});
+  if (errors.length) throw new AggregateError(errors, "holder cleanup failed");
+}, 30000);
 
 describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
+  it("disposes detached holders without affecting another scope", async () => {
+    const first = makeRuntimeTerminalScope(PiTerminalProcess);
+    const second = makeRuntimeTerminalScope(PiTerminalProcess);
+    scopes.push(first, second);
+    const a = startHolder("exec cat", {}, shortSocketPath(first.runtimeDir, "term"));
+    const b = startHolder("exec cat", {}, shortSocketPath(second.runtimeDir, "term"));
+    const viewer = await connect(a.socketPath, { role: "viewer", cols: 80, rows: 24 });
+    const control = await connect(a.socketPath, { role: "control" });
+    await until(() => control.lines.some((line) => line.type === "holder_status" && line.piPid));
+    const piPid = control.lines.find((line) => line.type === "holder_status" && line.piPid).piPid;
+    viewer.s.destroy();
+    control.s.destroy();
+    await first.dispose();
+    await first.dispose();
+    await a.done;
+    expect(() => process.kill(piPid, 0)).toThrow();
+    expect(() => process.kill(a.pid, 0)).toThrow();
+    expect(existsSync(a.socketPath)).toBe(false);
+    const survivor = await connect(b.socketPath, { role: "control" });
+    await until(() => survivor.lines.some((line) => line.type === "holder_status" && line.piPid));
+    await second.dispose();
+    await b.done;
+  }, 30000);
+
+  it("cleans only the long-path scope's hashed fallback", async () => {
+    const first = makeRuntimeTerminalScope(PiTerminalProcess, {
+      runtimeSubpath: "long-".repeat(30),
+    });
+    const second = makeRuntimeTerminalScope(PiTerminalProcess, {
+      runtimeSubpath: "long-".repeat(30),
+    });
+    scopes.push(first, second);
+    const a = startHolder("exec cat", {}, shortSocketPath(first.runtimeDir, "term"));
+    const b = startHolder("exec cat", {}, shortSocketPath(second.runtimeDir, "term"));
+    expect(a.socketPath.startsWith(`${fallbackSocketDir(first.runtimeDir)}/`)).toBe(true);
+    expect(b.socketPath.startsWith(`${fallbackSocketDir(second.runtimeDir)}/`)).toBe(true);
+    const viewer = await connect(a.socketPath, { role: "viewer", cols: 80, rows: 24 });
+    const firstControl = await connect(a.socketPath, { role: "control" });
+    await until(() =>
+      firstControl.lines.some((line) => line.type === "holder_status" && line.piPid),
+    );
+    viewer.s.destroy();
+    firstControl.s.destroy();
+    const survivor = await connect(b.socketPath, { role: "control" });
+    await until(() => survivor.lines.some((line) => line.type === "holder_status" && line.piPid));
+    await first.dispose();
+    await a.done;
+    expect(existsSync(fallbackSocketDir(first.runtimeDir))).toBe(false);
+    expect(existsSync(b.socketPath)).toBe(true);
+    // A fresh control handshake proves the other holder is still listening.
+    const check = await connect(b.socketPath, { role: "control" });
+    await until(() => check.lines.some((line) => line.type === "holder_status" && line.piPid));
+    await second.dispose();
+    await b.done;
+    expect(existsSync(fallbackSocketDir(second.runtimeDir))).toBe(false);
+  }, 30000);
   it("paints the screen for a viewer, echoes input, and resizes", async () => {
     const h = startHolder("printf ready; exec cat");
     await new Promise((r) => setTimeout(r, 300));
@@ -199,11 +283,14 @@ describe.skipIf(!terminalSupport().ok)("terminal holder", () => {
   });
 
   it("listens before it spawns Pi", async () => {
-    const h = startHolder('if [ -S "$SOCK" ]; then echo listening; else echo early; fi; exec cat');
-    const v = await connect(h.socketPath, { role: "viewer", cols: 80, rows: 24 });
-    await until(() => decoded(v.lines).includes("listening") || decoded(v.lines).includes("early"));
-    expect(decoded(v.lines)).toContain("listening");
-    expect(decoded(v.lines)).not.toContain("early");
+    // Capture what the child observed at startup; a viewer can attach between the initial
+    // PTY output and the screen snapshot, which is unrelated to socket/spawn ordering.
+    const h = startHolder(
+      'if [ -S "$SOCK" ]; then echo listening; else echo early; fi > "$SOCK.order"; exec cat',
+    );
+    const result = `${h.socketPath}.order`;
+    await until(() => existsSync(result) && statSync(result).size > 0);
+    expect(readFileSync(result, "utf8").trim()).toBe("listening");
     expect(statSync(h.socketPath).mode & 0o777).toBe(0o600);
     const c = await connect(h.socketPath, { role: "control" });
     c.send({ type: "holder_kill", signal: "SIGKILL" });

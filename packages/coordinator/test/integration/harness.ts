@@ -42,6 +42,8 @@ import {
   type TempRepo,
 } from "@switchyard/test-fixtures";
 import { WebSocket } from "ws";
+import { PiTerminalProcess } from "../../../pi-runtime/dist/index.js";
+import { makeRuntimeTerminalScope } from "../../../pi-runtime/test/terminal-scope.js";
 import {
   type Coordinator,
   type CreateCoordinatorOptions,
@@ -344,7 +346,8 @@ export interface IntegrationOptions {
 export class Integration {
   c!: Coordinator;
   readonly dataDir = tempDir("sy-int-coord-");
-  readonly stateDir = tempDir("sy-int-host-");
+  readonly terminalScope = makeRuntimeTerminalScope(PiTerminalProcess);
+  readonly stateDir = this.terminalScope.root;
   readonly configPath: string;
   readonly ownerAdapterDir: string;
   port = 0;
@@ -365,8 +368,18 @@ export class Integration {
   project: any = null;
   devices: { terminal: Device; desktop: Device; mobile: Device } | null = null;
   private running = false;
+  private disposal?: Promise<void>;
 
   constructor(private readonly opts: IntegrationOptions = {}) {
+    this.terminalScope.onStop(async () => {
+      const results = await Promise.allSettled(
+        this.agents.map((agent) => agent.stop({ terminals: "stop" })),
+      );
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length) throw new AggregateError(errors, "Failed to stop integration hosts");
+    });
     this.configPath = join(this.stateDir, "config", "host.json");
     this.ownerAdapterDir = join(this.stateDir, "owner-adapters");
     mkdirSync(this.ownerAdapterDir, { recursive: true });
@@ -377,7 +390,11 @@ export class Integration {
     try {
       await env.init();
     } catch (err) {
-      await env.dispose();
+      try {
+        await env.dispose();
+      } catch (cleanupError) {
+        throw new AggregateError([err, cleanupError], "Integration setup and cleanup failed");
+      }
       throw err;
     }
     return env;
@@ -463,27 +480,32 @@ export class Integration {
 
   // ---- host lifecycle ----
 
-  async startAgent(): Promise<HostAgentHandle> {
-    const agent = await runHostAgent({
-      configPath: this.configPath,
-      stateDir: this.stateDir,
-      piBin: piBin(),
-      env: this.pi!.env,
-      extraExtensions: [fixtureExtensionPath(), ...(this.opts.extraExtensions ?? [])],
-      ownerAdapterDir: this.ownerAdapterDir,
-      handleSignals: false,
-      terminalSessions: this.opts.terminalSessions ?? false,
-      backoffMs: [50, 100, 200],
-      logger: silentLogger(),
-      testHooks: {
-        dropReceipt: (id, cmd) => this.hooks.dropReceipt?.(id, cmd) ?? false,
-        onCommand: (cmd) => {
-          this.hostCommands.push(cmd);
+  async startAgent(
+    overrides: { piBin?: string; terminalSessions?: boolean } = {},
+  ): Promise<HostAgentHandle> {
+    const agent = await this.terminalScope.launch(async () => {
+      const handle = await runHostAgent({
+        configPath: this.configPath,
+        stateDir: this.stateDir,
+        piBin: overrides.piBin ?? piBin(),
+        env: this.pi!.env,
+        extraExtensions: [fixtureExtensionPath(), ...(this.opts.extraExtensions ?? [])],
+        ownerAdapterDir: this.ownerAdapterDir,
+        handleSignals: false,
+        terminalSessions: overrides.terminalSessions ?? this.opts.terminalSessions ?? false,
+        backoffMs: [50, 100, 200],
+        logger: silentLogger(),
+        testHooks: {
+          dropReceipt: (id, cmd) => this.hooks.dropReceipt?.(id, cmd) ?? false,
+          onCommand: (cmd) => {
+            this.hostCommands.push(cmd);
+          },
         },
-      },
+      });
+      this.agent = handle;
+      this.agents.push(handle);
+      return handle;
     });
-    this.agent = agent;
-    this.agents.push(agent);
     await this.waitHostConnected();
     return agent;
   }
@@ -707,18 +729,34 @@ export class Integration {
     });
   }
 
-  async dispose(): Promise<void> {
-    for (const cl of this.clients) cl.close();
-    for (const a of this.agents) await a.stop().catch(() => {});
-    if (this.running) await this.stopCoordinator().catch(() => {});
-    await this.mock?.close().catch(() => {});
-    this.pi?.cleanup();
-    if (this.repo) {
-      // Worktrees outside the repo (external discovery) are removed by their tests.
-      this.repo.cleanup();
-    }
-    rmSync(this.dataDir, { recursive: true, force: true });
-    rmSync(this.stateDir, { recursive: true, force: true });
+  dispose(): Promise<void> {
+    this.disposal ??= this.disposeOnce();
+    return this.disposal;
+  }
+
+  private async disposeOnce(): Promise<void> {
+    const errors: unknown[] = [];
+    const attempt = async (fn: () => void | Promise<void>) => {
+      try {
+        await fn();
+      } catch (error) {
+        errors.push(error);
+      }
+    };
+    for (const cl of this.clients) await attempt(() => cl.close());
+    let terminalsClean = false;
+    await attempt(async () => {
+      await this.terminalScope.dispose();
+      terminalsClean = true;
+    });
+    if (this.running) await attempt(() => this.stopCoordinator());
+    if (this.mock) await attempt(() => this.mock!.close());
+    // Preserve Pi diagnostics if terminal teardown could not be verified.
+    if (terminalsClean && this.pi) await attempt(() => this.pi!.cleanup());
+    // Worktrees outside the repo (external discovery) are removed by their tests.
+    if (this.repo) await attempt(() => this.repo!.cleanup());
+    await attempt(() => rmSync(this.dataDir, { recursive: true, force: true }));
+    if (errors.length) throw new AggregateError(errors, "Integration cleanup failed");
   }
 }
 

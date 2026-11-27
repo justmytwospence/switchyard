@@ -14,6 +14,8 @@ import {
 } from "@switchyard/test-fixtures";
 import { bridgeExtensionPath } from "../src/index.js";
 import { ManagedSession, type ManagedSessionOptions } from "../src/session-runtime.js";
+import { PiTerminalProcess } from "../src/terminal-process.js";
+import { makeRuntimeTerminalScope } from "./terminal-scope.js";
 
 export { skipRealPi };
 
@@ -32,6 +34,7 @@ export interface PiHarness {
   mock: MockModelServer;
   env: PiEnv;
   sessions: ManagedSession[];
+  terminalScope: ReturnType<typeof makeRuntimeTerminalScope>;
   newSession(overrides?: Partial<ManagedSessionOptions>): ManagedSession;
   dispose(): Promise<void>;
 }
@@ -50,14 +53,40 @@ export async function setupPi(
   if (!existsSync(fixtureExtensionPath())) {
     throw new Error(`Fixture extension not built: ${fixtureExtensionPath()}`);
   }
-  const mock = await startMockModel(script);
-  const env = makePiEnv({ mockUrl: mock.url, settings: opts.settings });
+  const terminalScope = makeRuntimeTerminalScope(PiTerminalProcess);
+  let mock: MockModelServer;
+  let env: PiEnv;
+  try {
+    mock = await startMockModel(script);
+    try {
+      env = makePiEnv({ mockUrl: mock.url, settings: opts.settings });
+    } catch (error) {
+      await mock.close();
+      throw error;
+    }
+  } catch (error) {
+    await terminalScope.dispose();
+    throw error;
+  }
   const sessions: ManagedSession[] = [];
+  terminalScope.onStop(async () => {
+    const results = await Promise.allSettled(
+      sessions.map((s) => s.stop({ graceMs: 3000, termMs: 1000 })),
+    );
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failures.length)
+      throw new AggregateError(
+        failures.map((r) => r.reason),
+        "session teardown failed",
+      );
+  });
   let n = 0;
+  let disposal: Promise<void> | undefined;
   return {
     mock,
     env,
     sessions,
+    terminalScope,
     newSession(overrides = {}) {
       const s = new ManagedSession({
         sessionId: `ses_test${++n}`,
@@ -68,14 +97,31 @@ export async function setupPi(
         env: env.env,
         extensions: [fixtureExtensionPath()],
         ...overrides,
+        runtimeDir: terminalScope.runtimeDir,
       });
       sessions.push(s);
       return s;
     },
-    async dispose() {
-      await Promise.allSettled(sessions.map((s) => s.stop({ graceMs: 3000, termMs: 1000 })));
-      await mock.close();
-      env.cleanup();
+    dispose() {
+      disposal ??= (async () => {
+        const errors: unknown[] = [];
+        let clean = false;
+        try {
+          await terminalScope.dispose();
+          clean = true;
+        } catch (error) {
+          errors.push(error);
+        }
+        try {
+          await mock.close();
+        } catch (error) {
+          errors.push(error);
+        }
+        if (clean) env.cleanup();
+        if (errors.length)
+          throw new AggregateError(errors, `Pi fixture cleanup failed; retained ${env.root}`);
+      })();
+      return disposal;
     },
   };
 }

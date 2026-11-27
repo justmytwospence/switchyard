@@ -3,9 +3,8 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runHostAgent, silentLogger } from "@switchyard/host-agent";
 import type { Session } from "@switchyard/protocol";
-import { fixtureExtensionPath, piBin } from "@switchyard/test-fixtures";
+import { piBin } from "@switchyard/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { Integration, sessionFiles, steps, tempDir, waitFor } from "./harness.js";
@@ -59,50 +58,53 @@ function parentPid(pid: number): number {
 describe("a real surviving legacy terminal holder", { timeout: 180_000 }, () => {
   let env: Integration;
   let dir: string;
-  let holder: { pid: number; piPid: number } | undefined;
   const viewers: WebSocket[] = [];
 
   afterEach(async () => {
     for (const viewer of viewers.splice(0)) viewer.terminate();
-    // Integration normally runs RPC. Explicitly stop this test's surviving terminal before
-    // disposing the host (a graceful host stop intentionally leaves its holders alive).
-    if (env?.agent) await env.agent.supervisor.stopAll({ terminals: "stop" });
-    // Also cover a failure BETWEEN detaching the old host and attaching the new one.
-    // At that point neither supervisor owns this test's still-running holder.
-    if (holder) {
-      for (const pid of [holder.pid, holder.piPid]) {
-        try {
-          globalThis.process.kill(pid, "SIGTERM");
-        } catch {
-          // Already exited during normal supervisor shutdown.
-        }
-      }
-      holder = undefined;
+    try {
+      await env?.dispose();
+    } finally {
+      if (dir) rmSync(dir, { recursive: true, force: true });
     }
-    await env?.dispose();
-    if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
   async function startTerminalAgent(bin: string) {
-    const agent = await runHostAgent({
-      configPath: env.configPath,
-      stateDir: env.stateDir,
-      piBin: bin,
-      env: env.pi!.env,
-      extraExtensions: [fixtureExtensionPath(), gate],
-      ownerAdapterDir: env.ownerAdapterDir,
-      terminalSessions: true,
-      handleSignals: false,
-      backoffMs: [50, 100, 200],
-      logger: silentLogger(),
-      testHooks: { onCommand: (command) => env.hostCommands.push(command) },
-    });
-    env.agent = agent;
-    env.agents.push(agent);
-    await env.waitHostConnected();
+    const agent = await env.startAgent({ piBin: bin, terminalSessions: true });
     expect(agent.terminalSessions, "real node-pty/holder support is required").toBe(true);
     return agent;
   }
+
+  async function disableDestructiveShellPolicy() {
+    const destructive = (await env.ok("GET", "/api/policies")).find(
+      (rule: { id: string }) => rule.id === "destructive-shell",
+    );
+    await env.ok("PATCH", `/api/policies/${destructive.id}`, {
+      body: { expectedRevision: destructive.revision, enabled: false },
+    });
+  }
+
+  it("cleans up a legacy holder when disposal interrupts reattachment", async () => {
+    env = await Integration.create({ extraExtensions: [gate] });
+    await env.agent!.stop();
+    // The archived bridge cannot initialize a policy-required session.
+    await disableDestructiveShellPolicy();
+    dir = tempDir("sy-legacy-holder-");
+    const launcher = legacyLauncher(dir);
+    const oldAgent = await startTerminalAgent(launcher.bin);
+    const session = await env.createSession("admin", steps("done"));
+    const pid = await env.livePi(session.id);
+    const holderPid = parentPid(pid);
+    const socket = oldAgent.supervisor.record(session.id)!.terminal!.socketPath;
+    await oldAgent.stop();
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    expect(() => process.kill(holderPid, 0)).not.toThrow();
+    expect(existsSync(socket)).toBe(true);
+    await env.dispose();
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect(() => process.kill(holderPid, 0)).toThrow();
+    expect(existsSync(socket)).toBe(false);
+  });
 
   it("reattaches without restarting Pi, stays browsable/unprotected, and refuses protected reuse and continuation", async () => {
     env = await Integration.create({ extraExtensions: [gate] });
@@ -110,12 +112,7 @@ describe("a real surviving legacy terminal holder", { timeout: 180_000 }, () => 
     dir = tempDir("sy-legacy-holder-");
     const launcher = legacyLauncher(dir);
     const oldAgent = await startTerminalAgent(launcher.bin);
-    const destructive = (await env.ok("GET", "/api/policies")).find(
-      (rule: { id: string }) => rule.id === "destructive-shell",
-    );
-    await env.ok("PATCH", `/api/policies/${destructive.id}`, {
-      body: { expectedRevision: destructive.revision, enabled: false },
-    });
+    await disableDestructiveShellPolicy();
     // No token/USD caps: the untouched seeded budget rules alone don't require protection.
     // Hold an ACTUAL turn open across the upgrade; it must be allowed to finish afterwards.
     const task = await env.createTask("admin", {
@@ -147,7 +144,6 @@ describe("a real surviving legacy terminal holder", { timeout: 180_000 }, () => 
     const process = oldAgent.supervisor.managedSession(sid)!.process!;
     const pid = process.pid!;
     const holderPid = parentPid(pid);
-    holder = { pid: holderPid, piPid: pid };
     const socket = oldAgent.supervisor.record(sid)!.terminal!.socketPath;
     const files = sessionFiles(env.pi!.sessionsDir);
     expect(files).toContain(original.nativeHandle!.sessionFile);
