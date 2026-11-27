@@ -30,6 +30,16 @@ Most runtime, host and integration tests start the real `pi --mode rpc` with an 
 
 The browser tests start a real coordinator and host with the mock model, and use a mock OpenID Connect provider and a virtual WebAuthn authenticator for the sign-in flows.
 
+## Plugin development skill
+
+The public [plugin-development skill](../skills/switchyard-plugin-development/SKILL.md) bundles authoring and verification references for portable use outside this repository. For example, install copies for Codex and Claude Code (choose the agents you use):
+
+```sh
+npx skills add justmytwospence/switchyard -s switchyard-plugin-development -a codex claude-code --copy -y
+```
+
+For reproducible installations, replace the repository shorthand with `https://github.com/justmytwospence/switchyard/tree/<full-commit-sha>/skills/switchyard-plugin-development`. Update deliberately by reinstalling the skill from a reviewed new commit, rather than editing installed copies. Run `pnpm skill:check` to validate the source and its validator tests. Publishing guidance on the public development branch requires no runtime release or production promotion.
+
 ## Adapter development and cross-repository checks
 
 After `pnpm build`, run the portable preview with an explicitly selected trusted adapter and a fixture:

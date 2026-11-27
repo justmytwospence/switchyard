@@ -22,6 +22,7 @@ jobs:
       - run: pnpm build
       - run: pnpm lint
       - run: pnpm test:tiers
+      - run: pnpm skill:check
       - run: pnpm test:fast
       - run: pnpm build:client-npm
       - run: pnpm test:client-npm

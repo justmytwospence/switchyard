@@ -166,6 +166,16 @@ License: [MIT](LICENSE).
 
 Switchyard is young and moving quickly. It is tested against Pi `>=1.4.0 <1.7.0` (see [docs/compatibility.md](docs/compatibility.md) for supported and unsupported Pi capabilities) and runs on macOS and Linux hosts. What has and has not been verified is recorded in [docs/acceptance-report.md](docs/acceptance-report.md).
 
+## Developing Pi plugins for Switchyard
+
+The portable [plugin-development skill](skills/switchyard-plugin-development/SKILL.md) guides authors through compatibility assessment, adapter design and verification. See also the [adapter guide](docs/adapters.md). Install it from the public repository; for example, for both Codex and Claude Code:
+
+```sh
+npx skills add justmytwospence/switchyard -s switchyard-plugin-development -a codex claude-code --copy -y
+```
+
+Choose the agents you use; these two are only an example and are not required to use Switchyard.
+
 ## Documentation
 
 | Guide | Covers |
