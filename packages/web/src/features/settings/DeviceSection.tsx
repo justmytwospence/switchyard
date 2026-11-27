@@ -1,4 +1,5 @@
 import { currentDeviceId, useAuth } from "../../app/auth";
+import { NavigationEditor } from "../../app/NavigationEditor";
 import { useBreakpoint, useCoarsePointer } from "../../app/useBreakpoint";
 import { Card } from "../../components/ui/Card";
 import { RadioCards } from "../../components/ui/RadioCards";
@@ -25,6 +26,13 @@ export function DeviceSection() {
       title="This device"
       description="These preferences are stored in this browser only; your other devices keep their own."
     >
+      <Card
+        title="Navigation"
+        description="Which pages the phone's bottom bar shows, and the order of all of them."
+        testId="navigation-settings"
+      >
+        <NavigationEditor />
+      </Card>
       <Card title="Composer">
         <div className="flex flex-col gap-3">
           <SwitchRow

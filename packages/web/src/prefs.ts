@@ -33,6 +33,10 @@ export interface Prefs {
   followUpMode: "queue" | "steer";
   /** Navigation-only Vim shortcuts; text editing and terminal input remain native. */
   vimNavigation: boolean;
+  /** Order of the navigation destinations (rail, bottom bar, More); ids as in app/navigation. */
+  navOrder: string[];
+  /** How many of `navOrder` the phone's bottom bar shows; the rest are under More. */
+  navBar: number;
   /** Free-form per-view filter state, keyed by view (e.g. "board", "navigator"). */
   filters: Record<string, unknown>;
 }
@@ -81,6 +85,8 @@ export const usePrefs = create<PrefsStore>()(
       transcriptDetail: "normal",
       followUpMode: "queue",
       vimNavigation: true,
+      navOrder: ["code", "board", "attention", "tasks", "queue", "automations", "settings"],
+      navBar: 3,
       filters: {},
       set: (key, value) => set({ [key]: value } as Partial<Prefs>),
       setPaneSize: (pane, px) =>

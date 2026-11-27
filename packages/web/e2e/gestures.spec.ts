@@ -93,6 +93,45 @@ test.describe("phone gestures", () => {
     await expect(page.getByRole("tab").nth(1)).toHaveAttribute("aria-selected", "true");
   });
 
+  test("the board's tab underline follows the swipe", async ({ page, signIn }) => {
+    await signIn();
+    await page.goto("/board");
+    const first = page.getByRole("tab").first();
+    await first.tap();
+    const bar = page.locator('[role="tablist"] > span[aria-hidden]');
+    await page.waitForTimeout(300);
+    const before = (await bar.boundingBox())!.x;
+    const cdp = await page.context().newCDPSession(page);
+    const at = (x: number) => [{ x, y: 650, id: 0 }];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: at(330) });
+    for (let x = 320; x >= 200; x -= 10) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: at(x) });
+    }
+    const during = (await bar.boundingBox())!.x;
+    expect(during).toBeGreaterThan(before + 10);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(page.getByRole("tab").nth(1)).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("More > Edit moves a page into the bottom bar", async ({ page, signIn }) => {
+    await signIn();
+    await page.goto("/more");
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    await expect(nav.getByRole("link", { name: "Queue" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Edit" }).tap();
+    const handle = page.getByRole("button", { name: "Move Queue" });
+    await handle.focus();
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp");
+    await page.getByRole("button", { name: "Done" }).tap();
+    await expect(nav.getByRole("link", { name: "Queue" })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Queue/ }).first()).toBeVisible();
+    await page.goto("/settings/device");
+    await page.getByRole("button", { name: "Reset to default" }).click();
+    await page.goto("/more");
+    await expect(nav.getByRole("link", { name: "Queue" })).toHaveCount(0);
+  });
+
   test("a menu is a sheet that closes by dragging it down", async ({ page, signIn }) => {
     await signIn();
     await page.goto("/code");

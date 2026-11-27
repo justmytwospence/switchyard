@@ -323,7 +323,7 @@ Use text plus icons for status. Never rely on color alone.
 
 Touch targets: at least 44×44 CSS pixels. Respect safe areas and on-screen keyboards.
 
-Touch gestures (phone): gestures are shortcuts for controls that are also on screen, never the only way to do something. Long-press opens an item's actions (session rows, Board and task cards, your own messages); the item sinks or highlights while held, and no text selection starts. Menus open as native-style action sheets: grouped cards, settings as switches, destructive actions last, a Cancel button, drag down to close. A session row swipes left to reveal More and Archive (Stop while it runs; a long swipe runs the outer one, and Archive offers Undo) and right to reveal Rename (and Clear when it needs input). An attention item swipes right to open its session and left to clear or dismiss it. The Board and Tasks lists swipe sideways between columns, empty ones included. In a session, swipe left from the chat to Changes, PR and Details, and right back to the chat and then to the session list. In the installed iOS app, swiping from the left edge goes back. Tapping the current bottom tab scrolls its list to the top. Haptics confirm a committed swipe or long-press where the device has them.
+Touch gestures (phone): gestures are shortcuts for controls that are also on screen, never the only way to do something. Long-press opens an item's actions (session rows, Board and task cards, your own messages); the item sinks or highlights while held, and no text selection starts. Menus open as native-style action sheets: grouped cards, settings as switches, destructive actions last, a Cancel button, drag down to close. A session row swipes left to reveal More and Archive (Stop while it runs; a long swipe runs the outer one, and Archive offers Undo) and right to reveal Rename (and Clear when it needs input). An attention item swipes right to open its session and left to clear or dismiss it. The Board and Tasks lists swipe sideways between columns, empty ones included, and the tab underline (or a segmented control's selection) follows the finger. In a session, swipe left from the chat to Changes, PR and Details, and right back to the chat and then to the session list. In the installed iOS app, swiping from the left edge goes back. Tapping the current bottom tab scrolls its list to the top. Haptics confirm a committed swipe or long-press where the device has them.
 
 Use consistent terminology: task, run, session, workspace, host.
 
@@ -341,7 +341,7 @@ Destinations:
 - Automations.
 - Settings.
 
-Mobile bottom navigation: Sessions, Board, Attention, More. More contains Tasks, Queue, Automations, and Settings.
+Mobile bottom navigation: Sessions, Board, Attention, More by default; More contains Tasks, Queue, Automations, and Settings. The order of the destinations and which of them the bottom bar shows (one to four, beside More) are set per device, in Settings > This device > Navigation or with Edit on the More page: drag a page by its handle (or move it with the arrow keys); a page dropped into a full bar pushes the bar's last one under More. The desktop rail lists every destination in the same order. When Attention is under More, More shows its count.
 
 Hide bottom navigation while composing with the keyboard; preserve access through Back/header controls.
 

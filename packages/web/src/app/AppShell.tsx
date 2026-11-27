@@ -1,17 +1,4 @@
-import {
-  Bell,
-  Ellipsis,
-  Keyboard,
-  ListChecks,
-  type LucideIcon,
-  MessagesSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
-  SquareKanban,
-  Timer,
-  Workflow,
-} from "lucide-react";
+import { Ellipsis, Keyboard, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { CountBadge } from "../components/ui/Badge";
@@ -29,68 +16,12 @@ import { isIos, isStandalone } from "../push";
 import { syncClient } from "../sync/client";
 import { useAttentionCount, useConnectionState, useStaleSince } from "../sync/store";
 import { useChrome } from "./chrome";
+import { isActive, useNavLayout } from "./navigation";
 import { useBreakpoint } from "./useBreakpoint";
 import { useComposingWithKeyboard } from "./useComposing";
 import { useEdgeSwipeBack } from "./useEdgeSwipeBack";
 
-interface Destination {
-  to: string;
-  label: string;
-  icon: LucideIcon;
-  /** Path prefixes that make this destination active. */
-  match: string[];
-  badge?: "attention";
-}
-
-const CODE: Destination = {
-  to: "/code",
-  label: "Sessions",
-  icon: MessagesSquare,
-  match: ["/code"],
-};
-const BOARD: Destination = {
-  to: "/board",
-  label: "Board",
-  icon: SquareKanban,
-  match: ["/board"],
-};
-const TASKS: Destination = {
-  to: "/tasks",
-  label: "Tasks",
-  icon: ListChecks,
-  match: ["/tasks"],
-};
-const ATTENTION: Destination = {
-  to: "/attention",
-  label: "Attention",
-  icon: Bell,
-  match: ["/attention"],
-  badge: "attention",
-};
-const QUEUE: Destination = { to: "/queue", label: "Queue", icon: Timer, match: ["/queue"] };
-const AUTOMATIONS: Destination = {
-  to: "/automations",
-  label: "Automations",
-  icon: Workflow,
-  match: ["/automations"],
-};
-const SETTINGS: Destination = {
-  to: "/settings",
-  label: "Settings",
-  icon: Settings,
-  match: ["/settings"],
-};
-const MORE: Destination = {
-  to: "/more",
-  label: "More",
-  icon: Ellipsis,
-  match: ["/more", "/tasks", "/queue", "/automations", "/settings"],
-};
-
-/** Desktop and compact rail destinations (spec 10). */
-export const RAIL_DESTINATIONS = [CODE, BOARD, ATTENTION, TASKS, QUEUE, AUTOMATIONS, SETTINGS];
-/** Mobile bottom navigation; More holds Tasks, Queue, Automations and Settings. */
-export const BOTTOM_DESTINATIONS = [CODE, BOARD, ATTENTION, MORE];
+const MORE = { to: "/more", label: "More", icon: Ellipsis };
 
 /** Re-tapping the current tab scrolls its list to the top. */
 function scrollToTop(): void {
@@ -100,10 +31,6 @@ function scrollToTop(): void {
   for (const el of document.querySelectorAll<HTMLElement>("[data-scroll-root]")) {
     el.scrollTo({ top: 0, behavior });
   }
-}
-
-function isActive(d: Destination, pathname: string): boolean {
-  return d.match.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 /**
@@ -179,6 +106,7 @@ function Rail() {
   const setPref = usePrefs((s) => s.set);
   const { pathname } = useLocation();
   const count = useAttentionCount();
+  const nav = useNavLayout();
   const connState = useConnectionState();
   const conn = statusInfo({ kind: "connection", value: connState });
   const ConnIcon = conn.icon;
@@ -206,7 +134,7 @@ function Rail() {
           </span>
         </div>
         <ul className="flex flex-1 flex-col gap-1 px-2 py-2">
-          {RAIL_DESTINATIONS.map((d) => {
+          {nav.all.map((d) => {
             const active = isActive(d, pathname);
             const Icon = d.icon;
             return (
@@ -322,6 +250,7 @@ function BottomNav() {
   const count = useAttentionCount();
   const composing = useComposingWithKeyboard();
   const hiddenByView = useChrome((s) => s.hideBottomNav > 0);
+  const nav = useNavLayout();
   const hidden = composing || hiddenByView;
   if (hidden) return null;
   return (
@@ -329,8 +258,22 @@ function BottomNav() {
       aria-label="Primary"
       className="shrink-0 border-t border-border bg-surface safe-pb safe-px"
     >
-      <ul className="grid grid-cols-4">
-        {BOTTOM_DESTINATIONS.map((d) => {
+      <ul
+        className="grid"
+        style={{ gridTemplateColumns: `repeat(${nav.bar.length + 1}, minmax(0, 1fr))` }}
+      >
+        {[
+          ...nav.bar,
+          {
+            ...MORE,
+            id: "more",
+            // Attention moved under More still shows its count here.
+            badge: nav.more.some((m) => m.badge === "attention")
+              ? ("attention" as const)
+              : undefined,
+            match: ["/more", ...nav.more.flatMap((m) => m.match)],
+          },
+        ].map((d) => {
           const active = isActive(d, pathname);
           const Icon = d.icon;
           return (

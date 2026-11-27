@@ -1,7 +1,7 @@
 import { type RefObject, useEffect, useRef } from "react";
 import { dismissResult, lockAxis, rubberBand, velocity } from "./gestures";
 
-const FORM = "input, textarea, select, [contenteditable]";
+const FORM = "input, textarea, select, [contenteditable], [data-no-sheet-drag]";
 
 /**
  * Drag a bottom sheet down to close it, from anywhere on it: from its body only while that body
