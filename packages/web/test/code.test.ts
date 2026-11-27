@@ -15,7 +15,7 @@ import {
   applyCompletion,
   branchFromPrompt,
   branchProblem,
-  buildNavTree,
+  buildSessionList,
   buildTimeline,
   CLIENT_COMMANDS,
   clientCommandProblem,
@@ -37,16 +37,11 @@ import {
   isSubagentView,
   mergeCommands,
   modelSummary,
-  type NavGroup,
-  type NavTree,
-  navGroupKeys,
   navNeedsInput,
   navOutsideRow,
   navRowCount,
-  navTreeIsEmpty,
   newSessionDefaults,
   newSessionProject,
-  normalizeLayout,
   orderProjectsForScope,
   outputPreview,
   parseClientCommand,
@@ -54,8 +49,8 @@ import {
   pendingTitles,
   piControlsAvailable,
   pillModelLabel,
-  projectIdOfGroup,
   queuedMessages,
+  readNavPresentation,
   rowPreview,
   STATUS_BUCKETS,
   scopeNote,
@@ -170,52 +165,60 @@ describe("worktree preview", () => {
   });
 });
 
-describe("navigator tree", () => {
+describe("session navigator", () => {
   const input = {
-    projects: { prj_1: project("prj_1", "beta"), prj_2: project("prj_2", "alpha") },
-    workspaces: { w1: workspace("w1"), w2: workspace("w2") } as Record<string, Workspace>,
-    hosts: { hst_1: host("hst_1") } as Record<string, Host>,
+    projects: { prj_1: project("prj_1", "Beta"), prj_2: project("prj_2", "Alpha") },
+    workspaces: { w1: workspace("w1") } as Record<string, Workspace>,
+    hosts: { hst_1: host("hst_1"), hst_2: host("hst_2", { name: "A host" }) },
     sessions: {
-      a: session("a", { workspaceId: "w1", runtime: "running", lastActivityAt: T0 }),
-      b: session("b", { workspaceId: "w1", runtime: "stopped" }),
-      c: session("c", { workspaceId: "w2", runtime: "stopped" }),
-      d: session("d", { archivedAt: T0, runtime: "idle" }),
-      e: session("e", { projectId: null, cwd: "/tmp/x", runtime: "idle" }),
+      a: session("a", { workspaceId: "w1", hostId: "hst_1", runtime: "running" }),
+      b: session("b", { workspaceId: "w1", hostId: "hst_2", runtime: "stopped" }),
+      c: session("c", { workspaceId: "w1", hostId: "hst_1", runtime: "waiting_input" }),
+      d: session("d", { archivedAt: T0 }),
     } as Record<string, Session>,
     attention: { att: attention("att", { sessionId: "c" }) },
     interactions: {},
   };
-  const flat = (rows: NavTree["rows"]) =>
-    rows.flatMap((r) => [r.session.id, ...r.others.map((o) => o.session.id)]);
-  const ids = (tree: NavTree): string[] => {
-    const out = flat(tree.rows);
-    const walk = (gs: NavGroup[]) => {
-      for (const g of gs) {
-        out.push(...flat(g.rows));
-        walk(g.groups);
-      }
-    };
-    walk(tree.groups);
-    return out;
-  };
+  const base = { filter: "all" as const, query: "" };
+  const rows = (list: ReturnType<typeof buildSessionList>) => [
+    ...list.rows,
+    ...list.sections.flatMap((section) => section.rows),
+  ];
+  const ids = (list: ReturnType<typeof buildSessionList>) => rows(list).map((r) => r.session.id);
 
-  it("defaults to Projects, attention first, and names no host when there is one", () => {
-    const tree = buildNavTree(input, { filter: "active", query: "" });
-    expect(tree.rows).toEqual([]);
-    expect(tree.groups.map((p) => p.label)).toEqual(["beta", "Other sessions"]);
-    const beta = tree.groups[0]!;
-    expect(beta.groups).toEqual([]);
-    // b is stopped without attention; c is stopped but needs attention; d is archived.
-    expect(beta.rows.map((r) => r.session.id)).toEqual(["c", "a"]);
-    expect(beta.detail).toBeNull();
-    const a = beta.rows[1]!;
-    expect(a).toMatchObject({ where: null, branch: "feat/w1", project: null });
-    expect(tree.groups[1]!.rows[0]).toMatchObject({ branch: "x" });
+  it("lists each session on a branch independently in every grouping", () => {
+    for (const groupBy of ["none", "project", "host", "status"] as const) {
+      const list = buildSessionList(input, { ...base, groupBy });
+      expect(ids(list).sort()).toEqual(["a", "b", "c"]);
+      expect(navRowCount(list)).toBe(3);
+    }
+    const hostGroups = buildSessionList(input, { ...base, groupBy: "host" }).sections;
+    expect(hostGroups.map((g) => [g.hostId, g.rows.length])).toEqual([
+      ["hst_2", 1],
+      ["hst_1", 2],
+    ]);
+    const status = buildSessionList(input, { ...base, groupBy: "status" }).sections;
+    expect(status.map((g) => g.label)).toEqual(["Needs input", "Working", "Other sessions"]);
+    expect(buildSessionList(input, base).sections).toEqual([]);
   });
 
-  it("with a scope keeps only the scope's sessions", () => {
+  it("does not hide ordinary sessions", () => {
+    const sessions = Object.fromEntries(
+      Array.from({ length: 36 }, (_, n) => [
+        String(n),
+        session(String(n), { workspaceId: "w1", runtime: "running" }),
+      ]),
+    );
+    for (const groupBy of ["none", "project", "host", "status"] as const) {
+      expect(navRowCount(buildSessionList({ ...input, sessions }, { ...base, groupBy }))).toBe(36);
+    }
+  });
+
+  it("keeps subagents flat and uses parent scope membership, not parent location", () => {
+    const child = session("sub", { provenance: "subagent", parentSessionId: "a", hostId: "hst_2" });
+    const withSub = { ...input, sessions: { ...input.sessions, sub: child } };
     const scope = {
-      id: "viw_1",
+      id: "v",
       name: "v",
       mode: "pinned",
       projectIds: null,
@@ -225,489 +228,182 @@ describe("navigator tree", () => {
       createdAt: "",
       updatedAt: "",
     } as const;
-    const tree = buildNavTree(input, { filter: "all", query: "", scope: scope as never });
-    expect(ids(tree)).toEqual(["a"]);
-  });
-
-  it("filters by where a session runs and keeps the open session", () => {
-    const where = {
-      ...input,
-      sessions: {
-        ...input.sessions,
-        a: { ...input.sessions.a!, external: { client: "herdr:x@m" } },
-      },
-    };
-    const here = buildNavTree(where, {
-      filter: "all",
-      query: "",
-      where: { kind: "client", id: "herdr:x@m" },
-    });
-    expect(ids(here)).toEqual(["a"]);
-    const elsewhere = buildNavTree(where, {
-      filter: "all",
-      query: "",
-      where: { kind: "host", id: "hst_2" },
-      keepId: "b",
-    });
-    expect(ids(elsewhere)).toEqual(["b"]);
-    expect(navTreeIsEmpty(elsewhere)).toBe(true);
-    expect(navOutsideRow(elsewhere)).toMatchObject({ session: { id: "b" }, outside: "where" });
-  });
-
-  it("with several hosts, every row names its host", () => {
-    const tree = buildNavTree(
-      {
-        ...input,
-        hosts: { ...input.hosts, hst_2: host("hst_2") },
-        workspaces: { ...input.workspaces, w3: workspace("w3", { hostId: "hst_2" }) },
-        sessions: { ...input.sessions, f: session("f", { workspaceId: "w3", hostId: "hst_2" }) },
-      },
-      { filter: "active", query: "" },
-    );
-    const beta = tree.groups[0]!;
-    expect(beta.detail).toBeNull();
-    const hosts = Object.fromEntries(beta.rows.map((r) => [r.session.id, r.where]));
-    expect(hosts).toEqual({
-      a: { kind: "host", label: "Host hst_1" },
-      c: { kind: "host", label: "Host hst_1" },
-      f: { kind: "host", label: "Host hst_2" },
-    });
-  });
-
-  it("a revoked host does not count as one of several", () => {
-    const tree = buildNavTree(
-      { ...input, hosts: { ...input.hosts, hst_2: host("hst_2", { revokedAt: T0 }) } },
-      { filter: "active", query: "", layout: "recent" },
-    );
-    expect(tree.rows.every((r) => r.where === null)).toBe(true);
-  });
-
-  it("a Pi started by hand names its terminal through its host's name", () => {
-    const tree = buildNavTree(
-      {
-        ...input,
-        sessions: {
-          ...input.sessions,
-          a: { ...input.sessions.a!, external: { client: "herdr:default@mac-pro" } },
-          e: { ...input.sessions.e!, external: { client: null } },
-        },
-      },
-      { filter: "active", query: "", layout: "recent" },
-    );
-    const where = Object.fromEntries(tree.rows.map((r) => [r.session.id, r.where]));
-    expect(where).toEqual({
-      a: { kind: "terminal", label: "herdr default on Host hst_1" },
-      c: null,
-      e: { kind: "terminal", label: "Terminal" },
-    });
-  });
-
-  it("rows on the main checkout show no branch", () => {
-    const tree = buildNavTree(
-      {
-        ...input,
-        workspaces: {
-          ...input.workspaces,
-          wm: workspace("wm", { provenance: "main", branch: "main", projectId: "prj_2" }),
-        },
-        sessions: { m: session("m", { workspaceId: "wm", projectId: "prj_2" }) },
-      },
-      { filter: "active", query: "" },
-    );
-    expect(tree.groups[0]!.rows[0]).toMatchObject({ branch: null });
-  });
-
-  describe("sort", () => {
-    const rows = (tree: NavTree) => ids(tree);
-    const sortInput = {
-      ...input,
-      workspaces: { ...input.workspaces, w3: workspace("w3") } as Record<string, Workspace>,
-      sessions: {
-        a: session("a", {
-          title: "Bravo",
-          workspaceId: "w1",
-          runtime: "running",
-          lastActivityAt: "2026-11-01T10:00:00.000Z",
-          createdAt: "2026-10-01T00:00:00.000Z",
+    expect(ids(buildSessionList(withSub, { ...base, scope: scope as never }))).toEqual(["a"]);
+    expect(
+      ids(
+        buildSessionList(withSub, {
+          ...base,
+          scope: scope as never,
+          showSubagents: true,
+          where: { kind: "host", id: "hst_2" },
         }),
-        b: session("b", {
-          title: "Alpha",
-          workspaceId: "w2",
-          runtime: "idle",
-          lastActivityAt: "2026-11-01T12:00:00.000Z",
-          createdAt: "2026-10-03T00:00:00.000Z",
-        }),
-        c: session("c", {
-          title: "Charlie",
-          workspaceId: "w3",
-          runtime: "waiting_input",
-          lastActivityAt: "2026-11-01T11:00:00.000Z",
-          createdAt: "2026-10-02T00:00:00.000Z",
-        }),
-        e: session("e", { title: "Echo", projectId: null, cwd: "/tmp/x", runtime: "idle" }),
-      } as Record<string, Session>,
-      attention: { att: attention("att", { sessionId: "a" }) },
+      ),
+    ).toEqual(["sub"]);
+    expect(ids(buildSessionList(withSub, { ...base, keepId: "sub" }))).not.toContain("sub");
+  });
+
+  it("retains open filtered sessions without counting them, but not archived or search misses", () => {
+    const scope = {
+      id: "v",
+      name: "v",
+      mode: "pinned",
+      projectIds: null,
+      hostIds: null,
+      sessionIds: [],
+      source: null,
+      createdAt: "",
+      updatedAt: "",
+    } as const;
+    for (const [options, reason] of [
+      [{ scope: scope as never }, "scope"],
+      [{ where: { kind: "host" as const, id: "missing" } }, "where"],
+      [{ filter: "attention" as const }, "status"],
+    ] as const) {
+      const list = buildSessionList(input, { ...base, ...options, keepId: "b" });
+      expect(navOutsideRow(list)?.outside).toBe(reason);
+      expect(navRowCount(list)).toBe(rows(list).filter((r) => r.session.id !== "b").length);
+    }
+    expect(ids(buildSessionList(input, { ...base, query: "no match", keepId: "b" }))).toEqual([]);
+    expect(ids(buildSessionList(input, { ...base, keepId: "d" }))).not.toContain("d");
+  });
+
+  it("sorts independently within sections and breaks ties by session ID", () => {
+    const sessions = {
+      z: session("z", { title: "Same", workspaceId: "w1", lastActivityAt: "2026-01-01" }),
+      a: session("a", { title: "Same", workspaceId: "w1", lastActivityAt: "2026-02-01" }),
+      b: session("b", { title: "Before", workspaceId: "w1", lastActivityAt: "2026-03-01" }),
     };
-    const base = { filter: "active" as const, query: "" };
-
-    it("Projects sorts by name by default, needs input first", () => {
-      const beta = buildNavTree(sortInput, base).groups[0]!;
-      expect(beta.rows.map((r) => r.session.id)).toEqual(["a", "b", "c"]);
-    });
-
-    it("needsInputFirst false drops that preference", () => {
-      const beta = buildNavTree(sortInput, { ...base, needsInputFirst: false }).groups[0]!;
-      expect(beta.rows.map((r) => r.session.id)).toEqual(["b", "a", "c"]);
-    });
-
-    it("activity and created order sessions and groups; Other sessions stays last", () => {
-      const act = buildNavTree(sortInput, { ...base, sort: "activity", needsInputFirst: false });
-      expect(act.groups.map((g) => g.label)).toEqual(["beta", "Other sessions"]);
-      expect(act.groups[0]!.rows.map((r) => r.session.id)).toEqual(["b", "c", "a"]);
-      const created = buildNavTree(sortInput, { ...base, sort: "created", needsInputFirst: false });
-      expect(created.groups[0]!.rows.map((r) => r.session.id)).toEqual(["b", "c", "a"]);
-    });
-
-    it("status puts waiting_input before running before idle", () => {
-      const tree = buildNavTree(sortInput, { ...base, sort: "status", needsInputFirst: false });
-      expect(tree.groups[0]!.rows.map((r) => r.session.id)).toEqual(["c", "a", "b"]);
-      expect(rows(tree)).toContain("e");
-    });
+    const data = { ...input, sessions, attention: {} };
+    for (const groupBy of ["none", "project", "host", "status"] as const) {
+      expect(ids(buildSessionList(data, { ...base, groupBy, sort: "name" }))).toEqual([
+        "b",
+        "a",
+        "z",
+      ]);
+      expect(ids(buildSessionList(data, { ...base, groupBy, sort: "activity" }))).toEqual([
+        "b",
+        "a",
+        "z",
+      ]);
+    }
   });
 
-  it("Projects with All hides projects without sessions", () => {
-    const tree = buildNavTree(
-      {
-        ...input,
-        workspaces: {
-          ...input.workspaces,
-          w9: workspace("w9"),
-          wm: workspace("wm", { provenance: "main", branch: "main" }),
-        },
-      },
-      { filter: "all", query: "" },
-    );
-    expect(tree.groups.map((g) => g.label)).toEqual(["beta", "Other sessions"]);
-    expect(ids(tree)).not.toContain("w9");
-    expect(tree.groups[0]!.rows.map((r) => r.key)).not.toContain("b:prj_1:feat/w9");
-  });
-
-  it("two sessions in one workspace are one row with an extra", () => {
-    const tree = buildNavTree(input, { filter: "all", query: "" });
-    const beta = tree.groups[0]!;
-    const row = beta.rows.find((r) => r.session.id === "a")!;
-    expect(row.others.map((o) => [o.session.id, o.role])).toEqual([["b", "extra"]]);
-    expect(row.key).toBe("b:prj_1:feat/w1");
-    expect(beta.sessionCount).toBe(2);
-  });
-
-  it("the explicit primary is the row", () => {
-    const tree = buildNavTree(
-      {
-        ...input,
-        sessions: { ...input.sessions, b: session("b", { workspaceId: "w1", primary: true }) },
-      },
-      { filter: "all", query: "" },
-    );
-    const row = tree.groups[0]!.rows.find((r) => r.key === "b:prj_1:feat/w1")!;
-    expect(row.session.id).toBe("b");
-    expect(row.others.map((o) => o.session.id)).toEqual(["a"]);
-  });
-
-  it("an extra needing input lifts and flags the row", () => {
-    const tree = buildNavTree(
-      {
-        ...input,
-        sessions: {
-          a: session("a", { workspaceId: "w1", runtime: "running", createdAt: T0 }),
-          b: session("b", {
-            workspaceId: "w1",
-            runtime: "waiting_input",
-            createdAt: "2026-12-01T00:00:00.000Z",
-          }),
-          c: session("c", { workspaceId: "w2", runtime: "running" }),
-        } as Record<string, Session>,
-        attention: {},
-      },
-      { filter: "active", query: "", layout: "recent" },
-    );
-    expect(tree.rows[0]!.session.id).toBe("a");
-    expect(tree.rows[0]!.othersNeedInput).toBe(false);
-    const withAttn = buildNavTree(
-      {
-        ...input,
-        sessions: {
-          a: session("a", { workspaceId: "w1", runtime: "running", createdAt: T0 }),
-          b: session("b", {
-            workspaceId: "w1",
-            runtime: "running",
-            createdAt: "2026-12-01T00:00:00.000Z",
-          }),
-          c: session("c", {
-            workspaceId: "w2",
-            runtime: "running",
-            lastActivityAt: "2026-12-02T00:00:00.000Z",
-          }),
-        } as Record<string, Session>,
-        attention: { att: attention("att", { sessionId: "b" }) },
-      },
-      { filter: "active", query: "", layout: "recent" },
-    );
-    expect(withAttn.rows[0]).toMatchObject({ othersNeedInput: true, session: { id: "a" } });
-  });
-
-  it("the same branch on two hosts is one row, and two rows in the Where layout", () => {
-    const two = {
-      ...input,
-      hosts: { ...input.hosts, hst_2: host("hst_2") },
-      workspaces: {
-        ...input.workspaces,
-        w1b: workspace("w1b", { hostId: "hst_2", branch: "feat/w1" }),
-      },
-      sessions: {
-        a: session("a", { workspaceId: "w1", runtime: "running" }),
-        f: session("f", { workspaceId: "w1b", hostId: "hst_2", runtime: "running" }),
-      } as Record<string, Session>,
-      attention: {},
-    };
-    expect(buildNavTree(two, { filter: "all", query: "", layout: "recent" }).rows).toHaveLength(1);
-    const byHost = buildNavTree(two, { filter: "all", query: "", layout: "where" });
-    expect(byHost.groups.map((g) => g.sessionCount)).toEqual([1, 1]);
-  });
-
-  it("subagents nest under their parent when shown", () => {
-    const withSub = {
-      ...input,
-      sessions: {
-        ...input.sessions,
-        s: session("s", {
-          workspaceId: "w2",
-          provenance: "subagent",
-          readOnly: true,
-          parentSessionId: "a",
-        }),
-      },
-    };
-    const tree = buildNavTree(withSub, { filter: "all", query: "", showSubagents: true });
-    const a = tree.groups[0]!.rows.find((r) => r.session.id === "a")!;
-    expect(a.others.map((o) => [o.session.id, o.role])).toEqual([
-      ["b", "extra"],
-      ["s", "subagent"],
+  it("searches tracked issues and applies issue scope membership", () => {
+    const issue = {
+      id: "i1",
+      scopeId: "trk_1",
+      projectId: "prj_1",
+      workspaceId: "w1",
+      branch: null,
+      branches: [],
+      number: 12,
+      title: "Fix altitude",
+      url: "https://example.test/12",
+    } as unknown as TrackedIssue;
+    const scope = {
+      id: "trk_1",
+      name: "tracked",
+      mode: "all",
+      projectIds: ["prj_1"],
+      hostIds: null,
+      sessionIds: [],
+      source: { kind: "github", owner: "acme" },
+      createdAt: "",
+      updatedAt: "",
+    } as never;
+    const data = { ...input, issues: { i1: issue } };
+    const list = buildSessionList(data, { ...base, scope, query: "#12" });
+    expect(ids(list).sort()).toEqual(["a", "b", "c"]);
+    expect(rows(list)[0]?.issue).toEqual({ number: 12, title: "Fix altitude", url: issue.url });
+    expect(ids(buildSessionList(data, { ...base, scope, query: "altitude" })).sort()).toEqual([
+      "a",
+      "b",
+      "c",
     ]);
   });
 
-  const tracked = {
-    ...input,
-    sessions: {
-      a: session("a", { workspaceId: "w1", runtime: "running" }),
-      b: session("b", { workspaceId: "w1", runtime: "stopped", primary: false }),
-      c: session("c", { workspaceId: "w2", runtime: "stopped" }),
-      f: session("f", { workspaceId: "w3", runtime: "stopped" }),
-    } as Record<string, Session>,
-    workspaces: { ...input.workspaces, w3: workspace("w3") } as Record<string, Workspace>,
-    attention: {},
-    issues: {
-      i1: {
-        id: "i1",
-        scopeId: "trk_1",
-        projectId: "prj_1",
-        workspaceId: "w2",
-        branch: null,
-        branches: [],
-        number: 12,
-        url: "https://github.com/a/b/issues/12",
-        title: "Fix it",
-      } as unknown as TrackedIssue,
-    },
-  };
-  const githubScope = {
-    id: "trk_1",
-    name: "personal",
-    mode: "all",
-    projectIds: ["prj_1"],
-    hostIds: null,
-    sessionIds: [],
-    source: { kind: "github", owner: "acme" },
-    createdAt: "",
-    updatedAt: "",
-  } as never;
-  const rowOf = (tree: NavTree, id: string) => tree.rows.find((r) => r.session.id === id)!;
-
-  it("a GitHub scope keeps issue branches and live sessions", () => {
-    const tree = buildNavTree(tracked, {
-      filter: "all",
-      query: "",
-      layout: "recent",
-      scope: githubScope,
-    });
-    expect(ids(tree).sort()).toEqual(["a", "c"]);
-  });
-
-  it("rows carry their issue, and a GitHub scope marks sessions it holds only while live", () => {
-    const tree = buildNavTree(tracked, {
-      filter: "all",
-      query: "",
-      layout: "recent",
-      scope: githubScope,
-    });
-    expect(rowOf(tree, "c")).toMatchObject({ issue: { number: 12 }, leaves: false });
-    expect(rowOf(tree, "a")).toMatchObject({ issue: null, leaves: true });
-    const plain = buildNavTree(tracked, { filter: "all", query: "", layout: "recent" });
-    expect(plain.rows.every((r) => !r.leaves)).toBe(true);
-  });
-
-  it("search finds a row by its issue number", () => {
-    const tree = buildNavTree(tracked, { filter: "all", query: "#12", layout: "recent" });
-    expect(ids(tree)).toEqual(["c"]);
-  });
-
-  it("the open session keeps its row outside the scope and outside the filter", () => {
-    const tree = buildNavTree(tracked, {
-      filter: "all",
-      query: "",
-      layout: "recent",
-      scope: githubScope,
-      keepId: "f",
-    });
-    expect(ids(tree).sort()).toEqual(["a", "c", "f"]);
-    expect(rowOf(tree, "f").outside).toBe("scope");
-    const active = buildNavTree(input, {
-      filter: "active",
-      query: "",
-      layout: "recent",
-      keepId: "b",
-    });
-    expect(ids(active)).toContain("b");
-    expect(active.rows.every((r) => !r.outside)).toBe(true);
-    expect(rowOf(active, "a").others[0]).toMatchObject({ session: { id: "b" }, outside: "status" });
-  });
-
-  it("an open stopped session alone under Active is marked, and the list counts as empty", () => {
-    const only = {
-      ...input,
-      sessions: { b: session("b", { workspaceId: "w1", runtime: "stopped" }) },
-      attention: {},
+  it("navigates to the latest matching input, never a retained exception", () => {
+    const sessions = {
+      a: session("a", { lastActivityAt: "2026-01-01" }),
+      b: session("b", { lastActivityAt: "2026-02-01" }),
     };
-    const tree = buildNavTree(only, { filter: "active", query: "", keepId: "b" });
-    expect(navTreeIsEmpty(tree)).toBe(true);
-    expect(navOutsideRow(tree)).toMatchObject({ session: { id: "b" }, outside: "status" });
-    expect(navRowCount(tree)).toBe(0);
-    const attn = buildNavTree(only, { filter: "attention", query: "", keepId: "b" });
-    expect(navOutsideRow(attn)?.outside).toBe("status");
-  });
-
-  it("counts listed branches and those needing input, matching the rows", () => {
-    const tree = buildNavTree(input, { filter: "all", query: "", layout: "recent" });
-    expect(navRowCount(tree)).toBe(tree.rows.length);
-    expect(navNeedsInput(tree)).toEqual({ count: 1, first: "c" });
-    const searched = buildNavTree(input, { filter: "all", query: "feat/w1", layout: "recent" });
-    expect(navRowCount(searched)).toBe(1);
-    expect(navNeedsInput(searched)).toEqual({ count: 0, first: null });
-    const kept = buildNavTree(input, { filter: "attention", query: "", keepId: "e" });
-    expect(navRowCount(kept)).toBe(1);
-  });
-
-  it("a tree holding only the open session counts as empty and exposes its row", () => {
-    const pinned = { ...(githubScope as object), source: null, mode: "pinned" } as never;
-    const tree = buildNavTree(input, { filter: "all", query: "", scope: pinned, keepId: "a" });
-    expect(navTreeIsEmpty(tree)).toBe(true);
-    expect(navOutsideRow(tree)?.session.id).toBe("a");
-  });
-
-  it("a stored worktrees layout falls back", () => {
-    expect(normalizeLayout("worktrees", "projects")).toBe("projects");
-    expect(normalizeLayout("hosts", "projects")).toBe("where");
-    expect(normalizeLayout("where", "projects")).toBe("where");
-    expect(normalizeLayout(undefined, "recent")).toBe("recent");
-  });
-
-  it("Recent is one list, attention first, with full context", () => {
-    const tree = buildNavTree(input, { filter: "all", query: "", layout: "recent" });
-    expect(tree.groups).toEqual([]);
-    expect(tree.rows.map((r) => r.session.id).sort()).toEqual(["a", "c", "e"]);
-    expect(tree.rows.find((r) => r.session.id === "a")!.others[0]!.session.id).toBe("b");
-    expect(tree.rows[0]!.session.id).toBe("c");
-    for (const r of tree.rows) expect(r.project).not.toBeNull();
-    expect(tree.rows.find((r) => r.session.id === "e")!.project).toBe("Other sessions");
-  });
-
-  it("Where groups host -> terminal or Switchyard, with the host's state and Only this", () => {
-    const tree = buildNavTree(
-      {
-        ...input,
-        hosts: { ...input.hosts, hst_2: host("hst_2", { connectivity: "unreachable" }) },
-        workspaces: { ...input.workspaces, w3: workspace("w3", { hostId: "hst_2" }) },
-        sessions: {
-          ...input.sessions,
-          a: { ...input.sessions.a!, external: { client: "herdr:default@mac-pro" } },
-          g: session("g", { workspaceId: "w2", runtime: "idle", external: { client: null } }),
-          f: session("f", { workspaceId: "w3", hostId: "hst_2" }),
-        },
+    const data = {
+      ...input,
+      sessions,
+      attention: {
+        a: attention("a", { sessionId: "a" }),
+        b: attention("b", { sessionId: "b" }),
       },
-      { filter: "active", query: "", layout: "where" },
-    );
-    expect(tree.groups.map((g) => g.label)).toEqual(["Host hst_1", "Host hst_2"]);
-    const [one, two] = tree.groups as [NavGroup, NavGroup];
-    expect(one.groups.map((g) => [g.label, g.kind])).toEqual([
-      ["herdr default", "terminal"],
-      ["Terminal", "terminal"],
-      ["Switchyard", "held"],
-    ]);
-    expect(one.where).toEqual({ kind: "host", id: "hst_1" });
-    expect(one.groups[0]!.where).toEqual({
-      kind: "client",
-      id: "herdr:default@mac-pro",
-      hostId: "hst_1",
-    });
-    expect(one.groups[1]!.where).toBeNull();
-    expect(one.groups[2]!.where).toBeNull();
-    // Rows say what and where in the project, not where they run: the group does.
-    expect(one.groups[0]!.rows[0]).toMatchObject({ project: "beta", where: null });
-    expect(one.hostState).toBe("connected");
-    expect(two.hostState).toBe("unreachable");
-    expect(two.sessionCount).toBe(1);
+    };
+    expect(navNeedsInput(buildSessionList(data, base))).toEqual({ count: 2, first: "b" });
+    expect(
+      navNeedsInput(
+        buildSessionList(data, { ...base, where: { kind: "host", id: "none" }, keepId: "b" }),
+      ),
+    ).toEqual({ count: 0, first: null });
   });
 
-  it("Where never offers a revoked host", () => {
-    const tree = buildNavTree(
-      { ...input, hosts: { hst_1: host("hst_1", { revokedAt: T0 }) } },
-      { filter: "active", query: "", layout: "where" },
-    );
-    expect(tree.groups[0]).toMatchObject({ where: null, hostState: "unreachable" });
-  });
-
-  it("hides subagents unless asked", () => {
-    const withSub = {
+  it("keeps context in every grouping but shows only live terminals", () => {
+    const data = {
       ...input,
       sessions: {
-        ...input.sessions,
-        s: session("s", { workspaceId: "w1", provenance: "subagent", readOnly: true }),
+        live: session("live", { runtime: "running", external: { client: "term:main@mac" } }),
+        stopped: session("stopped", { runtime: "stopped", external: { client: "term:old@mac" } }),
+      },
+      attention: {},
+    };
+    const hostRows = rows(buildSessionList(data, { ...base, groupBy: "host" }));
+    expect(hostRows.find((row) => row.session.id === "live")?.where).toEqual({
+      kind: "terminal",
+      label: "term main on Host hst_1",
+    });
+    expect(hostRows.find((row) => row.session.id === "stopped")?.where?.kind).toBe("host");
+    const projectRows = rows(buildSessionList(data, { ...base, groupBy: "project" }));
+    expect(projectRows[0]?.project).toBe("Beta");
+    const ungrouped = rows(buildSessionList(data, base));
+    expect(ungrouped.find((row) => row.session.id === "stopped")?.where?.kind).toBe("host");
+  });
+
+  it("puts missing projects and hosts last", () => {
+    const data = {
+      ...input,
+      sessions: {
+        a: session("a", { projectId: "missing", hostId: "missing" }),
+        b: session("b", { projectId: "prj_1", hostId: "hst_1" }),
       },
     };
-    expect(ids(buildNavTree(withSub, { filter: "all", query: "" }))).not.toContain("s");
-    expect(ids(buildNavTree(withSub, { filter: "all", query: "", showSubagents: true }))).toContain(
-      "s",
-    );
+    expect(
+      buildSessionList(data, { ...base, groupBy: "project" }).sections.map((s) => s.label),
+    ).toEqual(["Beta", "Unknown project"]);
+    expect(
+      buildSessionList(data, { ...base, groupBy: "host" }).sections.map((s) => s.label),
+    ).toEqual(["Host hst_1", "Unknown host"]);
   });
 
-  it("attention filter keeps only sessions needing input", () => {
-    const tree = buildNavTree(
-      { ...input, interactions: { i1: interaction("i1", { sessionId: "a" }) } },
-      { filter: "attention", query: "" },
-    );
-    expect(ids(tree).sort()).toEqual(["a", "c"]);
-  });
-
-  it("empty trees and group keys", () => {
-    const empty = buildNavTree({ ...input, sessions: {} }, { filter: "all", query: "" });
-    expect(empty.groups).toEqual([]);
-    expect(navTreeIsEmpty(empty)).toBe(true);
-    expect(navTreeIsEmpty(buildNavTree(input, { filter: "all", query: "" }))).toBe(false);
-    const keys = navGroupKeys(
-      buildNavTree(input, { filter: "active", query: "", layout: "where" }),
-    );
-    expect(keys).toContain("h:hst_1");
-    expect(keys).toContain("h:hst_1/t:__held");
+  it("converts old presentation preferences and preserves independent choices", () => {
+    for (const [layout, groupBy] of [
+      ["recent", "none"],
+      ["projects", "project"],
+      ["where", "host"],
+      ["hosts", "host"],
+      ["status", "status"],
+      ["unknown", "none"],
+      ["constructor", "none"],
+      ["__proto__", "none"],
+    ] as const) {
+      expect(
+        readNavPresentation({ layout, sorts: { [layout === "hosts" ? "where" : layout]: "name" } }),
+      ).toEqual({ groupBy, sort: "name" });
+    }
+    expect(readNavPresentation({ groupBy: "host", sort: "created", layout: "projects" })).toEqual({
+      groupBy: "host",
+      sort: "created",
+    });
+    expect(readNavPresentation({ groupBy: "bad", sort: "bad" })).toEqual({
+      groupBy: "none",
+      sort: "activity",
+    });
+    expect(readNavPresentation(null)).toEqual({ groupBy: "none", sort: "activity" });
   });
 });
 
@@ -1233,13 +929,6 @@ describe("new session helpers", () => {
     expect(uniqueBranch("fix", [])).toBe("fix");
     expect(uniqueBranch("fix", ["fix", "fix-2", null])).toBe("fix-3");
   });
-  it("reads the project id from navigator group keys", () => {
-    expect(projectIdOfGroup("p:prj_1")).toBe("prj_1");
-    expect(projectIdOfGroup("h:hst_1/p:prj_2")).toBe("prj_2");
-    expect(projectIdOfGroup("p:__none")).toBeNull();
-    expect(projectIdOfGroup("w:ws_1")).toBeNull();
-    expect(projectIdOfGroup("h:hst_1")).toBeNull();
-  });
   it("defaults to the main checkout on an online host", () => {
     const co = (id: string, hostId: string): Checkout => ({
       id,
@@ -1737,9 +1426,12 @@ describe("status buckets", () => {
       attention: {},
       interactions: {},
     };
-    const tree = buildNavTree(base, { filter: "all", query: "", layout: "status" });
-    expect(tree.groups.map((g) => g.label)).toEqual(["Needs input", "Working", "Ready to review"]);
-    expect(tree.groups.map((g) => g.kind)).toEqual(["status", "status", "status"]);
+    const list = buildSessionList(base, { filter: "all", query: "", groupBy: "status" });
+    expect(list.sections.map((g) => g.label)).toEqual([
+      "Needs input",
+      "Working",
+      "Ready to review",
+    ]);
     expect(STATUS_BUCKETS[0]?.value).toBe("needs_input");
   });
 });

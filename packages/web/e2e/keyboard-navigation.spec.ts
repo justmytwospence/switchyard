@@ -54,6 +54,9 @@ test.describe("Vim-style app navigation", () => {
     await page.keyboard.press("g");
     await page.keyboard.press("b");
     await expect(page).toHaveURL(/\/board$/);
+    await expect(
+      page.getByRole("main").getByRole("heading", { name: "Board", exact: true }),
+    ).toBeVisible();
     await page.locator("main").focus();
     await page.keyboard.press("g");
     await page.keyboard.press("t");

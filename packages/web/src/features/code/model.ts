@@ -19,11 +19,9 @@ import type {
   Workspace,
 } from "@switchyard/protocol";
 import {
-  branchKeyOf,
   DEFAULT_WORKTREE_DIR,
   issueBranchSet,
   issueLookup,
-  primarySession,
   sessionScopeReason,
   ThinkingLevel,
 } from "@switchyard/protocol";
@@ -32,7 +30,6 @@ import { PANE_LIMITS } from "../../prefs";
 import { isBusyRuntime, isLiveRuntime, sessionsNeedingAttention } from "../../sync/selectors";
 import type { StreamBuffer } from "../../sync/store";
 import {
-  clientName,
   liveHostIds,
   type RowWhere,
   sessionIsWhere,
@@ -125,12 +122,6 @@ export function uniqueBranch(base: string, taken: Iterable<string | null>): stri
   for (let i = 2; ; i++) if (!set.has(`${base}-${i}`)) return `${base}-${i}`;
 }
 
-/** Project id of a navigator project group ("p:<id>", "h:<host>/p:<id>"); null for other groups. */
-export function projectIdOfGroup(key: string): string | null {
-  const m = /(?:^|\/)p:([^/]+)$/.exec(key);
-  return m && m[1] !== "__none" ? m[1]! : null;
-}
-
 export interface NewSessionDefaults {
   hostId: string;
   /** The main checkout's workspace on that host; null means "New worktree…". */
@@ -194,23 +185,13 @@ export function newSessionDefaults(
 
 export type NavFilter = "active" | "attention" | "all";
 
-export type NavLayout = "projects" | "recent" | "where" | "status";
-
-export const NAV_LAYOUTS: { value: NavLayout; label: string; hint: string }[] = [
-  { value: "projects", label: "Projects", hint: "Branches under each project" },
-  { value: "recent", label: "Recent", hint: "One list of every branch" },
-  { value: "where", label: "Where", hint: "Host, then terminal or Switchyard" },
-  { value: "status", label: "Status", hint: "Grouped by what needs you" },
+export type NavGrouping = "none" | "project" | "host" | "status";
+export const NAV_GROUPINGS: { value: NavGrouping; label: string; hint: string }[] = [
+  { value: "none", label: "None", hint: "One list of sessions" },
+  { value: "project", label: "Project", hint: "Sessions by project" },
+  { value: "host", label: "Host", hint: "Sessions by host" },
+  { value: "status", label: "Status", hint: "Sessions by status" },
 ];
-
-/**
- * A stored layout, or `fallback` when it is unknown (the retired Worktrees layout). The retired
- * Hosts layout became Where.
- */
-export function normalizeLayout(l: string | undefined, fallback: NavLayout): NavLayout {
-  if (l === "hosts") return "where";
-  return NAV_LAYOUTS.some((x) => x.value === l) ? (l as NavLayout) : fallback;
-}
 
 export type NavSort = "activity" | "created" | "name" | "status";
 
@@ -221,12 +202,30 @@ export const NAV_SORTS: { value: NavSort; label: string; hint: string }[] = [
   { value: "status", label: "Status", hint: "Waiting and running first" },
 ];
 
-export const DEFAULT_SORT: Record<NavLayout, NavSort> = {
-  projects: "name",
-  recent: "activity",
-  where: "name",
-  status: "activity",
-};
+export function readNavPresentation(stored: unknown): { groupBy: NavGrouping; sort: NavSort } {
+  const prefs = stored && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
+  const validGroup = NAV_GROUPINGS.some((g) => g.value === prefs.groupBy);
+  const validSort = (v: unknown): v is NavSort => NAV_SORTS.some((s) => s.value === v);
+  const layouts = new Map<string, NavGrouping>([
+    ["recent", "none"],
+    ["projects", "project"],
+    ["where", "host"],
+    ["hosts", "host"],
+    ["status", "status"],
+  ]);
+  const oldLayout = typeof prefs.layout === "string" ? prefs.layout : "";
+  const sorts =
+    prefs.sorts && typeof prefs.sorts === "object" ? (prefs.sorts as Record<string, unknown>) : {};
+  const oldSort = validSort(sorts[oldLayout])
+    ? sorts[oldLayout]
+    : oldLayout === "hosts"
+      ? sorts.where
+      : undefined;
+  return {
+    groupBy: validGroup ? (prefs.groupBy as NavGrouping) : (layouts.get(oldLayout) ?? "none"),
+    sort: validSort(prefs.sort) ? prefs.sort : validSort(oldSort) ? oldSort : "activity",
+  };
+}
 
 export type StatusBucket = "needs_input" | "failed" | "running" | "review" | "idle";
 
@@ -295,80 +294,39 @@ export function pendingTitles(
   return new Map([...oldest].map(([id, v]) => [id, v.title]));
 }
 
-/** A branch's row: its primary session, with the branch's other sessions nested. */
 export interface NavRow {
   session: Session;
   attention: boolean;
   bucket: StatusBucket;
-  /** Context shown on the row's second line; null = not shown in this layout. */
   project: string | null;
   branch: string | null;
-  /** Where it runs: a terminal, or the host when there are several; null in the Where layout. */
   where: RowWhere | null;
-  /** The branch key (see `branchKeyOf`). */
-  key: string;
-  /** Extra sessions in sort order, then subagents; always empty on nested rows. */
-  others: NavRow[];
-  /** One of `others` needs input. */
-  othersNeedInput: boolean;
-  role: "primary" | "extra" | "subagent";
-  /** The tracked issue its branch is worked for. */
   issue: { number: number; url: string; title: string } | null;
-  /** In the selected GitHub scope only while it is live. */
   leaves: boolean;
-  /** Listed only because it is the open session: what excludes it; null when nothing does. */
   outside: NavOutside | null;
 }
-
-/**
- * Why the open session is listed though a filter excludes it: the selected scope, the Where filter,
- * or the status filter (Active: it stopped; Needs input: it does not).
- */
 export type NavOutside = "scope" | "where" | "status";
-
-export interface NavGroup {
-  /**
-   * Collapse key: "p:<projectId|__none>", "h:<hostId>", "h:<hostId>/t:<client|__ext|__held>" or
-   * "s:<bucket>".
-   */
+export interface NavSection {
   key: string;
-  /** `terminal`: a terminal Pi runs in; `held`: sessions Switchyard holds on that host. */
-  kind: "project" | "host" | "status" | "terminal" | "held";
   label: string;
-  /** Muted text beside the label. */
-  detail: string | null;
-  /** The Where filter that shows only this group ("Only this"); null when it has none. */
-  where: Where | null;
-  /** Host connection state, host groups only ("unreachable" when revoked). */
-  hostState: Connectivity | null;
-  groups: NavGroup[];
   rows: NavRow[];
-  /** Branches in this group and its child groups. */
-  sessionCount: number;
+  projectId?: string;
+  hostId?: string;
+  hostState?: Connectivity;
 }
-
-export interface NavTree {
-  groups: NavGroup[];
-  /** Ungrouped rows (the Recent layout only). */
+export interface SessionList {
   rows: NavRow[];
+  sections: NavSection[];
 }
-
 export interface NavOptions {
   filter: NavFilter;
   query: string;
-  /** Default "projects". */
-  layout?: NavLayout;
-  /** Default false. */
+  groupBy?: NavGrouping;
   showSubagents?: boolean;
-  /** Default: the layout's default sort. */
   sort?: NavSort;
-  /** Sessions needing input before the rest. Default true. */
   needsInputFirst?: boolean;
-  /** Only sessions in this scope. */
   scope?: Scope | null;
-  /** Only sessions running there. */
   where?: Where | null;
-  /** The open session: always listed. */
   keepId?: string | null;
 }
 
@@ -409,101 +367,19 @@ interface NavEntry {
   outside: NavOutside | null;
 }
 
-/** One branch: its entries in sort order, the row's entry, and the rest. */
-interface NavUnit {
-  key: string;
-  head: NavEntry;
-  others: { entry: NavEntry; role: "extra" | "subagent" }[];
-  /** Best bucket rank among all entries. */
-  rank: number;
-}
-
-function emptyGroup(
-  key: string,
-  kind: NavGroup["kind"],
-  label: string,
-  patch: Partial<NavGroup> = {},
-): NavGroup {
-  return {
-    key,
-    kind,
-    label,
-    detail: null,
-    where: null,
-    hostState: null,
-    groups: [],
-    rows: [],
-    sessionCount: 0,
-    ...patch,
-  };
-}
-
 function projectLabel(projectId: string | null, project: Project | null): string {
   return project?.name ?? (projectId ? "Unknown project" : "Other sessions");
 }
 
-/** Branch context for a row: hidden for the main checkout; the cwd folder for project-less sessions. */
 function branchFor(e: NavEntry): string | null {
   if (e.ws) return e.ws.provenance === "main" ? null : workspaceLabel(e.ws);
   return e.projectId === null ? lastSegment(e.session.cwd) : null;
 }
 
-function rowActivity(r: NavRow): string {
-  let best = r.session.lastActivityAt;
-  for (const o of r.others) if (o.session.lastActivityAt > best) best = o.session.lastActivityAt;
-  return best;
-}
-
-function latest(g: NavGroup): string {
-  let best = "";
-  for (const r of g.rows) {
-    const a = rowActivity(r);
-    if (a > best) best = a;
-  }
-  for (const c of g.groups) {
-    const l = latest(c);
-    if (l > best) best = l;
-  }
-  return best;
-}
-
-function newest(g: NavGroup): string {
-  let best = "";
-  for (const r of g.rows) if (r.session.createdAt > best) best = r.session.createdAt;
-  for (const c of g.groups) {
-    const l = newest(c);
-    if (l > best) best = l;
-  }
-  return best;
-}
-
-function sortGroups(groups: NavGroup[], sort: NavSort): NavGroup[] {
-  const last = (g: NavGroup) =>
-    g.key.endsWith("__none") || (g.kind === "host" && g.label === "Unknown host") ? 1 : 0;
-  const key = (g: NavGroup) =>
-    sort === "activity" ? latest(g) : sort === "created" ? newest(g) : "";
-  return groups.sort(
-    (a, b) => last(a) - last(b) || key(b).localeCompare(key(a)) || a.label.localeCompare(b.label),
-  );
-}
-
-function countSessions(g: NavGroup): number {
-  g.sessionCount = g.rows.length + g.groups.reduce((n, c) => n + countSessions(c), 0);
-  return g.sessionCount;
-}
-
-/**
- * The navigator tree for a layout: one row per branch, showing its primary session, with the
- * branch's extra sessions (and subagents, when shown) nested under it. `active` keeps live
- * sessions and those needing attention; `attention` only the latter; `all` includes stopped
- * sessions. Branches without a session are not listed (they are on the Board). Archived sessions are never
- * listed. Rows needing attention come first, then by the layout's sort. The open session (`keepId`)
- * is always listed; `outside` says which filter excludes it. A row says where it runs (a terminal,
- * or its host when there are several live hosts) except in the Where layout, whose groups do.
- */
-export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
-  const layout = opts.layout ?? "projects";
-  const sort = opts.sort ?? DEFAULT_SORT[layout];
+/** One row per eligible session; grouping changes headings, not membership. */
+export function buildSessionList(input: NavInput, opts: NavOptions): SessionList {
+  const groupBy = opts.groupBy ?? "none";
+  const sort = opts.sort ?? "activity";
   const needsFirst = opts.needsInputFirst ?? true;
   const q = opts.query.trim().toLowerCase();
   const attn = sessionsNeedingAttention(input.attention, input.interactions);
@@ -512,16 +388,13 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
     : null;
   const issueOf = issueLookup(Object.values(input.issues ?? {}));
   const multiHost = liveHostIds(input.hosts).length >= 2;
-
   const entries: NavEntry[] = [];
   for (const s of Object.values(input.sessions)) {
-    if (s.archivedAt !== null) continue;
-    if (s.provenance === "subagent" && !opts.showSubagents) continue;
+    if (s.archivedAt !== null || (s.provenance === "subagent" && !opts.showSubagents)) continue;
     const parent =
       s.provenance === "subagent" && s.parentSessionId
         ? input.sessions[s.parentSessionId]
         : undefined;
-    const keep = s.id === opts.keepId;
     const reason = opts.scope
       ? sessionScopeReason(opts.scope, parent ?? s, input.workspaces, issueSet)
       : "filter";
@@ -529,17 +402,17 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
     const outside: NavOutside | null =
       reason === null
         ? "scope"
-        : !sessionIsWhere(opts.where, parent ?? s)
+        : !sessionIsWhere(opts.where, s)
           ? "where"
           : (opts.filter === "active" && !isLive(s) && !needs) ||
               (opts.filter === "attention" && !needs)
             ? "status"
             : null;
-    if (outside && !keep) continue;
+    if (outside && s.id !== opts.keepId) continue;
     const ws = s.workspaceId ? (input.workspaces[s.workspaceId] ?? null) : null;
     const projectId = s.projectId ?? ws?.projectId ?? null;
     const project = projectId ? (input.projects[projectId] ?? null) : null;
-    const hostId = ws?.hostId ?? s.hostId;
+    const hostId = s.hostId;
     const hostName = input.hosts[hostId]?.name ?? "Unknown host";
     const issue = issueOf(ws);
     if (
@@ -572,258 +445,105 @@ export function buildNavTree(input: NavInput, opts: NavOptions): NavTree {
       outside,
     });
   }
-  const byActivity = (a: NavEntry, b: NavEntry) =>
-    b.session.lastActivityAt.localeCompare(a.session.lastActivityAt);
   entries.sort((a, b) => {
     if (needsFirst && a.attention !== b.attention) return Number(b.attention) - Number(a.attention);
-    switch (sort) {
-      case "created":
-        return b.session.createdAt.localeCompare(a.session.createdAt) || byActivity(a, b);
-      case "name":
-        return (
-          a.session.title.localeCompare(b.session.title, undefined, {
-            numeric: true,
-            sensitivity: "base",
-          }) || byActivity(a, b)
-        );
-      case "status":
-        return BUCKET_RANK[a.bucket] - BUCKET_RANK[b.bucket] || byActivity(a, b);
-      default:
-        return byActivity(a, b);
-    }
-  });
-
-  // Collapse entries into branches, keeping the order of each branch's first entry.
-  const perHost = layout === "where";
-  const keyOf = new Map<string, string>();
-  for (const e of entries) {
-    if (e.session.provenance !== "subagent") {
-      keyOf.set(e.session.id, branchKeyOf(e.session, e.ws, perHost));
-    }
-  }
-  const groupsByKey = new Map<string, NavEntry[]>();
-  for (const e of entries) {
-    const parentKey =
-      e.session.provenance === "subagent" && e.session.parentSessionId
-        ? keyOf.get(e.session.parentSessionId)
-        : undefined;
-    const key = parentKey ?? keyOf.get(e.session.id) ?? branchKeyOf(e.session, e.ws, perHost);
-    const list = groupsByKey.get(key);
-    if (list) list.push(e);
-    else groupsByKey.set(key, [e]);
-  }
-  const units: NavUnit[] = [];
-  for (const [key, list] of groupsByKey) {
-    const rank = Math.min(...list.map((e) => BUCKET_RANK[e.bucket]));
-    const tops = list.filter((e) => e.session.provenance !== "subagent");
-    if (tops.length === 0) {
-      for (const e of list) {
-        units.push({
-          key: `${key}#${e.session.id}`,
-          head: e,
-          others: [],
-          rank: BUCKET_RANK[e.bucket],
-        });
-      }
-      continue;
-    }
-    const primary = primarySession(tops.map((e) => e.session));
-    const head = tops.find((e) => e.session === primary) ?? tops[0]!;
-    units.push({
-      key,
-      head,
-      others: [
-        ...tops.filter((e) => e !== head).map((entry) => ({ entry, role: "extra" as const })),
-        ...list
-          .filter((e) => e.session.provenance === "subagent")
-          .map((entry) => ({ entry, role: "subagent" as const })),
-      ],
-      rank,
-    });
-  }
-
-  const row = (u: NavUnit, ctx: Pick<NavRow, "project" | "branch">): NavRow => ({
-    session: u.head.session,
-    attention: u.head.attention,
-    bucket: u.head.bucket,
-    ...ctx,
-    where:
-      layout === "where" ? null : sessionWhereToken(u.head.session, u.head.hostName, multiHost),
-    issue: u.head.issue
-      ? { number: u.head.issue.number, url: u.head.issue.url, title: u.head.issue.title }
-      : null,
-    leaves: u.head.leaves,
-    outside: u.head.outside,
-    key: u.key,
-    others: u.others.map(({ entry, role }) => ({
-      session: entry.session,
-      attention: entry.attention,
-      bucket: entry.bucket,
-      project: null,
-      branch: null,
-      where:
-        layout === "where" ? null : sessionWhereToken(entry.session, entry.hostName, multiHost),
-      key: u.key,
-      others: [],
-      othersNeedInput: false,
-      role,
-      issue: null,
-      leaves: false,
-      outside: entry.outside,
-    })),
-    othersNeedInput: u.others.some((o) => o.entry.attention),
-    role: "primary",
-  });
-
-  if (layout === "status") {
-    const groups: NavGroup[] = [];
-    for (const b of STATUS_BUCKETS) {
-      const g = emptyGroup(`s:${b.value}`, "status", b.label);
-      for (const u of units) {
-        if (u.rank !== BUCKET_RANK[b.value]) continue;
-        g.rows.push(
-          row(u, {
-            project: projectLabel(u.head.projectId, u.head.project),
-            branch: branchFor(u.head),
-          }),
-        );
-      }
-      if (g.rows.length > 0) {
-        countSessions(g);
-        groups.push(g);
-      }
-    }
-    return { groups, rows: [] };
-  }
-
-  if (layout === "recent") {
-    return {
-      groups: [],
-      rows: units.map((u) =>
-        row(u, {
-          project: projectLabel(u.head.projectId, u.head.project),
-          branch: branchFor(u.head),
-        }),
-      ),
-    };
-  }
-
-  if (layout === "where") {
-    // Host -> the terminal a hand-started Pi runs in, or Switchyard (held) -> branches.
-    const hosts = new Map<string, NavGroup>();
-    for (const u of units) {
-      const e = u.head;
-      const host = input.hosts[e.hostId];
-      const live = !!host && !host.revokedAt;
-      let hg = hosts.get(e.hostId);
-      if (!hg) {
-        hg = emptyGroup(`h:${e.hostId}`, "host", e.hostName, {
-          hostState: live ? host.connectivity : "unreachable",
-          where: live ? { kind: "host", id: e.hostId } : null,
-        });
-        hosts.set(e.hostId, hg);
-      }
-      const ext = e.session.external;
-      const client = ext?.client ?? null;
-      const key = `${hg.key}/t:${client ?? (ext ? "__ext" : "__held")}`;
-      let tg = hg.groups.find((g) => g.key === key);
-      if (!tg) {
-        tg = client
-          ? emptyGroup(key, "terminal", clientName(client), {
-              where: live ? { kind: "client", id: client, hostId: e.hostId } : null,
+    const comparison =
+      sort === "created"
+        ? b.session.createdAt.localeCompare(a.session.createdAt)
+        : sort === "name"
+          ? a.session.title.localeCompare(b.session.title, undefined, {
+              numeric: true,
+              sensitivity: "base",
             })
-          : ext
-            ? emptyGroup(key, "terminal", "Terminal", { detail: "not running" })
-            : emptyGroup(key, "held", "Switchyard");
-        hg.groups.push(tg);
-      }
-      tg.rows.push(row(u, { project: projectLabel(e.projectId, e.project), branch: branchFor(e) }));
+          : sort === "status"
+            ? BUCKET_RANK[a.bucket] - BUCKET_RANK[b.bucket]
+            : b.session.lastActivityAt.localeCompare(a.session.lastActivityAt);
+    return comparison || a.session.id.localeCompare(b.session.id);
+  });
+  const row = (e: NavEntry): NavRow => ({
+    session: e.session,
+    attention: e.attention,
+    bucket: e.bucket,
+    project: projectLabel(e.projectId, e.project),
+    branch: branchFor(e),
+    where: sessionWhereToken(e.session, e.hostName, multiHost),
+    issue: e.issue ? { number: e.issue.number, url: e.issue.url, title: e.issue.title } : null,
+    leaves: e.leaves,
+    outside: e.outside,
+  });
+  if (groupBy === "none") return { rows: entries.map(row), sections: [] };
+  const sections = new Map<string, NavSection>();
+  for (const e of entries) {
+    const key =
+      groupBy === "project"
+        ? `p:${e.projectId ?? "__none"}`
+        : groupBy === "host"
+          ? `h:${e.hostId}`
+          : `s:${e.bucket}`;
+    let section = sections.get(key);
+    if (!section) {
+      const host = input.hosts[e.hostId];
+      section =
+        groupBy === "project"
+          ? {
+              key,
+              label: projectLabel(e.projectId, e.project),
+              rows: [],
+              ...(e.projectId ? { projectId: e.projectId } : {}),
+            }
+          : groupBy === "host"
+            ? {
+                key,
+                label: e.hostName,
+                rows: [],
+                hostId: e.hostId,
+                hostState: host && !host.revokedAt ? host.connectivity : "unreachable",
+              }
+            : {
+                key,
+                label:
+                  e.bucket === "idle"
+                    ? "Other sessions"
+                    : STATUS_BUCKETS.find((b) => b.value === e.bucket)!.label,
+                rows: [],
+              };
+      sections.set(key, section);
     }
-    const groups = sortGroups([...hosts.values()], sort);
-    // Terminals by name, then a stopped hand-started Pi's, then what Switchyard holds.
-    const rank = (g: NavGroup) => (g.kind === "held" ? 2 : g.key.endsWith("/t:__ext") ? 1 : 0);
-    for (const g of groups) {
-      g.groups.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
-      countSessions(g);
-    }
-    return { groups, rows: [] };
+    section.rows.push(row(e));
   }
-
-  // Projects: project -> branches.
-  const projects = new Map<string, NavGroup>();
-  const projectGroup = (projectId: string | null): NavGroup => {
-    const key = `p:${projectId ?? "__none"}`;
-    let g = projects.get(key);
-    if (!g) {
-      const project = projectId ? (input.projects[projectId] ?? null) : null;
-      g = emptyGroup(key, "project", projectLabel(projectId, project));
-      projects.set(key, g);
+  const ordered = [...sections.values()];
+  ordered.sort((a, b) => {
+    if (groupBy === "status") {
+      return (
+        BUCKET_RANK[a.key.slice(2) as StatusBucket] - BUCKET_RANK[b.key.slice(2) as StatusBucket]
+      );
     }
-    return g;
-  };
-  for (const u of units) {
-    const e = u.head;
-    projectGroup(e.projectId).rows.push(row(u, { project: null, branch: branchFor(e) }));
-  }
-  const groups = sortGroups([...projects.values()], sort);
-  for (const g of groups) countSessions(g);
-  return { groups, rows: [] };
+    const missing = (s: NavSection) =>
+      groupBy === "project"
+        ? Number(!s.projectId || !input.projects[s.projectId])
+        : Number(!input.hosts[s.hostId!]);
+    return missing(a) - missing(b) || a.label.localeCompare(b.label) || a.key.localeCompare(b.key);
+  });
+  return { rows: [], sections: ordered };
 }
 
-/** True when the tree has no rows and nothing to expand. */
-export function navTreeIsEmpty(tree: NavTree): boolean {
-  const empty = (g: NavGroup): boolean => g.rows.every((r) => r.outside) && g.groups.every(empty);
-  return tree.rows.every((r) => r.outside) && tree.groups.every(empty);
+function listRows(list: SessionList): NavRow[] {
+  return [...list.rows, ...list.sections.flatMap((section) => section.rows)];
 }
-
-/** Branches listed (top-level rows not kept only because they are open). */
-export function navRowCount(tree: NavTree): number {
-  const count = (rows: NavRow[]) => rows.filter((r) => !r.outside).length;
-  const walk = (gs: NavGroup[]): number =>
-    gs.reduce((n, g) => n + count(g.rows) + walk(g.groups), 0);
-  return count(tree.rows) + walk(tree.groups);
+export function navRowCount(list: SessionList): number {
+  return listRows(list).filter((row) => !row.outside).length;
 }
-
-/**
- * Listed branches needing input (the row's session or another in its branch), and the most
- * recently active such session, to jump to.
- */
-export function navNeedsInput(tree: NavTree): { count: number; first: string | null } {
-  let count = 0;
-  let first: Session | null = null;
-  const visit = (rows: NavRow[]) => {
-    for (const r of rows) {
-      if (r.outside || !(r.attention || r.othersNeedInput)) continue;
-      count += 1;
-      for (const s of [r, ...r.others]) {
-        if (!s.attention) continue;
-        if (!first || s.session.lastActivityAt > first.lastActivityAt) first = s.session;
-      }
-    }
-  };
-  const walk = (gs: NavGroup[]) => {
-    for (const g of gs) {
-      visit(g.rows);
-      walk(g.groups);
-    }
-  };
-  visit(tree.rows);
-  walk(tree.groups);
-  return { count, first: (first as Session | null)?.id ?? null };
+export function navNeedsInput(list: SessionList): { count: number; first: string | null } {
+  const matching = listRows(list).filter((row) => !row.outside && row.attention);
+  matching.sort(
+    (a, b) =>
+      b.session.lastActivityAt.localeCompare(a.session.lastActivityAt) ||
+      a.session.id.localeCompare(b.session.id),
+  );
+  return { count: matching.length, first: matching[0]?.session.id ?? null };
 }
-
-/** The first top-level row listed only because it is open. */
-export function navOutsideRow(tree: NavTree): NavRow | null {
-  const inRows = tree.rows.find((r) => r.outside);
-  if (inRows) return inRows;
-  const walk = (gs: NavGroup[]): NavRow | null => {
-    for (const g of gs) {
-      const r = g.rows.find((x) => x.outside) ?? walk(g.groups);
-      if (r) return r;
-    }
-    return null;
-  };
-  return walk(tree.groups);
+export function navOutsideRow(list: SessionList): NavRow | null {
+  return listRows(list).find((row) => row.outside) ?? null;
 }
 
 /** Where a session stands: its issue, and why it is in the selected scope (null: it is not). */
@@ -876,19 +596,6 @@ export function scopeNote(
       title: `In ${v.name} only while it is live. Pin it or link an issue to keep it.`,
     };
   return null;
-}
-
-/** Every group key, depth-first (for Collapse all). */
-export function navGroupKeys(tree: NavTree): string[] {
-  const out: string[] = [];
-  const walk = (gs: NavGroup[]) => {
-    for (const g of gs) {
-      out.push(g.key);
-      walk(g.groups);
-    }
-  };
-  walk(tree.groups);
-  return out;
 }
 
 /* ------------------------------------------------------------------ */
