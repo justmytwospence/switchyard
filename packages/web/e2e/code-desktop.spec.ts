@@ -221,7 +221,9 @@ test.describe("desktop coding view", () => {
     const reading = await transcript.evaluate((el) => el.scrollTop);
 
     // New events arrive: the viewport stays put and the button counts them.
-    await api("POST", `/api/sessions/${id}/prompt`, { text: "Another message while reading" });
+    await api("POST", `/api/sessions/${id}/prompt`, {
+      text: "Another message while reading",
+    });
     await expect(jump).toHaveText(/Jump to latest \(\d+\)/);
     await expect(transcript.getByText("Received: Another message while reading")).toBeAttached();
     expect(Math.abs((await transcript.evaluate((el) => el.scrollTop)) - reading)).toBeLessThan(3);
@@ -284,7 +286,9 @@ test.describe("desktop coding view", () => {
     await expect.poll(() => prompts.length).toBe(1);
     expect(prompts[0]!.postDataJSON().mode).toBe("followUp");
     await expect(box).toHaveValue("");
-    await expect(page.getByTestId("queued-messages")).toContainText(text, { timeout: 15_000 });
+    await expect(page.getByTestId("queued-messages")).toContainText(text, {
+      timeout: 15_000,
+    });
     // Edit queue takes the message back out of Pi's queue and into the draft.
     await composer.getByRole("button", { name: "Edit queue" }).click();
     await expect(box).toHaveValue(text);
@@ -405,7 +409,9 @@ test.describe("desktop coding view", () => {
   test("model popover and slash picker list every command", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
     const composer = page.getByTestId("composer");
-    const modelButton = composer.getByRole("button", { name: /^Model: Mock 1/ });
+    const modelButton = composer.getByRole("button", {
+      name: /^Model: Mock 1/,
+    });
     await expect(modelButton).toBeVisible();
     await modelButton.click();
     const dialog = page.getByRole("dialog", { name: "Model" });
@@ -561,7 +567,9 @@ test.describe("desktop coding view", () => {
       const list = inspector.getByRole("list", { name: "Commits" });
       const all = list.getByRole("button", { name: /^All changes/ });
       await expect(all).toHaveAttribute("aria-current", "true");
-      const divider = inspector.getByRole("separator", { name: "Resize commit list" });
+      const divider = inspector.getByRole("separator", {
+        name: "Resize commit list",
+      });
       const before = Number(await divider.getAttribute("aria-valuenow"));
       await divider.focus();
       await page.keyboard.press("ArrowDown");
@@ -648,7 +656,7 @@ test.describe("desktop coding view", () => {
     await page.goto(`/code/${state.sessions.long}`);
     const nav = page.getByTestId("navigator");
     await nav.getByRole("button", { name: "View options" }).click();
-    await page.getByRole("menuitemradio", { name: /^Projects/ }).click();
+    await page.getByRole("menuitemradio", { name: /^Project\b/ }).click();
     await expect(nav.getByRole("link", { name: /Question session/ })).toBeVisible();
     await nav.getByLabel("Search sessions").focus();
 
@@ -663,17 +671,6 @@ test.describe("desktop coding view", () => {
       }
       throw new Error(`Tab never reached "${pred}"`);
     };
-
-    // A project group toggles with the keyboard.
-    await tabTo("Demo project");
-    const project = nav.getByRole("button", { name: /^Demo project/ });
-    await expect(project).toBeFocused();
-    await expect(project).toHaveAttribute("aria-expanded", "true");
-    await page.keyboard.press("Enter");
-    await expect(project).toHaveAttribute("aria-expanded", "false");
-    await expect(nav.getByRole("link", { name: /Question session/ })).toHaveCount(0);
-    await page.keyboard.press("Space");
-    await expect(project).toHaveAttribute("aria-expanded", "true");
 
     // Tab to a session row and open it with Enter.
     await tabTo("Question session");
@@ -691,23 +688,25 @@ test.describe("desktop coding view", () => {
   test("navigator layouts switch and persist", async ({ page, state }) => {
     await page.goto(`/code/${state.sessions.long}`);
     const nav = page.getByTestId("navigator");
-    const projectBtn = nav.getByRole("button", { name: /^Demo project/ });
-    await expect(projectBtn).toHaveCount(0);
-    await expect(nav.getByRole("list", { name: "Recent sessions" })).toBeVisible();
+    const projectHeading = nav
+      .getByTestId("session-group")
+      .getByRole("heading", { name: /Demo project/ });
+    await expect(projectHeading).toHaveCount(0);
+    await expect(nav.getByRole("list", { name: "Sessions" })).toBeVisible();
     await expect(nav.getByRole("link", { name: /Question session/ })).toBeVisible();
 
     await page.reload();
-    await expect(nav.getByRole("list", { name: "Recent sessions" })).toBeVisible();
+    await expect(nav.getByRole("list", { name: "Sessions" })).toBeVisible();
 
     await nav.getByRole("button", { name: "View options" }).click();
-    await expect(page.getByRole("menuitemradio", { name: /^Recent(?! activity)/ })).toHaveAttribute(
+    await expect(page.getByRole("menuitemradio", { name: /^None\b/ })).toHaveAttribute(
       "aria-checked",
       "true",
     );
-    await page.getByRole("menuitemradio", { name: /Projects/ }).click();
-    await expect(projectBtn).toBeVisible();
+    await page.getByRole("menuitemradio", { name: /^Project\b/ }).click();
+    await expect(projectHeading).toBeVisible();
     await page.reload();
-    await expect(projectBtn).toBeVisible();
+    await expect(projectHeading).toBeVisible();
   });
 
   test("Review changes on the board opens the Changes tab", async ({ page, state }, info) => {
@@ -719,7 +718,9 @@ test.describe("desktop coding view", () => {
       await expect(page.getByTestId("inspector")).toHaveCount(0);
     }
     await page.goto(`/tasks/${state.tasks.review}`);
-    const drawer = page.getByRole("dialog", { name: "Review the greeting copy" });
+    const drawer = page.getByRole("dialog", {
+      name: "Review the greeting copy",
+    });
     await drawer.getByRole("link", { name: "Review changes" }).first().click();
     await expect(page).toHaveURL(new RegExp(`/code/${state.reviewSessionId}\\?tab=changes`));
     const inspector = page.getByTestId("inspector");
@@ -771,7 +772,7 @@ test.describe("desktop coding view", () => {
     expect(created).toBe(false);
   });
 
-  test("a second session in a branch nests under the first", async ({ page, api, state }, info) => {
+  test("sessions in a branch are independent rows", async ({ page, api, state }, info) => {
     const branch = `nest-${uid(info)}`;
     const first = await api("POST", "/api/branches/open", {
       projectId: state.projectId,
@@ -793,15 +794,16 @@ test.describe("desktop coding view", () => {
     const nav = page.getByTestId("navigator");
     const row = nav.getByTestId("session-row").filter({ hasText: `First ${branch}` });
     await expect(row).toBeVisible();
-    await expect(
-      nav.getByTestId("session-row").filter({ hasText: `Second ${branch}` }),
-    ).toHaveCount(0);
-    await row.locator("xpath=..").getByTestId("row-others").click();
-    const child = nav.getByTestId("session-subrow").filter({ hasText: `Second ${branch}` });
-    await expect(child).toBeVisible();
-    await child.click();
+    const sibling = nav.getByTestId("session-row").filter({ hasText: `Second ${branch}` });
+    await expect(sibling).toBeVisible();
+    expect(
+      Math.abs((await row.boundingBox())!.x - (await sibling.boundingBox())!.x),
+    ).toBeLessThanOrEqual(1);
+    await sibling.click();
     await expect(page).toHaveURL(new RegExp(`/code/${second.session.id}$`));
-    await expect(child).toHaveAttribute("aria-current", "page");
+    await expect(sibling).toHaveAttribute("aria-current", "page");
+    await row.click();
+    await expect(page).toHaveURL(new RegExp(`/code/${first.session.id}$`));
   });
 
   test("New worktree suggests a branch from the prompt", async ({ page }) => {
@@ -827,8 +829,8 @@ test.describe("desktop coding view", () => {
     await page.goto(`/code/${state.sessions.long}`);
     const nav = page.getByTestId("navigator");
     await nav.getByRole("button", { name: "View options" }).click();
-    await page.getByRole("menuitemradio", { name: /^Projects/ }).click();
-    await nav.getByRole("button", { name: /^Demo project/ }).hover();
+    await page.getByRole("menuitemradio", { name: /^Project\b/ }).click();
+    await nav.getByTestId("session-group").filter({ hasText: "Demo project" }).hover();
     await nav.getByRole("button", { name: "New session in Demo project" }).click();
     const dialog = page.getByRole("dialog", { name: "New session" });
     const project = dialog.getByLabel("Project");
@@ -848,7 +850,10 @@ test.describe("desktop coding view", () => {
   });
 
   test("the view chip explains the selected view", async ({ page, api, state }, info) => {
-    const v = await api("POST", "/api/scopes", { name: `pins-${uid(info)}`, mode: "pinned" });
+    const v = await api("POST", "/api/scopes", {
+      name: `pins-${uid(info)}`,
+      mode: "pinned",
+    });
     await page.goto(`/code/${state.sessions.long}`);
     await expect(page.getByTestId("conversation")).toBeVisible();
     const nav = page.getByTestId("navigator");

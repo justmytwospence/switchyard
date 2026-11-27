@@ -3,10 +3,8 @@ import {
   Archive,
   BellOff,
   ChevronDown,
-  ChevronRight,
   Ellipsis,
   FolderGit2,
-  Layers,
   MessageCircleQuestion,
   Pencil,
   Plus,
@@ -33,6 +31,7 @@ import { TONE_CLASSES, TONE_TEXT } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
 import { Menu, type MenuHeading, type MenuItem } from "../../components/ui/Menu";
+import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { Spinner } from "../../components/ui/Spinner";
 import {
@@ -60,6 +59,7 @@ import { ScopeDialog } from "../scopes/ScopeDialog";
 import { useScopeDescriber } from "../scopes/ScopeSelect";
 import {
   effectiveWhere,
+  runLocationOptions,
   sameWhere,
   useSelectedWhere,
   type Where,
@@ -70,48 +70,36 @@ import { AdapterSlot } from "./AdapterSlots";
 import { sessionMenuItems } from "./ConversationHeader";
 import { useSessionContext } from "./hooks";
 import {
-  buildNavTree,
-  DEFAULT_SORT,
+  buildSessionList,
   isBusy,
-  NAV_LAYOUTS,
+  NAV_GROUPINGS,
   NAV_SORTS,
   type NavFilter,
-  type NavGroup,
-  type NavLayout,
+  type NavGrouping,
   type NavOutside,
   type NavRow,
+  type NavSection,
   type NavSort,
-  navGroupKeys,
   navNeedsInput,
   navOutsideRow,
   navRowCount,
-  navTreeIsEmpty,
-  normalizeLayout,
   pendingTitles,
-  projectIdOfGroup,
+  readNavPresentation,
   rowPreview,
 } from "./model";
 import { archiveWithUndo, clearNeedsInput } from "./rowActions";
 import { useSessionActions } from "./SessionActions";
 import { useSelectedScope } from "./scopes";
-import {
-  branchActivity,
-  branchChildren,
-  recentSections,
-  shortActivity,
-} from "./sessionListPresentation";
+import { shortActivity } from "./sessionListPresentation";
 
 interface NavPrefs {
   filter: NavFilter;
   query: string;
-  collapsed: string[];
-  layout: NavLayout;
+  groupBy: NavGrouping;
+  sort: NavSort;
   showSubagents: boolean;
   showSessionDetails: boolean;
-  sorts: Partial<Record<NavLayout, NavSort>>;
   needsInputFirst: boolean;
-  /** Branch rows showing their other sessions. */
-  expanded: string[];
 }
 
 const FILTER_VALUES = ["active", "attention", "all"] as const;
@@ -120,13 +108,11 @@ function defaultPrefs(): NavPrefs {
   return {
     filter: "active",
     query: "",
-    collapsed: [],
-    layout: "recent",
+    groupBy: "none",
+    sort: "activity",
     showSubagents: false,
     showSessionDetails: false,
-    sorts: {},
     needsInputFirst: true,
-    expanded: [],
   };
 }
 
@@ -139,22 +125,24 @@ export interface NavigatorProps {
   style?: CSSProperties;
 }
 
-/** Sessions in a chosen layout, with search, filters, view options, collapse controls and New session. */
+/** A flat list of sessions, with optional grouping and independent filters and sorting. */
 export function Navigator({ selectedId, onNewSession, variant, className, style }: NavigatorProps) {
   const screen = variant === "screen";
   const defaults = defaultPrefs();
   const [stored, setPrefs] = useFilter<NavPrefs>(screen ? "sessionList" : "navigator", defaults);
   const prefs = {
-    ...defaults,
-    ...stored,
-    layout: normalizeLayout(stored?.layout, defaults.layout),
-    expanded: stored?.expanded ?? [],
+    filter: stored.filter ?? defaults.filter,
+    query: stored.query ?? defaults.query,
+    showSubagents: stored.showSubagents ?? defaults.showSubagents,
+    showSessionDetails: stored.showSessionDetails ?? defaults.showSessionDetails,
+    needsInputFirst: stored.needsInputFirst ?? defaults.needsInputFirst,
+    ...readNavPresentation(stored),
   };
+  const { groupBy, sort } = prefs;
   const hydrated = useSyncStore((s) => s.hydrated);
   const projects = useSyncStore((s) => s.projects);
   const workspaces = useSyncStore((s) => s.workspaces);
   const sessions = useSyncStore((s) => s.sessions);
-  const sort = prefs.sorts?.[prefs.layout] ?? DEFAULT_SORT[prefs.layout];
   const hostsMap = useSyncStore((s) => s.hosts);
   const { scopes, describe: describeScope } = useScopeDescriber();
   const [selectedScopeId, setSelectedScopeId] = useSelectedScope();
@@ -162,6 +150,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   const where = effectiveWhere(storedWhere, hostsMap);
   const [editingScope, setEditingScope] = useState<string | "new" | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
   const scope = (selectedScopeId ? scopes[selectedScopeId] : null) ?? null;
   const attention = useSyncStore((s) => s.attention);
   const interactions = useSyncStore((s) => s.interactions);
@@ -174,7 +163,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
   );
   const navOpts = {
     query: prefs.query,
-    layout: prefs.layout,
+    groupBy,
     showSubagents: prefs.showSubagents,
     sort,
     needsInputFirst: prefs.needsInputFirst,
@@ -182,84 +171,60 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     where,
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: navOpts is rebuilt each render from these
-  const tree = useMemo(
-    () => buildNavTree(navInput, { ...navOpts, filter: prefs.filter, keepId: selectedId }),
+  const list = useMemo(
+    () => buildSessionList(navInput, { ...navOpts, filter: prefs.filter, keepId: selectedId }),
     [
       navInput,
       selectedId,
       prefs.filter,
       prefs.query,
-      prefs.layout,
+      groupBy,
       prefs.showSubagents,
       sort,
       prefs.needsInputFirst,
       scope,
       where?.kind,
       where?.id,
+      where?.kind === "client" ? where.hostId : undefined,
     ],
   );
-  // The count on each filter is the branches it lists, so it always matches the rows.
+  // Count matching session IDs, excluding an open row kept only for context.
   // biome-ignore lint/correctness/useExhaustiveDependencies: navOpts is rebuilt each render from these
   const counts = useMemo(() => {
     const out: Partial<Record<NavFilter, number>> = {};
     for (const f of FILTER_VALUES) {
       out[f] = navRowCount(
-        f === prefs.filter ? tree : buildNavTree(navInput, { ...navOpts, filter: f }),
+        f === prefs.filter
+          ? list
+          : buildSessionList(navInput, { ...navOpts, groupBy: "none", filter: f }),
       );
     }
     return out;
-  }, [tree]);
-  const latestNeedsInput = useMemo(() => navNeedsInput(tree).first, [tree]);
+  }, [list]);
+  const latestNeedsInput = useMemo(() => navNeedsInput(list).first, [list]);
   const navigate = useNavigate();
-  const collapsed = new Set(prefs.collapsed);
-  const toggle = (key: string) => {
-    const next = new Set(collapsed);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setPrefs({ ...prefs, collapsed: [...next] });
-  };
-  const expansion: RowExpansion = {
-    expanded: new Set(prefs.expanded),
-    toggleRow: (key) => {
-      const next = new Set(prefs.expanded);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      setPrefs({ ...prefs, expanded: [...next] });
-    },
-  };
-  const allKeys = navGroupKeys(tree);
-  const anyExpanded = allKeys.some((k) => !collapsed.has(k));
   const viewItems: (MenuItem | MenuHeading | "separator")[] = [
-    { id: "layout-heading", heading: "Group branches" },
-    ...NAV_LAYOUTS.map(
-      (l): MenuItem => ({
-        id: `layout-${l.value}`,
-        label: l.label,
-        hint: l.hint,
+    { id: "group-heading", heading: "Group by" },
+    ...NAV_GROUPINGS.map(
+      (g): MenuItem => ({
+        id: `group-${g.value}`,
+        label: g.label,
+        hint: g.hint,
         kind: "radio",
-        checked: prefs.layout === l.value,
-        onSelect: () => setPrefs({ ...prefs, layout: l.value }),
+        checked: groupBy === g.value,
+        onSelect: () => setPrefs({ ...prefs, groupBy: g.value }),
       }),
     ),
-    ...(allKeys.length > 0
-      ? [
-          {
-            id: "collapse-all",
-            label: anyExpanded ? "Collapse all" : "Expand all",
-            onSelect: () => setPrefs({ ...prefs, collapsed: anyExpanded ? allKeys : [] }),
-          } satisfies MenuItem,
-        ]
-      : []),
     "separator",
-    { id: "sort-heading", heading: "Sort sessions" },
+    { id: "sort-heading", heading: "Sort by" },
     ...NAV_SORTS.map(
       (s): MenuItem => ({
         id: `sort-${s.value}`,
         label: s.label,
-        hint: s.value === DEFAULT_SORT[prefs.layout] ? `${s.hint} (default)` : s.hint,
+        hint: s.hint,
         kind: "radio",
         checked: sort === s.value,
-        onSelect: () => setPrefs({ ...prefs, sorts: { ...prefs.sorts, [prefs.layout]: s.value } }),
+        onSelect: () => setPrefs({ ...prefs, sort: s.value }),
       }),
     ),
     {
@@ -273,7 +238,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
     {
       id: "subagents",
       label: "Show subagents",
-      hint: "Nested under the session that started them",
+      hint: "List sessions started by another session",
       kind: "checkbox",
       checked: prefs.showSubagents,
       onSelect: () => setPrefs({ ...prefs, showSubagents: !prefs.showSubagents }),
@@ -286,9 +251,16 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
       checked: prefs.showSessionDetails,
       onSelect: () => setPrefs({ ...prefs, showSessionDetails: !prefs.showSessionDetails }),
     },
+    "separator",
+    {
+      id: "filter-location",
+      label: "Filter by run location…",
+      icon: <Server aria-hidden className="size-4" />,
+      onSelect: () => setLocationOpen(true),
+    },
   ];
   if (latestNeedsInput) {
-    viewItems.push("separator", {
+    viewItems.push({
       id: "needs-input-jump",
       label: "Open latest session needing input",
       icon: <MessageCircleQuestion className="size-4" />,
@@ -362,16 +334,6 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           setRowActions((r) => ({ id, open: intent === "sheet", intent, n: r.n + 1 }))
       : undefined,
   };
-  const groupProps = {
-    collapsed,
-    toggle,
-    onNewSession,
-    expansion,
-    where,
-    setWhere,
-    ...rowProps,
-  };
-
   let body: ReactNode;
   if (!hydrated) {
     body = <LoadingState label="Loading sessions…" />;
@@ -402,8 +364,8 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         {first && <ProjectSuggestions host={first} compact />}
       </>
     );
-  } else if (navTreeIsEmpty(tree)) {
-    const kept = navOutsideRow(tree);
+  } else if (!counts[prefs.filter]) {
+    const kept = navOutsideRow(list);
     const statusTitle = (what: string | null) => {
       const inWhat = what ? ` in ${what}` : "";
       return prefs.filter === "attention"
@@ -430,12 +392,12 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         title={statusTitle(whereName)}
         description={
           where.kind === "client"
-            ? "A client lists only the Pi running in it now: a session that ended there is not in it any more."
+            ? "Terminal filters show only sessions running there now."
             : scope
               ? `No session in ${scope.name} runs on this host.`
               : "No session runs on this host."
         }
-        action={{ label: "Clear Where", onClick: () => setWhere(null) }}
+        action={{ label: "Clear run location", onClick: () => setWhere(null) }}
         secondaryAction={where.kind === "host" ? showAll : undefined}
       />
     ) : scope ? (
@@ -468,45 +430,39 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
         )}
       </>
     );
-  } else if (prefs.layout === "recent") {
-    const sections =
-      sort === "activity"
-        ? recentSections(
-            tree.rows,
-            prefs.needsInputFirst && prefs.filter !== "attention",
-            rowProps.now,
-          )
-        : [{ label: "", rows: tree.rows }];
+  } else if (groupBy === "none") {
     body = (
-      <ul aria-label="Recent sessions" className="flex min-w-0 flex-col gap-0.5 pb-4">
-        {sections.flatMap(({ label, rows }) => [
-          label && (
-            <li
-              key={`section:${label}`}
-              data-testid="recent-section"
-              className="mt-4 px-1.5 pb-1 first:mt-0"
-            >
-              <h3 className={SECTION_HEADING}>{label}</h3>
-            </li>
-          ),
-          ...rows.map((row) => (
-            <SessionRow key={row.key} row={row} expansion={expansion} {...rowProps} />
-          )),
-        ])}
+      <ul aria-label="Sessions" className="flex min-w-0 flex-col gap-0.5 pb-4">
+        {list.rows.map((row) => (
+          <SessionRow key={row.session.id} row={row} {...rowProps} />
+        ))}
       </ul>
     );
   } else {
     body = (
-      <ul
-        aria-label={
-          prefs.layout === "where" ? "Where" : prefs.layout === "status" ? "Status" : "Projects"
-        }
-        className="flex min-w-0 flex-col gap-4 pb-4"
-      >
-        {tree.groups.map((g) => (
-          <GroupNode key={g.key} group={g} depth={0} {...groupProps} />
-        ))}
-      </ul>
+      <div className="flex min-w-0 flex-col gap-4 pb-4">
+        {list.sections.map((section) => {
+          const host = section.hostId ? hostsMap[section.hostId] : null;
+          const location: Where | null =
+            host && !host.revokedAt ? { kind: "host", id: host.id } : null;
+          return (
+            <SessionGroup
+              key={section.key}
+              section={section}
+              groupBy={groupBy}
+              onNew={
+                section.projectId && projects[section.projectId]
+                  ? () => onNewSession(section.projectId)
+                  : undefined
+              }
+              onOnly={
+                location && !sameWhere(location, where) ? () => setWhere(location) : undefined
+              }
+              {...rowProps}
+            />
+          );
+        })}
+      </div>
     );
   }
 
@@ -655,7 +611,7 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
               data-testid="navigator-filters"
               className="col-span-full flex min-w-0 items-center gap-2"
             >
-              {whereName && <WhereFilter value={whereName} onClear={() => setWhere(null)} />}
+              {whereName && <RunLocationChip value={whereName} onClear={() => setWhere(null)} />}
               {clearButton}
             </div>
           )}
@@ -666,6 +622,19 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           onSaved={(id) => setSelectedScopeId(id)}
         />
       </div>
+      {locationOpen && (
+        <RunLocationDialog
+          screen={screen}
+          options={runLocationOptions(hostsMap, sessions)}
+          value={where}
+          valueLabel={whereName}
+          onClose={() => setLocationOpen(false)}
+          onChange={(choice) => {
+            setWhere(choice);
+            setLocationOpen(false);
+          }}
+        />
+      )}
       <AdapterSlot sessionId={selectedId} placement="sidebar.header" />
       <div
         data-scroll-root
@@ -754,20 +723,19 @@ function ViewFilter({
   );
 }
 
-/** The set Where filter: label, the place in the accent colour, and a clear. */
-function WhereFilter({ value, onClear }: { value: string; onClear: () => void }) {
+function RunLocationChip({ value, onClear }: { value: string; onClear: () => void }) {
   return (
     <div
       data-testid="where-chip"
       data-active="true"
-      title={`Where: ${value}`}
+      title={`Run location: ${value}`}
       className="flex h-11 min-w-0 items-center gap-1.5 text-sm pointer-fine:h-8"
     >
-      <span className="shrink-0 text-xs text-muted">Where</span>
-      <span className="min-w-0 truncate pl-1 font-medium text-accent">{value}</span>
+      <span className="shrink-0 text-xs text-muted">Run location:</span>
+      <span className="min-w-0 truncate font-medium text-accent">{value}</span>
       <IconButton
         size="sm"
-        label="Clear Where"
+        label="Clear run location"
         icon={<X className="size-3.5" />}
         onClick={onClear}
       />
@@ -775,54 +743,74 @@ function WhereFilter({ value, onClear }: { value: string; onClear: () => void })
   );
 }
 
-function GroupIcon({ group }: { group: NavGroup }) {
-  const cls = "size-3.5 shrink-0 text-muted";
-  if (group.kind === "host") return <Server aria-hidden className={cls} />;
-  if (group.kind === "terminal") return <SquareTerminal aria-hidden className={cls} />;
-  if (group.kind === "held") return <Layers aria-hidden className={cls} />;
-  if (group.kind === "project") return <FolderGit2 aria-hidden className={cls} />;
-  return null;
-}
-
-function GroupHeader({ group, depth, open }: { group: NavGroup; depth: number; open: boolean }) {
-  const Chevron = open ? ChevronDown : ChevronRight;
-  if (depth === 0) {
-    return (
-      <>
-        <Chevron aria-hidden className="size-4 shrink-0 text-muted" />
-        <GroupIcon group={group} />
-        <span className="min-w-0 flex-1 truncate">
-          {group.label}
-          {group.detail && (
-            <span className="ml-1.5 text-xs font-normal text-muted">{group.detail}</span>
-          )}
-        </span>
-        {group.hostState && group.hostState !== "connected" && (
-          <StatusChip kind="host" value={group.hostState} size="sm" />
-        )}
-        <span className="shrink-0 text-xs font-normal text-muted">
-          {group.sessionCount}
-          <span className="sr-only"> branches</span>
-        </span>
-      </>
-    );
-  }
+function RunLocationDialog({
+  screen,
+  options,
+  value,
+  valueLabel,
+  onChange,
+  onClose,
+}: {
+  screen: boolean;
+  options: ReturnType<typeof runLocationOptions>;
+  value: Where | null;
+  valueLabel: string | null;
+  onChange: (where: Where | null) => void;
+  onClose: () => void;
+}) {
+  const Surface = screen ? Sheet : Dialog;
+  const ref = useRef<HTMLSelectElement>(null);
+  const choices = [...options.hosts, ...options.clients];
+  const choiceKey = (where: Where) =>
+    where.kind === "host"
+      ? JSON.stringify(["host", where.id])
+      : JSON.stringify(["client", where.hostId ?? null, where.id]);
+  const selected = value && choices.find((choice) => sameWhere(choice.where, value));
+  const selectedKey = selected ? choiceKey(selected.where) : value ? "unavailable" : "";
+  const renderOptions = (items: typeof choices) =>
+    items.map(({ where, label }) => {
+      const key = choiceKey(where);
+      return (
+        <option key={key} value={key}>
+          {label}
+        </option>
+      );
+    });
   return (
-    <>
-      <Chevron aria-hidden className="size-3.5 shrink-0 text-muted" />
-      <GroupIcon group={group} />
-      <span className="min-w-0 flex-1 truncate">
-        {group.label}
-        {group.detail && <span className="ml-1.5 text-xs text-muted">{group.detail}</span>}
-      </span>
-    </>
+    <Surface
+      open
+      onClose={onClose}
+      title="Filter by run location"
+      description="Terminal choices show where sessions are running now."
+      initialFocus={ref}
+      footer={<Button onClick={onClose}>Cancel</Button>}
+    >
+      <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">
+        Run location
+        <select
+          ref={ref}
+          value={selectedKey}
+          className="tap w-full min-w-0 rounded-md border border-border bg-surface px-2 py-2 text-sm"
+          onChange={(e) => {
+            const key = e.currentTarget.value;
+            if (key !== "unavailable")
+              onChange(choices.find(({ where }) => choiceKey(where) === key)?.where ?? null);
+          }}
+        >
+          <option value="">Any location</option>
+          {selectedKey === "unavailable" && (
+            <option value="unavailable">{valueLabel} (current filter)</option>
+          )}
+          {options.hosts.length > 0 && (
+            <optgroup label="Host">{renderOptions(options.hosts)}</optgroup>
+          )}
+          {options.clients.length > 0 && (
+            <optgroup label="Current terminal">{renderOptions(options.clients)}</optgroup>
+          )}
+        </select>
+      </label>
+    </Surface>
   );
-}
-
-/** Which rows show their other sessions. */
-interface RowExpansion {
-  expanded: Set<string>;
-  toggleRow: (key: string) => void;
 }
 
 interface RowProps {
@@ -851,17 +839,15 @@ const BADGE_TONE = {
 const NO_BADGES: ReturnType<typeof useSessionBadges>[string] = [];
 
 /** A row's state as a mark: the icon's shape and a spoken label, colour only reinforcing. */
-function StatusMark({ status, tile }: { status: StatusInfo; tile?: boolean }) {
+function StatusMark({ status }: { status: StatusInfo }) {
   const Icon = status.icon;
   return (
     <span
       data-testid="row-status"
       title={status.label}
       className={cn(
-        "inline-flex shrink-0 items-center",
-        tile
-          ? cn("size-5 justify-center rounded-md @min-[304px]:size-6", TONE_CLASSES[status.tone])
-          : cn("size-3.5", TONE_TEXT[status.tone]),
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-md @min-[304px]:size-6",
+        TONE_CLASSES[status.tone],
       )}
     >
       {status.spin ? (
@@ -874,96 +860,71 @@ function StatusMark({ status, tile }: { status: StatusInfo; tile?: boolean }) {
   );
 }
 
-function GroupNode({
-  group,
-  depth,
-  collapsed,
-  toggle,
-  onNewSession,
-  expansion,
-  where,
-  setWhere,
+function SessionGroup({
+  section,
+  groupBy,
+  onNew,
+  onOnly,
   ...rowProps
 }: RowProps & {
-  group: NavGroup;
-  depth: number;
-  collapsed: Set<string>;
-  toggle: (key: string) => void;
-  onNewSession: (projectId?: string) => void;
-  expansion: RowExpansion;
-  where: Where | null;
-  setWhere: (w: Where | null) => void;
+  section: NavSection;
+  groupBy: NavGrouping;
+  onNew?: () => void;
+  onOnly?: () => void;
 }) {
-  const open = !collapsed.has(group.key);
-  const pid = group.kind === "project" ? projectIdOfGroup(group.key) : null;
-  const only = group.where && !sameWhere(group.where, where) ? group.where : null;
+  const headingId = useId();
+  const count = section.rows.filter((row) => !row.outside).length;
   return (
-    <li className={cn("min-w-0", depth === 1 && "ml-2")}>
-      <div className="flex min-w-0 items-center gap-1">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => toggle(group.key)}
-          className={cn(
-            SECTION_HEADING,
-            "tap flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left hover:bg-surface-2",
-          )}
+    <section data-testid="session-group" aria-labelledby={headingId} className="min-w-0">
+      <div className="flex min-w-0 items-center gap-1.5 px-1.5">
+        <h3
+          id={headingId}
+          title={section.label}
+          className={cn(SECTION_HEADING, "min-w-0 flex-1 truncate")}
         >
-          <GroupHeader group={group} depth={depth} open={open} />
-        </button>
-        {only && (
+          {section.label}
+        </h3>
+        {section.hostState && section.hostState !== "connected" && (
+          <StatusChip kind="host" value={section.hostState} size="sm" />
+        )}
+        <span className="shrink-0 text-xs text-muted tabular-nums">
+          {count}
+          <span className="sr-only"> {count === 1 ? "session" : "sessions"}</span>
+        </span>
+        {onOnly && (
           <button
             type="button"
             data-testid="group-only"
-            aria-label={`Only ${group.label}`}
-            title={`Show only what runs ${only.kind === "host" ? "on" : "in"} ${group.label}`}
-            onClick={() => setWhere(only)}
-            className="tap shrink-0 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2 hover:text-text"
+            aria-label={`Only ${section.label}`}
+            title={`Show only sessions on ${section.label}`}
+            onClick={onOnly}
+            className="tap shrink-0 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2 hover:text-text"
           >
             Only this
           </button>
         )}
-        {pid && (
+        {onNew && (
           <IconButton
             size="sm"
-            label={`New session in ${group.label}`}
-            icon={<Plus className="size-4" />}
-            onClick={() => onNewSession(pid)}
+            label={`New session in ${section.label}`}
+            icon={<Plus aria-hidden className="size-4" />}
+            onClick={onNew}
             className="size-7"
           />
         )}
       </div>
-      {open && (
-        <ul className="mt-1 flex min-w-0 flex-col gap-0.5">
-          {group.rows.length === 0 && group.groups.length === 0 && (
-            <li className="px-7 py-1 text-xs text-muted">No branches yet.</li>
-          )}
-          {group.groups.map((g) => (
-            <GroupNode
-              key={g.key}
-              group={g}
-              depth={depth + 1}
-              collapsed={collapsed}
-              toggle={toggle}
-              onNewSession={onNewSession}
-              expansion={expansion}
-              where={where}
-              setWhere={setWhere}
-              {...rowProps}
-            />
-          ))}
-          {group.rows.map((row) => (
-            <SessionRow key={row.key} row={row} expansion={expansion} {...rowProps} />
-          ))}
-        </ul>
-      )}
-    </li>
+      <ul aria-labelledby={headingId} className="mt-1 flex min-w-0 flex-col gap-0.5">
+        {section.rows.map((row) => (
+          <SessionRow key={row.session.id} row={row} groupBy={groupBy} {...rowProps} />
+        ))}
+      </ul>
+    </section>
   );
 }
 
 function SessionRowContent({
   row,
-  nested,
+  groupBy,
   showDetails,
   pending,
   badges,
@@ -971,7 +932,7 @@ function SessionRowContent({
   outsideLabel,
 }: {
   row: NavRow;
-  nested: boolean;
+  groupBy: NavGrouping;
   showDetails: boolean;
   pending: string | null;
   badges: typeof NO_BADGES;
@@ -981,7 +942,11 @@ function SessionRowContent({
   const { session, where, issue } = row;
   const status = row.attention ? RUNTIME_STATUS.waiting_input : rowStatusFor(row);
   const branch = row.branch !== session.title && row.branch !== row.project ? row.branch : null;
-  const identity = [nested && row.role === "subagent" ? "Subagent" : null, row.project, branch]
+  const identity = [
+    session.provenance === "subagent" ? "Subagent" : null,
+    groupBy === "project" ? null : row.project,
+    branch,
+  ]
     .filter(Boolean)
     .join(" · ");
   const preview =
@@ -990,14 +955,11 @@ function SessionRowContent({
       : null;
   return (
     <>
-      <StatusMark status={status} tile={!nested} />
+      <StatusMark status={status} />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span
           data-testid="session-title"
-          className={cn(
-            "line-clamp-2 break-words text-sm leading-5 @min-[304px]:text-[15px]",
-            nested ? "font-medium" : "font-semibold",
-          )}
+          className="line-clamp-2 break-words text-sm leading-5 font-semibold @min-[304px]:text-[15px]"
           title={session.title}
         >
           {session.title}
@@ -1022,7 +984,7 @@ function SessionRowContent({
             {status.label}
           </span>
         </span>
-        {showDetails && where && (
+        {showDetails && where && (groupBy !== "host" || where.kind === "terminal") && (
           <span
             data-testid="row-where"
             title={where.label}
@@ -1087,13 +1049,11 @@ function SessionRowContent({
 
 function SessionRow({
   row,
-  expansion,
-  nested = false,
+  groupBy = "none",
   ...rowProps
 }: RowProps & {
   row: NavRow;
-  expansion?: RowExpansion;
-  nested?: boolean;
+  groupBy?: NavGrouping;
 }) {
   const { selectedId, now, showSessionDetails, scopeName, outsideLabel, onRowActions } = rowProps;
   const { session, attention } = row;
@@ -1103,14 +1063,10 @@ function SessionRow({
   const selected = session.id === selectedId;
   const pending = rowProps.pendingTitles.get(session.id) ?? null;
   const badges = rowProps.badges[session.id] ?? NO_BADGES;
-  const expanded = expansion?.expanded.has(row.key) ?? false;
-  const { visible: children, optionalCount } = branchChildren(row, selectedId, expanded);
-  const childrenId = useId();
-  const showDisclosure = optionalCount > 0 && !!expansion;
-  const at = nested ? session.lastActivityAt : branchActivity(row);
+  const at = session.lastActivityAt;
   const activity = new Date(at);
   const valid = Number.isFinite(activity.getTime());
-  const activityLabel = `${nested ? "Last activity" : "Last branch activity"}: ${valid ? activity.toLocaleString() : "unknown"}`;
+  const activityLabel = `Last activity: ${valid ? activity.toLocaleString() : "unknown"}`;
   const swipeable = !!onRowActions;
   const trailing: SwipeAction[] = [];
   const leading: SwipeAction[] = [];
@@ -1160,44 +1116,39 @@ function SessionRow({
     }
   }
   const line = (
-    <div
-      className={cn(
-        "relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start rounded-lg",
-        selected ? "bg-accent-soft" : nested ? "hover:bg-surface-3" : "hover:bg-surface-2",
-      )}
-    >
+    <div className="relative min-w-0">
       <Link
         {...(swipeable ? press : {})}
-        data-testid={nested ? "session-subrow" : "session-row"}
+        data-testid="session-row"
         data-keyboard-item
         to={`/code/${encodeURIComponent(session.id)}`}
         state={BACK_STATE}
         aria-current={selected ? "page" : undefined}
         className={cn(
-          "tap col-start-1 row-start-1 flex min-w-0 self-stretch items-start gap-2 rounded-lg px-1.5 py-2 outline-offset-[-2px]",
-          showDisclosure && "row-span-2",
+          "tap flex min-w-0 items-start gap-2 rounded-lg px-1.5 py-2 outline-offset-[-2px]",
+          selected ? "bg-accent-soft" : "hover:bg-surface-2",
           swipeable && cn(LONG_PRESS_CLASS, "sy-press-row"),
         )}
       >
         <SessionRowContent
           row={row}
-          nested={nested}
+          groupBy={groupBy}
           showDetails={showSessionDetails}
           pending={pending}
           badges={badges}
           scopeName={scopeName}
           outsideLabel={outsideLabel}
         />
+        <time
+          data-testid="row-activity"
+          dateTime={valid ? activity.toISOString() : undefined}
+          title={activityLabel}
+          className="max-w-16 shrink-0 truncate text-right text-xs leading-5 text-muted tabular-nums"
+        >
+          <span aria-hidden>{shortActivity(at, now)}</span>
+          <span className="sr-only">{activityLabel}</span>
+        </time>
       </Link>
-      <time
-        data-testid="row-activity"
-        dateTime={valid ? activity.toISOString() : undefined}
-        title={activityLabel}
-        className="col-start-2 row-start-1 max-w-16 justify-self-end truncate px-1.5 pt-2 text-right text-xs leading-5 text-muted tabular-nums"
-      >
-        <span aria-hidden>{shortActivity(at, now)}</span>
-        <span className="sr-only">{activityLabel}</span>
-      </time>
       {swipeable && (
         <button
           type="button"
@@ -1207,58 +1158,16 @@ function SessionRow({
           Actions for {session.title}
         </button>
       )}
-      {showDisclosure && (
-        <button
-          type="button"
-          data-testid="row-others"
-          aria-expanded={expanded}
-          aria-controls={childrenId}
-          aria-label={
-            expanded
-              ? "Show fewer sessions in this branch"
-              : `Show ${optionalCount} more ${optionalCount === 1 ? "session" : "sessions"} in this branch`
-          }
-          onClick={() => expansion?.toggleRow(row.key)}
-          className="tap col-start-2 row-start-2 inline-flex min-h-7 items-center justify-end gap-0.5 justify-self-end rounded-md px-1.5 text-xs text-muted tabular-nums hover:bg-surface-3 focus-visible:outline-offset-[-2px]"
-        >
-          <span aria-hidden className="hidden @min-[304px]:inline">
-            {expanded ? "Fewer" : `${optionalCount} more`}
-          </span>
-          {!expanded && (
-            <span aria-hidden className="@min-[304px]:hidden">
-              +{optionalCount}
-            </span>
-          )}
-          <ChevronDown aria-hidden className={cn("size-3.5", expanded && "rotate-180")} />
-        </button>
-      )}
     </div>
   );
   return (
     <li className="min-w-0">
       {swipeable ? (
-        <SwipeRow
-          leading={leading}
-          trailing={trailing}
-          className="rounded-lg"
-          contentClassName={nested ? "bg-surface-2" : undefined}
-        >
+        <SwipeRow leading={leading} trailing={trailing} className="rounded-lg">
           {line}
         </SwipeRow>
       ) : (
         line
-      )}
-      {(children.length > 0 || showDisclosure) && (
-        <ul
-          data-testid="branch-children"
-          id={childrenId}
-          hidden={children.length === 0}
-          className="mt-0.5 mb-1 ml-2 min-w-0 rounded-lg bg-surface-2 p-0.5 @min-[304px]:ml-4"
-        >
-          {children.map((child) => (
-            <SessionRow key={child.session.id} row={child} nested {...rowProps} />
-          ))}
-        </ul>
       )}
     </li>
   );

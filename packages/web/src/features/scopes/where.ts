@@ -57,15 +57,54 @@ export function effectiveWhere(stored: Where | null | undefined, hosts: HostName
 }
 
 export function sameWhere(a: Where | null | undefined, b: Where | null | undefined): boolean {
-  return !!a && !!b && a.kind === b.kind && a.id === b.id;
+  return (
+    !!a &&
+    !!b &&
+    a.kind === b.kind &&
+    a.id === b.id &&
+    (a.kind !== "client" || (b.kind === "client" && a.hostId === b.hostId))
+  );
+}
+
+/** Available hosts and clients reported by nonarchived, live sessions on those hosts. */
+export function runLocationOptions(
+  hosts: HostNames,
+  sessions: Record<string, Session>,
+): {
+  hosts: { where: Where; label: string }[];
+  clients: { where: Where; label: string }[];
+} {
+  const hostOptions = liveHostIds(hosts).map((id) => {
+    const where: Where = { kind: "host", id };
+    return { where, label: whereLabel(where, hosts) };
+  });
+  const clients = new Map<string, { where: Where; label: string }>();
+  for (const s of Object.values(sessions)) {
+    const client = s.external?.client;
+    if (!client || s.archivedAt !== null || !isLiveRuntime(s.runtime)) continue;
+    if (!hosts[s.hostId] || hosts[s.hostId]?.revokedAt) continue;
+    const where: Where = { kind: "client", id: client, hostId: s.hostId };
+    clients.set(JSON.stringify([s.hostId, client]), { where, label: whereLabel(where, hosts) });
+  }
+  const compare = (a: { where: Where; label: string }, b: { where: Where; label: string }) =>
+    a.label.localeCompare(b.label) ||
+    JSON.stringify(a.where).localeCompare(JSON.stringify(b.where));
+  return { hosts: hostOptions.sort(compare), clients: [...clients.values()].sort(compare) };
 }
 
 type WhereSession = Pick<Session, "hostId" | "external">;
 
 /** Does the session run there? A client holds only Pi running in it now. */
-export function sessionIsWhere(w: Where | null | undefined, s: WhereSession): boolean {
+export function sessionIsWhere(
+  w: Where | null | undefined,
+  s: WhereSession & Pick<Session, "runtime">,
+): boolean {
   if (!w) return true;
-  return w.kind === "client" ? s.external?.client === w.id : s.hostId === w.id;
+  return w.kind === "client"
+    ? isLiveRuntime(s.runtime) &&
+        s.external?.client === w.id &&
+        (!w.hostId || s.hostId === w.hostId)
+    : s.hostId === w.id;
 }
 
 /** What a row says about where its session runs. */
@@ -75,15 +114,15 @@ export interface RowWhere {
 }
 
 /**
- * Where a session runs, for its row: the terminal of a Pi started by hand, else the host when
- * there are several (`multiHost`); null when there is nothing to tell apart.
+ * Current terminal evidence, or the host when there are several (`multiHost`). Remembered
+ * terminal location is not current and belongs in Details.
  */
 export function sessionWhereToken(
-  s: WhereSession,
+  s: WhereSession & Pick<Session, "runtime">,
   hostName: string,
   multiHost: boolean,
 ): RowWhere | null {
-  if (s.external) {
+  if (s.external && isLiveRuntime(s.runtime)) {
     const client = s.external.client;
     if (client) return { kind: "terminal", label: clientLabel(client, hostName) };
     return { kind: "terminal", label: multiHost ? `Terminal on ${hostName}` : "Terminal" };

@@ -640,8 +640,8 @@ export function NewSessionFlow({
         {where && f.hostId && (where.kind === "client" || where.id !== f.hostId) && (
           <p data-testid="new-session-where" className="text-xs text-muted">
             {where.kind === "client"
-              ? `Switchyard holds this session, not ${whereLabel(where, hostsById)}: it is not listed while Where is set there.`
-              : `It runs on ${hostsById[f.hostId]?.name ?? "another host"}, not ${whereLabel(where, hostsById)}: it is not listed while Where is set there.`}
+              ? `This new session won’t run in ${whereLabel(where, hostsById)}. Clear the run location filter to see it.`
+              : `This new session won’t run on ${whereLabel(where, hostsById)}. Clear the run location filter to see it.`}
           </p>
         )}
         {leaves && scope && (
