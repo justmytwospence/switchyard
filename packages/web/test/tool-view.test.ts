@@ -212,44 +212,34 @@ describe("describeTool", () => {
       cwd,
     );
     expect(scalar).toMatchObject({ kind: "other", verb: null, activeVerb: null, target: "update" });
-    expect(scalar.detail).toEqual({
-      t: "args",
-      rows: [
-        ["id", "3"],
-        ["action", "update"],
-        ["done", "true"],
-      ],
-      raw: null,
-    });
+    expect(scalar.detail).toEqual({ t: "args", value: { id: 3, action: "update", done: true } });
     const nested = describeTool(
       { name: "subagent", args: { tasks: [{ task: "x" }], label: "  two\n words " } },
       cwd,
     );
     expect(nested.target).toBe("two words");
-    expect(nested.detail).toMatchObject({
+    expect(nested.detail).toEqual({
       t: "args",
-      rows: [
-        ["tasks", '[{"task":"x"}]'],
-        ["label", "  two\n words "],
-      ],
+      value: { tasks: [{ task: "x" }], label: "  two\n words " },
     });
-    expect(nested.detail.t === "args" && nested.detail.raw).toContain('"tasks": [');
+    expect(
+      describeTool({ name: "x", args: { payload: '{"secret":1}', label: "normal" } }, cwd).target,
+    ).toBe("normal");
+    expect(describeTool({ name: "x", args: { payload: "[true]" } }, cwd).target).toBe("");
     const long = describeTool({ name: "x", args: { text: "a".repeat(400) } }, cwd);
     expect(long.target).toHaveLength(121);
-    expect(long.detail.t === "args" && long.detail.rows[0]?.[1]).toHaveLength(301);
-    expect(long.detail.t === "args" && long.detail.raw).not.toBeNull();
+    expect(long.detail).toEqual({ t: "args", value: { text: "a".repeat(400) } });
   });
   it("reads arguments defensively", () => {
     for (const args of [undefined, null, 3, {}]) {
       expect(describeTool({ name: "x", args }, cwd)).toMatchObject({
         target: "",
-        detail: { t: "args", rows: [], raw: null },
+        detail: { t: "args", value: args },
       });
     }
     expect(describeTool({ name: "x", args: "partial" }, cwd).detail).toEqual({
       t: "args",
-      rows: [],
-      raw: "partial",
+      value: "partial",
     });
     expect(describeTool({ name: "read", args: null }, cwd)).toMatchObject({
       kind: "read",

@@ -56,14 +56,38 @@ describe("hello", () => {
     const count = panels().length;
     await session.restore();
     expect(panels()).toHaveLength(count);
-    expect(await session.onAction("hello", "save", { note: "Local note" })).toEqual({ ok: true });
+    for (const [payload, note] of [
+      [{ note: "Legacy note" }, "Legacy note"],
+      [{ kind: "form", values: { note: "Panel note" } }, "Panel note"],
+      [{ kind: "form", values: { note: "Slash note" }, source: "slash" }, "Slash note"],
+    ] as const) {
+      expect(await session.onAction("hello", "save", payload)).toEqual({ ok: true });
+      expect(
+        panels()
+          .filter((panel) => panel.contribution?.id === "footer")
+          .at(-1)?.node,
+      ).toEqual({
+        t: "text",
+        text: `Saved note: ${note}`,
+      });
+    }
+    await session.onAction("hello", "save", { note: { nested: true } });
     expect(
       panels()
         .filter((panel) => panel.contribution?.id === "footer")
         .at(-1)?.node,
     ).toEqual({
       t: "text",
-      text: 'save: {"note":"Local note"}',
+      text: "Saved note",
+    });
+    await session.onAction("hello", "run", {});
+    expect(
+      panels()
+        .filter((panel) => panel.contribution?.id === "footer")
+        .at(-1)?.node,
+    ).toEqual({
+      t: "text",
+      text: "Recorded hello action",
     });
   });
 
@@ -116,6 +140,26 @@ describe("hello", () => {
       children: [
         { t: "text", text: "No arguments", tone: "muted" },
         { t: "text", text: "hello, Pi", tone: "default" },
+      ],
+    });
+    const nested = await session.toolCard({
+      toolCallId: "nested",
+      name: "hello",
+      args: { options: { nested: true }, items: [1, 2], absent: null, enabled: false },
+      result: { unexpected: { secret: "not displayed" } },
+    });
+    expect(nested?.node).toMatchObject({
+      children: [
+        {
+          t: "table",
+          rows: [
+            ["options", "1 fields"],
+            ["items", "2 items"],
+            ["absent", "None"],
+            ["enabled", "false"],
+          ],
+        },
+        { t: "text", text: "1 fields" },
       ],
     });
     expect(await session.toolCard({ toolCallId: "c2", name: "bash", args: {} })).toBeUndefined();

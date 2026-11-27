@@ -193,6 +193,12 @@ await session.onToolEnd({ toolCallId, name, args, result, isError, details });
 
 `emit` receives `panel`, `attention`, `subagent`, `state`, `log` and `diagnostic` effects.
 
+## Authoring portable presentation
+
+Present meaningful facts, rows or tables, checklists, sections and text rather than serializing arguments or plugin state into strings. For a custom tool, `toolView.detail` can contain separately labeled input and result sections; reserve code nodes for actual code. Supply presentable `mobileFallback` text for contributions. Do not put forms in tool details.
+
+For a pending Pi dialog, provide `Claim.presentation` and map its response with `toPiResponse`. For an adapter-owned panel or slash command, use portable form fields and `onAction` to update portable presentation; do not simulate a prompt to invoke a control. When an adapter is absent or disabled, generic tool and dialog presentation remains available. Switchyard does not rewrite arbitrary authored content or custom renderer HTML.
+
 ## Contract v2
 
 Contract v2 adds to version 1 without changing it: the manifest's `protocolVersion` stays `1`, every v1 adapter keeps working, and a v2 adapter loads on a v1 host. The whole contract is one dependency-free type file, [`packages/adapter-sdk/src/contract.ts`](../packages/adapter-sdk/src/contract.ts): copy it next to an adapter that ships in a Pi package and use it with `import type`. The SDK checks it against its own types at compile time.
@@ -211,6 +217,8 @@ const supports = (ctx, feature) => ctx.features?.includes(feature) === true;
 | `ui.nodes.v2` | `checklist`, `facts`, `rows` and `badge` nodes, `section.open` and `url` refs. |
 | `adapter.trackers.v1` | The `composer.tracker` and `session.badge` placements. |
 | `interaction.kinds.v1` | `Claim.kind` reaches clients. A v1 host ignores the field, so it needs no guard. |
+
+No new capability is needed for this presentation recipe. Use the existing capability checks: older hosts do not call `toolView` without `tool.views.v1`, and adapters targeting v1 hosts must provide v1 nodes when `ui.nodes.v2` is unavailable.
 
 The host has contract v2 whatever its coordinator runs. With a coordinator from before v2, or a client that did not announce a capability, the same data is sent in its v1 shape: a tracker as a `composer.pill` whose text is its title, count and step; a badge is left out; a checklist as a list of `[x] text` lines, facts as a two-column table, rows as a list, a badge as text, a URL as its label and address; a tool view is dropped, and the client derives the row. An adapter never has to do that itself.
 

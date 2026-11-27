@@ -6,9 +6,10 @@ import {
   parseAdapterPreviewJson,
   type UINode,
 } from "@switchyard/protocol";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
 import { Button } from "../../components/ui/Button";
+import { StructuredValue } from "../../components/ui/StructuredValue";
 
 export interface AdapterPreviewProps {
   /** Optional developer fixture; never persisted or fetched. Normally mount with no props. */
@@ -24,15 +25,10 @@ export interface PreviewAction {
   payload?: unknown;
 }
 
-/** Local-only log envelope. No session identity, coordinator API or dispatch is available. */
-export function previewActionEntry(envelope: PreviewAction): string {
-  return `${PREVIEW_ACTION_NOTICE}\n${JSON.stringify(envelope, null, 2)}`;
-}
-
 /** Developer tool: JSON stays in React memory and every interaction is simulated locally. */
 export function AdapterPreview({ initialJson = "" }: AdapterPreviewProps) {
   const id = useId();
-  const [json, setJson] = useState(initialJson);
+  const readToken = useRef(0);
   const [preview, setPreview] = useState<Preview | null>(() => {
     try {
       return initialJson ? parseAdapterPreviewJson(initialJson) : null;
@@ -42,19 +38,9 @@ export function AdapterPreview({ initialJson = "" }: AdapterPreviewProps) {
   });
   const [error, setError] = useState<string | null>(null);
   const [disabled, setDisabled] = useState(false);
-  const [log, setLog] = useState<string[]>([]);
+  const [log, setLog] = useState<PreviewAction[]>([]);
   const record = (envelope: PreviewAction) => {
-    if (!disabled) setLog((previous) => [...previous.slice(-99), previewActionEntry(envelope)]);
-  };
-  const load = (text: string) => {
-    setPreview(null);
-    setLog([]);
-    try {
-      setPreview(parseAdapterPreviewJson(text));
-      setError(null);
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    }
+    if (!disabled) setLog((previous) => [...previous.slice(-99), envelope]);
   };
   return (
     <details className="min-w-0 rounded-lg border border-border p-4">
@@ -62,41 +48,49 @@ export function AdapterPreview({ initialJson = "" }: AdapterPreviewProps) {
       <div className="mt-3 flex min-w-0 flex-col gap-3">
         <p className="text-sm text-muted">
           Developer tool. Run adapter:preview with an explicitly selected trusted adapter in a
-          separate Node process (not a sandbox), then paste or upload its JSON here. This browser
-          only renders portable UI and simulates actions. Nothing is installed, persisted or sent to
-          Pi or the server.
+          separate Node process (not a sandbox), then upload its JSON file here. This browser only
+          renders portable UI and simulates actions. Nothing is installed, persisted or sent to Pi
+          or the server.
         </p>
-        <label htmlFor={`${id}-json`} className="text-sm font-medium">
-          Preview JSON (up to 1 MiB)
-        </label>
-        <textarea
-          id={`${id}-json`}
-          className="min-h-40 w-full rounded border border-border bg-surface p-2 font-mono text-xs"
-          value={json}
-          onChange={(event) => setJson(event.target.value)}
-        />
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => load(json)}>Render preview</Button>
-          <label className="text-sm">
-            Upload preview JSON
+          <label htmlFor={`${id}-file`} className="text-sm">
+            Upload preview file
             <input
+              id={`${id}-file`}
               type="file"
               accept=".json,application/json"
               className="ml-2 max-w-full"
               onChange={async (event) => {
                 const file = event.target.files?.[0];
+                event.target.value = "";
+                const token = ++readToken.current;
+                setPreview(null);
+                setLog([]);
+                setError(null);
                 if (!file) return;
                 if (file.size > ADAPTER_PREVIEW_MAX_BYTES) {
-                  setPreview(null);
                   setError("Preview exceeds 1 MiB input limit");
                   return;
                 }
+                let text: string;
                 try {
-                  const text = await file.text();
-                  setJson(text);
-                  load(text);
+                  text = await file.text();
+                } catch {
+                  if (token === readToken.current) setError("Could not read this preview file.");
+                  return;
+                }
+                if (token !== readToken.current) return;
+                try {
+                  setPreview(parseAdapterPreviewJson(text));
                 } catch (failure) {
-                  setError(String(failure));
+                  setError(
+                    failure instanceof SyntaxError
+                      ? "This file is not valid JSON."
+                      : failure instanceof Error &&
+                          failure.message === "Preview exceeds 1 MiB input limit"
+                        ? "Preview exceeds 1 MiB input limit"
+                        : "This file is not a supported adapter preview.",
+                  );
                 }
               }}
             />
@@ -112,7 +106,7 @@ export function AdapterPreview({ initialJson = "" }: AdapterPreviewProps) {
           <Button
             variant="secondary"
             onClick={() => {
-              setJson("");
+              ++readToken.current;
               setPreview(null);
               setLog([]);
               setError(null);
@@ -122,12 +116,9 @@ export function AdapterPreview({ initialJson = "" }: AdapterPreviewProps) {
           </Button>
         </div>
         {error && (
-          <pre
-            role="alert"
-            className="max-h-52 overflow-auto overscroll-contain whitespace-pre-wrap break-words text-sm text-danger"
-          >
+          <p role="alert" className="break-words text-sm text-danger">
             {error}
-          </pre>
+          </p>
         )}
         {preview && (
           <>
@@ -159,12 +150,24 @@ export function AdapterPreview({ initialJson = "" }: AdapterPreviewProps) {
         <section aria-label="Preview action log" className="min-w-0">
           <h3 className="text-sm font-medium">Local simulated actions</h3>
           {log.length === 0 && <p className="text-sm text-muted">No preview actions yet.</p>}
-          <pre
-            aria-live="polite"
-            className="max-h-64 overflow-auto overscroll-contain whitespace-pre-wrap break-words text-xs"
-          >
-            {log.join("\n\n")}
-          </pre>
+          <ol aria-live="polite" className="max-h-64 list-decimal overflow-auto pl-5 text-xs">
+            {log.map((entry, index) => (
+              // Local log entries are append-only until cleared.
+              // biome-ignore lint/suspicious/noArrayIndexKey: log records have no identity
+              <li key={index}>
+                <p>{PREVIEW_ACTION_NOTICE}</p>
+                <StructuredValue
+                  value={{
+                    Source: entry.source,
+                    ...(entry.adapterId !== undefined && { Adapter: entry.adapterId }),
+                    ...(entry.requestId !== undefined && { Request: entry.requestId }),
+                    ...(entry.actionId !== undefined && { Action: entry.actionId }),
+                    ...(entry.payload !== undefined && { Response: entry.payload }),
+                  }}
+                />
+              </li>
+            ))}
+          </ol>
         </section>
       </div>
     </details>
@@ -189,10 +192,12 @@ export function PreviewFrame({ preview, phone, disabled, onAction }: PreviewFram
       disabled={disabled || resolved}
       busy={false}
       onRespond={(response: InteractionResponse) => {
-        if (!resolved) record({ ...envelope, payload: response });
-      }}
-      onAction={(actionId) => {
-        if (!resolved) record({ ...envelope, actionId });
+        if (resolved) return;
+        if (response.kind === "action") {
+          record({ ...envelope, actionId: response.actionId });
+        } else {
+          record({ ...envelope, payload: response });
+        }
       }}
       onOpenFile={(path) => record({ source: "file", payload: { path } })}
     />

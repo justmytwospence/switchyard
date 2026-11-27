@@ -29,7 +29,17 @@ export function progressValue(text: string): number | undefined {
   return undefined;
 }
 
-const cell = (v: unknown): string => (typeof v === "string" ? v : (JSON.stringify(v) ?? ""));
+const cell = (v: unknown): string => {
+  if (v === null) return "None";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return `${v.length} items`;
+  if (
+    typeof v === "object" &&
+    (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null)
+  )
+    return `${Object.keys(v).length} fields`;
+  return "Not available";
+};
 
 /** The `hello` tool card: one row per argument, plus the result text when it finished. */
 export function helloCard(tool: ToolInfo): UINode {
@@ -195,7 +205,22 @@ const adapter: ServerAdapter = {
   },
   onAction(actionId, payload, ctx) {
     if (actionId !== "save" && actionId !== "run") return;
-    const last = `${actionId}: ${JSON.stringify(payload)}`;
+    let note: unknown;
+    if (payload && typeof payload === "object") {
+      const values =
+        "kind" in payload && payload.kind === "form" && "values" in payload
+          ? payload.values
+          : undefined;
+      const formNote =
+        values && typeof values === "object" && "note" in values ? values.note : undefined;
+      note = typeof formNote === "string" ? formNote : "note" in payload ? payload.note : undefined;
+    }
+    const last =
+      actionId === "run"
+        ? "Recorded hello action"
+        : typeof note === "string"
+          ? `Saved note: ${note}`
+          : "Saved note";
     ctx.state.set("last", last);
     const shown = ctx.state.get<string>("shown");
     if (shown) slots(ctx, shown);

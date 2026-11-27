@@ -7,6 +7,7 @@ import {
   validateTest,
   verdictLabel,
 } from "../src/features/settings/policyLogic";
+import { compileSampleArgs, type SampleField } from "../src/features/settings/policySampleArgs";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -106,5 +107,53 @@ describe("policy surfaces", () => {
         },
       }),
     ).toBe("Active: Tool call");
+  });
+});
+
+describe("sample argument compilation", () => {
+  const text = (key: string, value = ""): SampleField => ({ id: 1, key, kind: "text", value });
+  it("preserves nested values, keys, containers and commands", () => {
+    const fields: SampleField[] = [
+      {
+        id: 1,
+        key: " metadata ",
+        kind: "object",
+        children: [
+          {
+            id: 2,
+            key: "items",
+            kind: "list",
+            children: [
+              { id: 3, key: "", kind: "number", value: "0" },
+              { id: 4, key: "", kind: "boolean", value: false },
+              { id: 5, key: "", kind: "null" },
+              text("", " exact "),
+              { id: 6, key: "", kind: "object", children: [] },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(compileSampleArgs(fields, " cmd ")).toEqual({
+      command: " cmd ",
+      " metadata ": { items: [0, false, null, " exact ", {}] },
+    });
+    expect(compileSampleArgs([], "  ")).toEqual({});
+    expect(compileSampleArgs([text("command")])).toEqual({ command: "" });
+  });
+  it("rejects duplicates, reserved keys, invalid numbers and excessive depth", () => {
+    expect(() => compileSampleArgs([text("")])).toThrow("Argument 1 needs a name.");
+    expect(() => compileSampleArgs([text("a"), text("a")])).toThrow("Duplicate field: a.");
+    expect(() => compileSampleArgs([text("command")], "x")).toThrow("Duplicate field: command.");
+    for (const key of ["__proto__", "prototype", "constructor"])
+      expect(() => compileSampleArgs([text(key)])).toThrow(`Reserved field name: ${key}.`);
+    for (const value of ["", "01", "+1", "1.", "1e999", "9007199254740992"])
+      expect(() => compileSampleArgs([{ id: 1, key: "n", kind: "number", value }])).toThrow(
+        "Enter a valid number for n.",
+      );
+    let field: SampleField = text("leaf");
+    for (let i = 0; i < 20; i++)
+      field = { id: i + 2, key: "nested", kind: "object", children: [field] };
+    expect(() => compileSampleArgs([field])).toThrow("Sample arguments are nested too deeply.");
   });
 });

@@ -107,7 +107,16 @@ export default {
   },
   onAction(id, payload, ctx) {
     if (id !== "run" && id !== "save") throw new Error("Unknown fixture action");
-    ctx.state.set("last", `${id}: ${JSON.stringify(payload)}`);
+    const formNote = payload?.kind === "form" ? payload.values?.note : undefined;
+    const note = typeof formNote === "string" ? formNote : payload?.note;
+    ctx.state.set(
+      "last",
+      id === "run"
+        ? "Recorded fixture action"
+        : typeof note === "string"
+          ? `Saved note: ${note}`
+          : "Saved note",
+    );
     const value = ctx.state.get("value");
     if (value) publish(ctx, value);
   },

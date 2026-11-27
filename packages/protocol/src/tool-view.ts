@@ -39,7 +39,7 @@ export type ToolDetail =
   | { t: "write"; content: string }
   | { t: "read"; range: string | null }
   | { t: "search"; query: string; where: string | null }
-  | { t: "args"; rows: [string, string][]; raw: string | null };
+  | { t: "args"; value: unknown };
 
 export interface ToolView {
   kind: ToolKind;
@@ -63,7 +63,6 @@ export interface ToolView {
 }
 
 const TARGET_MAX = 120;
-const VALUE_MAX = 300;
 const CONTEXT_LINES = 2;
 
 export function stringifyArgs(args: unknown): string {
@@ -176,32 +175,13 @@ function editPairs(a: Record<string, unknown>): { oldText: string; newText: stri
   return [];
 }
 
-function argsDetail(args: unknown): ToolDetail {
-  const a = record(args);
-  const keys = Object.keys(a);
-  if (keys.length === 0) {
-    // Arguments that are not an object (a string, a list) have no rows, only their text.
-    const text = Array.isArray(args) || typeof args === "string" ? stringifyArgs(args) : "";
-    return { t: "args", rows: [], raw: text.trim() ? text : null };
-  }
-  let needsRaw = false;
-  const rows: [string, string][] = keys.map((k) => {
-    const v = a[k];
-    const scalar = typeof v === "string" || typeof v === "number" || typeof v === "boolean";
-    let text: string;
-    if (scalar) text = String(v);
-    else {
-      needsRaw = true;
-      try {
-        text = JSON.stringify(v) ?? String(v);
-      } catch {
-        text = String(v);
-      }
-    }
-    if (text.length > VALUE_MAX) needsRaw = true;
-    return [k, cut(text, VALUE_MAX)];
-  });
-  return { t: "args", rows, raw: needsRaw ? stringifyArgs(args) : null };
+export function looksLikeToolPayload(text: string): boolean {
+  const s = text.trimStart();
+  return (
+    /^```json[\t ]*(?:\r?\n|$)/i.test(s) ||
+    s.startsWith("{") ||
+    (s.startsWith("[") && !/^\[(?!(?:true|false|null)\])[A-Za-z][A-Za-z0-9 _-]*\](?=\s|$)/.test(s))
+  );
 }
 
 /** The view of one tool call. `cwd` is the session's directory, for shortening paths. */
@@ -216,7 +196,7 @@ export function describeTool(data: ToolCall, cwd: string | null): ToolView {
     filePath: null,
     meta: [],
     stat: null,
-    detail: { t: "args", rows: [], raw: null },
+    detail: { t: "args", value: data.args },
     node: null,
     hide: false,
   };
@@ -329,12 +309,12 @@ export function describeTool(data: ToolCall, cwd: string | null): ToolView {
       let first = "";
       for (const v of Object.values(a)) {
         const s = str(v);
-        if (s) {
+        if (s && !looksLikeToolPayload(s)) {
           first = cut(oneLine(s), TARGET_MAX);
           break;
         }
       }
-      return { ...base, target: first, detail: argsDetail(data.args) };
+      return { ...base, target: first };
     }
   }
 }

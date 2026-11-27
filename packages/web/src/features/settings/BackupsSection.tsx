@@ -1,5 +1,6 @@
 import { Card } from "../../components/ui/Card";
 import { CopyBlock } from "../../components/ui/Copy";
+import { StructuredValue } from "../../components/ui/StructuredValue";
 import { ErrorState, FatalError, LoadingState } from "../../components/ui/states";
 import { formatTime } from "../../lib/time";
 import { isObject, useApiResource } from "../../lib/useResource";
@@ -18,10 +19,10 @@ function humanKey(k: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
-function formatValue(k: string, v: unknown): string {
+function formatValue(k: string, v: unknown) {
   if (v === null || v === undefined) return "None";
   if (typeof v === "string" && /At$|time|date/i.test(k)) return formatTime(v);
-  if (typeof v === "object") return JSON.stringify(v);
+  if (typeof v === "object") return <StructuredValue value={v} />;
   return String(v);
 }
 

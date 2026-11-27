@@ -6,10 +6,13 @@ import type {
   PolicySettings,
   PolicyTestResult,
 } from "@switchyard/protocol";
+import { PolicyRequestAction } from "@switchyard/protocol";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { StructuredValue } from "../../components/ui/StructuredValue";
 import { ApiClientError, errorMessage } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
+import { PolicySampleFields } from "./PolicySampleFields";
 import { policiesApi } from "./policiesApi";
 import {
   CONTINUATION_BUDGET_HELP,
@@ -18,6 +21,7 @@ import {
   validateTest,
   verdictLabel,
 } from "./policyLogic";
+import { compileSampleArgs, type SampleField } from "./policySampleArgs";
 import { SectionPage } from "./shared";
 
 const control = "w-full rounded-md border border-border bg-surface px-2 py-1 text-sm";
@@ -58,7 +62,12 @@ export function PoliciesSection() {
   const [sessionId, setSessionId] = useState("");
   const [phase, setPhase] = useState<PolicyPhase>("tool_call");
   const [action, setAction] = useState("bash");
-  const [args, setArgs] = useState("{}");
+  const [command, setCommand] = useState("");
+  const [fields, setFields] = useState<SampleField[]>([]);
+  const shell =
+    phase === "tool_call" && ["bash", "powershell"].includes(action.trim().toLowerCase());
+  const [errorDetails, setErrorDetails] = useState<unknown>();
+  const [testErrorDetails, setTestErrorDetails] = useState<unknown>();
   const [result, setResult] = useState<PolicyTestResult | null>(null);
   const [testError, setTestError] = useState("");
   const refresh = useCallback(async () => {
@@ -76,15 +85,18 @@ export function PoliciesSection() {
   const run = async (fn: () => Promise<void>, isTest = false) => {
     setBusy(true);
     setError("");
-    if (isTest) setTestError("");
+    setErrorDetails(undefined);
+    if (isTest) {
+      setTestError("");
+      setTestErrorDetails(undefined);
+    }
     try {
       await fn();
     } catch (e) {
-      const detail =
-        e instanceof ApiClientError && e.details !== undefined
-          ? ` ${JSON.stringify(e.details)}`
-          : "";
-      (isTest ? setTestError : setError)(`${errorMessage(e)}${detail}`);
+      (isTest ? setTestError : setError)(errorMessage(e));
+      (isTest ? setTestErrorDetails : setErrorDetails)(
+        e instanceof ApiClientError ? e.details : undefined,
+      );
     } finally {
       setBusy(false);
     }
@@ -133,12 +145,7 @@ export function PoliciesSection() {
   const test = () =>
     run(async () => {
       setResult(null);
-      let parsedArgs: unknown;
-      try {
-        parsedArgs = JSON.parse(args);
-      } catch {
-        throw new Error("Sample arguments must be valid JSON.");
-      }
+      const parsedArgs = compileSampleArgs(fields, shell ? command : undefined);
       const parsed = validateTest({
         sessionId,
         phase,
@@ -158,9 +165,10 @@ export function PoliciesSection() {
     >
       <p className="text-sm text-muted">{CONTINUATION_BUDGET_HELP}</p>
       {error && (
-        <p role="alert" className="text-sm text-danger">
+        <div role="alert" className="text-sm text-danger">
           {error}
-        </p>
+          {errorDetails !== undefined && <StructuredValue value={errorDetails} />}
+        </div>
       )}
       <section className="flex flex-col gap-2">
         <h2 className="font-semibold">Rules</h2>
@@ -407,16 +415,23 @@ export function PoliciesSection() {
           is applied; a test result is not permission to execute later.
         </p>
         {testError && (
-          <p role="alert" className="text-sm text-danger">
+          <div role="alert" className="text-sm text-danger">
             {testError}
-          </p>
+            {testErrorDetails !== undefined && <StructuredValue value={testErrorDetails} />}
+          </div>
         )}
         <label>
           Session
           <select
             className={control}
             value={sessionId}
-            onChange={(e) => setSessionId(e.target.value)}
+            disabled={busy}
+            onChange={(e) => {
+              setSessionId(e.target.value);
+              setResult(null);
+              setTestError("");
+              setTestErrorDetails(undefined);
+            }}
           >
             <option value="">Choose…</option>
             {Object.values(sessions).map((s) => (
@@ -431,11 +446,14 @@ export function PoliciesSection() {
           <select
             className={control}
             value={phase}
+            disabled={busy}
             onChange={(e) => {
               const p = e.target.value as PolicyPhase;
               setPhase(p);
               setAction(p === "tool_call" ? "bash" : "task.create");
               setResult(null);
+              setTestError("");
+              setTestErrorDetails(undefined);
             }}
           >
             <option value="tool_call">Tool call</option>
@@ -445,27 +463,51 @@ export function PoliciesSection() {
         {phase === "tool_call" ? (
           <label>
             Tool name
-            <input className={control} value={action} onChange={(e) => setAction(e.target.value)} />
+            <input
+              className={control}
+              disabled={busy}
+              value={action}
+              onChange={(e) => {
+                setAction(e.target.value);
+                setResult(null);
+                setTestError("");
+                setTestErrorDetails(undefined);
+              }}
+            />
           </label>
         ) : (
           <label>
             Action
-            <select className={control} value={action} onChange={(e) => setAction(e.target.value)}>
-              {["task.create", "message.send", "inbox.read", "run.continue"].map((a) => (
+            <select
+              className={control}
+              disabled={busy}
+              value={action}
+              onChange={(e) => {
+                setAction(e.target.value);
+                setResult(null);
+                setTestError("");
+                setTestErrorDetails(undefined);
+              }}
+            >
+              {PolicyRequestAction.options.map((a) => (
                 <option key={a}>{a}</option>
               ))}
             </select>
           </label>
         )}
-        <label>
-          Sample arguments (JSON object)
-          <textarea
-            className={control}
-            rows={4}
-            value={args}
-            onChange={(e) => setArgs(e.target.value)}
-          />
-        </label>
+        {shell && (
+          <label>
+            Command
+            <textarea
+              className={control}
+              rows={4}
+              disabled={busy}
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+            />
+          </label>
+        )}
+        <PolicySampleFields fields={fields} onChange={setFields} disabled={busy} />
         <Button disabled={busy} onClick={test}>
           Test
         </Button>
@@ -491,9 +533,20 @@ export function PoliciesSection() {
               ))}
             </ul>
             <p>Proposed updates (not applied):</p>
-            <pre className="overflow-auto overscroll-contain">
-              {JSON.stringify(result.proposedStateUpdates, null, 2)}
-            </pre>
+            {Object.entries(result.proposedStateUpdates).filter(
+              ([, counters]) => Object.keys(counters).length > 0,
+            ).length === 0 ? (
+              <p>No proposed updates.</p>
+            ) : (
+              Object.entries(result.proposedStateUpdates)
+                .filter(([, counters]) => Object.keys(counters).length > 0)
+                .map(([ruleId, counters]) => (
+                  <div key={ruleId}>
+                    <p>{ruleId}</p>
+                    <StructuredValue value={counters} />
+                  </div>
+                ))
+            )}
           </div>
         )}
       </section>

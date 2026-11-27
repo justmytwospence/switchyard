@@ -5,10 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UINodeRendererProps } from "../src/components/intent/UINodeRenderer";
 import {
   AdapterPreview,
-  PREVIEW_ACTION_NOTICE,
   type PreviewAction,
   PreviewFrame,
-  previewActionEntry,
 } from "../src/features/settings/AdapterPreview";
 
 const captured = vi.hoisted(() => [] as UINodeRendererProps[]);
@@ -112,7 +110,7 @@ describe("portable adapter preview", () => {
     frame(false, false, actions);
     captured[0]!.onRespond!({ kind: "form", values: { note: "local only" } });
     captured[1]!.onRespond!({ kind: "confirm", confirmed: true });
-    captured[3]!.onAction!("demo");
+    captured[3]!.onRespond!({ kind: "action", actionId: "demo" });
     expect(actions).toEqual([
       {
         source: "session.panel",
@@ -123,7 +121,6 @@ describe("portable adapter preview", () => {
       { source: "interaction", requestId: "q", payload: { kind: "confirm", confirmed: true } },
       { source: "card", actionId: "demo", payload: { index: 1 } },
     ]);
-    expect(previewActionEntry(actions[0]!)).toContain(PREVIEW_ACTION_NOTICE);
     expect(forbiddenApi).not.toHaveBeenCalled();
   });
 
@@ -133,7 +130,7 @@ describe("portable adapter preview", () => {
     expect(captured.every((props) => props.disabled)).toBe(true);
     for (const props of captured) {
       props.onRespond?.({ kind: "cancel" });
-      props.onAction?.("should-not-run");
+      props.onRespond?.({ kind: "action", actionId: "should-not-run" });
     }
     expect(actions).toEqual([]);
     captured.length = 0;
@@ -147,7 +144,7 @@ describe("portable adapter preview", () => {
     expect(forbiddenApi).not.toHaveBeenCalled();
   });
 
-  it("mounts a collapsible developer tool with JSON upload, paste, read-only simulation and local action log", () => {
+  it("mounts a collapsible developer tool with file upload, read-only simulation and local action log", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <AdapterPreview initialJson={JSON.stringify(preview)} />
@@ -156,7 +153,9 @@ describe("portable adapter preview", () => {
     expect(html).toContain("Portable UI preview");
     expect(html).toContain("<details");
     expect(html).toContain("not a sandbox");
-    expect(html).toContain("Preview JSON");
+    expect(html).toContain("Upload preview file");
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain("Render preview");
     expect(html).toContain('type="file"');
     expect(html).toContain("Simulate read-only / disabled");
     expect(html).toContain("Preview action log");

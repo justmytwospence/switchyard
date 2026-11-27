@@ -252,9 +252,7 @@ test.describe("phase three real-stack verification (only model and gh are fake)"
     try {
       const tester = page.getByRole("heading", { name: "Test rules" }).locator("..");
       await tester.getByRole("combobox", { name: "Session", exact: true }).selectOption(id);
-      await tester
-        .getByLabel("Sample arguments (JSON object)")
-        .fill(JSON.stringify({ command: command(deniedPath) }));
+      await tester.getByLabel("Command", { exact: true }).fill(command(deniedPath));
       const before = await api("GET", `/api/interactions?sessionId=${id}`);
       await tester.getByRole("button", { name: "Test", exact: true }).click();
       await expect(tester.locator("strong").first()).toHaveText("Ask");

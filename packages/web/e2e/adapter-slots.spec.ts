@@ -23,7 +23,7 @@ test("session-scoped slots, palette and namespaced form", async ({
     await expect(page.getByTestId("inspector").getByLabel("Fixture note")).toBeVisible();
     await page.getByTestId("inspector").getByLabel("Fixture note").fill("from panel");
     await page.getByTestId("inspector").getByRole("button", { name: "Save note" }).click();
-    await expect(page.getByLabel("Adapter footer")).toContainText("from panel");
+    await expect(page.getByLabel("Adapter footer")).toContainText("Saved note: from panel");
     await page.getByTestId("inspector").getByRole("tab", { name: "Details", exact: true }).click();
     await expect(
       page
@@ -77,7 +77,17 @@ test("session-scoped slots, palette and namespaced form", async ({
   await command.getByRole("button", { name: "Save note" }).click();
   await expect(command).not.toBeVisible();
   await expect(draft).toHaveValue("");
-  if (!mobile) await expect(page.getByLabel("Adapter footer")).toContainText("from slash");
+  if (!mobile) {
+    const footer = page.getByLabel("Adapter footer");
+    await expect(footer).toContainText("Saved note: from slash");
+    await expect(footer).not.toContainText("{");
+    await api("POST", `/api/sessions/${id}/adapter-action`, {
+      adapterId: "slots",
+      actionId: "save",
+      payload: { note: "from legacy action" },
+    });
+    await expect(footer).toContainText("Saved note: from legacy action");
+  }
   await page.keyboard.press("Meta+k");
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect(palette).toBeVisible();
@@ -86,7 +96,8 @@ test("session-scoped slots, palette and namespaced form", async ({
   const confirmation = page.getByRole("dialog", { name: "Slots palette" });
   await expect(confirmation).toContainText("Confirm fixture action");
   await confirmation.getByRole("button", { name: "Cancel" }).click();
-  if (!mobile) await expect(page.getByLabel("Adapter footer")).not.toContainText("run:");
+  if (!mobile)
+    await expect(page.getByLabel("Adapter footer")).not.toContainText("Recorded fixture action");
   await api("POST", `/api/sessions/${id}/prompt`, { text: "/fixture-slots-clear" });
   await expect(page.getByLabel("Adapter pills")).toHaveCount(0);
   await expect(

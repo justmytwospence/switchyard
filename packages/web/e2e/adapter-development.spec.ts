@@ -275,27 +275,57 @@ test("portable preview actions stay local in desktop and phone frames", async ({
   });
   await page.goto("/settings/adapters");
   await page.getByText("Portable UI preview", { exact: true }).click();
-  await page.getByLabel("Preview JSON (up to 1 MiB)").fill(
-    JSON.stringify({
-      version: 1,
-      name: "Isolated fixture",
-      adapter: { id: "fixture", version: "1.0.0" },
-      steps: [],
-      panels: [],
-      interactions: [],
-      diagnostics: [],
-      cards: [{ t: "actions", actions: [{ id: "local", label: "Simulated action" }] }],
-    }),
-  );
-  await page.getByRole("button", { name: "Render preview" }).click();
+  const upload = page.getByLabel("Upload preview file");
+  await upload.setInputFiles({
+    name: "preview.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        version: 1,
+        name: "Isolated fixture",
+        adapter: { id: "fixture", version: "1.0.0" },
+        steps: [],
+        panels: [],
+        interactions: [],
+        diagnostics: [],
+        cards: [{ t: "actions", actions: [{ id: "local", label: "Simulated action" }] }],
+      }),
+    ),
+  });
   for (const name of ["Desktop preview", "Phone preview 390px"]) {
     await page
       .getByRole("region", { name, exact: true })
       .getByRole("button", { name: "Simulated action" })
       .click();
   }
-  await expect(page.getByRole("region", { name: "Preview action log" })).toContainText(
-    "Preview action — not sent to Pi",
-  );
+  const log = page.getByRole("region", { name: "Preview action log" });
+  const entries = log.getByRole("listitem");
+  await expect(entries).toHaveCount(2);
+  for (const entry of await entries.all()) {
+    await expect(entry).toContainText("Preview action — not sent to Pi");
+    await expect(entry.getByText("Source", { exact: true })).toBeVisible();
+    await expect(entry.getByText("Action", { exact: true })).toBeVisible();
+    await expect(entry.getByText("local", { exact: true })).toBeVisible();
+  }
+  await expect(log).not.toContainText('{"');
+  await page.getByLabel("Simulate read-only / disabled").check();
+  for (const name of ["Desktop preview", "Phone preview 390px"]) {
+    await expect(
+      page
+        .getByRole("region", { name, exact: true })
+        .getByRole("button", { name: "Simulated action" }),
+    ).toHaveCount(0);
+  }
+  await expect(entries).toHaveCount(2);
+  await page.getByRole("button", { name: "Clear preview" }).click();
+  await expect(page.getByRole("region", { name: "Desktop preview" })).toHaveCount(0);
+  await expect(log).toContainText("No preview actions yet.");
+  await upload.setInputFiles({
+    name: "invalid.json",
+    mimeType: "application/json",
+    buffer: Buffer.from('{"secret":'),
+  });
+  await expect(page.getByRole("alert")).toHaveText("This file is not valid JSON.");
+  await expect(page.getByRole("alert")).not.toContainText("secret");
   expect(posts).toEqual([]);
 });

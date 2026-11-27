@@ -25,6 +25,7 @@ import { UINodeRenderer } from "../../components/intent/UINodeRenderer";
 import { isUnsupported } from "../../components/intent/unsupported";
 import { Sheet } from "../../components/ui/Overlay";
 import { Spinner } from "../../components/ui/Spinner";
+import { StructuredValue } from "../../components/ui/StructuredValue";
 import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { cn } from "../../lib/cn";
@@ -48,6 +49,7 @@ import {
   type WorkSummary,
 } from "./model";
 import { initialPromptFor } from "./startingPrompts";
+import { type ToolPayloadPart, toolPayloadParts } from "./toolPayload";
 import { type ToolView, toolLabel, toolViewOf } from "./toolView";
 
 export interface TimelineRowProps {
@@ -517,6 +519,17 @@ function ToolDetailView({
   const filePath = view.filePath;
   const lineCount = output.replace(/\n+$/, "").split("\n").length;
   const outputNote = running ? "last lines" : `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
+  const noArgs =
+    d.t === "args" &&
+    (d.value === undefined ||
+      (d.value !== null &&
+        typeof d.value === "object" &&
+        !Array.isArray(d.value) &&
+        Object.keys(d.value).length === 0));
+  const outputParts: ToolPayloadPart[] =
+    view.detail.t === "read" && data.status !== "error"
+      ? [{ kind: "text", text: output }]
+      : toolPayloadParts(output, running);
   return (
     <>
       <p className="text-xs text-subtle">
@@ -544,30 +557,30 @@ function ToolDetailView({
           {d.where && <p className="text-xs text-muted">in {d.where}</p>}
         </>
       )}
-      {d.t === "args" && d.rows.length > 0 && (
-        <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5">
-          {d.rows.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="font-mono text-xs text-subtle">{k}</dt>
-              <dd className="min-w-0 font-mono text-xs break-words whitespace-pre-wrap">{v}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {d.t === "args" && d.raw && (
-        <details className="group min-w-0">
-          <summary className="tap flex cursor-pointer list-none items-center gap-1 text-xs text-muted">
-            <ChevronRight
-              aria-hidden
-              className="size-3.5 transition-transform group-open:rotate-90"
-            />
-            Raw arguments
-          </summary>
-          <CodeBlock text={d.raw} className="mt-1" maxHeight="16rem" />
-        </details>
-      )}
-      {d.t === "args" && d.rows.length === 0 && !d.raw && pendingArgs && (
-        <CodeBlock text={pendingArgs} maxHeight="16rem" />
+      {d.t !== "args" &&
+        d.t !== "node" &&
+        pendingArgs &&
+        (data.args === undefined ||
+          (data.args !== null &&
+            typeof data.args === "object" &&
+            !Array.isArray(data.args) &&
+            Object.keys(data.args).length === 0)) && (
+          <p className="text-xs text-muted">Receiving arguments…</p>
+        )}
+      {d.t === "args" && (!noArgs || pendingArgs) && (
+        <div className="min-w-0">
+          <p className="text-xs text-muted">Arguments</p>
+          {noArgs ? (
+            <p className="text-xs text-muted">Receiving arguments…</p>
+          ) : typeof d.value === "string" ? (
+            toolPayloadParts(d.value, false).map((part, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: these stateless fragments follow the output order.
+              <PayloadPart key={i} part={part} argument running={false} mobile={mobile} />
+            ))
+          ) : (
+            <StructuredValue value={d.value} />
+          )}
+        </div>
       )}
       {filePath && openFile && (
         <div>
@@ -586,18 +599,56 @@ function ToolDetailView({
             <p className="text-xs text-muted">
               Output <span className="text-subtle">({outputNote})</span>
             </p>
-            <CodeBlock
-              text={running ? outputPreview(output, 12).text : output}
-              lang={view.kind === "read" && view.target ? view.target : undefined}
-              className="mt-1"
-              maxHeight={mobile ? undefined : "24rem"}
-            />
+            {outputParts.map((part, i) => (
+              <PayloadPart
+                // biome-ignore lint/suspicious/noArrayIndexKey: these stateless fragments follow the output order.
+                key={i}
+                part={part}
+                running={running}
+                mobile={mobile}
+                lang={view.detail.t === "read" ? view.target : undefined}
+              />
+            ))}
           </div>
         ) : (
           d.t === "command" && !running && <p className="text-xs text-muted">No output.</p>
         ))}
     </>
   );
+}
+
+function PayloadPart({
+  part,
+  argument = false,
+  running,
+  mobile,
+  lang,
+}: {
+  part: ToolPayloadPart;
+  argument?: boolean;
+  running: boolean;
+  mobile: boolean;
+  lang?: string;
+}) {
+  if (part.kind === "data") return <StructuredValue value={part.value} />;
+  if (part.kind === "text")
+    return argument ? (
+      <StructuredValue value={part.text} />
+    ) : (
+      <CodeBlock
+        text={running ? outputPreview(part.text, 12).text : part.text}
+        lang={lang || undefined}
+        className="mt-1"
+        maxHeight={mobile ? undefined : "24rem"}
+      />
+    );
+  const message =
+    part.kind === "pending"
+      ? "Receiving structured output…"
+      : part.kind === "unreadable"
+        ? "Structured output could not be displayed."
+        : "More output omitted.";
+  return <p className="text-xs text-muted">{message}</p>;
 }
 
 const NOTICE_ICON = { info: Info, warning: TriangleAlert, error: CircleAlert } as const;
@@ -853,12 +904,7 @@ function StreamEntry({ stream }: { stream: StreamBuffer }) {
             <Spinner className="size-3.5" />
             Tool running…
           </div>
-          {stream.toolArgs && (
-            <CodeBlock text={stream.toolArgs} className="mt-1" maxHeight="8rem" />
-          )}
-          {stream.toolOutput && (
-            <CodeBlock text={outputPreview(stream.toolOutput).text} className="mt-1" />
-          )}
+          {stream.toolArgs && <p className="mt-1 text-xs text-muted">Receiving arguments…</p>}
         </div>
       )}
     </div>
