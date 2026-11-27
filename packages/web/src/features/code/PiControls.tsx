@@ -505,17 +505,20 @@ export function ContextRing({
                 strokeOpacity="0.25"
                 strokeWidth="2.5"
               />
-              <circle
-                cx="10"
-                cy="10"
-                r="7"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeDasharray={circumference}
-                strokeDashoffset={circumference * (1 - pct / 100)}
-              />
+              {/* An empty context draws no arc: a round cap alone reads as a spinner. */}
+              {pct > 0 && (
+                <circle
+                  cx="10"
+                  cy="10"
+                  r="7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={circumference * (1 - pct / 100)}
+                />
+              )}
             </svg>
           )}
           {limitTone !== "neutral" && (
