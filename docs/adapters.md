@@ -387,7 +387,7 @@ These ship in [pi-plugins](https://github.com/justmytwospence/pi-plugins) (`pack
 | Adapter | Target | Behavior |
 |---|---|---|
 | `ask-user-question` | `@justmytwospence/pi-ask-user-question` (tested 0.1.7) | Claims the first question dialog and shows every question in one form; answers Pi's one-dialog-at-a-time sequence from it (a claim with a `{sequence}` response, see above). |
-| `tool-gate` | `@justmytwospence/pi-tool-gate` (tested 0.1.2) | Approval card: field table, note, one action per option. Follow-up message and rule-edit dialogs stay generic. |
+| `tool-gate` | `@justmytwospence/pi-tool-gate` | Approval card: facts, note, one action per option. Recent tool-gate versions mirror terminal approvals via the remote UI service; follow-up message and rule-edit dialogs stay generic. Without the adapter, generic dialogs remain available; older plugin versions retain their legacy terminal-only behavior. |
 | `plan-mode` | `@justmytwospence/pi-plan-mode` (tested 0.1.7) | Claims the "Implement this plan?" dialog and shows the plan (from `exit_plan_mode` updates) with one action per option; plan tool card and `plan` panel; `workflow-mode`, `plan`, `plan-exec` statuses to `plan-status`. |
 | `subagents` | `@justmytwospence/pi-subagents` | `subagents:run` entries and `subagent` results to subagent links (view only). |
 | `todo` | `@justmytwospence/pi-todo` | `todo` results (`details.tasks`) to the `todo` panel. |

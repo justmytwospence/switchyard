@@ -1,9 +1,13 @@
 // @module-tag slow
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { terminalSupport } from "@switchyard/pi-runtime";
 import type { Interaction } from "@switchyard/protocol";
 import { type MockScript, when } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type CompatHarness,
+  type CompatSession,
   compatSkipReason,
   legacyBoundAdapter,
   pluginInfo,
@@ -163,3 +167,133 @@ describe.skipIf(skip !== null)(`tool-gate compat${skip ? ` (${skip})` : ""}`, ()
     ).toBe(false);
   });
 });
+
+const terminalSkip = skip ?? (!terminalSupport().ok ? "terminal support unavailable" : null);
+describe.skipIf(terminalSkip !== null)(
+  `tool-gate terminal compat${terminalSkip ? ` (${terminalSkip})` : ""}`,
+  () => {
+    let h: CompatHarness;
+    beforeAll(async () => {
+      h = await startCompatHarness({ plugins: ["pi-tool-gate"], script, terminalSessions: true });
+    });
+    afterAll(async () => {
+      await h?.dispose();
+    });
+
+    async function approval(s: CompatSession) {
+      const n0 = s.uiRequests.length;
+      await s.prompt("/gate rules add ask Bash(echo:*) --scope session");
+      await waitFor(
+        () =>
+          s.uiRequests
+            .slice(n0)
+            .some((r) => r.method === "notify" && r.message.includes("Added to ask: Bash(echo:*)")),
+        10000,
+        "rule notice",
+      );
+      const before = s.settledCount();
+      await s.prompt("please say hello");
+      const mirror = existsSync(join(h.suiteDir, "packages/pi-tool-gate/src/switchyard-remote.ts"));
+      await waitFor(
+        () =>
+          s
+            .latestInteractions()
+            .some((i) => (mirror ? i.state === "pending" : i.source.kind === "unsupported_custom")),
+        30000,
+        "terminal approval",
+      );
+      if (!mirror) {
+        expect(s.latestInteractions().some((i) => i.source.kind === "unsupported_custom")).toBe(
+          true,
+        );
+        expect(s.latestInteractions().filter((i) => i.state === "pending")).toEqual([]);
+        return null;
+      }
+      const pending = s.latestInteractions().filter((i) => i.state === "pending");
+      expect(pending).toHaveLength(1);
+      expect(s.latestInteractions().filter((i) => i.source.kind === "unsupported_custom")).toEqual(
+        [],
+      );
+      const card = pending[0]!;
+      const legacy = await legacyBoundAdapter(h, s, "pi-tool-gate", "tool-gate");
+      if (legacy) {
+        expect(card).toMatchObject({
+          adapterId: null,
+          source: { kind: "extension_ui", method: "select" },
+        });
+      } else {
+        expect(card).toMatchObject({ adapterId: "tool-gate", kind: "approval" });
+        const facts = (card.presentation as any).children.find((c: any) => c.t === "facts");
+        expect(facts.items).toContainEqual(
+          expect.objectContaining({ label: "Directory", value: h.pi.cwd }),
+        );
+      }
+      const response = (label: string) => {
+        if (legacy) return { kind: "form" as const, values: { value: label } };
+        const actions = (card.presentation as any).children.find(
+          (c: any) => c.t === "actions",
+        ).actions;
+        const action = actions.find((a: any) => a.label === label);
+        expect(action).toBeDefined();
+        return { kind: "action" as const, actionId: action.id as string };
+      };
+      return { card, before, response };
+    }
+
+    it("blocks a held terminal call from the web", async () => {
+      const s = await h.startSession();
+      const a = await approval(s);
+      if (!a) return;
+      expect(await s.answer(a.card, a.response("Block"))).toMatchObject({ status: "answered" });
+      await s.waitSettled(a.before);
+      expect(s.toolEnds("bash")).toHaveLength(1);
+      expect(s.toolEnds("bash")[0].isError).toBe(true);
+    }, 90000);
+
+    it("lets native Escape win in an enrolled terminal", async () => {
+      const s = await h.startEnrolledSession();
+      const a = await approval(s);
+      if (!a) return;
+      await waitFor(
+        () => s.terminal.output().includes("Allow once"),
+        15000,
+        "native approval screen",
+      );
+      s.terminal.write("\x1b");
+      await waitFor(
+        () =>
+          s.latestInteractions().some((i) => i.id === a.card.id && i.resolution?.by === "terminal"),
+        15000,
+        "terminal resolution",
+      );
+      expect(await s.answer(a.card, a.response("Allow once"))).toMatchObject({
+        status: "already_answered",
+      });
+      await s.waitSettled(a.before);
+      expect(s.toolEnds("bash")).toHaveLength(1);
+      expect(s.toolEnds("bash")[0].isError).toBe(true);
+      expect(JSON.stringify(s.toolEnds("bash")[0].result)).not.toContain("hello\n");
+    }, 90000);
+
+    it("lets the web allow an enrolled call without native input", async () => {
+      const s = await h.startEnrolledSession();
+      const a = await approval(s);
+      if (!a) return;
+      await waitFor(
+        () => s.terminal.output().includes("Allow once"),
+        15000,
+        "native approval screen",
+      );
+      expect(await s.answer(a.card, a.response("Allow once"))).toMatchObject({
+        status: "answered",
+      });
+      await s.waitSettled(a.before);
+      expect(s.toolEnds("bash")).toHaveLength(1);
+      expect(s.toolEnds("bash")[0].isError).toBe(false);
+      expect(JSON.stringify(s.toolEnds("bash")[0].result)).toContain("hello");
+      expect(await s.answer(a.card, a.response("Allow once"))).toMatchObject({
+        status: "already_answered",
+      });
+    }, 90000);
+  },
+);

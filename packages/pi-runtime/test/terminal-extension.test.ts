@@ -537,12 +537,26 @@ describe("switchyard terminal extension", () => {
 
   it("offers web-only dialogs over pi.events", async () => {
     const { ui, calls } = fakeUi();
-    const { pi } = await load(ui);
+    const entries: any[] = [];
+    const sessionManager = {
+      getSessionId: () => "nat-1",
+      getSessionFile: () => "/tmp/nat-1.jsonl",
+      getEntries: () => entries,
+    };
+    const { pi } = await load(ui, { sessionManager });
+    entries.push({ type: "custom", id: "approval-marker", customType: "test:approval" });
     const req: any = { version: 1 };
     pi.events.emit("switchyard.remote-ui.v1", req);
     expect(req.ui).toBeTruthy();
     const result = req.ui.select("Q", ["A", "B"], {});
     await until(() => holder.lines.some((l) => l.type === "extension_ui_request"));
+    const markerIndex = holder.lines.findIndex(
+      (l) => l.type === "entry_appended" && l.entry?.id === "approval-marker",
+    );
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    expect(markerIndex).toBeLessThan(
+      holder.lines.findIndex((l) => l.type === "extension_ui_request"),
+    );
     expect(calls.length).toBe(0);
     pi.emit("ui_prompt_start", { kind: "custom", title: "x" }, null);
     await until(() => holder.lines.some((l) => l.type === "ui_prompt"));
@@ -556,6 +570,9 @@ describe("switchyard terminal extension", () => {
     expect(await second).toBeUndefined();
     await until(() => holder.lines.some((l) => l.type === "extension_ui_closed"));
     expect(holder.lines.find((l) => l.type === "extension_ui_closed").by).toBe("terminal");
+    expect(
+      holder.lines.filter((l) => l.type === "entry_appended" && l.entry?.id === "approval-marker"),
+    ).toHaveLength(1);
   });
 
   it("reports a dialog answered in the terminal", async () => {

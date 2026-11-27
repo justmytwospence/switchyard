@@ -8,8 +8,10 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { terminalExtensionPath, terminalSupport } from "@switchyard/pi-runtime";
 import type {
   AdapterInfo,
   HostCommand,
@@ -20,6 +22,7 @@ import type {
   SessionAdaptersResult,
   TranscriptItem,
 } from "@switchyard/protocol";
+import { ADAPTER_CONTRACT_FEATURE } from "@switchyard/protocol";
 import {
   type MockModelServer,
   type MockScript,
@@ -227,6 +230,9 @@ export interface CompatHarness {
   adapter(id: string): AdapterInfo | undefined;
   /** Start a session in the isolated Pi cwd, recording every raw Pi UI request. */
   startSession(): Promise<CompatSession>;
+  startEnrolledSession(): Promise<
+    CompatSession & { terminal: { write(keys: string): void; output(): string } }
+  >;
   dispose(): Promise<void>;
 }
 
@@ -255,6 +261,26 @@ export interface CompatSession {
     response: Extract<HostCommand, { type: "session.answer" }>["response"],
   ): Promise<any>;
 }
+
+type TestPty = {
+  onData(fn: (data: string) => void): void;
+  onExit(fn: (event: { exitCode: number; signal?: number }) => void): void;
+  write(data: string): void;
+  kill(): void;
+};
+type PtyModule = {
+  spawn(
+    file: string,
+    args: string[],
+    options: {
+      name: string;
+      cols: number;
+      rows: number;
+      cwd: string;
+      env: Record<string, string>;
+    },
+  ): TestPty;
+};
 
 let n = 0;
 
@@ -290,6 +316,7 @@ export async function startCompatHarness(opts: {
 }): Promise<CompatHarness> {
   requirePi();
   const coord = await FakeCoordinator.start();
+  if (opts.terminalSessions) coord.welcomeFeatures = [ADAPTER_CONTRACT_FEATURE];
   const state = tempDir("switchyard-compat-");
   const mock = await startMockModel(opts.script);
   const suiteDir = opts.writableSuite ? join(state.path, "pi-plugins") : PLUGINS_DIR;
@@ -375,6 +402,63 @@ export async function startCompatHarness(opts: {
     return [...m.values()];
   };
 
+  const terminals = new Set<TestPty>();
+  const captureSession = (id: string): CompatSession => {
+    const ms = agent.supervisor.managedSession(id);
+    if (!ms) throw new Error("no managed session");
+    const uiRequests: any[] = [];
+    const uiResponses: { id: string; body: any }[] = [];
+    const piEvents: any[] = [];
+    ms.on("ui_request", (r: unknown) => uiRequests.push(structuredClone(r)));
+    ms.on("pi_event", (e: unknown) => piEvents.push(structuredClone(e)));
+    const proc = ms.process!;
+    const respondUi = proc.respondUi.bind(proc);
+    proc.respondUi = ((reqId: string, body: any) => {
+      uiResponses.push({ id: reqId, body: structuredClone(body) });
+      return respondUi(reqId, body);
+    }) as typeof proc.respondUi;
+    const settledCount = () =>
+      coord
+        .eventsOf("session.updated", id)
+        .filter((e) => (e.data as { settled?: unknown }).settled != null).length;
+    const s: CompatSession = {
+      id,
+      uiRequests,
+      uiResponses,
+      piEvents,
+      toolEnds: (name) =>
+        piEvents.filter((e) => e.type === "tool_execution_end" && e.toolName === name),
+      prompt: (text) =>
+        coord.ok({
+          type: "session.prompt",
+          sessionId: id,
+          text,
+          images: [],
+          mode: "prompt",
+          origin: "human",
+          controlRevision: 1,
+        }),
+      interactions: () => ofSession<Interaction>("interaction.updated", id),
+      latestInteractions: () => latestById(s.interactions()),
+      items: () => ofSession<TranscriptItem>("transcript.item", id),
+      latestItems: () => latestById(s.items()),
+      panels: () => agent.supervisor.panels(id),
+      settledCount,
+      waitSettled: (after, timeoutMs = 60000) =>
+        coord.waitUntil(() => settledCount() > after, timeoutMs, "run settled"),
+      answer: (i, response) =>
+        coord.ok({
+          type: "session.answer",
+          sessionId: id,
+          interactionId: i.id,
+          revision: i.revision,
+          response,
+          deviceId: "dev_compat",
+        }),
+    };
+    return s;
+  };
+
   return {
     coord,
     agent,
@@ -394,62 +478,87 @@ export async function startCompatHarness(opts: {
           profile: { ...mockProfile, projectTrust: opts.projectTrust ?? "approve" },
         }),
       );
-      const ms = agent.supervisor.managedSession(id);
-      if (!ms) throw new Error("no managed session");
-      const uiRequests: any[] = [];
-      const uiResponses: { id: string; body: any }[] = [];
-      const piEvents: any[] = [];
-      ms.on("ui_request", (r: unknown) => uiRequests.push(structuredClone(r)));
-      ms.on("pi_event", (e: unknown) => piEvents.push(structuredClone(e)));
-      const proc = ms.process!;
-      const respondUi = proc.respondUi.bind(proc);
-      proc.respondUi = ((reqId: string, body: any) => {
-        uiResponses.push({ id: reqId, body: structuredClone(body) });
-        return respondUi(reqId, body);
-      }) as typeof proc.respondUi;
-      const settledCount = () =>
-        coord
-          .eventsOf("session.updated", id)
-          .filter((e) => (e.data as { settled?: unknown }).settled != null).length;
-      const s: CompatSession = {
-        id,
-        uiRequests,
-        uiResponses,
-        piEvents,
-        toolEnds: (name) =>
-          piEvents.filter((e) => e.type === "tool_execution_end" && e.toolName === name),
-        prompt: (text) =>
-          coord.ok({
-            type: "session.prompt",
-            sessionId: id,
-            text,
-            images: [],
-            mode: "prompt",
-            origin: "human",
-            controlRevision: 1,
-          }),
-        interactions: () => ofSession<Interaction>("interaction.updated", id),
-        latestInteractions: () => latestById(s.interactions()),
-        items: () => ofSession<TranscriptItem>("transcript.item", id),
-        latestItems: () => latestById(s.items()),
-        panels: () => agent.supervisor.panels(id),
-        settledCount,
-        waitSettled: (after, timeoutMs = 60000) =>
-          coord.waitUntil(() => settledCount() > after, timeoutMs, "run settled"),
-        answer: (i, response) =>
-          coord.ok({
-            type: "session.answer",
-            sessionId: id,
-            interactionId: i.id,
-            revision: i.revision,
-            response,
-            deviceId: "dev_compat",
-          }),
+      return captureSession(id);
+    },
+    async startEnrolledSession() {
+      if (!opts.terminalSessions || !terminalSupport().ok)
+        throw new Error("terminal support required");
+      const pty = createRequire(import.meta.resolve("@switchyard/pi-runtime"))(
+        "node-pty",
+      ) as PtyModule;
+      const env = {
+        PATH: process.env.PATH ?? "",
+        ...pi.env,
+        TERM: "xterm-256color",
+        SWITCHYARD_ENROLL_STATE_DIR: state.path,
+        SWITCHYARD_ENROLL: "1",
       };
-      return s;
+      delete env.SWITCHYARD_CONTROL_SOCKET;
+      delete env.SWITCHYARD_BRIDGE_SOCKET;
+      const existing = new Set(coord.eventsOf("session.updated").map((e) => e.sessionId));
+      const proc = pty.spawn(
+        piBin(),
+        ["--provider", "mock", "--model", "mock-1", "-e", terminalExtensionPath()],
+        {
+          name: "xterm-256color",
+          cols: 100,
+          rows: 30,
+          cwd: pi.cwd,
+          env,
+        },
+      );
+      terminals.add(proc);
+      let output = "";
+      proc.onData((data) => {
+        output = (output + data).slice(-100000);
+      });
+      let exit: { exitCode: number; signal?: number } | undefined;
+      proc.onExit((event) => {
+        exit = event;
+        terminals.delete(proc);
+      });
+      let id: string | undefined;
+      await coord
+        .waitUntil(
+          () => {
+            const event = coord.eventsOf("session.updated").find((e) => {
+              const snapshot = e.data as {
+                external?: unknown;
+                terminal?: boolean;
+                runtime?: string;
+              };
+              return (
+                !existing.has(e.sessionId) &&
+                !!snapshot.external &&
+                snapshot.terminal === false &&
+                snapshot.runtime === "idle"
+              );
+            });
+            id = event?.sessionId;
+            return !!id && !!agent.supervisor.managedSession(id);
+          },
+          30000,
+          "enrolled session idle",
+        )
+        .catch((err) => {
+          throw new Error(
+            `${err.message}\nExit: ${JSON.stringify(exit)}\nPTY: ${output.slice(-4000)}`,
+          );
+        });
+      return {
+        ...captureSession(id!),
+        terminal: { write: (keys) => proc.write(keys), output: () => output },
+      };
     },
     async dispose() {
-      await agent.stop().catch(() => {});
+      for (const proc of terminals) {
+        try {
+          proc.kill();
+        } catch {
+          /* already exited */
+        }
+      }
+      await agent.stop({ terminals: "stop" }).catch(() => {});
       await coord.close();
       await mock.close();
       pi.cleanup();
