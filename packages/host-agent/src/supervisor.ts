@@ -140,7 +140,7 @@ export function lostRuntime(
 }
 export const TERMINAL_PROMPT_TITLE = "Waiting in the terminal";
 export const TERMINAL_PROMPT_TEXT =
-  "An extension is showing its own interface in this session's terminal. Open the terminal (switchyard tui) to answer it.";
+  "This dialog can only be answered in the terminal where Pi is running.";
 export const TERMINAL_ANSWERED = "Answered in the terminal";
 export const REATTACH_EXPIRED =
   "Host agent restarted; if Pi is still asking, the question appears again";

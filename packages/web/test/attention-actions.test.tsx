@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Menu } from "../src/components/ui/Menu";
 import { ATTENTION_ACTION_HELP } from "../src/features/attention/logic";
 import type { SyncStore } from "../src/sync/store";
-import { attention, session } from "./fixtures";
+import { attention, interaction, session } from "./fixtures";
 
 const mock = vi.hoisted(() => ({ state: {} as SyncStore }));
 
@@ -64,6 +64,57 @@ describe("attention action help", () => {
       title: ATTENTION_ACTION_HELP.clear,
       description: ATTENTION_ACTION_HELP.clear,
     });
+  });
+
+  it("shows the terminal explanation from an unsupported interaction", async () => {
+    const { AttentionRow } = await import("../src/features/attention/index");
+    mock.state.interactions.int_u = interaction("int_u", {
+      sessionId: "ses_1",
+      source: { kind: "unsupported_custom", title: null },
+      title: "Waiting in the terminal",
+      state: "unsupported",
+      presentation: {
+        t: "section",
+        children: [
+          {
+            t: "text",
+            text: "An extension is showing its own interface in this session's terminal. Open the terminal (switchyard tui) to answer it.",
+          },
+        ],
+      },
+    });
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <AttentionRow
+          item={attention("a", {
+            reason: "unsupported_interaction",
+            sessionId: "ses_1",
+            interactionId: "int_u",
+          })}
+        />
+      </MemoryRouter>,
+    );
+    const text = new DOMParser().parseFromString(html, "text/html").body.textContent;
+    expect(text).toContain("This dialog can only be answered in the terminal where Pi is running.");
+    expect(text).not.toContain("In RPC mode");
+  });
+
+  it("uses a neutral explanation when the interaction is unavailable", async () => {
+    const { AttentionRow } = await import("../src/features/attention/index");
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <AttentionRow
+          item={attention("a", {
+            reason: "unsupported_interaction",
+            sessionId: "ses_1",
+            interactionId: "int_u",
+          })}
+        />
+      </MemoryRouter>,
+    );
+    const text = new DOMParser().parseFromString(html, "text/html").body.textContent;
+    expect(text).toContain("This dialog can't be answered from Switchyard.");
+    expect(text).not.toContain("In RPC mode");
   });
 
   it("describes Clear Needs input in the session menu", async () => {

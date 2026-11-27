@@ -172,6 +172,7 @@ async function reloadRace() {
     compacting: false,
     remoteDialogs: false,
     pendingDialogs: 0,
+    allocOrder: (nextOrder: number) => nextOrder,
     bridgeFeatures: {
       runtimeId: "runtime-old",
       nativeSessionId: "native",
@@ -292,7 +293,22 @@ describe("session adapter reload races", () => {
       expect(await f.ms.resources.mock.results[0]!.value).toMatchObject({ pendingDialogs });
       f.assertUnchanged();
       await f.live.chain;
-      if (emitPrompt) expect(f.live.terminalPrompt).not.toBeNull();
+      if (emitPrompt) {
+        expect(f.live.terminalPrompt).not.toBeNull();
+        expect(f.sup.interaction(f.live.terminalPrompt!)).toMatchObject({
+          state: "unsupported",
+          title: "Waiting in the terminal",
+          presentation: {
+            t: "section",
+            children: expect.arrayContaining([
+              {
+                t: "text",
+                text: "This dialog can only be answered in the terminal where Pi is running.",
+              },
+            ]),
+          },
+        });
+      }
     },
   );
 });

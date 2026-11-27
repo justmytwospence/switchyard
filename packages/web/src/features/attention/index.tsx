@@ -15,6 +15,7 @@ import { Link, useNavigate } from "react-router";
 import { ROUTES } from "../../app/routes";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { InteractionCard, isDocumentPresentation } from "../../components/intent/InteractionCard";
+import { UNSUPPORTED_FALLBACK_COPY } from "../../components/intent/unsupported";
 import { Button, buttonClasses } from "../../components/ui/Button";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { ATTENTION_STATUS, StatusChip } from "../../components/ui/StatusChip";
@@ -347,10 +348,7 @@ export function AttentionRow({ item }: { item: AttentionItem }) {
           }
         />
       ) : (
-        <UnsupportedCapability
-          capability="This dialog"
-          reason="An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one."
-        />
+        <UnsupportedCapability capability="This dialog" reason={UNSUPPORTED_FALLBACK_COPY} />
       );
       break;
     case "host_unreachable":

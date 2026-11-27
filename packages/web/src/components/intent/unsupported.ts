@@ -1,8 +1,10 @@
 import type { Interaction, UINode } from "@switchyard/protocol";
 
-/** What actually happened when an extension opened a terminal-only `ctx.ui.custom()` dialog. */
-export const UNSUPPORTED_COPY =
-  "An extension opened a terminal-only dialog. In RPC mode Pi gave it no answer, so the extension continued without one.";
+export const UNSUPPORTED_FALLBACK_COPY = "This dialog can't be answered from Switchyard.";
+
+const LEGACY_TERMINAL_COPY =
+  "An extension is showing its own interface in this session's terminal. Open the terminal (switchyard tui) to answer it.";
+const TERMINAL_COPY = "This dialog can only be answered in the terminal where Pi is running.";
 
 export interface UnsupportedAction {
   id: "abort" | "message";
@@ -21,6 +23,17 @@ function findActions(node: UINode): Extract<UINode, { t: "actions" }> | null {
     for (const c of node.children) {
       const found = findActions(c);
       if (found) return found;
+    }
+  }
+  return null;
+}
+
+function findDescription(node: UINode): string | null {
+  if (node.t === "text") return node.text.trim() || null;
+  if (node.t === "section") {
+    for (const child of node.children) {
+      const description = findDescription(child);
+      if (description) return description;
     }
   }
   return null;
@@ -51,10 +64,14 @@ export function unsupportedView(i: Interaction): UnsupportedView {
         ? "secondary"
         : (a.tone ?? (a.id === "abort" ? "danger" : "primary"))) as UnsupportedAction["tone"],
     }));
+  const description = findDescription(i.presentation);
   return {
     answerable: i.state === "unsupported" && i.resolution === null,
     actions: offered.length > 0 ? offered : DEFAULT_ACTIONS,
-    copy: UNSUPPORTED_COPY,
+    copy:
+      description === LEGACY_TERMINAL_COPY
+        ? TERMINAL_COPY
+        : (description ?? UNSUPPORTED_FALLBACK_COPY),
   };
 }
 
