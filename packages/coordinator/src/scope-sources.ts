@@ -6,9 +6,9 @@ import {
   IssueSyncResult,
   issueLinkProblem,
   issueUnlinkProblem,
+  type OpenIssueRequest,
   type Project,
   type Scope,
-  type Session,
   SwitchyardError,
   type SyncedIssue,
   sourceBacklog,
@@ -18,13 +18,31 @@ import {
   type TrackedIssue,
   trackedIssueId,
 } from "@switchyard/protocol";
-import { openBranch } from "./branches.js";
 import type { CoordinatorContext } from "./context.js";
+import {
+  issueWorkBranch,
+  pendingIssueSession,
+  projectMatchesIssue,
+  remoteIssueBranches,
+  trackedIssueLinks,
+} from "./issue-work.js";
+import { requireService } from "./services.js";
 import { createWorkspace } from "./sessions/service.js";
 import { refreshCheckoutWorkspaces } from "./workspaces.js";
 
 const GITHUB = "https://github.com/";
 const SYNC_TIMEOUT_MS = 90_000;
+
+export { issueBranch } from "./issue-work.js";
+
+function sourceConfig({
+  lastError: _error,
+  lastSyncedAt: _at,
+  login: _login,
+  ...config
+}: GitHubSource) {
+  return JSON.stringify(config);
+}
 
 /** The project whose checkout is this GitHub repository. */
 export function projectForRepository(projects: Project[], repository: string): Project | undefined {
@@ -83,17 +101,6 @@ export function mergeSyncResults(parts: IssueSyncResult[]): IssueSyncResult {
     items: items.slice(0, 200),
     truncated: parts.some((p) => p.truncated) || items.length > 200,
   };
-}
-
-/** Branch name for "Start work": `<number>-<slug of the title>`. */
-export function issueBranch(number: number, title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-    .replace(/-+$/g, "");
-  return slug ? `${number}-${slug}` : String(number);
 }
 
 /**
@@ -236,6 +243,42 @@ export class ScopeSourceService {
     return err instanceof Error ? err.message : String(err);
   }
 
+  /** Read the source's actual membership, without projecting snapshots, worktrees or board moves. */
+  private async readInventory(source: GitHubSource): Promise<IssueSyncResult> {
+    const board = source.board
+      ? {
+          projectNumber: source.board.projectNumber,
+          statusField: source.board.statusField,
+          ...(source.board.priorityField ? { priorityField: source.board.priorityField } : {}),
+        }
+      : null;
+    const extra = source.extraRepositories ?? [];
+    const follow = sourceFollow(source);
+    const backlog = sourceBacklog(source);
+    const scopes =
+      follow === "board" ? [null] : [source.repositories, ...(extra.length ? [extra] : [])];
+    const parts: IssueSyncResult[] = [];
+    for (const repositories of scopes) {
+      const raw = await this.ctx.hostHub.request(
+        source.hostId,
+        {
+          type: "tracker.sync",
+          owner: source.owner,
+          repositories,
+          board,
+          ...(follow === "board" ? { follow } : {}),
+          ...(backlog.length ? { backlog } : {}),
+        },
+        { timeoutMs: SYNC_TIMEOUT_MS },
+      );
+      parts.push(IssueSyncResult.parse(raw));
+    }
+    const result = mergeSyncResults(parts);
+    return follow === "board"
+      ? { ...result, items: result.items.filter((i) => repositoryInScope(source, i.repository)) }
+      : result;
+  }
+
   /** A workspace id that still names a live workspace, else null. */
   private liveWorkspace(id: string | null | undefined): string | null {
     if (!id) return null;
@@ -251,43 +294,9 @@ export class ScopeSourceService {
         lastError: `Host ${this.hostName(source.hostId)} is offline`,
       });
     }
-    const board = source.board
-      ? {
-          projectNumber: source.board.projectNumber,
-          statusField: source.board.statusField,
-          ...(source.board.priorityField ? { priorityField: source.board.priorityField } : {}),
-        }
-      : null;
-    const extra = source.extraRepositories ?? [];
-    const follow = sourceFollow(source);
-    const backlog = sourceBacklog(source);
-    const scopes =
-      follow === "board" ? [null] : [source.repositories, ...(extra.length ? [extra] : [])];
     let result: IssueSyncResult;
     try {
-      const parts: IssueSyncResult[] = [];
-      for (const repositories of scopes) {
-        const raw = await hostHub.request(
-          source.hostId,
-          {
-            type: "tracker.sync",
-            owner: source.owner,
-            repositories,
-            board,
-            ...(follow === "board" ? { follow } : {}),
-            ...(backlog.length ? { backlog } : {}),
-          },
-          { timeoutMs: SYNC_TIMEOUT_MS },
-        );
-        parts.push(IssueSyncResult.parse(raw));
-      }
-      result = mergeSyncResults(parts);
-      if (follow === "board") {
-        result = {
-          ...result,
-          items: result.items.filter((i) => repositoryInScope(source, i.repository)),
-        };
-      }
+      result = await this.readInventory(source);
     } catch (err) {
       return this.save(scopeId, { lastError: this.hostError(source, err) });
     }
@@ -352,7 +361,15 @@ export class ScopeSourceService {
     const refreshed = new Set<string>();
     for (const m of matched) {
       try {
-        await this.linkWorkspace(current, m.item, m.project, m.issueId, refreshed);
+        await requireService(this.ctx, "issueWork").serialize(
+          m.project.id,
+          m.item.itemId,
+          async () => {
+            const scope = store.scopes.get(scopeId);
+            if (!scope?.source || sourceConfig(scope.source) !== sourceConfig(source)) return;
+            await this.linkWorkspace(current, m.item, m.project, m.issueId, refreshed);
+          },
+        );
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
@@ -415,15 +432,35 @@ export class ScopeSourceService {
     refreshed: Set<string>,
   ): Promise<void> {
     const { store, hostHub } = this.ctx;
-    const branch = item.branches[0] ?? store.issues.get(issueId)?.branch ?? null;
+    const issue = store.issues.get(issueId);
+    if (!issue || !projectMatchesIssue(store, issue)) return;
+    const { branch, work, remote } = issueWorkBranch(store, project.id, item);
     if (!branch || item.pullRequest?.state === "MERGED") return;
-    const find = () =>
-      store.workspaces
+    const update = (workspaceId: string | null) => {
+      const row = store.issues.get(issueId);
+      if (row && (row.branch !== branch || row.workspaceId !== workspaceId)) {
+        store.putIssue({ ...row, branch, workspaceId, updatedAt: store.nowIso() });
+      }
+    };
+    const find = () => {
+      const matches = store.workspaces
         .list("project_id = ? AND archived_at IS NULL", [project.id])
-        .find(
-          (w) => w.branch !== null && (w.branch === branch || item.branches.includes(w.branch)),
-        );
+        .filter((w) => w.branch === branch);
+      return (
+        matches.find((w) => w.id === work?.workspaceId) ??
+        matches.find((w) => w.id === issue.workspaceId) ??
+        matches[0]
+      );
+    };
     let ws = find();
+    if (
+      pendingIssueSession(store, work, branch) ||
+      (ws && work?.branch === branch && work.remote && !work.workspaceId)
+    ) {
+      update(null);
+      return;
+    }
+    if (!ws && (work?.branch === branch || issue.branch !== null)) update(null);
     const checkout = this.workCheckout(source, project);
     if (!ws && !checkout) return;
     const key = `issueBranchTried:${issueId}:${branch}`;
@@ -442,32 +479,32 @@ export class ScopeSourceService {
         ws = find();
       }
     }
-    // A source that only watches links the worktree you made; it never makes one.
-    if (!ws && !sourceMakesWorktrees(source)) return;
+    // A source that only watches never makes a worktree. A durable manual link on
+    // an absent worktree also doesn't let another board recreate it automatically.
+    if (!ws && (!sourceMakesWorktrees(source) || (!remote && work?.workspaceId))) return;
     if (!ws && checkout) {
       store.setSetting(key, store.nowIso());
-      try {
-        await hostHub.request(
+      if (remote) {
+        const preparation = await hostHub.request<{ ok?: boolean }>(
           checkout.hostId,
-          { type: "tracker.prepareBranch", checkoutPath: checkout.path, branch },
+          {
+            type: "tracker.prepareBranch",
+            checkoutPath: checkout.path,
+            branch,
+            ...(hostHub.supportsStrictIssueBranches(checkout.hostId) ? { strict: true } : {}),
+          },
           { timeoutMs: 60_000 },
         );
-      } catch (err) {
-        this.ctx.log.debug({ err, branch }, "scope sync: prepareBranch failed");
+        if (preparation?.ok !== true) {
+          throw new SwitchyardError(
+            "conflict",
+            "The host did not confirm preparation of the linked remote branch",
+          );
+        }
       }
       ws = await createWorkspace(this.ctx, project, checkout, branch, null);
     }
-    const found = ws!;
-    store.tx(() => {
-      const issue = store.issues.get(issueId);
-      if (!issue || issue.workspaceId === found.id) return;
-      store.putIssue({
-        ...issue,
-        branch: found.branch,
-        workspaceId: found.id,
-        updatedAt: store.nowIso(),
-      });
-    });
+    update(ws!.id);
   }
 
   /** Move the card once per target column: started once a worktree exists, review once a PR is open. */
@@ -541,115 +578,172 @@ export class ScopeSourceService {
     });
   }
 
-  /**
-   * Give an issue a branch: its linked branch, else create one named `<number>-<title>` (as a
-   * linked branch on GitHub when the source's host has a checkout, else only locally).
-   */
-  private async startIssue(issueId: string): Promise<TrackedIssue> {
-    const { store, hostHub } = this.ctx;
-    const issue = store.issues.require(issueId);
-    const source = this.sourced(issue.scopeId).source;
-    if (issue.branch === null && issue.branches.length === 0) {
-      const name = issueBranch(issue.number, issue.title);
-      const checkout = store.checkouts
-        .list("project_id = ?", [issue.projectId])
-        .find((c) => c.hostId === source.hostId);
-      if (checkout) {
-        await hostHub.request(
-          source.hostId,
-          {
-            type: "tracker.startIssue",
-            checkoutPath: checkout.path,
-            repository: issue.repository,
-            number: issue.number,
-            branch: name,
-            base: checkout.defaultBranch,
+  /** Start from a tracked membership, or navigate to its already-known work. */
+  openIssue(issueId: string, opts: OpenIssueRequest = {}) {
+    const { store } = this.ctx;
+    const initial = store.issues.require(issueId);
+    return requireService(this.ctx, "issueWork").openIssueWork(
+      initial.projectId,
+      initial.itemId,
+      opts,
+      "tracked",
+      () => {
+        const issue = store.issues.require(issueId);
+        const source = this.sourced(issue.scopeId).source;
+        const refresh = () => new SwitchyardError("conflict", "Refresh the source before starting");
+        const assertCurrent = () => {
+          const current = store.issues.require(issueId);
+          const live = this.sourced(current.scopeId).source;
+          if (
+            current.projectId !== initial.projectId ||
+            current.itemId !== initial.itemId ||
+            current.scopeId !== issue.scopeId ||
+            current.number !== issue.number ||
+            current.repository !== issue.repository ||
+            !projectMatchesIssue(store, current) ||
+            sourceConfig(source) !== sourceConfig(live)
+          ) {
+            throw refresh();
+          }
+        };
+        const assertCanStart = () => {
+          const live = this.sourced(issue.scopeId).source;
+          if (!live.enabled || live.lastError !== null || !live.lastSyncedAt) throw refresh();
+          if (store.issues.require(issueId).pullRequest?.state === "MERGED") {
+            throw new SwitchyardError("conflict", "This issue is merged");
+          }
+        };
+        return {
+          issue,
+          mutationHostId: source.hostId,
+          assertCurrent,
+          assertCanStart,
+          reconcileExisting: source.enabled && source.lastError === null && !!source.lastSyncedAt,
+          refreshForStart: async () => {
+            // An issue lookup alone can't prove membership of a particular board or assignment.
+            // A read-only source refresh also recovers a branch after an uncertain start receipt.
+            let result: IssueSyncResult;
+            try {
+              result = await this.readInventory(source);
+            } catch (err) {
+              this.ctx.log.debug({ err, issueId }, "issue open: source refresh failed");
+              throw refresh();
+            }
+            assertCurrent();
+            const fresh = result.items.find(
+              (i) =>
+                i.itemId === issue.itemId &&
+                i.number === issue.number &&
+                i.repository.toLowerCase() === issue.repository.toLowerCase(),
+            );
+            if (result.truncated || !fresh) throw refresh();
+            return {
+              issue: fresh,
+              mutationHostId: source.hostId,
+              assertCurrent,
+              assertCanStart: () => {
+                assertCanStart();
+                if (fresh.pullRequest?.state === "MERGED") {
+                  throw new SwitchyardError("conflict", "This issue is merged");
+                }
+              },
+            };
           },
-          { timeoutMs: 60_000 },
-        );
-        await this.sync(issue.scopeId);
-      }
+        };
+      },
+    );
+  }
+
+  /** Link a worktree by hand. Scope snapshots are a projection, not separate links. */
+  linkIssue(issueId: string, workspaceId: string): Promise<TrackedIssue> {
+    const { store } = this.ctx;
+    const work = requireService(this.ctx, "issueWork");
+    const initial = store.issues.require(issueId);
+    return work.serialize(initial.projectId, initial.itemId, () =>
       store.tx(() => {
-        const cur = store.issues.require(issueId);
-        if (cur.branch === null) {
-          store.putIssue({ ...cur, branch: cur.branches[0] ?? name, updatedAt: store.nowIso() });
+        const issue = store.issues.require(issueId);
+        if (
+          issue.projectId !== initial.projectId ||
+          issue.itemId !== initial.itemId ||
+          !projectMatchesIssue(store, issue)
+        ) {
+          throw new SwitchyardError("conflict", "The issue changed; refresh and try again");
         }
-      });
-    }
-    return store.issues.require(issueId);
+        const ws = store.workspaces.require(workspaceId);
+        const problem = issueLinkProblem(issue, ws, store.issues.list());
+        if (problem) throw new SwitchyardError("conflict", problem);
+        const { branch, ambiguous } = issueWorkBranch(store, issue.projectId, issue);
+        const siblings = trackedIssueLinks(store, issue.projectId, issue.itemId);
+        if (
+          branch ||
+          ambiguous ||
+          siblings.some((i) => remoteIssueBranches(i).length || i.pullRequest?.state === "MERGED")
+        ) {
+          throw new SwitchyardError("conflict", "This issue already has a branch or pull request");
+        }
+        const other = store.listIssueWork(issue.projectId).find((w) => w.branch === ws.branch);
+        if (other)
+          throw new SwitchyardError(
+            "conflict",
+            `This branch is already linked to #${other.number}`,
+          );
+        store.putIssueWork({
+          projectId: issue.projectId,
+          nodeId: issue.itemId,
+          number: issue.number,
+          title: issue.title,
+          url: issue.url,
+          branch: ws.branch!,
+          remote: false,
+          workspaceId: ws.id,
+          pendingSessionId: null,
+        });
+        // The worktree exists; never recreate it from this board if it is removed later.
+        store.setSetting(`issueBranchTried:${issueId}:${ws.branch}`, store.nowIso());
+        work.projectLink(issue.projectId, issue.itemId, ws.branch, ws.id);
+        return store.issues.require(issueId);
+      }),
+    );
   }
 
-  /**
-   * Start or open an issue: give it a branch, then open that branch (its primary session, or a
-   * new idle session titled after the issue, making the worktree when needed).
-   */
-  async openIssue(
-    issueId: string,
-    opts: {
-      hostId?: string | undefined;
-      scopeId?: string | undefined;
-      viewId?: string | undefined;
-      prompt?: string | undefined;
-      profileId?: string | null | undefined;
-    } = {},
-  ): Promise<{ session: Session; created: boolean }> {
+  /** Undo a local link on every membership, so no legacy fallback can resurrect it. */
+  unlinkIssue(issueId: string): Promise<TrackedIssue> {
     const { store } = this.ctx;
-    const issue = await this.startIssue(issueId);
-    const branch = issue.branch ?? issue.branches[0];
-    if (!branch) throw new SwitchyardError("conflict", "This issue has no branch");
-    const result = await openBranch(this.ctx, {
-      projectId: issue.projectId,
-      branch,
-      hostId: opts.hostId,
-      scopeId: opts.scopeId ?? opts.viewId,
-      prompt: opts.prompt ?? "",
-      profileId: opts.profileId,
-      title: `#${issue.number} ${issue.title}`.slice(0, 120),
-    });
-    const wsId = result.session.workspaceId;
-    store.tx(() => {
-      const cur = store.issues.get(issueId);
-      if (!cur) return;
-      if (cur.branch === branch && (wsId === null || cur.workspaceId === wsId)) return;
-      store.putIssue({
-        ...cur,
-        branch,
-        ...(wsId ? { workspaceId: wsId } : {}),
-        updatedAt: store.nowIso(),
-      });
-    });
-    return result;
-  }
-
-  /** Link a worktree's branch to a not-started issue by hand. GitHub's own link, once it has one, wins at the next sync. */
-  linkIssue(issueId: string, workspaceId: string): TrackedIssue {
-    const { store } = this.ctx;
-    return store.tx(() => {
-      const issue = store.issues.require(issueId);
-      const ws = store.workspaces.require(workspaceId);
-      const problem = issueLinkProblem(issue, ws, store.issues.list());
-      if (problem) throw new SwitchyardError("conflict", problem);
-      const now = store.nowIso();
-      // The worktree exists; never recreate it from the issue if it is removed later.
-      store.setSetting(`issueBranchTried:${issueId}:${ws.branch}`, now);
-      return store.putIssue({ ...issue, branch: ws.branch, workspaceId: ws.id, updatedAt: now });
-    });
-  }
-
-  /** Undo a link GitHub does not know about. */
-  unlinkIssue(issueId: string): TrackedIssue {
-    const { store } = this.ctx;
-    return store.tx(() => {
-      const issue = store.issues.require(issueId);
-      const problem = issueUnlinkProblem(issue);
-      if (problem) throw new SwitchyardError("conflict", problem);
-      return store.putIssue({
-        ...issue,
-        branch: null,
-        workspaceId: null,
-        updatedAt: store.nowIso(),
-      });
-    });
+    const work = requireService(this.ctx, "issueWork");
+    const initial = store.issues.require(issueId);
+    return work.serialize(initial.projectId, initial.itemId, () =>
+      store.tx(() => {
+        const issue = store.issues.require(issueId);
+        if (
+          issue.projectId !== initial.projectId ||
+          issue.itemId !== initial.itemId ||
+          !projectMatchesIssue(store, issue)
+        ) {
+          throw new SwitchyardError("conflict", "The issue changed; refresh and try again");
+        }
+        const link = issueWorkBranch(store, issue.projectId, issue);
+        const problem = issueUnlinkProblem({ ...issue, branch: link.branch });
+        if (problem) throw new SwitchyardError("conflict", problem);
+        if (
+          link.ambiguous ||
+          link.remote ||
+          trackedIssueLinks(store, issue.projectId, issue.itemId).some(
+            (i) => i.branches.length || i.pullRequest,
+          )
+        ) {
+          throw new SwitchyardError(
+            "conflict",
+            "Resolve the GitHub or conflicting branch links before unlinking",
+          );
+        }
+        if (pendingIssueSession(store, link.work, link.branch)) {
+          throw new SwitchyardError("conflict", "This worktree is still being created");
+        }
+        store.deleteIssueWork(issue.projectId, issue.itemId);
+        work.projectLink(issue.projectId, issue.itemId, null, null);
+        return store.issues.require(issueId);
+      }),
+    );
   }
 
   /** Set a card's board column by hand. */

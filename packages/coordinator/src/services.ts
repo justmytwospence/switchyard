@@ -6,9 +6,11 @@ import type { AutomationService } from "./automations/service.js";
 import type { CacheAlertService } from "./cache-alerts.js";
 import type { CoordinatorContext } from "./context.js";
 import type { GitHubService } from "./github.js";
+import type { IssueWorkService } from "./issue-work.js";
 import type { PolicyService } from "./policies/service.js";
 import type { ProjectFolderService } from "./project-folders.js";
 import type { PushService } from "./push.js";
+import type { RepositoryIssuesService } from "./repository-issues.js";
 import type { ScopeSourceService } from "./scope-sources.js";
 import type { Dispatcher } from "./tasks/dispatcher.js";
 import type { RunsService } from "./tasks/runs.js";
@@ -30,6 +32,8 @@ export interface BuiltinServices {
   cacheAlerts: CacheAlertService;
   workspaceLifecycle: WorkspaceLifecycleService;
   scopeSources: ScopeSourceService;
+  issueWork: IssueWorkService;
+  repositoryIssues: RepositoryIssuesService;
 }
 
 /** Typed lookup of a built-in service (undefined before `start()` registers it). */

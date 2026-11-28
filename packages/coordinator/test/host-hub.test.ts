@@ -135,6 +135,24 @@ describe("host link", () => {
     expect(capable.commands).toHaveLength(2);
   });
 
+  it("does not replay strict branch requests on a downgraded connection", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const capable = await connectAgent(t, creds, ["trackers.v1", "trackers.repositoryIssues.v1"]);
+    capable.handler = () => NO_REPLY;
+    const request = t.c.hostHub.request(creds.hostId, {
+      type: "tracker.prepareBranch",
+      checkoutPath: "/repo",
+      branch: "topic",
+      strict: true,
+    });
+    const rejected = expect(request).rejects.toMatchObject({ code: "unsupported_capability" });
+    await capable.waitForCommand("tracker.prepareBranch");
+    const legacy = await connectAgent(t, creds, ["trackers.v1"]);
+    await rejected;
+    expect(legacy.commands).toEqual([]);
+  });
+
   it("does not infer description support from tracker sync", async () => {
     t = await startCoordinator();
     const creds = await enrollHost(t);

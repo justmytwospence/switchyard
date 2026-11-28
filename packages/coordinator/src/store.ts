@@ -35,6 +35,44 @@ import type { EventHub } from "./event-hub.js";
 
 export type Clock = () => Date;
 
+export interface IssueWork {
+  projectId: string;
+  nodeId: string;
+  number: number;
+  url: string;
+  title: string;
+  branch: string;
+  remote: boolean;
+  workspaceId: string | null;
+  pendingSessionId: string | null;
+}
+
+type IssueWorkRow = {
+  project_id: string;
+  github_issue_node_id: string;
+  number: number;
+  url: string;
+  title: string;
+  branch: string;
+  remote: number;
+  workspace_id: string | null;
+  pending_session_id: string | null;
+};
+
+function issueWorkFromRow(row: IssueWorkRow): IssueWork {
+  return {
+    projectId: row.project_id,
+    nodeId: row.github_issue_node_id,
+    number: row.number,
+    url: row.url,
+    title: row.title,
+    branch: row.branch,
+    remote: row.remote === 1,
+    workspaceId: row.workspace_id,
+    pendingSessionId: row.pending_session_id,
+  };
+}
+
 type Columns<T> = Record<string, (e: T) => SqlValue>;
 
 /** Shared statement cache keyed by SQL text. */
@@ -629,6 +667,59 @@ export class Store {
       if (!this.clients.delete(id)) return;
       this.appendEvent("client.deleted", {}, { id });
     });
+  }
+
+  getIssueWork(projectId: string, nodeId: string): IssueWork | undefined {
+    const row = this.st
+      .get("SELECT * FROM issue_work WHERE project_id = ? AND github_issue_node_id = ?")
+      .get(projectId, nodeId) as IssueWorkRow | undefined;
+    return row ? issueWorkFromRow(row) : undefined;
+  }
+
+  listIssueWork(projectId: string): IssueWork[] {
+    return (
+      this.st
+        .get("SELECT * FROM issue_work WHERE project_id = ? ORDER BY rowid")
+        .all(projectId) as IssueWorkRow[]
+    ).map(issueWorkFromRow);
+  }
+
+  pendingIssueWork(): IssueWork[] {
+    return (
+      this.st
+        .get("SELECT * FROM issue_work WHERE pending_session_id IS NOT NULL")
+        .all() as IssueWorkRow[]
+    ).map(issueWorkFromRow);
+  }
+
+  putIssueWork(work: IssueWork): void {
+    this.st
+      .get(
+        `INSERT INTO issue_work
+      (project_id, github_issue_node_id, number, url, title, branch, remote, workspace_id, pending_session_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, github_issue_node_id) DO UPDATE SET
+        number = excluded.number, url = excluded.url, title = excluded.title,
+        branch = excluded.branch, remote = excluded.remote, workspace_id = excluded.workspace_id,
+        pending_session_id = excluded.pending_session_id`,
+      )
+      .run(
+        work.projectId,
+        work.nodeId,
+        work.number,
+        work.url,
+        work.title,
+        work.branch,
+        work.remote ? 1 : 0,
+        work.workspaceId,
+        work.pendingSessionId,
+      );
+  }
+
+  deleteIssueWork(projectId: string, nodeId: string): void {
+    this.st
+      .get("DELETE FROM issue_work WHERE project_id = ? AND github_issue_node_id = ?")
+      .run(projectId, nodeId);
   }
 
   /** `trackerId` is written as a copy of `scopeId` for 0.20 clients (COMPAT(scopes-rename)). */

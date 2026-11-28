@@ -262,6 +262,7 @@ export function createSession(
     prompt: string;
     title?: string;
   },
+  recordAssociation?: (session: Session) => void,
 ): { session: Session; started: Promise<void> } {
   const project = ctx.store.projects.require(input.projectId);
   const profile = resolveProfile(ctx, input.profileId, project);
@@ -324,7 +325,13 @@ export function createSession(
     lastAssistantText: null,
     createdAt: now,
   };
-  ctx.store.putSession(session);
+  const record = (s: Session) =>
+    ctx.store.tx(() => {
+      const saved = ctx.store.putSession(s);
+      recordAssociation?.(saved);
+      return saved;
+    });
+  record(session);
   const choice = input.workspace;
   const started = (async () => {
     const t0 = Date.now();
@@ -337,15 +344,8 @@ export function createSession(
           { sessionId: session.id, ms: Date.now() - t0 },
           "session start: worktree ready",
         );
-        s = ctx.store.tx(() => {
-          const cur = ctx.store.sessions.require(session.id);
-          return ctx.store.putSession({
-            ...cur,
-            workspaceId: ws.id,
-            cwd: ws.path,
-            runtimeDetail: "Starting Pi…",
-          });
-        });
+        const cur = ctx.store.sessions.require(session.id);
+        s = record({ ...cur, workspaceId: ws.id, cwd: ws.path, runtimeDetail: "Starting Pi…" });
       }
       startAttempted = true;
       await startOnHost(ctx, s, {

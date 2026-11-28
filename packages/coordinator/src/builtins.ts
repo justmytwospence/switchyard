@@ -15,10 +15,12 @@ import { CacheAlertService } from "./cache-alerts.js";
 import type { CoordinatorContext } from "./context.js";
 import { GitHubService } from "./github.js";
 import { parse } from "./http.js";
+import { IssueWorkService } from "./issue-work.js";
 import type { PolicyOwner } from "./policies/contracts.js";
 import { PolicyService, type PolicyServiceOptions } from "./policies/service.js";
 import { PROJECT_SCAN_INTERVAL_MS, ProjectFolderService } from "./project-folders.js";
 import { type PushSender, PushService } from "./push.js";
+import { RepositoryIssuesService } from "./repository-issues.js";
 import { registerAutomationRoutes } from "./routes/automations.js";
 import { registerIssueRoutes } from "./routes/issues.js";
 import { registerPolicyRoutes } from "./routes/policies.js";
@@ -202,6 +204,8 @@ export function installBuiltins(
     projectFolders,
     workspaceLifecycle,
     scopeSources,
+    issueWork: new IssueWorkService(ctx),
+    repositoryIssues: new RepositoryIssuesService(ctx),
   };
   for (const [name, svc] of Object.entries(services)) ctx.services.set(name, svc);
   registerPolicyRoutes(app, ctx);
@@ -213,6 +217,7 @@ export function installBuiltins(
     services,
     async start() {
       await policies.initialize();
+      services.issueWork.recoverInterrupted();
       ctx.hostHub.setAvailableAgentFeatures(new Set(["agentRequests.v1", "policies.v1"]));
       push.vapid();
       runs.start();

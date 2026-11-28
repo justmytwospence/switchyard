@@ -1,6 +1,7 @@
 // @module-tag slow
 import type { HostCommand } from "@switchyard/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { openBranch } from "../src/branches.js";
 import { enrollHost, FakeHost, until } from "./helpers.js";
 import {
   commandsOf,
@@ -41,6 +42,35 @@ const mainWs = () =>
     .find((w) => w.provenance === "main")!;
 
 describe("open branch", () => {
+  it("does not provision when strict remote preparation fails", async () => {
+    const request = vi.spyOn(h.t.c.hostHub, "request").mockRejectedValue(new Error("fetch failed"));
+    await expect(
+      openBranch(h.t.c.ctx, {
+        projectId: h.project.id,
+        branch: "remote-issue",
+        requireRemoteBranch: true,
+      }),
+    ).rejects.toThrow("fetch failed");
+    expect(store().sessions.list()).toHaveLength(0);
+    request.mockRestore();
+  });
+
+  it("requires a positive preparation result for a linked remote branch", async () => {
+    const request = vi.spyOn(h.t.c.hostHub, "request").mockResolvedValue({ ok: false });
+    try {
+      await expect(
+        openBranch(h.t.c.ctx, {
+          projectId: h.project.id,
+          branch: "remote-issue",
+          requireRemoteBranch: true,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      expect(store().sessions.list()).toHaveLength(0);
+    } finally {
+      request.mockRestore();
+    }
+  });
+
   it("starts a session in an existing worktree that has none, then opens it", async () => {
     const first = await open({ branch: "main" });
     expect(first.status).toBe(202);

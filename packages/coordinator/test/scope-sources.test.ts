@@ -488,12 +488,27 @@ async function secondHost(opts: { defaultHost: boolean }) {
 }
 
 describe("open", () => {
+  it("rejects a registered workspace on the proposed unlinked branch", async () => {
+    items = [item(42, { title: "Collision" })];
+    const t = await create();
+    const ws = await h.t.admin("POST", "/api/workspaces", {
+      checkoutId: h.project.checkouts[0]!.id,
+      branch: "42-collision",
+    });
+    expect(ws.status).toBe(201);
+    const [issue] = tracked(t.id);
+    const r = await h.t.admin("POST", `/api/issues/${encodeURIComponent(issue!.id)}/open`, {});
+    expect(r.status).toBe(409);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
+  });
+
   it("creates the linked branch with gh, then opens a session in its worktree", async () => {
     items = [item(4, { title: "Fix: the login page!" })];
     const t = await create();
     const [issue] = tracked(t.id);
     const r = await h.t.admin("POST", `/api/issues/${encodeURIComponent(issue!.id)}/open`, {});
     expect(r.status).toBe(202);
+    expect(commandsOf(h.host, "tracker.startIssue")[0]?.strict).toBeUndefined();
     expect(commandsOf(h.host, "tracker.startIssue")[0]).toMatchObject({
       repository: REPO,
       number: 4,
@@ -553,6 +568,305 @@ describe("open", () => {
   });
 });
 
+const repoIssues = () => `/api/projects/${h.project.id}/issues`;
+const repoOpen = (number: number) => `${repoIssues()}/${number}/open`;
+const trackedOpen = (id: string) => `/api/issues/${encodeURIComponent(id)}/open`;
+const sessionWork = (id: string) => `/api/sessions/${id}/issue-work`;
+
+async function enableRepoIssues(host = h.host) {
+  await host.close();
+  await host.open({
+    features: [
+      "agentRequests.v1",
+      "policies.v1",
+      "trackers.v1",
+      "trackers.board.v1",
+      "trackers.description.v1",
+      "trackers.repositoryIssues.v1",
+    ],
+  });
+}
+
+function serveRepoIssues(state: "OPEN" | "CLOSED" = "OPEN") {
+  const previous = h.override!;
+  h.override = (cmd, id) => {
+    if (cmd.type === "tracker.repoIssue") {
+      const issue = items.find((i) => i.number === cmd.number);
+      return issue ? { state, issue } : { __error: { code: "not_found", message: "missing" } };
+    }
+    if (cmd.type === "tracker.repoIssuesPage") return { items, nextCursor: null };
+    return previous(cmd, id);
+  };
+}
+
+describe("shared issue work", () => {
+  it("requires an authenticated project-bound fresh locator and an open, unmerged issue", async () => {
+    await enableRepoIssues();
+    serveRepoIssues();
+    items = [item(10)];
+    const open = (expectedNodeId: string) => h.t.admin("POST", repoOpen(10), { expectedNodeId });
+    expect((await h.t.api("POST", repoOpen(10), { expectedNodeId: "I_10" })).status).toBe(401);
+    expect((await h.t.admin("POST", repoOpen(10), {})).status).toBe(400);
+    expect(
+      (await h.t.admin("POST", repoOpen(10), { expectedNodeId: "I_10", repository: "other/repo" }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await h.t.admin("POST", "/api/projects/nope/issues/10/open", { expectedNodeId: "I_10" }))
+        .status,
+    ).toBe(404);
+    expect((await open("stale-id")).status).toBe(409);
+    items = [item(10, { repository: "other/repo" })];
+    expect((await open("I_10")).status).toBe(409);
+    items = [
+      item(10, {
+        pullRequest: {
+          number: 123,
+          state: "MERGED",
+          url: `https://github.com/${REPO}/pull/123`,
+          headRefName: "merged",
+        },
+      }),
+    ];
+    expect((await open("I_10")).status).toBe(409);
+    items = [];
+    expect((await open("I_10")).status).toBe(409);
+    items = [item(10)];
+    serveRepoIssues("CLOSED");
+    expect((await open("I_10")).status).toBe(409);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
+    expect(commandsOf(h.host, "tracker.prepareBranch")).toHaveLength(0);
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
+    expect(store().listIssueWork(h.project.id)).toEqual([]);
+  });
+
+  it("serializes repo and board starts, reuses the pending session, and reconciles attachment", async () => {
+    await enableRepoIssues();
+    serveRepoIssues();
+    items = [item(12, { title: "Start me", board: board("Todo") })];
+    const firstScope = await create({ name: "first", worktrees: false });
+    const otherScope = await create({ name: "other", worktrees: false });
+    const [firstIssue] = tracked(firstScope.id);
+    const [otherIssue] = tracked(otherScope.id);
+    const gh = Promise.withResolvers<void>();
+    const workspace = Promise.withResolvers<void>();
+    const previous = h.override!;
+    h.override = async (cmd, id) => {
+      if (cmd.type === "tracker.startIssue") await gh.promise;
+      if (cmd.type === "workspace.create") await workspace.promise;
+      return previous(cmd, id);
+    };
+    const syncCount = commandsOf(h.host, "tracker.sync").length;
+    const repo = h.t.admin("POST", repoOpen(12), { expectedNodeId: "I_12", prompt: "only once" });
+    try {
+      await until(() => commandsOf(h.host, "tracker.startIssue").length === 1);
+      const trackedRequest = h.t.admin("POST", trackedOpen(firstIssue!.id), {
+        prompt: "do not replay",
+      });
+      gh.resolve();
+      const [started, reused] = await Promise.all([repo, trackedRequest]);
+      expect(started.status).toBe(202);
+      expect(reused.status).toBe(200);
+      const id = started.body.session.id;
+      expect(reused.body).toMatchObject({ created: false, session: { id, workspaceId: null } });
+      expect(commandsOf(h.host, "tracker.startIssue")).toEqual([
+        expect.objectContaining({ strict: true, branch: "12-start-me" }),
+      ]);
+      expect(commandsOf(h.host, "tracker.prepareBranch")).toEqual([
+        expect.objectContaining({ strict: true, branch: "12-start-me" }),
+      ]);
+      expect(commandsOf(h.host, "tracker.sync")).toHaveLength(syncCount);
+      expect(store().getIssueWork(h.project.id, "I_12")).toMatchObject({ pendingSessionId: id });
+      expect((await h.t.api("GET", sessionWork(id))).status).toBe(401);
+      expect((await h.t.admin("GET", sessionWork(id))).body).toMatchObject({
+        itemId: "I_12",
+        sessionId: id,
+        workspaceId: null,
+        board: null,
+      });
+      expect((await h.t.admin("GET", repoIssues())).body.items[0]).toMatchObject({ sessionId: id });
+      items = items.map((i) => ({ ...i, title: "Renamed on GitHub" }));
+      const renamed = await h.t.admin("POST", repoOpen(12), {
+        expectedNodeId: "I_12",
+        prompt: "still no",
+      });
+      expect(renamed.body).toMatchObject({ created: false, session: { id } });
+      workspace.resolve();
+      await until(() => commandsOf(h.host, "session.start").length === 1);
+      const workspaceId = store().sessions.require(id).workspaceId;
+      expect(workspaceId).not.toBeNull();
+      expect(store().getIssueWork(h.project.id, "I_12")).toMatchObject({
+        workspaceId,
+        pendingSessionId: null,
+        title: "Renamed on GitHub",
+      });
+      expect(store().issues.require(otherIssue!.id)).toMatchObject({
+        branch: "12-start-me",
+        workspaceId,
+        board: board("Todo"),
+      });
+      expect(commandsOf(h.host, "session.start")[0]?.initialPrompt).toBe("only once");
+      expect(commandsOf(h.host, "tracker.setStatus")).toHaveLength(0);
+      await h.t.admin("DELETE", `/api/scopes/${firstScope.id}`);
+      await h.t.admin("DELETE", `/api/scopes/${otherScope.id}`);
+      expect((await h.t.admin("GET", sessionWork(id))).body).toMatchObject({
+        itemId: "I_12",
+        sessionId: id,
+        workspaceId,
+        board: null,
+      });
+    } finally {
+      gh.resolve();
+      workspace.resolve();
+      await repo;
+    }
+  });
+
+  it("rereads the remote and reuses a branch after a lost start receipt and a failed pre-workspace session", async () => {
+    await enableRepoIssues();
+    serveRepoIssues();
+    items = [item(14)];
+    const scope = await create({ worktrees: false });
+    const trackedPath = trackedOpen(tracked(scope.id)[0]!.id);
+    const previous = h.override!;
+    h.override = (cmd, id) => {
+      const result = previous(cmd, id);
+      if (cmd.type === "tracker.startIssue")
+        return { __error: { code: "timeout", message: "receipt lost" } };
+      if (cmd.type === "workspace.create")
+        return { __error: { code: "conflict", message: "worktree failed" } };
+      return result;
+    };
+    const uncertain = await h.t.admin("POST", repoOpen(14), { expectedNodeId: "I_14" });
+    expect(uncertain.body.error.code).toBe("timeout");
+    expect(store().getIssueWork(h.project.id, "I_14")).toBeUndefined();
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
+    const first = await h.t.admin("POST", trackedPath, {});
+    expect(first.status).toBe(202);
+    const failed = first.body.session.id;
+    await until(() => store().sessions.require(failed).runtime === "failed");
+    expect((await h.t.admin("GET", sessionWork(failed))).body).toBeNull();
+    // Simulate the durable state left by a coordinator that exited before receiving the worktree result.
+    const orphan = store().sessions.require(failed);
+    store().putSession({ ...orphan, runtime: "starting" });
+    requireService(h.t.c.ctx, "issueWork").recoverInterrupted();
+    expect(store().sessions.require(failed).runtime).toBe("failed");
+    expect(store().getIssueWork(h.project.id, "I_14")?.pendingSessionId).toBeNull();
+    h.override = previous;
+    const second = await h.t.admin("POST", repoOpen(14), { expectedNodeId: "I_14" });
+    expect(second.status).toBe(202);
+    expect(second.body.session.id).not.toBe(failed);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(1);
+    await until(() => store().sessions.require(second.body.session.id).workspaceId !== null);
+  });
+
+  it("rejects paused, failed and lost memberships before mutation, but lets a stale row navigate known work", async () => {
+    items = [item(15), item(16)];
+    const scope = await create({ worktrees: false });
+    const [first, second] = tracked(scope.id);
+    expect((await patchSource(scope.id, { enabled: false })).status).toBe(200);
+    const path = trackedOpen(first!.id);
+    const paused = await h.t.admin("POST", path, {});
+    expect(paused.body.error.message).toBe("Refresh the source before starting");
+    expect(paused.status).toBe(409);
+    await patchSource(scope.id, { enabled: true });
+    const sourceRow = store().scopes.require(scope.id);
+    store().putScope({ ...sourceRow, source: { ...sourceRow.source!, lastError: "sync failed" } });
+    expect((await h.t.admin("POST", path, {})).status).toBe(409);
+    store().putScope(sourceRow);
+    items = [item(16)];
+    expect((await h.t.admin("POST", path, {})).status).toBe(409);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
+    expect(store().listIssueWork(h.project.id)).toEqual([]);
+    const started = await h.t.admin("POST", trackedOpen(second!.id), {});
+    expect(started.status).toBe(202);
+    await patchSource(scope.id, { enabled: false });
+    const reused = await h.t.admin("POST", trackedOpen(second!.id), { prompt: "never sent" });
+    expect(reused.body).toMatchObject({ created: false, session: { id: started.body.session.id } });
+  });
+
+  it("requires a capable destination before github mutation, then separates read and work hosts", async () => {
+    await enableRepoIssues();
+    serveRepoIssues();
+    items = [item(17)];
+    const other = await secondHost({ defaultHost: true });
+    try {
+      const oldDestination = await h.t.admin("POST", repoOpen(17), { expectedNodeId: "I_17" });
+      expect(oldDestination.body.error.code).toBe("unsupported_capability");
+      expect(commandsOf(h.host, "tracker.repoIssue")).toHaveLength(1);
+      expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
+      expect(commandsOf(other, "workspace.create")).toHaveLength(0);
+      expect(store().listIssueWork(h.project.id)).toEqual([]);
+      await enableRepoIssues(other);
+      // Force the capable non-default host for work, leaving the default as the GitHub reader.
+      const result = await h.t.admin("POST", repoOpen(17), {
+        expectedNodeId: "I_17",
+        hostId: h.host.hostId,
+      });
+      expect(result.status, JSON.stringify(result.body.error)).toBe(202);
+      expect(commandsOf(other, "tracker.startIssue")).toEqual([
+        expect.objectContaining({ strict: true, checkoutPath: "/other/app" }),
+      ]);
+      expect(commandsOf(h.host, "tracker.prepareBranch")).toEqual([
+        expect.objectContaining({ strict: true, branch: "17-issue-17" }),
+      ]);
+      expect(result.body.session.hostId).toBe(h.host.hostId);
+      await until(() => store().sessions.require(result.body.session.id).workspaceId !== null);
+    } finally {
+      await other.close();
+    }
+  });
+
+  it("rejects an unregistered discoverable collision without importing or starting it", async () => {
+    await enableRepoIssues();
+    serveRepoIssues();
+    items = [item(18)];
+    const previous = h.override!;
+    h.override = (cmd, id) =>
+      cmd.type === "workspace.discover"
+        ? [discovered(`${ROOT}/other`, "18-issue-18", "discovered")]
+        : previous(cmd, id);
+    expect((await h.t.admin("POST", repoOpen(18), { expectedNodeId: "I_18" })).status).toBe(409);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
+    expect(
+      store()
+        .workspaces.list()
+        .some((w) => w.branch === "18-issue-18"),
+    ).toBe(false);
+    expect(store().sessions.list()).toHaveLength(0);
+  });
+
+  it("persists a confirmed branch but refuses a failed strict preparation", async () => {
+    await enableRepoIssues();
+    serveRepoIssues();
+    items = [item(19)];
+    const previous = h.override!;
+    h.override = (cmd, id) =>
+      cmd.type === "tracker.prepareBranch"
+        ? { __error: { code: "conflict", message: "divergent local branch" } }
+        : previous(cmd, id);
+    const result = await h.t.admin("POST", repoOpen(19), { expectedNodeId: "I_19" });
+    expect(result.status).toBe(409);
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
+    expect(store().sessions.list()).toHaveLength(0);
+    expect(store().getIssueWork(h.project.id, "I_19")).toMatchObject({
+      branch: "19-issue-19",
+      remote: true,
+      workspaceId: null,
+    });
+    // Generic branch work remains possible, but can't prove this issue's remote placement.
+    const unrelated = await h.t.admin("POST", "/api/branches/open", {
+      projectId: h.project.id,
+      branch: "19-issue-19",
+    });
+    expect(unrelated.status).toBe(202);
+    await until(() => store().sessions.require(unrelated.body.session.id).workspaceId !== null);
+    expect((await h.t.admin("GET", sessionWork(unrelated.body.session.id))).body).toBeNull();
+    expect((await h.t.admin("POST", repoOpen(19), { expectedNodeId: "I_19" })).status).toBe(409);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(1);
+  });
+});
+
 describe("manual links", () => {
   const linkPath = (id: string) => `/api/issues/${encodeURIComponent(id)}/link`;
   async function worktree(branch: string) {
@@ -563,6 +877,19 @@ describe("manual links", () => {
     expect(r.status).toBe(201);
     return r.body as { id: string };
   }
+
+  it("preserves an explicitly linked association after the scope is removed", async () => {
+    items = [item(1)];
+    const t = await create();
+    const ws = await worktree("spike");
+    const [issue] = tracked(t.id);
+    expect((await h.t.admin("POST", linkPath(issue!.id), { workspaceId: ws.id })).status).toBe(200);
+    expect((await h.t.admin("DELETE", `/api/scopes/${t.id}`)).status).toBe(200);
+    expect(store().getIssueWork(issue!.projectId, issue!.itemId)).toMatchObject({
+      branch: "spike",
+      workspaceId: ws.id,
+    });
+  });
 
   it("links a worktree's branch to a not-started issue and keeps it across syncs", async () => {
     items = [item(1)];
@@ -593,6 +920,64 @@ describe("manual links", () => {
     const ws = await worktree("spike");
     const r2 = await h.t.admin("POST", linkPath(second!.id), { workspaceId: ws.id });
     expect(r2.status).toBe(409);
+  });
+
+  it("projects a manual link and unlink across boards without reviving a legacy link", async () => {
+    items = [item(3)];
+    const a = await create({ name: "A" });
+    const b = await create({ name: "B" });
+    const [first] = tracked(a.id);
+    const [second] = tracked(b.id);
+    const ws = await worktree("spike");
+    expect((await h.t.admin("POST", linkPath(first!.id), { workspaceId: ws.id })).status).toBe(200);
+    expect(store().issues.require(second!.id)).toMatchObject({
+      branch: "spike",
+      workspaceId: ws.id,
+    });
+    expect((await h.t.admin("DELETE", linkPath(second!.id))).status).toBe(200);
+    expect(store().issues.require(first!.id)).toMatchObject({ branch: null, workspaceId: null });
+    expect(store().getIssueWork(h.project.id, "I_3")).toBeUndefined();
+  });
+
+  it("overlays a GitHub link read-only, then reconciles the durable and tracked links on open", async () => {
+    await enableRepoIssues();
+    serveRepoIssues();
+    items = [item(9)];
+    const scope = await create({ worktrees: false });
+    const [issue] = tracked(scope.id);
+    const local = await worktree("local");
+    expect((await h.t.admin("POST", linkPath(issue!.id), { workspaceId: local.id })).status).toBe(
+      200,
+    );
+    // The board previously saw the old branch on GitHub, and that worktree still has a session.
+    store().putIssue({ ...store().issues.require(issue!.id), branches: ["local"] });
+    const old = await h.t.admin("POST", "/api/branches/open", {
+      projectId: h.project.id,
+      branch: "local",
+    });
+    expect(old.status).toBe(202);
+    items = [item(9, { branches: ["remote", "ambiguous"] })];
+    expect((await h.t.admin("POST", repoOpen(9), { expectedNodeId: "I_9" })).status).toBe(409);
+    items = [item(9, { branches: ["remote"] })];
+    const page = await h.t.admin("GET", repoIssues());
+    expect(page.body.items[0]).toMatchObject({ branch: "remote", workspaceId: null });
+    expect(store().getIssueWork(h.project.id, "I_9")).toMatchObject({
+      branch: "local",
+      workspaceId: local.id,
+    });
+    const opened = await h.t.admin("POST", repoOpen(9), { expectedNodeId: "I_9" });
+    expect(opened.status, JSON.stringify(opened.body.error)).toBe(202);
+    await until(() => store().sessions.require(opened.body.session.id).workspaceId !== null);
+    const workspaceId = store().sessions.require(opened.body.session.id).workspaceId;
+    expect(store().getIssueWork(h.project.id, "I_9")).toMatchObject({
+      branch: "remote",
+      workspaceId,
+    });
+    expect(store().issues.require(issue!.id)).toMatchObject({ branch: "remote", workspaceId });
+    const reused = await h.t.admin("POST", trackedOpen(issue!.id), {});
+    expect(reused.body).toMatchObject({ created: false, session: { id: opened.body.session.id } });
+    expect(store().getIssueWork(h.project.id, "I_9")?.branch).toBe("remote");
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
   });
 
   it("unlinks a manual link, and refuses when GitHub links the branch", async () => {

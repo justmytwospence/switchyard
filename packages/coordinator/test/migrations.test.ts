@@ -33,6 +33,40 @@ function upTo(db: Db, version: number): void {
 }
 
 describe("coordinator migrations", () => {
+  it("024 creates sparse issue work keyed by project and node, allowing shared branches", () => {
+    const db = dbAt(23);
+    expect(migrate(db)).toBe(24);
+    const insert = db.prepare(`INSERT INTO issue_work
+      (project_id, github_issue_node_id, number, url, title, branch, workspace_id, pending_session_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    insert.run(
+      "project",
+      "node1",
+      1,
+      "https://github.com/a/b/issues/1",
+      "One",
+      "shared",
+      null,
+      null,
+    );
+    insert.run(
+      "project",
+      "node2",
+      2,
+      "https://github.com/a/b/issues/2",
+      "Two",
+      "shared",
+      null,
+      null,
+    );
+    insert.run("other", "node1", 1, "https://github.com/a/b/issues/1", "One", "shared", null, null);
+    expect(() => insert.run("project", "node1", 1, "url", "One", "other", null, null)).toThrow();
+    expect(db.prepare("SELECT count(*) AS n FROM issue_work").get()).toEqual({
+      n: 3,
+    });
+    db.close();
+  });
+
   it("023 merges views and trackers into scopes, renames terminals to clients and forces a snapshot", () => {
     const db = dbAt(22);
     const ins = (table: string, cols: string[], row: unknown[]) =>

@@ -211,6 +211,10 @@ export class HostHub {
     return this.conns.get(hostId)?.repositoryIssues === true;
   }
 
+  supportsStrictIssueBranches(hostId: string): boolean {
+    return this.supportsRepositoryIssues(hostId) && this.conns.get(hostId)?.githubIssues === true;
+  }
+
   negotiatedFeatures(hostId: string): ReadonlySet<string> {
     return new Set(this.conns.get(hostId)?.features);
   }
@@ -358,6 +362,20 @@ export class HostHub {
     // A guard may commit store writes: do not recursively pump this frame from those writes.
     pending.deferred = false;
     try {
+      // A replacement host connection may have downgraded since the original capability check.
+      const command = pending.command;
+      if (
+        (command.type === "tracker.repoIssuesPage" ||
+          command.type === "tracker.repoIssue" ||
+          ((command.type === "tracker.prepareBranch" || command.type === "tracker.startIssue") &&
+            command.strict === true)) &&
+        !this.supportsCommand(this.conns.get(pending.hostId)!, command)
+      ) {
+        throw new SwitchyardError(
+          "unsupported_capability",
+          `Host does not support ${command.type}`,
+        );
+      }
       if (pending.command.type === "workspace.prMerge" && pending.sent)
         throw new SwitchyardError("conflict", "An uncertain merge must not be retransmitted");
       if (
