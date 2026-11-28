@@ -6,10 +6,12 @@ import type { WorkBoard } from "./useWorkBoard";
 
 export function BoardSearch({ board, className }: { board: WorkBoard; className?: string }) {
   const id = useId();
+  const label =
+    board.prefs.layout === "issues" ? "Search tracked issues" : "Search branches, issues";
   return (
     <div className={cn("relative min-w-0", className)}>
       <label htmlFor={id} className="sr-only">
-        Search branches
+        {label}
       </label>
       <Search
         aria-hidden
@@ -19,7 +21,7 @@ export function BoardSearch({ board, className }: { board: WorkBoard; className?
         id={id}
         type="search"
         data-keyboard-search
-        placeholder="Search branches, issues"
+        placeholder={label}
         className="pl-8"
         value={board.prefs.query}
         onChange={(e) => board.setPrefs({ ...board.prefs, query: e.target.value })}

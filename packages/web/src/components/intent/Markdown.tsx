@@ -60,18 +60,40 @@ export const Markdown = memo(function Markdown({
   text,
   className,
   headingIds,
+  externalBaseUrl,
 }: {
   text: string;
   className?: string;
   /** Give each h2 an id (`headingSlug`) so an outline can link to it. */
   headingIds?: boolean;
+  /** Resolve links from an external document without navigating Switchyard. */
+  externalBaseUrl?: string;
 }) {
+  const render = headingIds ? componentsWithIds : components;
+  const externalComponents: Components | undefined = externalBaseUrl
+    ? {
+        ...render,
+        a: ({ href, children }) => {
+          if (!href) return <>{children}</>;
+          try {
+            const url = new URL(href, externalBaseUrl);
+            if (url.protocol === "https:" || url.protocol === "http:") {
+              return (
+                <a href={url.href} target="_blank" rel="noopener noreferrer">
+                  {children}
+                </a>
+              );
+            }
+          } catch {
+            // An invalid link is still readable as text.
+          }
+          return <>{children}</>;
+        },
+      }
+    : undefined;
   return (
     <div className={cn("sy-prose text-sm", className)}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={headingIds ? componentsWithIds : components}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={externalComponents ?? render}>
         {text}
       </ReactMarkdown>
     </div>

@@ -4,10 +4,8 @@ import {
   type Branch,
   branchInScope,
   buildBranches,
-  compareIssues,
   type GitHubScope,
   issueBranchSet,
-  issueInScope,
   type Scope,
   sessionScopeReason,
   sourceBacklog,
@@ -15,6 +13,7 @@ import {
 } from "@switchyard/protocol";
 import { sessionsNeedingAttention } from "../../sync/selectors";
 import { type NavInput, type StatusBucket, statusBucket } from "../code/model";
+import { issueInventory } from "../discovery/model";
 
 /**
  * The Board: branches as cards in columns, by stage (from facts: branch, pull request) or, for a
@@ -46,6 +45,8 @@ export interface BoardCard {
   lastActivityAt: string;
   /** In the selected GitHub scope only while a session is live. */
   leaves: boolean;
+  issueStage?: "not_started" | "working" | "in_review" | "merged";
+  issueInspectable?: boolean;
 }
 
 export interface BoardColumn {
@@ -104,7 +105,7 @@ function branchCard(b: Branch, input: BoardInput, attn: Set<string>, leaves: boo
     key: b.key,
     branch: b,
     issue: b.issue,
-    title: b.primary?.title ?? b.issue?.title ?? b.branch ?? "Detached worktree",
+    title: b.issue?.title ?? b.primary?.title ?? b.branch ?? "Detached worktree",
     project: (projectId && input.projects[projectId]?.name) || "Other sessions",
     branchLabel: b.main ? null : b.branch,
     host:
@@ -127,6 +128,9 @@ function matches(card: BoardCard, q: string): boolean {
     card.project,
     card.issue ? `#${card.issue.number}` : "",
     card.issue?.board?.priority?.name ?? "",
+    card.issue?.board?.status ?? "",
+    card.issue?.repository ?? "",
+    ...(card.issue?.assignees ?? []),
   ]
     .join("\n")
     .toLowerCase()
@@ -137,7 +141,9 @@ const order = (a: BoardCard, b: BoardCard) =>
   Number(b.attention) - Number(a.attention) ||
   Number(!!b.branch) - Number(!!a.branch) ||
   (!a.branch && a.issue && b.issue
-    ? compareIssues(a.issue, b.issue)
+    ? a.issue.repository.localeCompare(b.issue.repository) ||
+      a.issue.number - b.issue.number ||
+      a.issue.id.localeCompare(b.issue.id)
     : b.lastActivityAt.localeCompare(a.lastActivityAt));
 
 export interface BoardOptions {
@@ -148,6 +154,8 @@ export interface BoardOptions {
   github: GitHubScope | null;
   /** Show worktrees nobody is working in (no session, issue or pull request). Default true. */
   showEmpty?: boolean;
+  /** Explicit repository refinement, never implied by singleton scope coverage. */
+  projectId?: string | null;
 }
 
 /** A worktree with no work to show: no session, no issue and no pull request. */
@@ -175,36 +183,64 @@ export function buildBoardWithEmpty(
 function columnsOf(input: BoardInput, opts: BoardOptions, onEmpty: () => void): BoardColumn[] {
   const q = opts.query.trim().toLowerCase();
   const attn = sessionsNeedingAttention(input.attention, input.interactions);
-  const { branches, unstarted } = buildBranches({
+  const { branches } = buildBranches({
     workspaces: Object.values(input.workspaces),
     sessions: Object.values(input.sessions),
     issues: Object.values(input.issues),
   });
   const issueSet = opts.scope ? issueBranchSet(opts.scope, Object.values(input.issues)) : null;
+  const inventory = issueInventory(input, {
+    scope: opts.scope,
+    projectId: opts.projectId ?? null,
+    query: "",
+    subset: "all",
+    sort: "number",
+  });
   const cards: BoardCard[] = [];
   for (const b of branches) {
     if (!b.primary && (b.main || b.kind === "scratch")) continue;
     const scope = opts.scope;
     if (scope && !branchInScope(scope, b, input.workspaces, issueSet)) continue;
+    if (opts.projectId && b.projectId !== opts.projectId) continue;
     if (isEmptyWorktree(b)) {
       onEmpty();
       if (opts.showEmpty === false) continue;
     }
+    const matching = inventory.find((item) => item.branch?.key === b.key);
+    const visibleBranch = { ...b, issue: matching?.issue ?? b.issue };
     const leaves =
       !!scope &&
       !!issueSet &&
-      b.issue?.scopeId !== issueSet.scopeId &&
+      !matching &&
       ![b.primary, ...b.extras].some((s) => {
         if (!s) return false;
         const r = sessionScopeReason(scope, s, input.workspaces, issueSet);
         return r !== null && r !== "live";
       });
-    cards.push(branchCard(b, input, attn, leaves));
+    const card = branchCard(visibleBranch, input, attn, leaves);
+    card.issueInspectable = !!matching;
+    if (!matching) card.title = b.primary?.title ?? b.branch ?? "Detached worktree";
+    cards.push(card);
   }
-  const issueCards = unstarted
-    .filter((i) => !opts.scope || issueInScope(opts.scope, i))
-    .map((i) => issueCard(i, input));
-  const all = [...issueCards, ...cards].filter((c) => matches(c, q));
+  const represented = new Set(
+    cards.flatMap((card) => (card.issue && card.issueInspectable ? [card.issue.id] : [])),
+  );
+  const issueCards = issueInventory(input, {
+    scope: opts.scope,
+    projectId: opts.projectId ?? null,
+    query: opts.query,
+    subset: "all",
+    sort: "number",
+  })
+    .filter((item) => !represented.has(item.id))
+    .map((item) => ({
+      ...issueCard(item.issue, input),
+      issueStage: item.stage,
+      sessionId: item.sessionId,
+      branchLabel: item.branchName,
+      issueInspectable: true,
+    }));
+  const all = [...issueCards, ...cards.filter((c) => matches(c, q))];
 
   if (opts.mode === "github" && opts.github) {
     const options =
@@ -243,7 +279,7 @@ function columnsOf(input: BoardInput, opts: BoardOptions, onEmpty: () => void): 
     id: s.value,
     label: s.label,
     cards: all
-      .filter((c) => (s.value === NOT_STARTED ? !c.branch : c.branch?.stage === s.value))
+      .filter((c) => (c.branch?.stage ?? c.issueStage ?? NOT_STARTED) === s.value)
       .sort(order),
   }));
 }
@@ -256,7 +292,6 @@ export function canDrop(
   github: GitHubScope | null,
 ): { ok: true } | { ok: false; reason: string } {
   if (mode === "stage") {
-    if (!card.branch && column.id === "working") return { ok: true };
     return { ok: false, reason: "Moves when the branch or its pull request changes" };
   }
   if (!github?.source.writeBack) return { ok: false, reason: "Write-back is off for this scope" };

@@ -8,7 +8,15 @@ import { LoadingState } from "../../components/ui/states";
 import { Tabs } from "../../components/ui/Tabs";
 import { useSwipeTabs } from "../../lib/useSwipeTabs";
 import { useFilter } from "../../prefs";
+import { discoveryContext, scopeRepositoryLabel } from "../discovery/model";
 import { ScopeSelect } from "../scopes/ScopeSelect";
+import {
+  BoardIssueDetail,
+  BoardIssueList,
+  LayoutControl,
+  RepositoryControl,
+  useRestoreColumnAnchor,
+} from "./BoardIssues";
 import { BoardSearch } from "./BoardSearch";
 import type { WorkBoard } from "./useWorkBoard";
 import { BoardEmpty, ColumnsControl, EmptyWorktreesToggle } from "./WorkBoardDesktop";
@@ -16,12 +24,17 @@ import { WorkCard } from "./WorkCard";
 
 /** Mobile Board: one column at a time (tabs or a sideways swipe); cards move from their actions menu. */
 export function WorkBoardMobile({ board }: { board: WorkBoard }) {
+  useRestoreColumnAnchor(board);
   const [prefs, setPrefs] = useFilter<{ tab: string }>("workboard-mobile", { tab: "working" });
   const column = board.columns.find((c) => c.id === prefs.tab) ?? board.columns[0];
   const [viewOpen, setViewOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(() => board.prefs.query !== "");
   const searchId = useId();
   const searchShown = searchOpen || board.prefs.query !== "";
+  const fixedId = discoveryContext(board.scope, Object.values(board.projects)).fixedProjectId;
+  const fixedProject = fixedId ? board.projects[fixedId] : null;
+  const fixedLabel =
+    board.scope && fixedProject ? scopeRepositoryLabel(board.scope, fixedProject, true) : null;
   const swipe = useSwipeTabs(
     board.columns.map((c) => c.id),
     column?.id ?? "",
@@ -76,47 +89,68 @@ export function WorkBoardMobile({ board }: { board: WorkBoard }) {
             </button>
           </div>
         )}
-        <Tabs
-          label="Board columns"
-          idPrefix="work-tab"
-          progress={swipe.progress}
-          scrollable
-          className="border-b-0"
-          value={column?.id ?? ""}
-          onChange={(tab) => setPrefs({ tab })}
-          tabs={board.columns.map((c) => ({
-            id: c.id,
-            label: c.label,
-            badge: <Badge label={`${c.cards.length} cards`}>{c.cards.length}</Badge>,
-          }))}
-        />
+        {(board.projectId || fixedLabel) && (
+          <p className="px-3 pb-2 text-xs text-muted">
+            Repository: {board.projectId ? board.projects[board.projectId]?.name : fixedLabel}
+          </p>
+        )}
+        {board.prefs.layout !== "issues" && (
+          <Tabs
+            label="Board columns"
+            idPrefix="work-tab"
+            progress={swipe.progress}
+            scrollable
+            className="border-b-0"
+            value={column?.id ?? ""}
+            onChange={(tab) => setPrefs({ tab })}
+            tabs={board.columns.map((c) => ({
+              id: c.id,
+              label: c.label,
+              badge: <Badge label={`${c.cards.length} cards`}>{c.cards.length}</Badge>,
+            }))}
+          />
+        )}
       </header>
-      <section
-        aria-label="Board cards"
-        {...swipe.bind}
-        className="flex min-w-0 flex-1 touch-pan-y flex-col overflow-x-clip px-3 py-3"
+      {board.prefs.layout === "issues" ? (
+        <BoardIssueList board={board} />
+      ) : (
+        <section
+          aria-label="Board cards"
+          data-board-column-root
+          tabIndex={-1}
+          {...swipe.bind}
+          className="flex min-w-0 flex-1 touch-pan-y flex-col overflow-x-clip px-3 py-3"
+        >
+          <div ref={swipe.innerRef} className="min-h-full flex-1">
+            {!board.hydrated ? (
+              <LoadingState label="Loading the board…" />
+            ) : board.total === 0 ? (
+              <BoardEmpty board={board} />
+            ) : !column || column.cards.length === 0 ? (
+              <div className="flex flex-col items-center gap-1 px-6 pt-16 text-center">
+                <p className="text-sm font-medium">Nothing in {column?.label ?? "this column"}</p>
+                <p className="text-xs text-muted">Swipe sideways for the other columns.</p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {column.cards.map((card) => (
+                  <li key={card.key}>
+                    <WorkCard card={card} board={board} column={column} phone />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
+      <Sheet
+        open={!!board.selectedItem}
+        onClose={() => board.inspect(null)}
+        title="Issue details"
+        fullHeight
       >
-        <div ref={swipe.innerRef} className="min-h-full flex-1">
-          {!board.hydrated ? (
-            <LoadingState label="Loading the board…" />
-          ) : board.total === 0 ? (
-            <BoardEmpty board={board} />
-          ) : !column || column.cards.length === 0 ? (
-            <div className="flex flex-col items-center gap-1 px-6 pt-16 text-center">
-              <p className="text-sm font-medium">Nothing in {column?.label ?? "this column"}</p>
-              <p className="text-xs text-muted">Swipe sideways for the other columns.</p>
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {column.cards.map((card) => (
-                <li key={card.key}>
-                  <WorkCard card={card} board={board} column={column} phone />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
+        <BoardIssueDetail board={board} />
+      </Sheet>
       <Sheet
         open={viewOpen}
         onClose={() => setViewOpen(false)}
@@ -129,13 +163,15 @@ export function WorkBoardMobile({ board }: { board: WorkBoard }) {
       >
         <div className="flex flex-col gap-4">
           <ScopeSelect allLabel="All work" labelVisible />
-          {board.githubBoard && (
+          <RepositoryControl board={board} />
+          <LayoutControl board={board} block />
+          {board.prefs.layout !== "issues" && board.githubBoard && (
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium">Columns</span>
               <ColumnsControl board={board} block />
             </div>
           )}
-          <EmptyWorktreesToggle board={board} />
+          {board.prefs.layout !== "issues" && <EmptyWorktreesToggle board={board} />}
         </div>
       </Sheet>
     </div>

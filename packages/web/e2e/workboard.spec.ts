@@ -33,6 +33,95 @@ test.describe("branch board", () => {
     await expect(page).toHaveURL(new RegExp(`/code/${r.session.id}`));
   });
 
+  test("browsing tracked issues compares descriptions without starting work", async ({
+    page,
+    signIn,
+    state,
+    api,
+  }, info) => {
+    await signIn();
+    const session = await api("GET", `/api/sessions/${state.sessions.long}`);
+    let posts = 0;
+    let reads = 0;
+    await page.routeWebSocket("**/ws/client", (client) => {
+      const server = client.connectToServer();
+      client.onMessage((message) => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === "hello") frame.cursor = null;
+        server.send(JSON.stringify(frame));
+      });
+      server.onMessage((message) => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === "snapshot") {
+          frame.state.issues = [1, 2].map((number) => ({
+            id: `iss_board_${number}`,
+            scopeId: "source_fixture",
+            itemId: `item_${number}`,
+            projectId: state.projectId,
+            repository: "acme/repo",
+            number,
+            title: `Fixture issue ${number}`,
+            url: `https://github.com/acme/repo/issues/${number}`,
+            assignees: [],
+            branches: [],
+            branch: null,
+            workspaceId: null,
+            pullRequest: null,
+            board: null,
+            updatedAt: "2026-11-01T10:00:00.000Z",
+          }));
+        }
+        client.send(JSON.stringify(frame));
+      });
+    });
+    await page.route("**/api/issues/*/description", (route) => {
+      reads++;
+      const id = route.request().url().includes("iss_board_1") ? 1 : 2;
+      if (id === 2 && reads === 2) {
+        return route.fulfill({
+          status: 422,
+          json: { error: { code: "unsupported_capability", message: "Older source host" } },
+        });
+      }
+      return route.fulfill({ json: { body: `Description ${id}`, truncated: false } });
+    });
+    await page.route("**/api/issues/*/open", (route) => {
+      posts++;
+      return route.fulfill({ json: { session, created: false } });
+    });
+    await page.goto("/board");
+    if (isMobile(info)) await page.getByRole("button", { name: /^View options/ }).click();
+    await page.getByRole("radio", { name: "Issue list" }).click();
+    if (isMobile(info)) await page.getByRole("button", { name: "Done" }).click();
+    await page.getByRole("button", { name: /^#1 Fixture issue 1$/ }).click();
+    await expect(page.getByText("Description 1")).toBeVisible();
+    if (isMobile(info))
+      await page
+        .getByRole("dialog", { name: "Issue details" })
+        .getByRole("button", { name: "Close" })
+        .click();
+    await page.getByRole("button", { name: /^#2 Fixture issue 2$/ }).click();
+    await expect(page.getByText(/Description unavailable.*Update the source host/)).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open issue on GitHub" })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/repo/issues/2",
+    );
+    await page.getByRole("button", { name: "Retry description" }).click();
+    await expect(page.getByText("Description 2")).toBeVisible();
+    expect(reads).toBe(3);
+    expect(posts).toBe(0);
+    const detail = isMobile(info)
+      ? page.getByRole("dialog", { name: "Issue details" })
+      : page.getByRole("complementary", { name: "Issue details" });
+    await detail.getByRole("button", { name: "Start session", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/code/${state.sessions.long}`));
+    expect(posts).toBe(1);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/board$/);
+    await expect(page.getByRole("button", { name: /^#2 Fixture issue 2$/ })).toBeFocused();
+    await expect(page.getByText("Description 2")).toHaveCount(0);
+  });
+
   test("the view selector filters the board", async ({ page, api, signIn, state }, info) => {
     await signIn();
     const id = uid(info);

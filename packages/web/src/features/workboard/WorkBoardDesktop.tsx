@@ -12,11 +12,19 @@ import {
 } from "@dnd-kit/core";
 import { SquareKanban } from "lucide-react";
 import { useState } from "react";
+import { Drawer } from "../../components/ui/Overlay";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { ScopeSelect } from "../scopes/ScopeSelect";
+import {
+  BoardIssueDetail,
+  BoardIssueList,
+  LayoutControl,
+  RepositoryControl,
+  useRestoreColumnAnchor,
+} from "./BoardIssues";
 import { BoardSearch } from "./BoardSearch";
 import type { BoardCard, BoardColumn } from "./model";
 import type { WorkBoard } from "./useWorkBoard";
@@ -24,6 +32,7 @@ import { WorkCard } from "./WorkCard";
 
 /** Desktop and compact Board: one column per stage (or GitHub board column); drag to move. */
 export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
+  useRestoreColumnAnchor(board);
   const colWidth = usePrefs((s) => s.paneSizes.boardColumn);
   const [active, setActive] = useState<{ card: BoardCard; from: BoardColumn } | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -49,15 +58,27 @@ export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
       <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
         <h1 className="mr-2 text-lg font-semibold">Board</h1>
         <ScopeSelect allLabel="All work" />
+        <RepositoryControl board={board} />
+        <LayoutControl board={board} />
         <BoardSearch board={board} className="w-56 max-w-full" />
-        {board.githubBoard && <ColumnsControl board={board} />}
-        <EmptyWorktreesToggle board={board} />
+        {board.prefs.layout !== "issues" && board.githubBoard && <ColumnsControl board={board} />}
+        {board.prefs.layout !== "issues" && <EmptyWorktreesToggle board={board} />}
         {board.scope && (
           <p className="ml-auto truncate text-xs text-subtle">{board.describe(board.scope)}</p>
         )}
       </header>
       {!board.hydrated ? (
         <LoadingState label="Loading the board…" />
+      ) : board.prefs.layout === "issues" ? (
+        <div className="flex min-h-0 flex-1">
+          <BoardIssueList board={board} />
+          <aside
+            aria-label="Issue details"
+            className="w-[min(40%,520px)] min-w-64 overflow-y-auto border-l border-border p-4"
+          >
+            <BoardIssueDetail board={board} />
+          </aside>
+        </div>
       ) : board.total === 0 ? (
         <BoardEmpty board={board} />
       ) : (
@@ -70,6 +91,8 @@ export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
         >
           <section
             aria-label="Board columns"
+            data-board-column-root
+            tabIndex={-1}
             data-keyboard-columns
             data-keyboard-default
             className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain"
@@ -112,6 +135,13 @@ export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
           </DragOverlay>
         </DndContext>
       )}
+      <Drawer
+        open={board.prefs.layout !== "issues" && !!board.selectedItem}
+        onClose={() => board.inspect(null)}
+        title="Issue details"
+      >
+        <BoardIssueDetail board={board} />
+      </Drawer>
     </div>
   );
 }
@@ -199,7 +229,11 @@ function Column({
             : "border-border",
       )}
     >
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+      <div
+        data-board-lane={column.id}
+        tabIndex={-1}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+      >
         <h2
           id={headingId}
           className="sticky top-0 z-10 flex items-center gap-2 rounded-t-lg border-b border-border bg-surface-2 px-3 py-2 text-sm font-semibold"
@@ -240,7 +274,9 @@ function DraggableCard({
   column: BoardColumn;
   board: WorkBoard;
 }) {
-  const drag = useDraggable({ id: card.key });
+  const drag = useDraggable({ id: card.key, disabled: board.mode === "stage" });
+  // A derived stage disables dragging, not the card's Start/Open controls.
+  if (board.mode === "stage") return <WorkCard card={card} board={board} column={column} />;
   return (
     <WorkCard
       card={card}

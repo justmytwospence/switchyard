@@ -197,6 +197,15 @@ describe("work board", () => {
     expect(found[0]!.cards).toHaveLength(1);
   });
 
+  it("refines both branches and issues only for an explicitly selected repository", () => {
+    const data = input();
+    const opts = { scope: null, query: "", mode: "stage" as const, github: null };
+    expect(
+      buildBoard(data, { ...opts, projectId: "prj_2" }).every((c) => c.cards.length === 0),
+    ).toBe(true);
+    expect(buildBoard(data, { ...opts, projectId: "prj_1" })).toEqual(buildBoard(data, opts));
+  });
+
   it("a GitHub scope shows its issues, their branches and live sessions only", () => {
     const tv = { ...github(), projectIds: ["prj_1"] };
     const data = input({
@@ -223,6 +232,54 @@ describe("work board", () => {
     expect(card("b:prj_1:feat/w2").leaves).toBe(false);
   });
 
+  it("retains linked issues without worktrees and sibling issues on the same branch", () => {
+    const data = input({
+      workspaces: { w1: ws("w1") },
+      sessions: {},
+      issues: {
+        a: issue("a", { branch: "feat/w1" }),
+        b: issue("b", { branch: "feat/w1", number: 8 }),
+        remote: issue("remote", { branch: "feat/remote", number: 9 }),
+      },
+    });
+    const cols = buildBoard(data, { scope: null, query: "", mode: "stage", github: null });
+    const working = cols.find((col) => col.id === "working")!.cards;
+    expect(working.map((card) => card.issue?.id).sort()).toEqual(["a", "b", "remote"]);
+    expect(working.find((card) => card.issue?.id === "remote")).toMatchObject({
+      branch: null,
+      branchLabel: "feat/remote",
+    });
+    expect(cols[0]!.cards).toHaveLength(0);
+  });
+
+  it("keeps a pinned branch's foreign issue external rather than inspecting it in scope", () => {
+    const data = input({
+      workspaces: { w1: ws("w1") },
+      sessions: { a: session("a", { workspaceId: "w1", runtime: "stopped" }) } as Record<
+        string,
+        Session
+      >,
+      issues: { foreign: issue("foreign", { scopeId: "trk_2", workspaceId: "w1" }) },
+    });
+    const pinned = scope({ mode: "pinned", sessionIds: ["a"] });
+    const cols = buildBoard(data, { scope: pinned, query: "", mode: "stage", github: null });
+    const card = cols.flatMap((col) => col.cards).find((c) => c.sessionId === "a")!;
+    expect(card.issue?.id).toBe("foreign");
+    expect(card.issueInspectable).toBe(false);
+  });
+
+  it("finds issue-only cards by source status and assignee", () => {
+    const data = input({
+      workspaces: {},
+      sessions: {},
+      issues: { a: issue("a", { board: board("Doing"), assignees: ["alice"] }) },
+    });
+    for (const query of ["doing", "alice"]) {
+      const cols = buildBoard(data, { scope: null, query, mode: "stage", github: null });
+      expect(cols[0]!.cards.map((card) => card.issue?.id)).toEqual(["a"]);
+    }
+  });
+
   it("uses the GitHub board's columns, with No status and Not on the board", () => {
     const issues = {
       i0: issue("i0", { board: board("Todo") }),
@@ -243,7 +300,7 @@ describe("work board", () => {
     });
   });
 
-  it("lists not-started issues by priority, then number, and finds them by priority", () => {
+  it("lists not-started issues by number and finds them by priority", () => {
     const ranked = (id: string, number: number, rank: number | null) =>
       issue(id, {
         number,
@@ -260,7 +317,7 @@ describe("work board", () => {
       mode: "stage",
       github: null,
     });
-    expect(cols[0]!.cards.map((c) => c.key)).toEqual(["i:r0", "i:r2", "i:none"]);
+    expect(cols[0]!.cards.map((c) => c.key)).toEqual(["i:none", "i:r2", "i:r0"]);
     const found = buildBoard(input({ issues, workspaces: {}, sessions: {} }), {
       scope: null,
       query: "p0",
@@ -314,7 +371,7 @@ describe("work board", () => {
     const [notStarted, working, review] = stage;
     const issueCard = notStarted!.cards[0]!;
     const branchCard = working!.cards[0]!;
-    expect(canDrop(issueCard, working!, "stage", null)).toEqual({ ok: true });
+    expect(canDrop(issueCard, working!, "stage", null)).toMatchObject({ ok: false });
     expect(canDrop(issueCard, review!, "stage", null)).toMatchObject({ ok: false });
     expect(canDrop(branchCard, review!, "stage", null)).toEqual({
       ok: false,

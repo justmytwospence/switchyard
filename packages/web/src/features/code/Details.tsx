@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Markdown } from "../../components/intent/Markdown";
 import { Button, buttonClasses } from "../../components/ui/Button";
+import { Dialog } from "../../components/ui/Overlay";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { UnsupportedCapability } from "../../components/ui/states";
 import { TextLink } from "../../components/ui/TextLink";
@@ -16,6 +17,7 @@ import {
   useSyncStore,
   useTranscript,
 } from "../../sync/store";
+import { IssuePreview } from "../discovery/IssuePreview";
 import { runsIn } from "../scopes/where";
 import { protectionLabel } from "../settings/policyLogic";
 import { AdapterDiagnostics } from "./AdapterDiagnostics";
@@ -383,6 +385,7 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
   const { session, workspace, host } = ctx;
   const meter = contextMeter(session);
   const place = useSessionPlace(session);
+  const [readIssueId, setReadIssueId] = useState<string | null>(null);
   const note = scopeNote(place, session);
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
@@ -411,6 +414,23 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
             <a href={place.issue.url} target="_blank" rel="noreferrer" className="hover:underline">
               #{place.issue.number} {place.issue.title}
             </a>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setReadIssueId(place.issue?.id ?? null)}
+            >
+              Read issue
+            </Button>
+            {readIssueId === place.issue.id && (
+              <Dialog open onClose={() => setReadIssueId(null)} title="Read issue">
+                <IssuePreview
+                  issue={place.issue}
+                  branchName={workspace?.branch ?? null}
+                  sessionId={session.id}
+                />
+              </Dialog>
+            )}
           </dd>
         </>
       )}

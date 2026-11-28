@@ -1,8 +1,12 @@
-import type { Session, TrackedIssue } from "@switchyard/protocol";
-import { apiDelete, apiPost } from "../../sync/api";
+import { IssueDescriptionResult, type Session, type TrackedIssue } from "@switchyard/protocol";
+import { apiDelete, apiGet, apiPost } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 
 const issue = (id: string) => `/api/issues/${encodeURIComponent(id)}`;
+
+export async function getIssueDescription(id: string, signal: AbortSignal) {
+  return IssueDescriptionResult.parse(await apiGet(`${issue(id)}/description`, undefined, signal));
+}
 
 /** Start or open an issue's branch; returns the session to show and whether it is new. */
 export async function openIssue(

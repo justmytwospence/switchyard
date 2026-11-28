@@ -11,6 +11,7 @@ import {
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/time";
 import { LONG_PRESS_CLASS, useLongPress } from "../../lib/useLongPress";
+import { saveBoardAnchor } from "./BoardIssues";
 import type { BoardCard, BoardColumn } from "./model";
 import type { WorkBoard } from "./useWorkBoard";
 
@@ -47,10 +48,17 @@ export function WorkCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const press = useLongPress(() => setMenuOpen(true), { enabled: !!phone });
   const status = statusOf(card);
+  const inspectable = !!card.issue && card.issueInspectable !== false;
+  const openWork = () => {
+    saveBoardAnchor(board, card.issue?.id ?? card.key);
+    void (inspectable && card.issue && !card.sessionId
+      ? board.action(card.issue.id)
+      : board.activate(card));
+  };
   const pr = card.branch?.pullRequest ?? card.issue?.pullRequest ?? null;
   const context = [card.project, card.branchLabel, card.host].filter(Boolean).join(" · ");
   const targets: MenuItem[] = board.columns
-    .filter((c) => c.id !== column.id)
+    .filter((c) => board.mode !== "stage" && c.id !== column.id)
     .map((c) => {
       const check = board.canDrop(card, c);
       return {
@@ -63,12 +71,16 @@ export function WorkCard({
     });
   const pr0 = card.branch?.pullRequest ?? card.issue?.pullRequest ?? null;
   const phoneItems: (MenuItem | MenuHeading)[] = [
-    {
-      id: "open",
-      label: card.sessionId ? "Open session" : "Start session",
-      icon: <Play className="size-4" />,
-      onSelect: () => void board.activate(card),
-    },
+    ...(card.sessionId || !inspectable || card.issue?.pullRequest?.state !== "MERGED"
+      ? [
+          {
+            id: "open",
+            label: card.sessionId ? "Open session" : "Start session",
+            icon: <Play className="size-4" />,
+            onSelect: openWork,
+          },
+        ]
+      : []),
     ...(targets.length > 0 ? [{ id: "move", heading: "Move to" }] : []),
     ...targets,
     ...(card.issue
@@ -97,6 +109,7 @@ export function WorkCard({
       {...(phone ? press : {})}
       style={style}
       data-testid="work-card"
+      data-board-card-id={card.issue?.id ?? card.key}
       className={cn(
         "flex min-w-0 flex-col gap-1.5 rounded-md border border-border bg-surface p-2.5 shadow-sm",
         phone && LONG_PRESS_CLASS,
@@ -104,22 +117,30 @@ export function WorkCard({
       )}
     >
       <div className="flex min-w-0 items-start gap-1">
-        <button
-          type="button"
-          className="tap min-w-0 flex-1 text-left"
-          onClick={() => void board.activate(card)}
-        >
-          <span className="flex min-w-0 items-start gap-1.5">
-            <span className="min-w-0 flex-1 text-sm font-medium break-words">{card.title}</span>
-            {card.attention && card.branch?.primary?.runtime !== "waiting_input" && (
-              <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
-                <MessageCircleQuestion aria-hidden className="size-3.5" />
-                Needs input
-              </span>
-            )}
-          </span>
-          {context && <span className="block truncate text-xs text-muted">{context}</span>}
-        </button>
+        {inspectable || card.sessionId ? (
+          <button
+            type="button"
+            className="tap min-w-0 flex-1 text-left"
+            data-board-card-focus
+            onClick={() => (inspectable && card.issue ? board.inspect(card.issue.id) : openWork())}
+          >
+            <span className="flex min-w-0 items-start gap-1.5">
+              <span className="min-w-0 flex-1 text-sm font-medium break-words">{card.title}</span>
+              {card.attention && card.branch?.primary?.runtime !== "waiting_input" && (
+                <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-warning">
+                  <MessageCircleQuestion aria-hidden className="size-3.5" />
+                  Needs input
+                </span>
+              )}
+            </span>
+            {context && <span className="block truncate text-xs text-muted">{context}</span>}
+          </button>
+        ) : (
+          <div className="min-w-0 flex-1">
+            <span className="block break-words text-sm font-medium">{card.title}</span>
+            {context && <span className="block truncate text-xs text-muted">{context}</span>}
+          </div>
+        )}
         {phone && (
           <Menu
             label={`Actions for ${card.title}`}
@@ -142,6 +163,7 @@ export function WorkCard({
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
         {status && <StatusChip kind="custom" status={status} size="sm" />}
         {card.branch && !card.sessionId && <span>No session</span>}
+        {!card.branch && card.branchLabel && <span>Linked branch · no worktree yet</span>}
         {card.leaves && (
           <span
             title={`In ${board.scope?.name ?? "this scope"} only while it is live. Pin it or link an issue to keep it.`}
@@ -197,26 +219,39 @@ export function WorkCard({
         <span className="ml-auto">{formatRelative(card.lastActivityAt)}</span>
       </div>
       <div className="flex items-center gap-1">
-        {!card.branch && card.issue && (
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={<Play className="size-3.5" />}
-            onClick={() => void board.activate(card)}
-          >
-            Start session
+        {!card.branch &&
+          card.issue &&
+          (card.sessionId || card.issue.pullRequest?.state !== "MERGED") && (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Play className="size-3.5" />}
+              disabled={board.pending}
+              data-board-card-focus
+              onClick={openWork}
+            >
+              {card.sessionId ? "Open session" : "Start session"}
+            </Button>
+          )}
+        {card.branch && card.sessionId && inspectable && (
+          <Button size="sm" variant="secondary" onClick={openWork}>
+            Open session
           </Button>
         )}
-        {card.branch && !card.sessionId && (
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={<Play className="size-3.5" />}
-            onClick={() => void board.activate(card)}
-          >
-            Start session
-          </Button>
-        )}
+        {card.branch &&
+          !card.sessionId &&
+          (!inspectable || card.issue?.pullRequest?.state !== "MERGED") && (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Play className="size-3.5" />}
+              disabled={board.pending}
+              data-board-card-focus
+              onClick={openWork}
+            >
+              Start session
+            </Button>
+          )}
         {!phone && targets.length > 0 && (
           <Menu
             label={`Move ${card.title}`}
@@ -234,6 +269,17 @@ export function WorkCard({
           />
         )}
       </div>
+      {inspectable &&
+        card.issue &&
+        !card.sessionId &&
+        card.issue.pullRequest?.state !== "MERGED" && (
+          <p className="text-xs text-muted">{board.cardActionDetail(card.issue.id)}</p>
+        )}
+      {board.actionError && card.issue && (
+        <p role="alert" className="text-xs text-danger">
+          {board.actionError}
+        </p>
+      )}
     </div>
   );
 }
