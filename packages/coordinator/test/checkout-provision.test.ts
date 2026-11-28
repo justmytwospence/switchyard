@@ -70,10 +70,9 @@ async function setup({ supported = true, publicUrl }: FixtureOpts = {}) {
     const socket = new FakeHost(tc.c.localUrl.replace("http", "ws"), host.hostId, host.credential);
     sockets.push(socket);
     const welcome = await socket.open({ features: capable ? [CHECKOUT_PROVISION_FEATURE] : [] });
-    expect(welcome).toMatchObject({
-      type: "welcome",
-      features: capable ? [CHECKOUT_PROVISION_FEATURE] : [],
-    });
+    // Checkout support is advertised by the host, not negotiated as an agent feature.
+    expect(welcome).toMatchObject({ type: "welcome", features: [] });
+    expect(tc.c.store.hosts.require(host.hostId).checkoutProvision).toBe(capable);
     return socket;
   };
   const socket = await connect(supported);
