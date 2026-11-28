@@ -22,6 +22,9 @@ import {
   scopeRepositoryLabel,
 } from "../src/features/discovery/model";
 import { describeDiscoverySource } from "../src/features/scopes/describe";
+import { currentScopeId } from "../src/features/scopes/selection";
+import { usePrefs } from "../src/prefs";
+import { useSyncStore } from "../src/sync/store";
 import { session } from "./fixtures";
 
 const NOW = "2026-11-02T10:00:00.000Z";
@@ -44,6 +47,23 @@ function scope(patch: Partial<Scope> = {}): Scope {
     ...patch,
   };
 }
+
+it("treats a retired saved scope as All work once synced", () => {
+  const { hydrated, scopes } = useSyncStore.getState();
+  const { filters } = usePrefs.getState();
+  try {
+    usePrefs.getState().setFilter("codeView", "retired");
+    useSyncStore.setState({ hydrated: false, scopes: {} });
+    expect(currentScopeId()).toBe("retired");
+    useSyncStore.setState({ hydrated: true, scopes: { retired: scope({ id: "retired" }) } });
+    expect(currentScopeId()).toBe("retired");
+    useSyncStore.setState({ scopes: {} });
+    expect(currentScopeId()).toBeNull();
+  } finally {
+    useSyncStore.setState({ hydrated, scopes });
+    usePrefs.setState({ filters });
+  }
+});
 
 const sourceBoard = {
   projectNumber: 4,
