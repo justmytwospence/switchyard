@@ -1,11 +1,13 @@
 import {
   type Client,
+  GitHubRepository,
   type Host,
   openClients,
   type Project,
   type Scope,
   sourceBacklog,
   sourceFollow,
+  type TrackedIssue,
 } from "@switchyard/protocol";
 
 /** What decides a scope's members: a GitHub source, or the scope's own filters and pins. */
@@ -29,6 +31,142 @@ function names(ids: string[], byId: Record<string, { name: string }>): string {
 export interface DescribeContext {
   projects: Record<string, Pick<Project, "name">>;
   hosts: Record<string, Pick<Host, "name">>;
+}
+
+export interface DiscoverySourceDetails {
+  id: string;
+  name: string;
+  description: string;
+  paused: boolean;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+}
+
+export interface DiscoveryEmptyState {
+  title: string;
+  description: string;
+  action?: { label: string; to: string };
+}
+
+export interface DiscoverySourceDescription {
+  summary: string;
+  sources: DiscoverySourceDetails[];
+  openIssuesUrl: string | null;
+  emptyState: (filtered: boolean) => DiscoveryEmptyState;
+}
+
+function describeIssueSource(scope: Scope): DiscoverySourceDetails[] {
+  const source = scope.source;
+  if (!source) return [];
+  const details: string[] = [];
+  if (sourceFollow(source) === "assigned") details.push(`Assigned to ${source.login ?? "you"}`);
+  if (source.board) details.push(`Board #${source.board.projectNumber}`);
+  const backlog = sourceBacklog(source);
+  if (backlog.length) details.push(`excludes ${backlog.join(", ")} until work starts`);
+  if (!source.enabled) details.push("Sync paused");
+  return [
+    {
+      id: scope.id,
+      name: scope.name,
+      description: details.join(" · "),
+      paused: !source.enabled,
+      lastSyncedAt: source.lastSyncedAt,
+      lastError: source.lastError,
+    },
+  ];
+}
+
+function coversProject(scope: Scope | null, projectId: string): boolean {
+  return !scope || scope.projectIds === null || scope.projectIds.includes(projectId);
+}
+
+/** Where the tracked issue menu gets its rows. A manual scope can consume any covering source. */
+export function describeDiscoverySource(
+  scope: Scope | null,
+  project: Pick<Project, "id" | "repoIdentity"> | null,
+  scopes: Record<string, Scope> | readonly Scope[],
+): DiscoverySourceDescription {
+  const pinsOnly = scope?.mode === "pinned";
+  const includesProject = !project || coversProject(scope, project.id);
+  const sources = (
+    pinsOnly || !includesProject
+      ? []
+      : scope?.source
+        ? [scope]
+        : Object.values<Scope>(scopes).filter((candidate) => {
+            if (!candidate.source || candidate.mode === "pinned") return false;
+            if (project) return coversProject(candidate, project.id);
+            const ids = candidate.projectIds;
+            const selected = scope?.projectIds ?? null;
+            if (selected === null) return true;
+            return ids === null ? selected.length > 0 : selected.some((id) => ids.includes(id));
+          })
+  )
+    .flatMap(describeIssueSource)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const prefix = "https://github.com/";
+  const identity = project?.repoIdentity;
+  const repository = identity?.startsWith(prefix) ? identity.slice(prefix.length) : null;
+  const openIssuesUrl =
+    !pinsOnly && includesProject && GitHubRepository.safeParse(repository).success
+      ? `${prefix}${repository}/issues`
+      : null;
+  return {
+    summary: sources.length
+      ? `Tracked by ${sources.map((source) => source.name).join(", ")}`
+      : pinsOnly
+        ? "This scope contains pinned sessions only"
+        : "No issue source connected",
+    sources,
+    openIssuesUrl,
+    emptyState: (filtered) => {
+      if (pinsOnly)
+        return {
+          title: "This scope contains pinned sessions only",
+          description: "Pinned sessions are shown in the branch overview, not in tracked issues.",
+        };
+      if (!sources.length)
+        return {
+          title: "No issue source connected",
+          description: "Connect an issue source that covers this work in Settings → Scopes.",
+          action: { label: "Settings → Scopes", to: "/settings/scopes" },
+        };
+      return filtered
+        ? { title: "No matches", description: "Clear the search or change the issue filters." }
+        : {
+            title: "No tracked issues here",
+            description: "Only issues followed by the listed sources are shown here.",
+          };
+    },
+  };
+}
+
+/** The configured move this issue could qualify for on a later sync, not a promised update. */
+export function discoveryWriteBackHint(
+  issue: TrackedIssue,
+  scope: Scope | undefined,
+): string | null {
+  const source = scope?.source;
+  const board = issue.board;
+  if (!source?.enabled || !source.writeBack || !source.board || !board) return null;
+  if (issue.pullRequest?.state === "MERGED") return null;
+  const login = source.login?.toLowerCase();
+  const mine = login && issue.assignees.some((a) => a.toLowerCase() === login);
+  if (!mine && !(sourceFollow(source) === "board" && issue.assignees.length === 0)) return null;
+  if (issue.assignees.length > 1 && !source.moveShared) return null;
+  const target =
+    issue.pullRequest?.state === "OPEN" && source.board.onReview
+      ? source.board.onReview
+      : source.board.onStart;
+  if (!target) return null;
+  const column = board.options.find((option) => option.name.toLowerCase() === target.toLowerCase());
+  if (
+    !column ||
+    board.statusOptionId === column.id ||
+    board.status?.toLowerCase() === target.toLowerCase()
+  )
+    return null;
+  return `On sync, may move to ${column.name}`;
 }
 
 /** One line saying where a scope's sessions (or, on the Tasks page, tasks) come from. */
