@@ -38,6 +38,8 @@ function fixture() {
     merge: vi.fn(async () => ({ status: "outcome_unknown" })),
     syncIssues: vi.fn(async () => ({ login: "me", items: [], truncated: false })),
     describeIssue: vi.fn(async () => ({ body: "hello", truncated: false })),
+    repoIssuesPage: vi.fn(async () => ({ items: [], nextCursor: null })),
+    repoIssue: vi.fn(async () => ({ state: "OPEN", issue: {} })),
     startIssue: vi.fn(async () => ({ branch: "12-x" })),
     setIssueStatus: vi.fn(async () => ({ status: "moved" })),
   };
@@ -83,6 +85,25 @@ describe("GitHub issue host commands", () => {
     login: "me",
     allowShared: true,
   } as const;
+
+  it("routes repository reads without invoking mutations", async () => {
+    const f = fixture();
+    const page = {
+      type: "tracker.repoIssuesPage",
+      repository: "acme/app",
+      after: "cursor",
+    } as const;
+    const issue = { type: "tracker.repoIssue", repository: "acme/app", number: 12 } as const;
+    expect(await f.router.handle("page", page)).toMatchObject({ ok: true });
+    expect(await f.router.handle("issue", issue)).toMatchObject({ ok: true });
+    expect(f.github.repoIssuesPage).toHaveBeenCalledWith({
+      repository: "acme/app",
+      after: "cursor",
+    });
+    expect(f.github.repoIssue).toHaveBeenCalledWith({ repository: "acme/app", number: 12 });
+    expect(f.github.startIssue).not.toHaveBeenCalled();
+    expect(f.github.setIssueStatus).not.toHaveBeenCalled();
+  });
 
   it("routes description reads on the read lane and reuses receipts", async () => {
     const f = fixture();

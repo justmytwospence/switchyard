@@ -61,6 +61,8 @@ export interface CommandRouterOptions {
     | "merge"
     | "syncIssues"
     | "describeIssue"
+    | "repoIssuesPage"
+    | "repoIssue"
     | "startIssue"
     | "setIssueStatus"
   >;
@@ -92,6 +94,8 @@ export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostComm
   "workspace.prFailedLogs",
   "tracker.sync",
   "tracker.describeIssue",
+  "tracker.repoIssuesPage",
+  "tracker.repoIssue",
   "dispatch.reconcile",
 ]);
 /** Read-only commands in flight at once. */
@@ -132,6 +136,8 @@ const RERUNNABLE = new Set<HostCommand["type"]>([
   "workspace.prFailedLogs",
   "tracker.sync",
   "tracker.describeIssue",
+  "tracker.repoIssuesPage",
+  "tracker.repoIssue",
 ]);
 
 /** Map any thrown value to a protocol error body. */
@@ -534,6 +540,8 @@ export class CommandRouter {
       }
       case "tracker.sync":
       case "tracker.describeIssue":
+      case "tracker.repoIssuesPage":
+      case "tracker.repoIssue":
       case "tracker.startIssue":
       case "tracker.setStatus": {
         const github = this.opts.github;
@@ -542,11 +550,13 @@ export class CommandRouter {
         const { type: _type, ...request } = c;
         if (c.type === "tracker.sync") return github.syncIssues(request as never);
         if (c.type === "tracker.describeIssue") return github.describeIssue(request as never);
+        if (c.type === "tracker.repoIssuesPage") return github.repoIssuesPage(request as never);
+        if (c.type === "tracker.repoIssue") return github.repoIssue(request as never);
         if (c.type === "tracker.startIssue") return github.startIssue(request as never);
         return github.setIssueStatus(request as never);
       }
       case "tracker.prepareBranch":
-        await prepareTrackingBranch(c.checkoutPath, c.branch);
+        await prepareTrackingBranch(c.checkoutPath, c.branch, c.strict);
         return { ok: true };
       case "workspace.status":
         return { path: c.path, git: await worktreeStatus(c.path, c.base) };

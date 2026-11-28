@@ -22,6 +22,7 @@ import {
   type ProviderUsage,
   projectHostEvent,
   QUEUE_CLEAR_FEATURE,
+  REPOSITORY_ISSUES_FEATURE,
   type Receipt,
   reconnectDelay,
   type StreamDelta,
@@ -47,6 +48,7 @@ const HOST_FEATURES: readonly string[] = [
   GITHUB_ISSUES_FEATURE,
   GITHUB_BOARD_FEATURE,
   ISSUE_DESCRIPTION_FEATURE,
+  REPOSITORY_ISSUES_FEATURE,
   GIT_LOG_FEATURE,
 ];
 

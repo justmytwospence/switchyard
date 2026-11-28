@@ -11,6 +11,10 @@ import type {
 import {
   ISSUE_DESCRIPTION_MAX_LENGTH,
   IssueDescriptionRequest,
+  RepoIssueRequest,
+  RepoIssueResult,
+  RepoIssuesPageRequest,
+  RepoIssuesPageResult,
   SwitchyardError,
 } from "@switchyard/protocol";
 
@@ -220,6 +224,55 @@ function itemOf(issue: any, board: IssueBoard | null): SyncedIssue | null {
           }
         : null,
   };
+}
+
+export async function repoIssuesPage(
+  gh: Gh,
+  input: RepoIssuesPageRequest,
+): Promise<RepoIssuesPageResult> {
+  const req = RepoIssuesPageRequest.parse(input);
+  const [owner, name] = req.repository.split("/");
+  const data = await graphql(
+    gh,
+    `query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){issues(states:[OPEN],orderBy:{field:CREATED_AT,direction:ASC},first:50,after:$after){pageInfo{hasNextPage endCursor} nodes{${ISSUE_FIELDS}}}}}`,
+    { owner, name, after: req.after },
+  );
+  if (data?.repository === null)
+    throw new SwitchyardError("not_found", "Repository not found on GitHub");
+  const page = data?.repository?.issues;
+  const info = page?.pageInfo;
+  if (
+    !Array.isArray(page?.nodes) ||
+    typeof info?.hasNextPage !== "boolean" ||
+    (info.endCursor !== null && typeof info.endCursor !== "string") ||
+    (info.hasNextPage && !info.endCursor)
+  )
+    throw new Error("Invalid GitHub issue page response");
+  const items = page.nodes.map((issue: any) => {
+    if (issue?.state !== "OPEN" || !same(issue?.repository?.nameWithOwner, req.repository))
+      throw new Error("Invalid GitHub issue page item");
+    return itemOf(issue, null);
+  });
+  return RepoIssuesPageResult.parse({
+    items,
+    nextCursor: info.hasNextPage ? info.endCursor : null,
+  });
+}
+
+export async function repoIssue(gh: Gh, input: RepoIssueRequest): Promise<RepoIssueResult> {
+  const req = RepoIssueRequest.parse(input);
+  const [owner, name] = req.repository.split("/");
+  const data = await graphql(
+    gh,
+    `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_FIELDS}}}}`,
+    { owner, name, number: req.number },
+  );
+  if (data?.repository === null || data?.repository?.issue === null)
+    throw new SwitchyardError("not_found", "Issue or repository not found on GitHub");
+  const issue = data?.repository?.issue;
+  if (!same(issue?.repository?.nameWithOwner, req.repository) || issue?.number !== req.number)
+    throw new Error("Invalid GitHub issue response");
+  return RepoIssueResult.parse({ state: issue.state, issue: itemOf(issue, null) });
 }
 
 /**

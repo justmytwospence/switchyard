@@ -29,6 +29,8 @@ import {
   IssueHostSetStatusRequest,
   IssueHostStartIssueRequest,
   IssueHostSyncRequest,
+  RepoIssueRequest,
+  RepoIssuesPageRequest,
 } from "./issues.js";
 import { HostPolicySampleRequest, HostToolPolicyContext } from "./policies.js";
 import { TermCoordinatorMsg, TermServerToViewer } from "./terminal-wire.js";
@@ -202,6 +204,8 @@ export const HostCommand = z.discriminatedUnion("type", [
   GitHubHostLogsRequest.extend({ type: z.literal("workspace.prFailedLogs") }),
   GitHubHostMergeRequest.extend({ type: z.literal("workspace.prMerge") }),
   IssueDescriptionRequest.extend({ type: z.literal("tracker.describeIssue") }),
+  RepoIssuesPageRequest.extend({ type: z.literal("tracker.repoIssuesPage") }),
+  RepoIssueRequest.extend({ type: z.literal("tracker.repoIssue") }),
   IssueHostSyncRequest.extend({ type: z.literal("tracker.sync") }),
   IssueHostPrepareBranchRequest.extend({ type: z.literal("tracker.prepareBranch") }),
   IssueHostStartIssueRequest.extend({ type: z.literal("tracker.startIssue") }),

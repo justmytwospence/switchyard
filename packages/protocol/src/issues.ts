@@ -15,6 +15,33 @@ export const GITHUB_ISSUES_FEATURE = "trackers.v1";
 /** Host feature: tracker.sync can follow a board and skip backlog columns. */
 export const GITHUB_BOARD_FEATURE = "trackers.board.v1";
 export const ISSUE_DESCRIPTION_FEATURE = "trackers.description.v1";
+export const REPOSITORY_ISSUES_FEATURE = "trackers.repositoryIssues.v1";
+const RepoCursor = z
+  .string()
+  .min(1)
+  .max(2048)
+  .refine((v) => {
+    let bytes = 0;
+    for (const char of v) {
+      const code = char.codePointAt(0)!;
+      bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+    }
+    return bytes <= 2048;
+  });
+export const RepoIssuesPageRequest = z
+  .object({
+    repository: GitHubRepository,
+    after: RepoCursor.optional(),
+  })
+  .strict();
+export type RepoIssuesPageRequest = z.infer<typeof RepoIssuesPageRequest>;
+export const RepoIssueRequest = z
+  .object({
+    repository: GitHubRepository,
+    number: z.number().int().safe().positive(),
+  })
+  .strict();
+export type RepoIssueRequest = z.infer<typeof RepoIssueRequest>;
 export const ISSUE_DESCRIPTION_MAX_LENGTH = 32768;
 export const IssueDescriptionRequest = z.object({
   repository: GitHubRepository,
@@ -163,6 +190,26 @@ export const SyncedIssue = z.object({
 });
 export type SyncedIssue = z.infer<typeof SyncedIssue>;
 
+export const RepoIssuesPageResult = z.object({
+  items: z.array(SyncedIssue).max(50),
+  nextCursor: RepoCursor.nullable(),
+});
+export type RepoIssuesPageResult = z.infer<typeof RepoIssuesPageResult>;
+export const RepoIssueResult = z.object({ state: z.enum(["OPEN", "CLOSED"]), issue: SyncedIssue });
+export type RepoIssueResult = z.infer<typeof RepoIssueResult>;
+export const RepoIssueItem = SyncedIssue.extend({
+  projectId: Id,
+  branch: z.string().nullable(),
+  workspaceId: Id.nullable(),
+  sessionId: Id.nullable(),
+});
+export type RepoIssueItem = z.infer<typeof RepoIssueItem>;
+export const RepoIssuesPage = z.object({
+  items: z.array(RepoIssueItem).max(50),
+  nextCursor: RepoCursor.nullable(),
+});
+export type RepoIssuesPage = z.infer<typeof RepoIssuesPage>;
+
 export const IssueSyncResult = z.object({
   login: z.string().min(1),
   items: z.array(SyncedIssue).max(200),
@@ -213,6 +260,8 @@ export const OpenIssueRequest = z.object({
   profileId: z.string().nullable().optional(),
 });
 export type OpenIssueRequest = z.infer<typeof OpenIssueRequest>;
+export const OpenRepoIssueRequest = OpenIssueRequest.extend({ expectedNodeId: Id });
+export type OpenRepoIssueRequest = z.infer<typeof OpenRepoIssueRequest>;
 
 export const IssueSetStatusResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("moved") }),
@@ -248,6 +297,7 @@ export type IssueHostSyncRequest = z.infer<typeof IssueHostSyncRequest>;
 export const IssueHostPrepareBranchRequest = z.object({
   checkoutPath: z.string().min(1),
   branch: z.string().min(1).max(255),
+  strict: z.boolean().optional(),
 });
 export const IssueHostStartIssueRequest = z.object({
   checkoutPath: z.string().min(1),
@@ -255,6 +305,7 @@ export const IssueHostStartIssueRequest = z.object({
   number: z.number().int().positive(),
   branch: z.string().min(1).max(255),
   base: z.string().min(1),
+  strict: z.boolean().optional(),
 });
 export type IssueHostStartIssueRequest = z.infer<typeof IssueHostStartIssueRequest>;
 export const IssueHostSetStatusRequest = z.object({

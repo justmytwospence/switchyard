@@ -12,8 +12,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SwitchyardError } from "@switchyard/protocol";
 import { makeRepo, type TempRepo } from "@switchyard/test-fixtures";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  assertLocalBranchAbsent,
   copyWorktreeIncludes,
   createWorktree,
   diffWorkspace,
@@ -29,6 +30,7 @@ import {
   validateBranch,
   worktreeStatus,
 } from "../src/git.js";
+import { GitHubService } from "../src/github.js";
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, {
@@ -568,6 +570,55 @@ describe("worktrees", () => {
     // A second call keeps the local branch.
     await prepareTrackingBranch(r.path, "feat/remote");
     expect(git(r.path, ["rev-parse", "refs/heads/feat/remote"]).trim()).toBe(remoteHead);
+  });
+
+  it("rejects a generated local ref before running gh in strict mode", async () => {
+    git(r.path, ["branch", "12-existing"]);
+    const runner = vi.fn(async () => ({ code: 0, stdout: "", stderr: "" }));
+    const service = new GitHubService({ runner });
+    const request = {
+      checkoutPath: r.path,
+      repository: "acme/app",
+      number: 12,
+      branch: "12-existing",
+      base: "main",
+    };
+    try {
+      await expectCode(service.startIssue({ ...request, strict: true }), "conflict");
+      expect(runner).not.toHaveBeenCalled();
+      await service.startIssue(request);
+      expect(runner).toHaveBeenCalledTimes(1);
+    } finally {
+      service.stop();
+    }
+  });
+
+  it("strictly prepares only matching or explicitly tracking local branches", async () => {
+    const remote = tempDir();
+    git(remote, ["init", "-q", "--bare", "-b", "main"]);
+    git(r.path, ["remote", "add", "origin", remote]);
+    git(r.path, ["push", "-q", "origin", "main:refs/heads/feat/remote"]);
+    git(r.path, ["push", "-q", "origin", "main:refs/heads/feat/new"]);
+    await prepareTrackingBranch(r.path, "feat/new", true);
+    expect(git(r.path, ["config", "branch.feat/new.merge"]).trim()).toBe("refs/heads/feat/new");
+    git(r.path, ["branch", "feat/remote"]);
+    await expectCode(assertLocalBranchAbsent(r.path, "feat/remote"), "conflict");
+    await assertLocalBranchAbsent(r.path, "feat/absent");
+    // Same tip is safe even without an upstream.
+    await prepareTrackingBranch(r.path, "feat/remote", true);
+    git(r.path, ["switch", "-q", "feat/remote"]);
+    writeFileSync(join(r.path, "local.txt"), "local\n");
+    git(r.path, ["add", "local.txt"]);
+    git(r.path, ["commit", "-q", "-m", "test: local work"]);
+    const local = git(r.path, ["rev-parse", "HEAD"]).trim();
+    await expectCode(prepareTrackingBranch(r.path, "feat/remote", true), "conflict");
+    expect(git(r.path, ["rev-parse", "HEAD"]).trim()).toBe(local);
+    git(r.path, ["branch", "--set-upstream-to=origin/feat/remote", "feat/remote"]);
+    await prepareTrackingBranch(r.path, "feat/remote", true);
+    expect(git(r.path, ["rev-parse", "HEAD"]).trim()).toBe(local);
+    // Legacy preparation still accepts divergent untracked branches.
+    git(r.path, ["branch", "--unset-upstream", "feat/remote"]);
+    await prepareTrackingBranch(r.path, "feat/remote");
   });
 
   it("deletes the local branch only when asked", async () => {

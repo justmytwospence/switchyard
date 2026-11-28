@@ -4,9 +4,12 @@ import {
   GitHubSource,
   GitHubSourceInput,
   GitState,
+  HostCommand,
   IssueDescriptionRequest,
   IssueDescriptionResult,
   Project,
+  RepoIssueRequest,
+  RepoIssuesPageRequest,
   Scope,
   sourceBacklog,
   sourceFollow,
@@ -15,6 +18,45 @@ import {
 } from "../src/index.js";
 
 const T = "2026-11-02T10:00:00.000Z";
+
+describe("strict issue branch commands", () => {
+  it("preserves and validates the optional strict flag", () => {
+    for (const command of [
+      { type: "tracker.prepareBranch", checkoutPath: "/repo", branch: "topic" },
+      {
+        type: "tracker.startIssue",
+        checkoutPath: "/repo",
+        repository: "acme/app",
+        number: 1,
+        branch: "topic",
+        base: "main",
+      },
+    ]) {
+      expect(HostCommand.parse({ ...command, strict: true })).toMatchObject({ strict: true });
+      expect(HostCommand.parse(command)).not.toHaveProperty("strict");
+      expect(HostCommand.safeParse({ ...command, strict: "yes" }).success).toBe(false);
+    }
+  });
+});
+
+describe("repository issue requests", () => {
+  it("bounds cursors and rejects caller-controlled fields", () => {
+    expect(
+      RepoIssuesPageRequest.safeParse({ repository: "acme/app", after: "x".repeat(2049) }).success,
+    ).toBe(false);
+    expect(
+      RepoIssuesPageRequest.safeParse({ repository: "acme/app", query: "is:open" }).success,
+    ).toBe(false);
+    expect(
+      RepoIssueRequest.safeParse({ repository: "acme/app", number: 1, checkoutPath: "/tmp" })
+        .success,
+    ).toBe(false);
+    expect(
+      HostCommand.safeParse({ type: "tracker.repoIssue", repository: "acme/app", number: 1 })
+        .success,
+    ).toBe(true);
+  });
+});
 
 describe("issue description schemas", () => {
   it("validates locator and bounded body", () => {

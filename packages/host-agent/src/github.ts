@@ -28,8 +28,14 @@ import {
 import { tailBytes } from "./checks.js";
 import { mapLimit } from "./concurrency.js";
 import type { HostDb } from "./db/index.js";
-import { normalizeRemote } from "./git.js";
-import { describeIssue, setIssueStatus, syncIssues } from "./github-issues.js";
+import { assertLocalBranchAbsent, normalizeRemote } from "./git.js";
+import {
+  describeIssue,
+  repoIssue,
+  repoIssuesPage,
+  setIssueStatus,
+  syncIssues,
+} from "./github-issues.js";
 
 const JSON_BYTES = 2 * 1024 * 1024;
 const SNAPSHOT_BYTES = 512 * 1024;
@@ -1356,6 +1362,14 @@ export class GitHubService {
     });
   }
 
+  repoIssuesPage(req: import("@switchyard/protocol").RepoIssuesPageRequest) {
+    return repoIssuesPage((args) => this.json(args, process.cwd(), Date.now() + 15_000), req);
+  }
+
+  repoIssue(req: import("@switchyard/protocol").RepoIssueRequest) {
+    return repoIssue((args) => this.json(args, process.cwd(), Date.now() + 15_000), req);
+  }
+
   describeIssue(req: IssueDescriptionRequest): Promise<IssueDescriptionResult> {
     const deadline = Date.now() + 15_000;
     return describeIssue((args) => this.json(args, process.cwd(), deadline), req);
@@ -1369,6 +1383,7 @@ export class GitHubService {
 
   /** Create a linked branch for an issue with `gh issue develop` (`tracker.startIssue`). */
   async startIssue(req: IssueHostStartIssueRequest): Promise<{ branch: string }> {
+    if (req.strict) await assertLocalBranchAbsent(req.checkoutPath, req.branch);
     const deadline = Date.now() + 60_000;
     const r = await this.run(
       "gh",

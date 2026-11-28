@@ -3,6 +3,8 @@ import {
   describeIssue,
   type Gh,
   issueSearch,
+  repoIssue,
+  repoIssuesPage,
   setIssueStatus,
   syncIssues,
 } from "../src/github-issues.js";
@@ -58,6 +60,72 @@ describe("describeIssue", () => {
     ])
       await expect(describeIssue(async () => raw, req)).rejects.toThrow();
     await expect(describeIssue(async () => ({}), { ...req, number: 0 })).rejects.toThrow();
+  });
+});
+
+describe("repository reads", () => {
+  it("reads open unassigned issues with typed variables and no board", async () => {
+    const gh = vi.fn(async () => ({
+      data: {
+        repository: {
+          issues: {
+            nodes: [issue(1, { state: "OPEN", assignees: { nodes: [] } })],
+            pageInfo: { hasNextPage: true, endCursor: "next" },
+          },
+        },
+      },
+    }));
+    const result = await repoIssuesPage(gh, { repository: REPO, after: "prior" });
+    expect(result.items[0]).toMatchObject({ itemId: "I_1", assignees: [], board: null });
+    expect(result.nextCursor).toBe("next");
+    expect(vars(gh.mock.calls[0]![0])).toMatchObject({
+      owner: "acme",
+      name: "app",
+      after: "prior",
+    });
+    expect(vars(gh.mock.calls[0]![0]).query).toContain("issues(states:[OPEN]");
+  });
+  it("rejects absent repositories, malformed pages and GitHub errors", async () => {
+    for (const raw of [
+      { data: { repository: null } },
+      {
+        data: {
+          repository: { issues: { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } } },
+        },
+      },
+      { errors: [{ message: "forbidden" }] },
+    ])
+      await expect(repoIssuesPage(async () => raw, { repository: REPO })).rejects.toThrow();
+  });
+  it("reads a closed issue and its same-repo closing PR", async () => {
+    const node = issue(2, {
+      state: "CLOSED",
+      closedByPullRequestsReferences: {
+        nodes: [
+          {
+            number: 3,
+            state: "MERGED",
+            url: "https://github.com/acme/app/pull/3",
+            headRefName: "fix",
+            headRepository: { nameWithOwner: REPO },
+          },
+        ],
+      },
+    });
+    const result = await repoIssue(async () => ({ data: { repository: { issue: node } } }), {
+      repository: REPO,
+      number: 2,
+    });
+    expect(result).toMatchObject({
+      state: "CLOSED",
+      issue: { board: null, pullRequest: { headRefName: "fix" } },
+    });
+    await expect(
+      repoIssue(async () => ({ data: { repository: { issue: null } } }), {
+        repository: REPO,
+        number: 2,
+      }),
+    ).rejects.toThrow();
   });
 });
 

@@ -95,6 +95,8 @@ describe("read-only and checkout lanes", () => {
       { type: "dispatch.reconcile", dispatchKey: "k" },
       { type: "tracker.sync", owner: "acme", repositories: null, board: null },
       { type: "tracker.describeIssue", repository: "owner/repo", number: 1 },
+      { type: "tracker.repoIssuesPage", repository: "owner/repo" },
+      { type: "tracker.repoIssue", repository: "owner/repo", number: 1 },
     ];
     expect(
       queueKey({

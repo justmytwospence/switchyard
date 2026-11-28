@@ -28,6 +28,7 @@ import {
   type Profile,
   type ProviderUsage,
   QUEUE_CLEAR_FEATURE,
+  REPOSITORY_ISSUES_FEATURE,
   type Receipt,
   Session,
   StreamDelta,
@@ -81,6 +82,7 @@ interface Conn {
   /** The host answers `tracker.*` commands (GitHub issue sync). */
   githubIssues: boolean;
   issueDescription: boolean;
+  repositoryIssues: boolean;
   /** The host's tracker.sync can follow a board and skip backlog columns. */
   githubBoard: boolean;
   /** The host answers `workspace.log` and `workspace.diff` with `rev`. */
@@ -203,6 +205,10 @@ export class HostHub {
       throw new Error("policies.v1 requires agentRequests.v1");
     if (features.size && !this.agentHandler) throw new Error("Agent features require a handler");
     this.availableAgentFeatures = new Set(features);
+  }
+
+  supportsRepositoryIssues(hostId: string): boolean {
+    return this.conns.get(hostId)?.repositoryIssues === true;
   }
 
   negotiatedFeatures(hostId: string): ReadonlySet<string> {
@@ -400,7 +406,14 @@ export class HostHub {
     ) {
       return conn.githubIssues && conn.githubBoard;
     }
+    if (
+      (command.type === "tracker.prepareBranch" || command.type === "tracker.startIssue") &&
+      command.strict === true
+    )
+      return conn.githubIssues && conn.repositoryIssues;
     if (command.type === "tracker.describeIssue") return conn.issueDescription;
+    if (command.type === "tracker.repoIssuesPage" || command.type === "tracker.repoIssue")
+      return conn.repositoryIssues;
     if (command.type.startsWith("tracker.")) return conn.githubIssues;
     if (
       (command.type === "session.start" || command.type === "dispatch.start") &&
@@ -569,6 +582,7 @@ export class HostHub {
       github: hello.github !== undefined,
       githubIssues: hello.features?.includes(GITHUB_ISSUES_FEATURE) === true,
       issueDescription: hello.features?.includes(ISSUE_DESCRIPTION_FEATURE) === true,
+      repositoryIssues: hello.features?.includes(REPOSITORY_ISSUES_FEATURE) === true,
       githubBoard: hello.features?.includes(GITHUB_BOARD_FEATURE) === true,
       gitLog: hello.features?.includes(GIT_LOG_FEATURE) === true,
       queueClear: hello.features?.includes(QUEUE_CLEAR_FEATURE) === true,

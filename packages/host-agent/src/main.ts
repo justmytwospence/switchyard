@@ -11,6 +11,7 @@ import {
   ISSUE_DESCRIPTION_FEATURE,
   PROTOCOL_VERSION,
   QUEUE_CLEAR_FEATURE,
+  REPOSITORY_ISSUES_FEATURE,
   type Receipt,
 } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
@@ -220,6 +221,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         GITHUB_ISSUES_FEATURE,
         GITHUB_BOARD_FEATURE,
         ISSUE_DESCRIPTION_FEATURE,
+        REPOSITORY_ISSUES_FEATURE,
         GIT_LOG_FEATURE,
       ],
       protocolVersion: PROTOCOL_VERSION,

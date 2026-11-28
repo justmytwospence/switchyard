@@ -866,10 +866,35 @@ export async function runSetup(
  * Make a remote branch available locally: fetch it from origin and create a tracking branch when
  * there is no local one yet.
  */
-export async function prepareTrackingBranch(checkoutPath: string, branch: string): Promise<void> {
+export async function assertLocalBranchAbsent(checkoutPath: string, branch: string): Promise<void> {
   const info = await inspectCheckout(checkoutPath);
   await validateBranch(branch);
-  await runGit(info.root, ["fetch", "origin", "--", branch]);
+  const local = await runGit(
+    info.root,
+    ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
+    {
+      allowFail: true,
+    },
+  );
+  if (local.code === 0)
+    throw new SwitchyardError("conflict", `Local branch ${branch} already exists`);
+  if (local.code !== 1)
+    throw new SwitchyardError("internal", local.stderr.trim() || "git show-ref failed");
+}
+
+export async function prepareTrackingBranch(
+  checkoutPath: string,
+  branch: string,
+  strict = false,
+): Promise<void> {
+  const info = await inspectCheckout(checkoutPath);
+  await validateBranch(branch);
+  await runGit(
+    info.root,
+    strict
+      ? ["fetch", "origin", "--", `+refs/heads/${branch}:refs/remotes/origin/${branch}`]
+      : ["fetch", "origin", "--", branch],
+  );
   const known = await runGit(
     info.root,
     ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`],
@@ -879,5 +904,22 @@ export async function prepareTrackingBranch(checkoutPath: string, branch: string
   );
   if (known.code !== 0) {
     await runGit(info.root, ["branch", "--track", "--", branch, `origin/${branch}`]);
+  } else if (strict) {
+    const upstream = await runGit(info.root, [
+      "for-each-ref",
+      "--format=%(upstream:remotename)%00%(upstream:remoteref)",
+      `refs/heads/${branch}`,
+    ]);
+    const [remote, ref] = upstream.stdout.trim().split("\0");
+    const tip = await runGit(info.root, ["rev-parse", "--verify", `refs/remotes/origin/${branch}`]);
+    if (
+      !(remote === "origin" && ref === `refs/heads/${branch}`) &&
+      known.stdout.trim() !== tip.stdout.trim()
+    ) {
+      throw new SwitchyardError(
+        "conflict",
+        `Local branch ${branch} does not match origin/${branch}`,
+      );
+    }
   }
 }

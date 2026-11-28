@@ -90,6 +90,51 @@ function eventCount(tc: TestCoordinator, type: string): number {
 }
 
 describe("host link", () => {
+  it("gates repository reads on the connected host's specific feature", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds, ["trackers.v1"]);
+    expect(t.c.hostHub.supportsRepositoryIssues(creds.hostId)).toBe(false);
+    for (const command of [
+      { type: "tracker.repoIssuesPage" as const, repository: "acme/app" },
+      { type: "tracker.repoIssue" as const, repository: "acme/app", number: 1 },
+    ])
+      await expect(t.c.hostHub.request(creds.hostId, command)).rejects.toMatchObject({
+        code: "unsupported_capability",
+      });
+    expect(h.inbox.messages.filter((m) => m.type === "command")).toHaveLength(0);
+    await connectAgent(t, creds, ["trackers.repositoryIssues.v1"]);
+    expect(t.c.hostHub.supportsRepositoryIssues(creds.hostId)).toBe(true);
+  });
+
+  it("gates strict branch commands without changing legacy commands", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds, ["trackers.v1"]);
+    const commands = [
+      { type: "tracker.prepareBranch" as const, checkoutPath: "/repo", branch: "topic" },
+      {
+        type: "tracker.startIssue" as const,
+        checkoutPath: "/repo",
+        repository: "acme/app",
+        number: 1,
+        branch: "topic",
+        base: "main",
+      },
+    ];
+    for (const command of commands) {
+      await expect(
+        t.c.hostHub.request(creds.hostId, { ...command, strict: true }),
+      ).rejects.toMatchObject({ code: "unsupported_capability" });
+      await t.c.hostHub.request(creds.hostId, command);
+    }
+    expect(h.commands).toHaveLength(2);
+    const capable = await connectAgent(t, creds, ["trackers.v1", "trackers.repositoryIssues.v1"]);
+    for (const command of commands)
+      await t.c.hostHub.request(creds.hostId, { ...command, strict: true });
+    expect(capable.commands).toHaveLength(2);
+  });
+
   it("does not infer description support from tracker sync", async () => {
     t = await startCoordinator();
     const creds = await enrollHost(t);
