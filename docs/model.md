@@ -75,7 +75,7 @@ A branch's stage comes from facts, never from a status Switchyard stores:
 | In review | Its pull request is open |
 | Merged | Its pull request has merged |
 
-The Board shows branches by stage, or, for a GitHub scope with a Projects board, by that board's columns. Its Issue list and New session's From an issue picker share the same tracked-issue inventory for the selected scope. A repository filter narrows that inventory; a scope covering one repository already sets the destination. Selecting an issue reads it. Only Start session provisions work.
+The Board shows branches by stage, or, for a GitHub scope with a Projects board, by that board's columns. Its Issue list and New session's From an issue picker share the same inventory rules. A repository selected under All work or a manual project scope shows that repository’s open GitHub issues. A repository filter inside a source scope only narrows the tracked inventory. Selecting an issue reads it. Only Start session provisions work; the same GitHub issue in different views reuses its branch and session.
 
 ## Tasks
 

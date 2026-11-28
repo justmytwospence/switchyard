@@ -49,6 +49,8 @@ export function WorkCard({
   const press = useLongPress(() => setMenuOpen(true), { enabled: !!phone });
   const status = statusOf(card);
   const inspectable = !!card.issue && card.issueInspectable !== false;
+  const startProblem =
+    inspectable && card.issue && !card.sessionId ? board.cardActionProblem(card.issue.id) : null;
   const openWork = () => {
     saveBoardAnchor(board, card.issue?.id ?? card.key);
     void (inspectable && card.issue && !card.sessionId
@@ -78,6 +80,8 @@ export function WorkCard({
             label: card.sessionId ? "Open session" : "Start session",
             icon: <Play className="size-4" />,
             onSelect: openWork,
+            disabled: !!startProblem,
+            hint: startProblem ?? undefined,
           },
         ]
       : []),
@@ -226,7 +230,7 @@ export function WorkCard({
               size="sm"
               variant="secondary"
               icon={<Play className="size-3.5" />}
-              disabled={board.pending}
+              disabled={board.pending || !!startProblem}
               data-board-card-focus
               onClick={openWork}
             >
@@ -245,7 +249,7 @@ export function WorkCard({
               size="sm"
               variant="secondary"
               icon={<Play className="size-3.5" />}
-              disabled={board.pending}
+              disabled={board.pending || !!startProblem}
               data-board-card-focus
               onClick={openWork}
             >
@@ -273,7 +277,9 @@ export function WorkCard({
         card.issue &&
         !card.sessionId &&
         card.issue.pullRequest?.state !== "MERGED" && (
-          <p className="text-xs text-muted">{board.cardActionDetail(card.issue.id)}</p>
+          <p className="text-xs text-muted">
+            {startProblem ?? board.cardActionDetail(card.issue.id)}
+          </p>
         )}
       {board.actionError && card.issue && (
         <p role="alert" className="text-xs text-danger">

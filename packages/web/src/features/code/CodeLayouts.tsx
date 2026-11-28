@@ -7,6 +7,7 @@ import { Drawer } from "../../components/ui/Overlay";
 import { Splitter } from "../../components/ui/Splitter";
 import { EmptyState, LoadingState } from "../../components/ui/states";
 import { PANE_LIMITS, usePrefs } from "../../prefs";
+import type { IssueLocator } from "../discovery/model";
 import { CodeContext, type CodeViewContext, type InspectorTab } from "./context";
 import { type SessionContext, useElementWidth, useSessionContext } from "./hooks";
 import { Inspector } from "./Inspector";
@@ -16,6 +17,26 @@ import { NewSessionFlow } from "./NewSession";
 import { useSessionActions } from "./SessionActions";
 import { Conversation, MobileSession } from "./SessionView";
 import { usePullRequest } from "./usePullRequest";
+
+function useLauncherRequest() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [request, setRequest] = useState<NewSessionRequest | null>(null);
+  useEffect(() => {
+    const incoming = location.state as
+      | (Partial<NewSessionRequest> & { newSession?: boolean })
+      | null;
+    if (!incoming?.newSession) return;
+    setRequest({
+      projectId: incoming.projectId ?? null,
+      mode: incoming.mode,
+      issue: incoming.issue,
+      browseRepository: incoming.browseRepository,
+    });
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
+  return [request, setRequest] as const;
+}
 
 function NoSession({ missing, error }: { missing: boolean; error?: string | null }) {
   if (error) {
@@ -53,7 +74,8 @@ export interface TabRequest {
 interface NewSessionRequest {
   projectId: string | null;
   mode?: "prompt" | "issue";
-  issueId?: string;
+  issue?: IssueLocator;
+  browseRepository?: boolean;
 }
 
 interface LayoutProps {
@@ -72,22 +94,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
   const setPaneSize = usePrefs((s) => s.setPaneSize);
   const collapsed = usePrefs((s) => s.inspectorCollapsed);
   const setPref = usePrefs((s) => s.set);
-  const [newFor, setNewFor] = useState<NewSessionRequest | null>(null);
-  const location = useLocation();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: react to a palette request only
-  useEffect(() => {
-    const request = location.state as
-      | (Partial<NewSessionRequest> & { newSession?: boolean })
-      | null;
-    if (request?.newSession) {
-      setNewFor({
-        projectId: request.projectId ?? null,
-        mode: request.mode,
-        issueId: request.issueId,
-      });
-      navigate(location.pathname, { replace: true, state: null });
-    }
-  }, [location.state]);
+  const [newFor, setNewFor] = useLauncherRequest();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const ctx = useSessionContext(props.session);
@@ -105,7 +112,7 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
       setNewFor(null);
       navigate(`/code/${encodeURIComponent(id)}`);
     },
-    [navigate],
+    [navigate, setNewFor],
   );
 
   return (
@@ -114,6 +121,9 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
         variant="pane"
         selectedId={props.sessionId}
         onNewSession={(pid) => setNewFor({ projectId: pid ?? null })}
+        onBrowseRepository={(pid) =>
+          setNewFor({ projectId: pid, mode: "issue", browseRepository: true })
+        }
         className="shrink-0 border-r border-border"
         style={{ width: fit.nav }}
       />
@@ -148,15 +158,19 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
           <NoSession missing={!!props.sessionId} error={props.loadError} />
         )}
       </div>
-      <NewSessionFlow
-        open={newFor !== null}
-        projectId={newFor?.projectId ?? null}
-        initialMode={newFor?.mode}
-        initialIssueId={newFor?.issueId}
-        onClose={() => setNewFor(null)}
-        onCreated={onCreated}
-        mobile={false}
-      />
+      {newFor && (
+        <NewSessionFlow
+          key={JSON.stringify(newFor)}
+          open
+          projectId={newFor.projectId}
+          initialMode={newFor.mode}
+          initialIssue={newFor.issue}
+          browseRepository={newFor.browseRepository}
+          onClose={() => setNewFor(null)}
+          onCreated={onCreated}
+          mobile={false}
+        />
+      )}
     </div>
   );
 }
@@ -301,29 +315,14 @@ function SessionPanes({
 /** Mobile: the session list at /code, one session screen at /code/:id. */
 export function CodeMobile(props: LayoutProps) {
   const navigate = useNavigate();
-  const [newFor, setNewFor] = useState<NewSessionRequest | null>(null);
-  const location = useLocation();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: react to a palette request only
-  useEffect(() => {
-    const request = location.state as
-      | (Partial<NewSessionRequest> & { newSession?: boolean })
-      | null;
-    if (request?.newSession) {
-      setNewFor({
-        projectId: request.projectId ?? null,
-        mode: request.mode,
-        issueId: request.issueId,
-      });
-      navigate(location.pathname, { replace: true, state: null });
-    }
-  }, [location.state]);
+  const [newFor, setNewFor] = useLauncherRequest();
   const ctx = useSessionContext(props.session);
   const onCreated = useCallback(
     (id: string) => {
       setNewFor(null);
       navigate(`/code/${encodeURIComponent(id)}`, { state: BACK_STATE });
     },
-    [navigate],
+    [navigate, setNewFor],
   );
   if (props.sessionId) {
     if (!props.hydrated) return <LoadingState label="Loading session…" />;
@@ -343,17 +342,24 @@ export function CodeMobile(props: LayoutProps) {
         variant="screen"
         selectedId={null}
         onNewSession={(pid) => setNewFor({ projectId: pid ?? null })}
+        onBrowseRepository={(pid) =>
+          setNewFor({ projectId: pid, mode: "issue", browseRepository: true })
+        }
         className="min-h-0 flex-1 safe-pt"
       />
-      <NewSessionFlow
-        open={newFor !== null}
-        projectId={newFor?.projectId ?? null}
-        initialMode={newFor?.mode}
-        initialIssueId={newFor?.issueId}
-        onClose={() => setNewFor(null)}
-        onCreated={onCreated}
-        mobile
-      />
+      {newFor && (
+        <NewSessionFlow
+          key={JSON.stringify(newFor)}
+          open
+          projectId={newFor.projectId}
+          initialMode={newFor.mode}
+          initialIssue={newFor.issue}
+          browseRepository={newFor.browseRepository}
+          onClose={() => setNewFor(null)}
+          onCreated={onCreated}
+          mobile
+        />
+      )}
     </div>
   );
 }

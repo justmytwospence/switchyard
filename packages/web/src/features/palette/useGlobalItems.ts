@@ -3,7 +3,8 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { useSyncStore } from "../../sync/store";
-import { issueInventory } from "../discovery/model";
+import { githubRepository, issueInventory, repositoryInventory } from "../discovery/model";
+import { loadedRepositoryIssues, useRepositoryIssueCache } from "../discovery/useIssueInventory";
 import { useSelectedScope } from "../scopes/selection";
 import { SECTIONS } from "../settings/shared";
 import type { PaletteItem } from "./registry";
@@ -20,6 +21,7 @@ export function useGlobalItems(): PaletteItem[] {
   const issues = useSyncStore((s) => s.issues);
   const scopes = useSyncStore((s) => s.scopes);
   const [scopeId] = useSelectedScope();
+  const repoCache = useRepositoryIssueCache();
   return useMemo(() => {
     const issueList = Object.values(issues);
     const issueOf = issueLookup(issueList);
@@ -27,17 +29,20 @@ export function useGlobalItems(): PaletteItem[] {
     const issueSet = scope ? issueBranchSet(scope, issueList) : null;
     const go = (path: string, state?: unknown) => () => navigate(path, { state });
     const items: PaletteItem[] = [];
-    for (const item of issueInventory(
-      { projects, issues, workspaces, sessions, scopes },
-      { scope, projectId: null, query: "", subset: "all", sort: "number" },
-    )) {
+    const discoveryInput = { projects, issues, workspaces, sessions, scopes };
+    const options = { scope, projectId: null, query: "", subset: "all", sort: "number" } as const;
+    const repoRows = loadedRepositoryIssues(repoCache, projects);
+    for (const item of [
+      ...issueInventory(discoveryInput, options, repoRows),
+      ...repositoryInventory(discoveryInput, options, repoRows),
+    ]) {
       items.push({
         id: `issue:${item.id}`,
         title: `#${item.issue.number} ${item.issue.title}`,
         subtitle: `${item.issue.repository} · ${item.origin}`,
         keywords: [item.issue.repository, item.projectName, item.origin, String(item.issue.number)],
         group: "Issues",
-        run: go("/code", { newSession: true, mode: "issue", issueId: item.id }),
+        run: go("/code", { newSession: true, mode: "issue", issue: item.locator }),
       });
     }
     for (const s of Object.values(sessions)) {
@@ -79,6 +84,21 @@ export function useGlobalItems(): PaletteItem[] {
         group: "Projects",
         run: go(`/settings/projects/${encodeURIComponent(p.id)}`),
       });
+      const repository = githubRepository(p);
+      if (repository)
+        items.push({
+          id: `repository-issues:${p.id}`,
+          title: `Browse repository issues in ${p.name}`,
+          subtitle: repository,
+          keywords: [repository, "open issues"],
+          group: "Projects",
+          run: go("/code", {
+            newSession: true,
+            mode: "issue",
+            projectId: p.id,
+            browseRepository: true,
+          }),
+        });
     }
     for (const h of Object.values(hosts)) {
       if (h.revokedAt) continue;
@@ -114,5 +134,5 @@ export function useGlobalItems(): PaletteItem[] {
     action("settings", "Go to Settings", go("/settings"), "goSettings");
     action("keyboard-help", "Keyboard shortcuts", () => usePalette.getState().setHelpOpen(true));
     return items;
-  }, [navigate, sessions, tasks, projects, hosts, workspaces, issues, scopes, scopeId]);
+  }, [navigate, sessions, tasks, projects, hosts, workspaces, issues, scopes, scopeId, repoCache]);
 }

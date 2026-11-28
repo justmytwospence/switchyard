@@ -1,6 +1,6 @@
 import type { Checkout, Host, OpenIssueRequest, Scope } from "@switchyard/protocol";
-import { discoveryWriteBackHint } from "../scopes/describe";
-import type { IssueInventoryItem } from "./model";
+import { discoveryWriteBackHint, sourceNeedsRefresh } from "../scopes/describe";
+import type { IssueInventoryItem, IssueLocator } from "./model";
 
 export interface IssueActionOptions {
   instruction?: string;
@@ -21,7 +21,7 @@ export type IssueAction = ActionCopy &
     | { kind: "open"; sessionId: string }
     | {
         kind: "start";
-        issueId: string;
+        locator: IssueLocator;
         request: Pick<OpenIssueRequest, "hostId" | "prompt"> & { profileId?: string };
       }
     | { kind: "none" }
@@ -45,13 +45,15 @@ export function issueAction(
   }
   if (item.merged) return { kind: "none", label: "Merged", consequences: [] };
 
-  const { issue } = item;
+  const { issue, locator, sourceId } = item;
   const { hostId, profileId } = options;
-  const sourceScope = options.scopes?.[issue.scopeId];
-  const sourceHostId = sourceScope?.source?.hostId;
-  // A read may find work on a fallback linked branch. The start endpoint uses the stored
-  // chosen branch (or first link), so describe placement for the branch it will actually open.
-  const branch = issue.branch ?? issue.branches[0] ?? null;
+  const sourceScope = sourceId ? options.scopes?.[sourceId] : undefined;
+  const source = sourceScope?.source;
+  if ((source && sourceNeedsRefresh(source)) || (sourceId && options.scopes && !source)) {
+    return { kind: "none", label: "Refresh the source before starting", consequences: [] };
+  }
+  const sourceHostId = source?.hostId;
+  const branch = item.branchName;
   const consequences: string[] = [];
   if (!branch) {
     consequences.push("Create branch and worktree");
@@ -60,7 +62,11 @@ export function issueAction(
       Object.values(options.checkouts ?? {}).some(
         (checkout) => checkout.projectId === issue.projectId && checkout.hostId === sourceHostId,
       );
-    consequences.push(sourceCheckout ? "Link branch on GitHub" : "Local branch only");
+    consequences.push(
+      locator.kind === "repository" || sourceCheckout
+        ? "Link branch on GitHub"
+        : "Local branch only",
+    );
   } else {
     consequences.push(`Use ${branch}`);
     const hasWorktree =
@@ -71,7 +77,7 @@ export function issueAction(
   consequences.push(
     hostId ? `On ${options.hosts?.[hostId]?.name ?? hostId}` : "Use project placement",
   );
-  const writeBack = discoveryWriteBackHint(issue, sourceScope);
+  const writeBack = locator.kind === "tracked" ? discoveryWriteBackHint(issue, sourceScope) : null;
   if (writeBack) consequences.push(writeBack);
   if (instruction)
     consequences.push(
@@ -81,7 +87,7 @@ export function issueAction(
     kind: "start",
     label: instruction ? "Start and send" : "Start session",
     consequences,
-    issueId: item.id,
+    locator,
     request: {
       ...(hostId ? { hostId } : {}),
       ...(profileId ? { profileId } : {}),

@@ -10,6 +10,7 @@ import { UnsupportedCapability } from "../../components/ui/states";
 import { TextLink } from "../../components/ui/TextLink";
 import { cn } from "../../lib/cn";
 import { formatTime } from "../../lib/time";
+import { useResource } from "../../lib/useResource";
 import {
   useContributions,
   usePanels,
@@ -18,8 +19,10 @@ import {
   useTranscript,
 } from "../../sync/store";
 import { IssuePreview } from "../discovery/IssuePreview";
+import type { IssueLocator } from "../discovery/model";
 import { runsIn } from "../scopes/where";
 import { protectionLabel } from "../settings/policyLogic";
+import { getSessionIssueWork } from "../workboard/api";
 import { AdapterDiagnostics } from "./AdapterDiagnostics";
 import { AdapterPanel } from "./AdapterPanel";
 import { ControlChip } from "./ConversationHeader";
@@ -380,12 +383,81 @@ function ExtensionDiagnostics({ ctx }: { ctx: SessionContext }) {
   );
 }
 
+function SessionIssueFact({
+  ctx,
+  tracked,
+  standalone,
+}: {
+  ctx: SessionContext;
+  tracked: ReturnType<typeof useSessionPlace>["issue"];
+  standalone?: boolean;
+}) {
+  const { session, workspace } = ctx;
+  const [reading, setReading] = useState(false);
+  const { data } = useResource(!tracked && session.projectId ? session.id : null, (signal) =>
+    getSessionIssueWork(session.id, signal),
+  );
+  const work = data?.projectId === session.projectId ? data : null;
+  const issue = tracked ?? work;
+  if (!issue) return null;
+  const locator: IssueLocator | null = tracked
+    ? { kind: "tracked", id: tracked.id }
+    : work
+      ? { kind: "repository", projectId: work.projectId, number: work.number, nodeId: work.itemId }
+      : null;
+  const fact = (
+    <>
+      <dt className="text-muted">Issue</dt>
+      <dd className="min-w-0 break-words">
+        <a href={issue.url} target="_blank" rel="noreferrer" className="hover:underline">
+          #{issue.number} {issue.title}
+        </a>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setReading(true)}>
+          Read issue
+        </Button>
+        {reading && locator && (
+          <Dialog open onClose={() => setReading(false)} title="Read issue">
+            <IssuePreview
+              locator={locator}
+              issue={issue}
+              branchName={workspace?.branch ?? issue.branch}
+              sessionId={session.id}
+            />
+          </Dialog>
+        )}
+      </dd>
+    </>
+  );
+  return standalone ? (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-sm">{fact}</dl>
+  ) : (
+    fact
+  );
+}
+
+function sessionIssueKey(ctx: SessionContext, trackedId: string | undefined) {
+  const { session, workspace } = ctx;
+  return JSON.stringify([
+    session.id,
+    session.projectId,
+    workspace?.id,
+    workspace?.branch,
+    trackedId,
+  ]);
+}
+
+export function SessionIssueDetails({ ctx }: { ctx: SessionContext }) {
+  const { issue } = useSessionPlace(ctx.session);
+  return (
+    <SessionIssueFact key={sessionIssueKey(ctx, issue?.id)} ctx={ctx} tracked={issue} standalone />
+  );
+}
+
 /** Project, host, branch, model and context facts for a session. */
 export function SessionFacts({ ctx }: { ctx: SessionContext }) {
   const { session, workspace, host } = ctx;
   const meter = contextMeter(session);
   const place = useSessionPlace(session);
-  const [readIssueId, setReadIssueId] = useState<string | null>(null);
   const note = scopeNote(place, session);
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
@@ -407,33 +479,11 @@ export function SessionFacts({ ctx }: { ctx: SessionContext }) {
       <dd>{ctx.control === "none" ? "Manual session" : <ControlChip ctx={ctx} />}</dd>
       <dt className="text-muted">Policies</dt>
       <dd>{protectionLabel(session)}</dd>
-      {place.issue && (
-        <>
-          <dt className="text-muted">Issue</dt>
-          <dd className="min-w-0 break-words">
-            <a href={place.issue.url} target="_blank" rel="noreferrer" className="hover:underline">
-              #{place.issue.number} {place.issue.title}
-            </a>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setReadIssueId(place.issue?.id ?? null)}
-            >
-              Read issue
-            </Button>
-            {readIssueId === place.issue.id && (
-              <Dialog open onClose={() => setReadIssueId(null)} title="Read issue">
-                <IssuePreview
-                  issue={place.issue}
-                  branchName={workspace?.branch ?? null}
-                  sessionId={session.id}
-                />
-              </Dialog>
-            )}
-          </dd>
-        </>
-      )}
+      <SessionIssueFact
+        key={sessionIssueKey(ctx, place.issue?.id)}
+        tracked={place.issue}
+        ctx={ctx}
+      />
       {note && (
         <>
           <dt className="text-muted">Scope</dt>

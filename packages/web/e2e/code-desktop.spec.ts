@@ -1,5 +1,5 @@
 import type { Page, Request } from "@playwright/test";
-import { launcherFixture } from "./launcher-fixture";
+import { launcherFixture, launcherSourceId } from "./launcher-fixture";
 import { createSession, expect, poll, test, uid, viewportOf } from "./support";
 
 test.skip(({ isMobile }) => isMobile, "Desktop and compact coding view only");
@@ -745,6 +745,80 @@ test.describe("desktop coding view", () => {
     expect(fixture.counts()).toEqual({ descriptions: 1, mutations: 0 });
     await launcher.getByRole("button", { name: "Cancel" }).click();
     expect(fixture.counts().mutations).toBe(0);
+  });
+
+  test("palette repository entry does not broaden the launcher scope and opens shared work only once", async ({
+    page,
+    state,
+    api,
+  }) => {
+    const session = await api("GET", `/api/sessions/${state.sessions.long}`);
+    const fixture = await launcherFixture(page, state.projectId, { session });
+    await page.goto("/code");
+    const scope = page.getByTestId("navigator").getByLabel("Scope", { exact: true });
+    await scope.selectOption(launcherSourceId);
+    const launcher = page.getByRole("dialog", { name: "New session" });
+    await page.getByTestId("new-session").click();
+    await expect(launcher.getByLabel("What should Pi do?")).toBeVisible();
+    await launcher.getByRole("button", { name: "From an issue" }).click();
+    await expect(launcher.getByText("Tracked by Launcher board")).toBeVisible();
+    await expect(launcher.getByLabel("Repository", { exact: true })).toHaveCount(0);
+    await expect(launcher.getByRole("button", { name: /#1 Launcher fixture 1/ })).toBeVisible();
+    expect(fixture.repoReads).toEqual([]);
+    await launcher.getByRole("button", { name: "Cancel" }).click();
+
+    const searchPalette = async (query: string) => {
+      await page.keyboard.press("ControlOrMeta+k");
+      const palette = page.getByRole("dialog", { name: "Command palette" });
+      await palette.getByRole("combobox", { name: "Search" }).fill(query);
+      return palette;
+    };
+    const projectPalette = await searchPalette("Browse repository issues Demo project");
+    await projectPalette
+      .getByText("Browse repository issues in Demo project", { exact: true })
+      .click();
+    await expect(launcher.getByText("Open issues in fixture/repo")).toBeVisible();
+    await launcher.getByRole("button", { name: "Load more" }).click();
+    await expect(
+      launcher.getByRole("button", { name: /#17 Unassigned repository-only fix/ }),
+    ).toBeVisible();
+    await launcher.getByRole("button", { name: "Cancel" }).click();
+    await expect(scope).toHaveValue(launcherSourceId);
+
+    const repoPalette = await searchPalette("Unassigned repository-only fix");
+    await repoPalette.getByText("#17 Unassigned repository-only fix", { exact: true }).click();
+    await expect(launcher.getByText("Repository description 17")).toBeVisible();
+    expect(fixture.repoReads).toEqual([null, "second-page"]);
+    expect(fixture.repoDescriptions).toEqual([17]);
+    expect(fixture.repoStarts).toEqual([]);
+    expect(fixture.counts()).toEqual({ descriptions: 0, mutations: 0 });
+    await launcher.getByRole("button", { name: "Back to issues" }).click();
+    await launcher.getByRole("button", { name: /#1 Launcher fixture 1/ }).click();
+    await expect(launcher.getByText("Repository description 1")).toBeVisible();
+    await expect(launcher.getByText(/Link branch on GitHub/)).toBeVisible();
+    await launcher.getByRole("button", { name: "Start session", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/code/${session.id}$`));
+    expect(fixture.repoStarts).toEqual([expect.objectContaining({ expectedNodeId: "issue-1" })]);
+
+    const trackedPalette = await searchPalette("Launcher fixture 1");
+    await trackedPalette
+      .getByText("fixture/repo · Launcher board", { exact: true })
+      .first()
+      .click();
+    await expect(launcher.getByText("Fixture description")).toBeVisible();
+    await launcher.getByRole("button", { name: "Open session", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/code/${session.id}$`));
+    expect(fixture.repoStarts).toHaveLength(1);
+    expect(fixture.counts()).toEqual({ descriptions: 1, mutations: 0 });
+
+    await page.goto(`/code/${session.id}?tab=task`);
+    const details = page.getByTestId("inspector");
+    await expect(details.getByRole("link", { name: "#1 Launcher fixture 1" })).toBeVisible();
+    await details.getByRole("button", { name: "Read issue" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Read issue" }).getByText("Repository description 1"),
+    ).toBeVisible();
+    expect(fixture.counts()).toEqual({ descriptions: 1, mutations: 0 });
   });
 
   test("starting a selected issue makes one explicit request", async ({ page, state, api }) => {

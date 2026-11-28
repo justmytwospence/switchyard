@@ -4,18 +4,18 @@ import { useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { toast } from "../../components/ui/Toast";
 import { useFilter } from "../../prefs";
-import { errorMessage } from "../../sync/api";
+import { errorMessage, isApiError } from "../../sync/api";
 import { useSyncStore } from "../../sync/store";
 import { codeApi } from "../code/api";
 import { issueAction } from "../discovery/issueAction";
+import { discoveryContext, discoveryProjects, type IssueInventoryItem } from "../discovery/model";
 import {
-  discoveryContext,
-  discoveryProjects,
-  type IssueInventoryItem,
-  issueInventory,
-} from "../discovery/model";
+  type IssueInventory,
+  rememberIssueSession,
+  useIssueInventory,
+} from "../discovery/useIssueInventory";
 import { useScopeDescriber } from "../scopes/ScopeSelect";
-import { useSelectedScope } from "../scopes/selection";
+import { currentScopeId, useSelectedScope } from "../scopes/selection";
 import { openIssue, setIssueStatus } from "./api";
 import {
   type BoardCard,
@@ -49,15 +49,13 @@ export interface WorkBoard {
   emptyCount: number;
   total: number;
   projects: ReturnType<typeof useSyncStore.getState>["projects"];
-  scopes: Record<string, Scope>;
   projectId: string | null;
   setProjectId: (id: string | null) => void;
   subset: "notStarted" | "all";
   setSubset: (subset: "notStarted" | "all") => void;
   sort: "number" | "priority";
   setSort: (sort: "number" | "priority") => void;
-  items: IssueInventoryItem[];
-  hasTrackedIssues: boolean;
+  inventory: IssueInventory;
   selectedId: string | null;
   selectedItem: IssueInventoryItem | null;
   inspect: (id: string | null) => void;
@@ -65,7 +63,9 @@ export interface WorkBoard {
   pending: boolean;
   actionError: string | null;
   actionDetail: (item: IssueInventoryItem) => string;
+  actionProblem: (item: IssueInventoryItem) => string | null;
   cardActionDetail: (id: string) => string;
+  cardActionProblem: (id: string) => string | null;
   canDrop: (card: BoardCard, column: BoardColumn) => { ok: true } | { ok: false; reason: string };
   /** Open a card: its session, or start its branch or issue. */
   activate: (card: BoardCard) => Promise<void>;
@@ -108,28 +108,25 @@ export function useWorkBoard(): WorkBoard {
       ? local.projectId
       : null;
   const subset = local.subset ?? "notStarted";
-  const [selection, setSelection] = useState<{ scopeId: string | null; id: string } | null>(null);
-  const selectedId = selection?.scopeId === scopeId ? selection.id : null;
+  const inventory = useIssueInventory({
+    enabled: hydrated,
+    forceTracked: prefs.layout !== "issues",
+    scope,
+    projectId,
+    query: prefs.query,
+    subset,
+    sort,
+  });
+  const selectionKey = JSON.stringify([scopeId, prefs.layout, inventory.key]);
+  const [selection, setSelection] = useState<{ key: string; id: string } | null>(null);
+  const selectedId = selection?.key === selectionKey ? selection.id : null;
   const [pending, setPending] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+  const actionError = failure?.key === selectionKey ? failure.message : null;
   const busy = useRef(false);
-  const items = useMemo(
-    () =>
-      issueInventory(
-        { projects, workspaces, sessions, issues, scopes },
-        { scope, projectId, query: prefs.query, subset, sort },
-      ),
-    [projects, workspaces, sessions, issues, scopes, scope, projectId, prefs.query, subset, sort],
-  );
-  const allItems = useMemo(
-    () =>
-      issueInventory(
-        { projects, workspaces, sessions, issues, scopes },
-        { scope, projectId, query: "", subset: "all", sort },
-      ),
-    [projects, workspaces, sessions, issues, scopes, scope, projectId, sort],
-  );
-  const selectedExists = !selectedId || allItems.some((item) => item.id === selectedId);
+  const allItems = inventory.allItems;
+  const selectedExists =
+    !selectedId || inventory.loading || allItems.some((item) => item.id === selectedId);
   useEffect(() => {
     if (!selectedExists) {
       setSelection(null);
@@ -137,8 +134,8 @@ export function useWorkBoard(): WorkBoard {
     }
   }, [selectedExists]);
   useEffect(() => {
-    if (selection && selection.scopeId !== scopeId) setSelection(null);
-  }, [scopeId, selection]);
+    if (selection && selection.key !== selectionKey) setSelection(null);
+  }, [selectionKey, selection]);
   const githubBoard = useMemo(() => githubBoardOf(scope, Object.values(issues)), [scope, issues]);
   const mode: BoardMode = prefs.mode === "github" && githubBoard ? "github" : "stage";
   const github = githubBoard?.scope ?? null;
@@ -194,23 +191,29 @@ export function useWorkBoard(): WorkBoard {
   const action = async (id: string) => {
     if (busy.current) return;
     const fresh = useSyncStore.getState();
-    if (scopeId && !fresh.scopes[scopeId]) return;
-    const item = issueInventory(fresh, {
-      scope: scopeId ? (fresh.scopes[scopeId] ?? null) : null,
-      projectId,
-      query: "",
-      subset: "all",
-      sort,
-    }).find((candidate) => candidate.id === id);
-    if (!item || (item.merged && !item.sessionId)) return;
-    if (item.sessionId) return go(item.sessionId);
+    if (currentScopeId() !== scopeId || (scopeId && !fresh.scopes[scopeId])) return;
+    const item = inventory.currentItem(id, scopeId ? fresh.scopes[scopeId]! : null);
+    if (!item) return;
+    const intent = issueAction(item, fresh);
+    if (intent.kind === "open") return go(intent.sessionId);
+    if (intent.kind !== "start" || (item.locator.kind === "repository" && inventory.loading))
+      return;
     busy.current = true;
     setPending(true);
-    setActionError(null);
+    setFailure(null);
     try {
-      go((await openIssue(id)).session.id);
+      const { session } = await openIssue(intent.locator, intent.request);
+      rememberIssueSession(item, session);
+      go(session.id);
     } catch (e) {
-      setActionError(errorMessage(e));
+      setFailure({ key: selectionKey, message: errorMessage(e) });
+      if (
+        item.locator.kind === "repository" &&
+        isApiError(e) &&
+        (e.status === 409 || e.status === 404)
+      ) {
+        inventory.refresh?.();
+      }
     } finally {
       busy.current = false;
       setPending(false);
@@ -229,6 +232,14 @@ export function useWorkBoard(): WorkBoard {
     }
   };
 
+  const actionProblem = (item: IssueInventoryItem) => {
+    const intent = issueAction(item, { hosts, checkouts, scopes });
+    if (intent.kind === "none") return intent.label;
+    return intent.kind === "start" && item.locator.kind === "repository" && inventory.loading
+      ? "Refreshing repository issues…"
+      : null;
+  };
+
   return {
     hydrated,
     scope,
@@ -241,7 +252,6 @@ export function useWorkBoard(): WorkBoard {
     columns,
     emptyCount,
     projects,
-    scopes,
     projectId,
     setProjectId: (id) => {
       setLocal({ ...local, projectId: id });
@@ -254,16 +264,23 @@ export function useWorkBoard(): WorkBoard {
     },
     sort,
     setSort,
-    items,
-    hasTrackedIssues: allItems.length > 0,
+    inventory,
     selectedId,
     selectedItem: allItems.find((item) => item.id === selectedId) ?? null,
-    inspect: (id) => setSelection(id ? { scopeId, id } : null),
+    inspect: (id) => {
+      setSelection(id ? { key: selectionKey, id } : null);
+      setFailure(null);
+    },
     action,
     pending,
     actionError,
     actionDetail: (item) =>
       issueAction(item, { hosts, checkouts, scopes }).consequences.join(" · "),
+    actionProblem,
+    cardActionProblem: (id) => {
+      const item = allItems.find((candidate) => candidate.id === id);
+      return item ? actionProblem(item) : null;
+    },
     cardActionDetail: (id) => {
       const item = allItems.find((candidate) => candidate.id === id);
       return item ? issueAction(item, { hosts, checkouts, scopes }).consequences.join(" · ") : "";

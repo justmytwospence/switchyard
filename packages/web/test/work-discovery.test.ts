@@ -2,6 +2,7 @@ import {
   type GitHubSource,
   issueBranchSet,
   type Project,
+  RepoIssueItem,
   type Scope,
   sessionInScope,
   type TrackedIssue,
@@ -15,7 +16,9 @@ import {
   discoveryContext,
   discoveryProjects,
   type IssueInventoryOptions,
+  inventoryIntent,
   issueInventory,
+  repositoryInventory,
   scopeRepositoryLabel,
 } from "../src/features/discovery/model";
 import { describeDiscoverySource } from "../src/features/scopes/describe";
@@ -195,6 +198,32 @@ describe("discovery coverage", () => {
     expect(discoveryProjects(null, [beta, alpha])).toEqual([alpha, beta]);
     expect(discoveryProjects(scope({ mode: "pinned" }), [alpha])).toEqual([]);
     expect(discoveryProjects(null, [alpha, project("0")]).map((p) => p.id)).toEqual(["0", "a"]);
+  });
+
+  it("chooses repository inventory only for a concrete GitHub project outside contextual source membership", () => {
+    const projects = byId([alpha, beta, local]);
+    const contextual = { kind: "contextual" } as const;
+    const explicit = { kind: "repository", projectId: alpha.id } as const;
+    expect(inventoryIntent(null, contextual, null, projects).coverage).toBe("known");
+    expect(inventoryIntent(null, contextual, alpha.id, projects).kind).toBe("repository");
+    expect(inventoryIntent(null, contextual, local.id, projects).kind).toBe("tracked");
+    const manual = scope({ projectIds: [alpha.id] });
+    expect(inventoryIntent(manual, contextual, null, projects).kind).toBe("repository");
+    const multi = scope({ projectIds: [alpha.id, beta.id] });
+    expect(inventoryIntent(multi, contextual, null, projects).coverage).toBe("known");
+    expect(inventoryIntent(multi, contextual, beta.id, projects).kind).toBe("repository");
+    expect(inventoryIntent(sourced(), contextual, null, projects).coverage).toBe("source");
+    expect(
+      inventoryIntent(sourced("mine", {}, [alpha.id, beta.id]), contextual, beta.id, projects)
+        .coverage,
+    ).toBe("source");
+    const pins = scope({ mode: "pinned" });
+    expect(inventoryIntent(pins, contextual, alpha.id, projects).kind).toBe("pins");
+    expect(inventoryIntent(sourced(), explicit, null, projects).kind).toBe("repository");
+    expect(inventoryIntent(pins, explicit, null, projects).kind).toBe("repository");
+    expect(
+      inventoryIntent(sourced(), { kind: "repository", projectId: "removed" }, null, projects),
+    ).toMatchObject({ kind: "repository", project: null });
   });
 
   it("names the fixed scope and repository only once", () => {
@@ -378,6 +407,70 @@ describe("shared tracked issue inventory", () => {
   });
 });
 
+describe("repository issue inventory", () => {
+  it("keeps one repository row by node and project while every source retains its own membership", () => {
+    const team = issue("shared", { board });
+    const mine = issue("shared", { scopeId: "mine" });
+    const other = issue("shared", { projectId: beta.id, scopeId: "elsewhere" });
+    const repoItem = RepoIssueItem.parse({ ...team, board: null, sessionId: "pending" });
+    const data = input([team, mine, other]);
+    const repo = repositoryInventory(data, opts(), [repoItem, repoItem]);
+    expect(repo).toHaveLength(1);
+    expect(repo[0]).toMatchObject({
+      issue: { board: null },
+      origin: "Repository issues",
+      showOrigin: false,
+      sessionId: "pending",
+      notStarted: false,
+      locator: { kind: "repository", projectId: alpha.id, number: 9, nodeId: "shared" },
+    });
+    expect(
+      issueInventory(data, opts(), [repoItem]).map((r) => [r.id, r.sessionId, r.showOrigin]),
+    ).toEqual([
+      ["elsewhere:shared", null, false],
+      ["mine:shared", "pending", true],
+      ["team:shared", "pending", true],
+    ]);
+    expect(issueInventory(data, opts({ scope: sourced() }), [repoItem])[0]?.locator).toEqual({
+      kind: "tracked",
+      id: team.id,
+    });
+    expect(repositoryInventory(data, opts({ subset: "notStarted" }), [repoItem])).toEqual([]);
+  });
+
+  it("does not guess which remote link to open if the repository has no effective branch", () => {
+    const ws = workspace("w", "maybe");
+    const data = input([], {
+      workspaces: byId([ws]),
+      sessions: byId([session("s", { workspaceId: ws.id })]),
+    });
+    const ambiguous = RepoIssueItem.parse({
+      ...issue("ambiguous", { branches: ["maybe", "another"] }),
+      sessionId: null,
+    });
+    expect(repositoryInventory(data, opts(), [ambiguous])[0]).toMatchObject({
+      sessionId: null,
+      branchName: null,
+      notStarted: false,
+    });
+  });
+
+  it("advertises a GitHub branch link, never source write-back", () => {
+    const row = RepoIssueItem.parse({ ...issue("open"), sessionId: null });
+    const item = repositoryInventory(input([]), opts(), [row])[0]!;
+    expect(issueAction(item, { scopes: byId([sourced()]) })).toMatchObject({
+      kind: "start",
+      locator: { kind: "repository", projectId: alpha.id, number: 9, nodeId: "open" },
+      request: {},
+      consequences: [
+        "Create branch and worktree",
+        "Link branch on GitHub",
+        "Use project placement",
+      ],
+    });
+  });
+});
+
 describe("discovery descriptions", () => {
   it("lists matching sources by name, describes their coverage and keeps paused/error facts", () => {
     const team = sourced("team", {
@@ -488,7 +581,7 @@ describe("issue action intent", () => {
     expect(issueAction(item, { instruction: "   " })).toEqual({
       kind: "start",
       label: "Start session",
-      issueId: item.id,
+      locator: { kind: "tracked", id: item.id },
       request: {},
       consequences: ["Create branch and worktree", "Local branch only", "Use project placement"],
     });
@@ -547,6 +640,24 @@ describe("issue action intent", () => {
       "Create worktree",
       "Use project placement",
     ]);
+  });
+
+  it("does not allow a new start from paused, failed or never-synced sources", () => {
+    const row = getItem(issue("stale"));
+    for (const patch of [
+      { enabled: false },
+      { lastError: "Host unavailable" },
+      { lastSyncedAt: null },
+    ]) {
+      const source = sourced("team", patch);
+      expect(issueAction(row, { scopes: byId([source]) })).toMatchObject({
+        kind: "none",
+        label: "Refresh the source before starting",
+      });
+      expect(describeDiscoverySource(source, alpha, [source]).emptyState(false).title).toBe(
+        "No current issue results",
+      );
+    }
   });
 
   it("describes only applicable conditional write-back from the issue's own source", () => {

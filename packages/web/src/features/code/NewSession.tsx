@@ -2,13 +2,13 @@ import {
   issueBranchSet,
   issueBranchSetHas,
   issueLookup,
+  issueUnstarted,
   primarySession,
   type Scope,
   type Session,
 } from "@switchyard/protocol";
 import { ChevronDown, ChevronRight, GitBranch, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { Field } from "../../components/ui/Field";
@@ -19,14 +19,21 @@ import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { loadDraft, setDraftNow } from "../../drafts";
 import { useFilter, usePrefs } from "../../prefs";
-import { errorMessage } from "../../sync/api";
+import { errorMessage, isApiError } from "../../sync/api";
 import { useProjects, useSyncStore } from "../../sync/store";
+import { InventoryEmpty, InventoryMore, InventoryStatus } from "../discovery/InventoryStatus";
 import { IssueList } from "../discovery/IssueList";
 import { IssuePreview } from "../discovery/IssuePreview";
 import { issueAction } from "../discovery/issueAction";
-import { discoveryContext, issueInventory } from "../discovery/model";
+import {
+  discoveryContext,
+  githubRepository,
+  type IssueLocator,
+  issueLocatorKey,
+} from "../discovery/model";
 import { ScopeRepository } from "../discovery/ScopeRepository";
-import { describeDiscoverySource } from "../scopes/describe";
+import { rememberIssueSession, useIssueInventory } from "../discovery/useIssueInventory";
+import { currentScopeId } from "../scopes/selection";
 import { effectiveWhere, useSelectedWhere, whereLabel } from "../scopes/where";
 import { openIssue } from "../workboard/api";
 import { codeApi } from "./api";
@@ -280,7 +287,8 @@ export function NewSessionFlow({
   mobile,
   projectId = null,
   initialMode,
-  initialIssueId,
+  initialIssue,
+  browseRepository,
 }: {
   open: boolean;
   onClose: () => void;
@@ -288,7 +296,8 @@ export function NewSessionFlow({
   mobile: boolean;
   projectId?: string | null;
   initialMode?: "prompt" | "issue";
-  initialIssueId?: string;
+  initialIssue?: IssueLocator;
+  browseRepository?: boolean;
 }) {
   const id = useId();
   const [selectedScope] = useSelectedScope();
@@ -309,60 +318,29 @@ export function NewSessionFlow({
   const [launchMode, setLaunchMode] = useState<"prompt" | "issue">("prompt");
   const [issueId, setIssueId] = useState<string | null>(null);
   const [repositoryId, setRepositoryId] = useState<string | null>(null);
-  const [outside, setOutside] = useState(false);
+  const [explicitProjectId, setExplicitProjectId] = useState<string | null>(null);
+  const [trackedPreview, setTrackedPreview] = useState(false);
   const [query, setQuery] = useState("");
   const [subset, setSubset] = useState<"notStarted" | "all">("notStarted");
   const [sort, setSort] = useFilter<"number" | "priority">("discovery-sort", "number");
   const [instruction, setInstruction] = useState("");
   const [overrideDestination, setOverrideDestination] = useState(false);
   const projectsById = useSyncStore((s) => s.projects);
-  const workspaces = useSyncStore((s) => s.workspaces);
-  const sessions = useSyncStore((s) => s.sessions);
   const checkouts = useSyncStore((s) => s.checkouts);
   const hydrated = useSyncStore((s) => s.hydrated);
   const context = discoveryContext(scope, f.projects);
-  const issueProjectId = (outside ? projectId : repositoryId) ?? context.fixedProjectId;
-  const inventory = useMemo(
-    () =>
-      issueInventory(
-        { projects: projectsById, issues, workspaces, sessions, scopes: knownScopes },
-        {
-          scope: outside ? null : scope,
-          projectId: issueProjectId,
-          query: "",
-          subset: "all",
-          sort,
-        },
-      ),
-    [projectsById, issues, workspaces, sessions, knownScopes, outside, scope, issueProjectId, sort],
-  );
-  const visibleIssues = useMemo(
-    () =>
-      issueInventory(
-        { projects: projectsById, issues, workspaces, sessions, scopes: knownScopes },
-        {
-          scope: outside ? null : scope,
-          projectId: issueProjectId,
-          query,
-          subset,
-          sort,
-        },
-      ),
-    [
-      projectsById,
-      issues,
-      workspaces,
-      sessions,
-      knownScopes,
-      outside,
-      scope,
-      issueProjectId,
-      query,
-      subset,
-      sort,
-    ],
-  );
-  const selectedIssue = inventory.find((item) => item.id === issueId);
+  const issueProjectId = explicitProjectId ?? repositoryId ?? context.fixedProjectId;
+  const inventory = useIssueInventory({
+    enabled: open && hydrated && launchMode === "issue",
+    scope,
+    projectId: repositoryId,
+    entry: explicitProjectId ? { kind: "repository", projectId: explicitProjectId } : undefined,
+    forceTracked: trackedPreview,
+    query,
+    subset,
+    sort,
+  });
+  const selectedIssue = inventory.allItems.find((item) => item.id === issueId);
   const action = selectedIssue
     ? issueAction(selectedIssue, {
         instruction,
@@ -373,11 +351,6 @@ export function NewSessionFlow({
         scopes: knownScopes,
       })
     : null;
-  const source = describeDiscoverySource(
-    outside ? null : scope,
-    projectsById[issueProjectId ?? ""] ?? null,
-    knownScopes,
-  );
   const issueCollision =
     !!selectedIssue?.sessionId &&
     !!instruction.trim() &&
@@ -390,23 +363,31 @@ export function NewSessionFlow({
     promptProject.current = null;
     issueOrigin.current = null;
     setLaunchMode(initialMode ?? storedMode);
-    setIssueId(initialIssueId ?? null);
+    setIssueId(initialIssue ? issueLocatorKey(initialIssue) : null);
+    setTrackedPreview(initialIssue?.kind === "tracked");
     setRepositoryId(
-      projectId &&
+      !initialIssue &&
+        projectId &&
         (!scope ||
           (scope.mode !== "pinned" &&
             (scope.projectIds === null || scope.projectIds.includes(projectId))))
         ? projectId
         : null,
     );
-    setOutside(false);
+    setExplicitProjectId(
+      initialIssue?.kind === "repository"
+        ? initialIssue.projectId
+        : browseRepository
+          ? projectId
+          : null,
+    );
     setQuery("");
-    setSubset(initialIssueId ? "all" : "notStarted");
+    setSubset(initialIssue ? "all" : "notStarted");
     setInstruction("");
     setOverrideDestination(
       !!projectId && !!context.fixedProjectId && projectId !== context.fixedProjectId,
     );
-  }, [open, initialMode, initialIssueId, projectId, selectedScope]);
+  }, [open, initialMode, initialIssue, browseRepository, projectId, selectedScope]);
 
   useEffect(() => {
     if (!open) {
@@ -416,12 +397,20 @@ export function NewSessionFlow({
   }, [open]);
 
   useEffect(() => {
-    if (open && hydrated && issueId && !selectedIssue) {
+    if (
+      open &&
+      launchMode === "issue" &&
+      hydrated &&
+      !inventory.loading &&
+      issueId &&
+      !selectedIssue
+    ) {
       setIssueId(null);
+      setTrackedPreview(false);
       setInstruction("");
       toast.error("That issue is no longer available in this scope.");
     }
-  }, [open, hydrated, issueId, selectedIssue]);
+  }, [open, launchMode, hydrated, inventory.loading, issueId, selectedIssue]);
 
   const inspectedId = selectedIssue?.id;
   useEffect(() => {
@@ -430,7 +419,7 @@ export function NewSessionFlow({
     else issueOrigin.current?.focus();
   }, [open, launchMode, inspectedId]);
 
-  // A selected tracked issue determines the launch destination, independently of workspace resets.
+  // A selected issue determines the launch destination, independently of workspace resets.
   useEffect(() => {
     if (
       open &&
@@ -464,15 +453,9 @@ export function NewSessionFlow({
     if (launchMode === "issue") {
       const state = useSyncStore.getState();
       const freshScope = selectedScope ? state.scopes[selectedScope] : null;
-      if (!outside && selectedScope && !freshScope) return;
-      const fresh = issueInventory(state, {
-        scope: outside ? null : (freshScope ?? null),
-        projectId: issueProjectId,
-        query: "",
-        subset: "all",
-        sort,
-      }).find((item) => item.id === issueId);
-      if (!fresh || (fresh.merged && !fresh.sessionId)) return;
+      if (currentScopeId() !== selectedScope || (selectedScope && !freshScope) || !issueId) return;
+      const fresh = inventory.currentItem(issueId, freshScope ?? null);
+      if (!fresh) return;
       if (fresh.sessionId) {
         if (instruction.trim() && loadDraft(fresh.sessionId).trim()) return;
         if (instruction.trim()) setDraftNow(fresh.sessionId, instruction);
@@ -485,16 +468,17 @@ export function NewSessionFlow({
         instruction,
         hostId: f.hostId,
         profileId: f.profileId,
-        hosts: hostsById,
-        checkouts,
-        scopes: knownScopes,
+        hosts: state.hosts,
+        checkouts: state.checkouts,
+        scopes: state.scopes,
       });
       if (freshAction.kind !== "start") return;
       inFlight.current = true;
       setSubmitting(true);
       setError(null);
       try {
-        const result = await openIssue(freshAction.issueId, freshAction.request);
+        const result = await openIssue(freshAction.locator, freshAction.request);
+        rememberIssueSession(fresh, result.session);
         if (result.created) rememberInitialPrompt(result.session.id, instruction);
         else if (instruction.trim()) {
           if (loadDraft(result.session.id).trim()) {
@@ -511,6 +495,13 @@ export function NewSessionFlow({
         onCreated(result.session.id);
       } catch (e) {
         setError(e);
+        if (
+          fresh.locator.kind === "repository" &&
+          isApiError(e) &&
+          (e.status === 409 || e.status === 404)
+        ) {
+          inventory.refresh?.();
+        }
       } finally {
         inFlight.current = false;
         setSubmitting(false);
@@ -822,7 +813,10 @@ export function NewSessionFlow({
         {leaves && scope && (
           <p data-testid="new-session-leaves" className="text-xs text-muted">
             This session has no issue: it leaves {scope.name} when it stops.{" "}
-            {inventory.some((item) => item.projectId === f.projectId && item.notStarted)
+            {Object.values(issues).some(
+              (item) =>
+                item.scopeId === scope.id && item.projectId === f.projectId && issueUnstarted(item),
+            )
               ? "To keep it, choose From an issue."
               : "Pin it from its menu to keep it."}
           </p>
@@ -844,28 +838,31 @@ export function NewSessionFlow({
     );
 
   const issueProblem = !selectedIssue
-    ? "Choose a tracked issue."
+    ? "Choose an issue."
     : selectedIssue.sessionId
       ? null
-      : selectedIssue.merged
-        ? "This issue is merged."
-        : !f.project
-          ? "Choose a project."
-          : f.hostIds.length === 0
-            ? "This project has no checkout yet. Add one in Settings › Projects."
-            : !f.host
-              ? "Choose a host."
-              : !hostOnline(f.host)
-                ? `${f.host.name} is offline.`
-                : !f.host.piCompatible
-                  ? `Pi ${f.host.piVersion ?? "(not found)"} on ${f.host.name} is outside the tested range.`
-                  : !f.checkout
-                    ? `No checkout of ${f.project.name} on ${f.host.name}.`
-                    : null;
+      : action?.kind === "none"
+        ? action.label
+        : selectedIssue.locator.kind === "repository" && inventory.loading
+          ? "Refreshing repository issues…"
+          : !f.project || f.projectId !== selectedIssue.projectId
+            ? "Choose a project."
+            : f.hostIds.length === 0
+              ? "This project has no checkout yet. Add one in Settings › Projects."
+              : !f.host
+                ? "Choose a host."
+                : !hostOnline(f.host)
+                  ? `${f.host.name} is offline.`
+                  : !f.host.piCompatible
+                    ? `Pi ${f.host.piVersion ?? "(not found)"} on ${f.host.name} is outside the tested range.`
+                    : !f.checkout
+                      ? `No checkout of ${f.project.name} on ${f.host.name}.`
+                      : null;
   const problem = launchMode === "issue" ? issueProblem : f.problem;
-  const emptyIssues = source.emptyState(
-    !!query.trim() || (subset === "notStarted" && inventory.length > 0),
-  );
+  const repoMode = inventory.kind === "repository";
+  const searchLabel = repoMode ? "Search repository issues" : "Search tracked issues";
+  const entryProject = projectsById[explicitProjectId ?? projectId ?? ""];
+  const explicitBrowse = entryProject && githubRepository(entryProject);
   const close = () => {
     if (!inFlight.current) onClose();
   };
@@ -902,20 +899,21 @@ export function NewSessionFlow({
       ) : (
         <form className="space-y-3" onSubmit={(e) => e.preventDefault()}>
           <div hidden={!!selectedIssue} className="space-y-3">
-            {outside ? (
-              <p className="text-sm">
-                Outside {scope?.name}{" "}
+            {explicitProjectId ? (
+              <div className="space-y-1 text-sm">
+                <p>Repository: {entryProject?.name ?? "Unavailable project"}</p>
                 <button
                   type="button"
                   className="text-accent"
                   onClick={() => {
-                    setOutside(false);
+                    setExplicitProjectId(null);
                     setIssueId(null);
+                    setError(null);
                   }}
                 >
-                  Return to scope
+                  {scope ? `Return to ${scope.name}` : "Choose another repository"}
                 </button>
-              </p>
+              </div>
             ) : (
               <ScopeRepository
                 scope={scope}
@@ -928,54 +926,24 @@ export function NewSessionFlow({
                 }}
               />
             )}
-            {context.coverage === "pins" && !outside && (
-              <p className="text-sm text-muted">This scope contains pinned sessions only.</p>
+            {explicitBrowse && !explicitProjectId && !repoMode && (
+              <button
+                type="button"
+                className="text-sm text-accent"
+                onClick={() => {
+                  setExplicitProjectId(entryProject.id);
+                  setIssueId(null);
+                  setTrackedPreview(false);
+                  setError(null);
+                }}
+              >
+                Browse repository issues
+              </button>
             )}
-            {scope &&
-              projectId &&
-              projectsById[projectId] &&
-              !outside &&
-              (context.coverage === "pins" ||
-                (projectId &&
-                  scope.projectIds !== null &&
-                  !scope.projectIds.includes(projectId))) && (
-                <button
-                  type="button"
-                  className="text-sm text-accent"
-                  onClick={() => {
-                    setOutside(true);
-                    setIssueId(null);
-                  }}
-                >
-                  Browse tracked issues in this repo
-                </button>
-              )}
-            <div className="space-y-1 text-xs text-muted">
-              <p>{source.summary}</p>
-              {source.sources.map((s) => (
-                <p key={s.id}>
-                  {s.name}: {s.description}
-                  {s.lastError
-                    ? ` · ${s.lastError}`
-                    : s.lastSyncedAt
-                      ? ` · Last sync ${s.lastSyncedAt}`
-                      : ""}
-                </p>
-              ))}
-              {source.openIssuesUrl && (
-                <a
-                  className="text-accent"
-                  href={source.openIssuesUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  View all open issues on GitHub
-                </a>
-              )}
-            </div>
+            <InventoryStatus inventory={inventory} />
             <TextInput
-              aria-label="Search tracked issues"
-              placeholder="Search tracked issues"
+              aria-label={searchLabel}
+              placeholder={searchLabel}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -988,24 +956,25 @@ export function NewSessionFlow({
                   onChange={(e) => setSubset(e.target.value as "notStarted" | "all")}
                 >
                   <option value="notStarted">Not started</option>
-                  <option value="all">All tracked issues</option>
+                  <option value="all">{repoMode ? "All open issues" : "All tracked issues"}</option>
                 </Select>
               </label>
               <label className="text-sm" htmlFor={`${id}-sort`}>
                 Sort{" "}
                 <Select
                   id={`${id}-sort`}
-                  value={sort}
+                  value={repoMode ? "number" : sort}
                   onChange={(e) => setSort(e.target.value as "number" | "priority")}
                 >
                   <option value="number">Repository and number</option>
-                  <option value="priority">Source priority</option>
+                  {!repoMode && <option value="priority">Source priority</option>}
                 </Select>
               </label>
             </div>
-            {visibleIssues.length ? (
+            {inventory.items.length ? (
               <IssueList
-                items={visibleIssues}
+                label={repoMode ? "Repository issues" : "Tracked issues"}
+                items={inventory.items}
                 selectedId={issueId}
                 onInspect={(id) => {
                   issueOrigin.current =
@@ -1017,20 +986,15 @@ export function NewSessionFlow({
                 showRepo={!issueProjectId}
               />
             ) : (
-              <div className="space-y-1 text-sm">
-                <p className="font-medium">{emptyIssues.title}</p>
-                <p className="text-muted">{emptyIssues.description}</p>
-                {emptyIssues.action && (
-                  <Link
-                    className="text-accent hover:underline"
-                    to={emptyIssues.action.to}
-                    onClick={close}
-                  >
-                    {emptyIssues.action.label}
-                  </Link>
-                )}
-              </div>
+              <InventoryEmpty
+                inventory={inventory}
+                filtered={
+                  !!query.trim() || (subset === "notStarted" && inventory.allItems.length > 0)
+                }
+                onNavigate={close}
+              />
             )}
+            <InventoryMore inventory={inventory} />
           </div>
           {selectedIssue && (
             <>
@@ -1042,13 +1006,16 @@ export function NewSessionFlow({
                 disabled={submitting}
                 onClick={() => {
                   setIssueId(null);
+                  setTrackedPreview(false);
                   setInstruction("");
                   setError(null);
                 }}
               >
                 Back to issues
               </Button>
+              {repoMode && inventory.error != null && <InventoryStatus inventory={inventory} />}
               <IssuePreview
+                locator={selectedIssue.locator}
                 issue={selectedIssue.issue}
                 branchName={selectedIssue.branchName}
                 sessionId={selectedIssue.sessionId}

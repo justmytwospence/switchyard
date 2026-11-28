@@ -7,7 +7,11 @@ import type { WorkBoard } from "./useWorkBoard";
 export function BoardSearch({ board, className }: { board: WorkBoard; className?: string }) {
   const id = useId();
   const label =
-    board.prefs.layout === "issues" ? "Search tracked issues" : "Search branches, issues";
+    board.prefs.layout !== "issues"
+      ? "Search branches, issues"
+      : board.inventory.kind === "repository"
+        ? "Search repository issues"
+        : "Search tracked issues";
   return (
     <div className={cn("relative min-w-0", className)}>
       <label htmlFor={id} className="sr-only">

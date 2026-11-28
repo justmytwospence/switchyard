@@ -1,13 +1,14 @@
 import { useEffect, useId, useRef } from "react";
-import { Link, useNavigationType } from "react-router";
+import { useNavigationType } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { Select } from "../../components/ui/Select";
+import { InventoryEmpty, InventoryMore, InventoryStatus } from "../discovery/InventoryStatus";
 import { IssueList } from "../discovery/IssueList";
 import { IssuePreview } from "../discovery/IssuePreview";
 import { discoveryContext } from "../discovery/model";
 import { ScopeRepository } from "../discovery/ScopeRepository";
-import { describeDiscoverySource } from "../scopes/describe";
+import { KNOWN_WORK_COVERAGE } from "../scopes/describe";
 import type { WorkBoard } from "./useWorkBoard";
 
 export function LayoutControl({ board, block }: { board: WorkBoard; block?: boolean }) {
@@ -39,6 +40,7 @@ export function RepositoryControl({ board }: { board: WorkBoard }) {
 
 export function IssueFilters({ board }: { board: WorkBoard }) {
   const sortId = useId();
+  const repo = board.inventory.kind === "repository";
   return (
     <div className="flex flex-wrap items-center gap-3">
       <SegmentedControl
@@ -47,18 +49,18 @@ export function IssueFilters({ board }: { board: WorkBoard }) {
         onChange={board.setSubset}
         options={[
           { value: "notStarted", label: "Not started" },
-          { value: "all", label: "All tracked issues" },
+          { value: "all", label: repo ? "All open issues" : "All tracked issues" },
         ]}
       />
       <div className="flex items-center gap-2 text-sm">
         <label htmlFor={sortId}>Sort</label>
         <Select
           id={sortId}
-          value={board.sort}
+          value={repo ? "number" : board.sort}
           onChange={(e) => board.setSort(e.target.value as "number" | "priority")}
         >
           <option value="number">Repository and number</option>
-          <option value="priority">Source priority</option>
+          {!repo && <option value="priority">Source priority</option>}
         </Select>
       </div>
     </div>
@@ -77,6 +79,7 @@ function anchorKey(board: WorkBoard) {
   return JSON.stringify([
     board.scope?.id ?? null,
     board.prefs.layout,
+    board.inventory.key,
     board.mode,
     board.projectId,
     board.subset,
@@ -133,7 +136,7 @@ export function saveBoardAnchor(board: WorkBoard, id: string) {
   anchor = {
     key: anchorKey(board),
     id,
-    index: board.items.findIndex((item) => item.id === id),
+    index: board.inventory.items.findIndex((item) => item.id === id),
     top: scroller?.scrollTop ?? 0,
     outer: !!scroller && scroller !== list,
   };
@@ -164,12 +167,39 @@ export function useRestoreColumnAnchor(board: WorkBoard) {
   }, [columns, navigation, board.hydrated, key]);
 }
 
+export function BoardColumnCoverage({ board }: { board: WorkBoard }) {
+  const context = discoveryContext(board.scope, Object.values(board.projects));
+  const project = board.projects[board.projectId ?? context.fixedProjectId ?? ""];
+  return (
+    <section
+      aria-label="Column coverage"
+      className="border-b border-border px-4 py-2 text-xs text-muted"
+    >
+      {board.inventory.coverage === "source" || board.inventory.coverage === "pins" ? (
+        <InventoryStatus inventory={board.inventory} />
+      ) : project ? (
+        <p>Known work in {project.name} · switch to Issue list to browse issues.</p>
+      ) : (
+        <p>{KNOWN_WORK_COVERAGE}</p>
+      )}
+    </section>
+  );
+}
+
 export function BoardIssueList({ board }: { board: WorkBoard }) {
+  const { inventory } = board;
   const ref = useRef<HTMLDivElement>(null);
   const navigation = useNavigationType();
   const key = anchorKey(board);
   useEffect(() => {
-    if (navigation !== "POP" || !board.hydrated || anchor?.key !== key || !ref.current) return;
+    if (
+      navigation !== "POP" ||
+      !board.hydrated ||
+      inventory.loading ||
+      anchor?.key !== key ||
+      !ref.current
+    )
+      return;
     const saved = anchor;
     anchor = null;
     const container = ref.current;
@@ -183,47 +213,27 @@ export function BoardIssueList({ board }: { board: WorkBoard }) {
       row?.querySelector<HTMLElement>("[data-issue-title]") ??
       container.querySelector<HTMLElement>("[data-issue-heading]")
     )?.focus({ preventScroll: true });
-  }, [navigation, board.hydrated, key]);
+  }, [navigation, board.hydrated, key, inventory.loading]);
   const context = discoveryContext(board.scope, Object.values(board.projects));
-  const project = board.projects[board.projectId ?? context.fixedProjectId ?? ""] ?? null;
-  const source = describeDiscoverySource(board.scope, project, board.scopes);
-  const empty = source.emptyState(
-    !!board.prefs.query || (board.subset !== "all" && board.hasTrackedIssues),
-  );
+  const label = inventory.kind === "repository" ? "Repository issues" : "Tracked issues";
   return (
     <div ref={ref} data-board-issue-scroll className="min-h-0 flex-1 overflow-y-auto p-4">
       <h2 data-issue-heading tabIndex={-1} className="mb-2 text-sm font-semibold">
-        Tracked issues
+        {label}
       </h2>
       <IssueFilters board={board} />
-      <div className="my-3 text-xs text-muted">
-        <p>{source.summary}</p>
-        {source.sources.map((s) => (
-          <p key={s.id}>
-            {s.name}: {s.description}
-            {s.lastError && ` · ${s.lastError}`}
-            {s.lastSyncedAt && ` · Last sync ${s.lastSyncedAt}`}
-          </p>
-        ))}
-        {source.openIssuesUrl && (
-          <a
-            className="text-accent hover:underline"
-            href={source.openIssuesUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            View all open issues on GitHub
-          </a>
-        )}
+      <div className="my-3">
+        <InventoryStatus inventory={inventory} />
       </div>
       {board.actionError && (
         <p role="alert" className="my-2 text-sm text-danger">
-          {board.actionError} Refresh the synced state before retrying.
+          {board.actionError}
         </p>
       )}
-      {board.items.length ? (
+      {inventory.items.length ? (
         <IssueList
-          items={board.items}
+          label={label}
+          items={inventory.items}
           selectedId={board.selectedId}
           onInspect={board.inspect}
           onAction={(id) => {
@@ -231,20 +241,22 @@ export function BoardIssueList({ board }: { board: WorkBoard }) {
             void board.action(id);
           }}
           pending={board.pending}
-          showRepo={!context.fixedProjectId}
+          showRepo={!context.fixedProjectId && inventory.kind !== "repository"}
           actionDetail={board.actionDetail}
+          actionProblem={board.actionProblem}
         />
       ) : (
         <div className="py-8">
-          <p className="font-medium">{empty.title}</p>
-          <p className="text-sm text-muted">{empty.description}</p>
-          {empty.action && (
-            <Link className="text-sm text-accent" to={empty.action.to}>
-              {empty.action.label}
-            </Link>
-          )}
+          <InventoryEmpty
+            inventory={inventory}
+            filtered={
+              !!board.prefs.query.trim() ||
+              (board.subset !== "all" && inventory.allItems.length > 0)
+            }
+          />
         </div>
       )}
+      <InventoryMore inventory={inventory} />
     </div>
   );
 }
@@ -252,8 +264,14 @@ export function BoardIssueList({ board }: { board: WorkBoard }) {
 export function BoardIssueDetail({ board }: { board: WorkBoard }) {
   const item = board.selectedItem;
   if (!item) return <p className="text-sm text-muted">Select an issue to read it.</p>;
+  const problem = board.actionProblem(item);
   return (
-    <IssuePreview issue={item.issue} branchName={item.branchName} sessionId={item.sessionId}>
+    <IssuePreview
+      locator={item.locator}
+      issue={item.issue}
+      branchName={item.branchName}
+      sessionId={item.sessionId}
+    >
       {board.actionError && (
         <p role="alert" className="text-sm text-danger">
           {board.actionError}
@@ -264,7 +282,7 @@ export function BoardIssueDetail({ board }: { board: WorkBoard }) {
           <Button
             type="button"
             variant="primary"
-            disabled={board.pending}
+            disabled={board.pending || !!problem}
             onClick={() => {
               saveBoardAnchor(board, item.id);
               void board.action(item.id);
@@ -272,7 +290,9 @@ export function BoardIssueDetail({ board }: { board: WorkBoard }) {
           >
             {item.sessionId ? "Open session" : "Start session"}
           </Button>
-          {!item.sessionId && <p className="text-xs text-muted">{board.actionDetail(item)}</p>}
+          {!item.sessionId && (
+            <p className="text-xs text-muted">{problem ?? board.actionDetail(item)}</p>
+          )}
         </div>
       )}
     </IssuePreview>

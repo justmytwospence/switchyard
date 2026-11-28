@@ -466,6 +466,7 @@ test.describe("mobile coding view", () => {
     expect(fixture.counts()).toEqual({ descriptions: 0, mutations: 0 });
     await sheet.getByRole("button", { name: /#1 Launcher fixture 1/ }).tap();
     await expect(sheet.getByText("Fixture description")).toBeVisible();
+    await sheet.getByRole("button", { name: "Back to issues" }).tap();
     await sheet.getByLabel("Search tracked issues").press("Enter");
     expect(fixture.counts().mutations).toBe(0);
     await sheet.getByRole("button", { name: /#2 Launcher fixture 2/ }).tap();
@@ -473,6 +474,38 @@ test.describe("mobile coding view", () => {
     expect(fixture.counts()).toEqual({ descriptions: 2, mutations: 0 });
     await sheet.getByRole("button", { name: "Cancel" }).tap();
     expect(fixture.counts().mutations).toBe(0);
+  });
+
+  test("launcher searches loaded repository issues without hiding pagination", async ({
+    page,
+    state,
+    api,
+  }) => {
+    const session = await api("GET", `/api/sessions/${state.sessions.long}`);
+    const fixture = await launcherFixture(page, state.projectId, { session });
+    await page.goto("/code");
+    await page.getByTestId("new-session").tap();
+    const sheet = page.getByRole("dialog", { name: "New session" });
+    await expect(sheet.getByLabel("What should Pi do?")).toBeVisible();
+    await sheet.getByRole("button", { name: "From an issue" }).tap();
+    await expect(sheet.getByText(/Tracked work across repositories/)).toBeVisible();
+    expect(fixture.repoReads).toEqual([]);
+    await sheet.getByLabel("Repository", { exact: true }).selectOption(state.projectId);
+    await expect(sheet.getByText("Open issues in fixture/repo")).toBeVisible();
+    await sheet.getByRole("combobox", { name: "Show" }).selectOption({ label: "All open issues" });
+    await sheet.getByLabel("Search repository issues").fill("#17");
+    await expect(sheet.getByText(/Searching loaded issues/)).toBeVisible();
+    await expect(sheet.getByText("No matches in loaded issues")).toBeVisible();
+    await sheet.getByRole("button", { name: "Load more" }).tap();
+    await sheet.getByRole("button", { name: /#17 Unassigned repository-only fix/ }).tap();
+    await expect(sheet.getByText("Repository description 17")).toBeVisible();
+    await expect(sheet.getByRole("article").getByText("Unassigned", { exact: true })).toBeVisible();
+    expect(fixture.repoReads).toEqual([null, "second-page"]);
+    expect(fixture.repoDescriptions).toEqual([17]);
+    expect(fixture.repoStarts).toEqual([]);
+    expect(fixture.counts().mutations).toBe(0);
+    await sheet.getByRole("button", { name: "Cancel" }).tap();
+    await expect(sheet).toHaveCount(0);
   });
 
   test("New session is one full-height sheet", async ({ page }, info) => {

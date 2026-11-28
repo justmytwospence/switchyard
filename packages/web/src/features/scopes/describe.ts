@@ -1,14 +1,15 @@
 import {
   type Client,
-  GitHubRepository,
+  type GitHubSource,
   type Host,
   openClients,
   type Project,
   type Scope,
+  type SyncedIssue,
   sourceBacklog,
   sourceFollow,
-  type TrackedIssue,
 } from "@switchyard/protocol";
+import { githubRepository, type InventoryIntent } from "../discovery/model";
 
 /** What decides a scope's members: a GitHub source, or the scope's own filters and pins. */
 export type ScopeSourceKind = "github" | "manual";
@@ -104,13 +105,9 @@ export function describeDiscoverySource(
   )
     .flatMap(describeIssueSource)
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  const prefix = "https://github.com/";
-  const identity = project?.repoIdentity;
-  const repository = identity?.startsWith(prefix) ? identity.slice(prefix.length) : null;
+  const repository = project && githubRepository(project);
   const openIssuesUrl =
-    !pinsOnly && includesProject && GitHubRepository.safeParse(repository).success
-      ? `${prefix}${repository}/issues`
-      : null;
+    !pinsOnly && includesProject && repository ? `https://github.com/${repository}/issues` : null;
   return {
     summary: sources.length
       ? `Tracked by ${sources.map((source) => source.name).join(", ")}`
@@ -131,6 +128,13 @@ export function describeDiscoverySource(
           description: "Connect an issue source that covers this work in Settings → Scopes.",
           action: { label: "Settings → Scopes", to: "/settings/scopes" },
         };
+      if (sources.some((s) => s.paused || s.lastError || !s.lastSyncedAt)) {
+        return {
+          title: "No current issue results",
+          description:
+            "At least one source is stale or unavailable. Its last sync does not establish an empty list.",
+        };
+      }
       return filtered
         ? { title: "No matches", description: "Clear the search or change the issue filters." }
         : {
@@ -141,9 +145,53 @@ export function describeDiscoverySource(
   };
 }
 
+export function sourceNeedsRefresh(
+  source: Pick<GitHubSource, "enabled" | "lastError" | "lastSyncedAt">,
+) {
+  return !source.enabled || !!source.lastError || !source.lastSyncedAt;
+}
+
+export const KNOWN_WORK_COVERAGE =
+  "Tracked work across repositories · choose a repository to browse its open issues.";
+
+export function describeInventory(
+  intent: InventoryIntent<Pick<Project, "id" | "name" | "repoIdentity">>,
+  scope: Scope | null,
+  scopes: Record<string, Scope>,
+): DiscoverySourceDescription {
+  if (intent.kind === "repository" && !intent.repository) {
+    return {
+      summary: "Repository issues unavailable",
+      sources: [],
+      openIssuesUrl: null,
+      emptyState: () => ({
+        title: "No GitHub repository for this project",
+        description: "Choose a project with a GitHub repository to browse its issues.",
+      }),
+    };
+  }
+  if (intent.kind === "repository") {
+    return {
+      summary: `Open issues in ${intent.repository}`,
+      sources: [],
+      openIssuesUrl: `https://github.com/${intent.repository}/issues`,
+      emptyState: (filtered) =>
+        filtered
+          ? { title: "No matches", description: "Clear the search or change the issue filters." }
+          : {
+              title: "No open issues",
+              description: "There are no open issues in this repository.",
+            },
+    };
+  }
+  const tracked = describeDiscoverySource(scope, intent.project, scopes);
+  if (intent.coverage !== "known" || intent.project) return tracked;
+  return { ...tracked, summary: KNOWN_WORK_COVERAGE };
+}
+
 /** The configured move this issue could qualify for on a later sync, not a promised update. */
 export function discoveryWriteBackHint(
-  issue: TrackedIssue,
+  issue: SyncedIssue,
   scope: Scope | undefined,
 ): string | null {
   const source = scope?.source;

@@ -2,6 +2,7 @@ import type { Scope, Session } from "@switchyard/protocol";
 import {
   Archive,
   BellOff,
+  BookOpen,
   ChevronDown,
   Ellipsis,
   FolderGit2,
@@ -53,6 +54,7 @@ import {
   useSessionBadges,
   useSyncStore,
 } from "../../sync/store";
+import { githubRepository } from "../discovery/model";
 import { isMac } from "../palette/CommandPalette";
 import { emptyScopeState, scopeOptionLabel } from "../scopes/describe";
 import { ScopeDialog } from "../scopes/ScopeDialog";
@@ -119,6 +121,7 @@ function defaultPrefs(): NavPrefs {
 export interface NavigatorProps {
   selectedId: string | null;
   onNewSession: (projectId?: string) => void;
+  onBrowseRepository: (projectId: string) => void;
   /** "pane" for the desktop navigator, "screen" for the mobile session list. */
   variant: "pane" | "screen";
   className?: string;
@@ -126,7 +129,14 @@ export interface NavigatorProps {
 }
 
 /** A flat list of sessions, with optional grouping and independent filters and sorting. */
-export function Navigator({ selectedId, onNewSession, variant, className, style }: NavigatorProps) {
+export function Navigator({
+  selectedId,
+  onNewSession,
+  onBrowseRepository,
+  variant,
+  className,
+  style,
+}: NavigatorProps) {
   const screen = variant === "screen";
   const defaults = defaultPrefs();
   const [stored, setPrefs] = useFilter<NavPrefs>(screen ? "sessionList" : "navigator", defaults);
@@ -445,14 +455,16 @@ export function Navigator({ selectedId, onNewSession, variant, className, style 
           const host = section.hostId ? hostsMap[section.hostId] : null;
           const location: Where | null =
             host && !host.revokedAt ? { kind: "host", id: host.id } : null;
+          const project = section.projectId ? projects[section.projectId] : null;
           return (
             <SessionGroup
               key={section.key}
               section={section}
               groupBy={groupBy}
-              onNew={
-                section.projectId && projects[section.projectId]
-                  ? () => onNewSession(section.projectId)
+              onNew={project ? () => onNewSession(project.id) : undefined}
+              onBrowse={
+                project && githubRepository(project)
+                  ? () => onBrowseRepository(project.id)
                   : undefined
               }
               onOnly={
@@ -864,12 +876,14 @@ function SessionGroup({
   section,
   groupBy,
   onNew,
+  onBrowse,
   onOnly,
   ...rowProps
 }: RowProps & {
   section: NavSection;
   groupBy: NavGrouping;
   onNew?: () => void;
+  onBrowse?: () => void;
   onOnly?: () => void;
 }) {
   const headingId = useId();
@@ -902,6 +916,15 @@ function SessionGroup({
           >
             Only this
           </button>
+        )}
+        {onBrowse && (
+          <IconButton
+            size="sm"
+            label={`Browse repository issues in ${section.label}`}
+            icon={<BookOpen aria-hidden className="size-4" />}
+            onClick={onBrowse}
+            className="size-7"
+          />
         )}
         {onNew && (
           <IconButton

@@ -27,7 +27,7 @@ export default function CodeView() {
   const requestedTab =
     tabParam && INSPECTOR_TABS.includes(tabParam) ? (tabParam as InspectorTab) : null;
   // Each navigation (e.g. "Review changes" again) re-applies the requested tab.
-  const { key: requestKey } = useLocation();
+  const { key: requestKey, state } = useLocation();
   const bp = useBreakpoint();
   const hydrated = useSyncStore((s) => s.hydrated);
   const session = useSession(sessionId);
@@ -46,7 +46,12 @@ export default function CodeView() {
 
   // Desktop and compact reopen the last session; mobile keeps the list at /code.
   if (!sessionId && bp !== "mobile" && hydrated && lastSession && lastSession.archivedAt === null) {
-    return <Navigate to={`/code/${encodeURIComponent(lastSession.id)}`} replace />;
+    // A palette/shortcut launcher request must survive reopening the last session.
+    const launcherState =
+      state && typeof state === "object" && "newSession" in state ? state : null;
+    return (
+      <Navigate to={`/code/${encodeURIComponent(lastSession.id)}`} replace state={launcherState} />
+    );
   }
 
   const props = {

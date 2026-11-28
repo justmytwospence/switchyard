@@ -53,6 +53,32 @@ test.describe("branch board", () => {
       server.onMessage((message) => {
         const frame = JSON.parse(String(message));
         if (frame.type === "snapshot") {
+          const now = new Date().toISOString();
+          frame.state.scopes ??= [];
+          frame.state.scopes.push({
+            id: "source_fixture",
+            name: "Fixture source",
+            mode: "all",
+            projectIds: [state.projectId],
+            hostIds: null,
+            sessionIds: [],
+            createdAt: now,
+            updatedAt: now,
+            source: {
+              kind: "github",
+              hostId: state.hostId,
+              owner: "acme",
+              repositories: ["acme/repo"],
+              board: null,
+              enabled: true,
+              worktrees: false,
+              writeBack: false,
+              moveShared: false,
+              login: "fixture",
+              lastSyncedAt: now,
+              lastError: null,
+            },
+          });
           frame.state.issues = [1, 2].map((number) => ({
             id: `iss_board_${number}`,
             scopeId: "source_fixture",
@@ -120,6 +146,138 @@ test.describe("branch board", () => {
     await expect(page).toHaveURL(/\/board$/);
     await expect(page.getByRole("button", { name: /^#2 Fixture issue 2$/ })).toBeFocused();
     await expect(page.getByText("Description 2")).toHaveCount(0);
+  });
+
+  test("repo issue browsing is broader than filtering a source scope", async ({
+    page,
+    api,
+    signIn,
+    state,
+  }, info) => {
+    await signIn();
+    const session = await api("GET", `/api/sessions/${state.sessions.long}`);
+    const repo = "acme/issues-demo";
+    const sourceId = "scope_repo_browse_test";
+    const makeIssue = (number: number, title: string) => ({
+      itemId: `node-${number}`,
+      projectId: state.projectId,
+      repository: repo,
+      number,
+      title,
+      url: `https://github.com/${repo}/issues/${number}`,
+      assignees: [],
+      branches: [],
+      branch: null,
+      workspaceId: null,
+      pullRequest: null,
+      board: null,
+    });
+    const boardIssue = makeIssue(71, "On the board");
+    const onlyRepoIssue = makeIssue(72, "Unassigned repo issue");
+    const now = new Date().toISOString();
+    await page.routeWebSocket("**/ws/client", (client) => {
+      const server = client.connectToServer();
+      client.onMessage((message) => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === "hello") frame.cursor = null;
+        server.send(JSON.stringify(frame));
+      });
+      server.onMessage((message) => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === "snapshot") {
+          const project = frame.state.projects.find(
+            (p: { id: string }) => p.id === state.projectId,
+          );
+          project.repoIdentity = `https://github.com/${repo}`;
+          frame.state.issues ??= [];
+          frame.state.issues.push({
+            ...boardIssue,
+            id: "tracked-71",
+            scopeId: sourceId,
+            updatedAt: now,
+          });
+          frame.state.scopes ??= [];
+          frame.state.scopes.push({
+            id: sourceId,
+            name: "Fixture board",
+            mode: "all",
+            projectIds: [state.projectId],
+            hostIds: null,
+            sessionIds: [],
+            createdAt: now,
+            updatedAt: now,
+            source: {
+              kind: "github",
+              hostId: state.hostId,
+              owner: "acme",
+              repositories: [repo],
+              board: { projectNumber: 5, statusField: "Status", onStart: null, onReview: null },
+              follow: "board",
+              enabled: true,
+              worktrees: false,
+              writeBack: false,
+              moveShared: false,
+              login: "fixture",
+              lastSyncedAt: now,
+              lastError: null,
+            },
+          });
+        }
+        client.send(JSON.stringify(frame));
+      });
+    });
+    let reads = 0;
+    const openBodies: unknown[] = [];
+    await page.route(`**/api/projects/${state.projectId}/issues*`, (route) => {
+      reads++;
+      const second = new URL(route.request().url()).searchParams.has("after");
+      return route.fulfill({
+        json: {
+          items: (second ? [boardIssue] : [onlyRepoIssue]).map((i) => ({ ...i, sessionId: null })),
+          nextCursor: second ? null : "two",
+        },
+      });
+    });
+    await page.route(`**/api/projects/${state.projectId}/issues/72/description`, (route) =>
+      route.fulfill({ json: { body: "Repository description", truncated: false } }),
+    );
+    await page.route(`**/api/projects/${state.projectId}/issues/72/open`, (route) => {
+      openBodies.push(route.request().postDataJSON());
+      return route.fulfill({ json: { session, created: false } });
+    });
+    await page.goto("/board");
+    expect(reads).toBe(0);
+    const openView = async () => {
+      if (isMobile(info)) await page.getByRole("button", { name: /^View options/ }).click();
+    };
+    const done = async () => {
+      if (isMobile(info)) await page.getByRole("button", { name: "Done" }).click();
+    };
+    await openView();
+    await page.getByRole("radio", { name: "Issue list" }).click();
+    await page.getByLabel("Scope", { exact: true }).selectOption(sourceId);
+    await done();
+    await expect(page.getByRole("button", { name: /^#71 On the board$/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^#72 Unassigned repo issue$/ })).toHaveCount(0);
+    expect(reads).toBe(0);
+    await openView();
+    await page.getByLabel("Scope", { exact: true }).selectOption("");
+    await page.getByLabel("Repository", { exact: true }).selectOption(state.projectId);
+    await done();
+    const repoRow = page.getByRole("button", { name: /^#72 Unassigned repo issue$/ });
+    await expect(repoRow).toBeVisible();
+    await page.getByRole("button", { name: "Load more" }).click();
+    await expect(page.getByRole("button", { name: /^#71 On the board$/ })).toBeVisible();
+    expect(reads).toBe(2);
+    await repoRow.click();
+    await expect(page.getByText("Repository description")).toBeVisible();
+    expect(openBodies).toEqual([]);
+    const detail = isMobile(info)
+      ? page.getByRole("dialog", { name: "Issue details" })
+      : page.getByRole("complementary", { name: "Issue details" });
+    await detail.getByRole("button", { name: "Start session", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/code/${state.sessions.long}`));
+    expect(openBodies).toEqual([{ expectedNodeId: "node-72" }]);
   });
 
   test("the view selector filters the board", async ({ page, api, signIn, state }, info) => {

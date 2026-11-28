@@ -12,6 +12,8 @@ interface IssueListProps {
   pending?: boolean;
   showRepo?: boolean;
   actionDetail?: (item: IssueInventoryItem) => string;
+  actionProblem?: (item: IssueInventoryItem) => string | null;
+  label?: string;
 }
 
 function focusRow(event: KeyboardEvent<HTMLUListElement>) {
@@ -37,11 +39,14 @@ export function IssueList({
   pending,
   showRepo = true,
   actionDetail,
+  actionProblem,
+  label = "Tracked issues",
 }: IssueListProps) {
   return (
-    <ul aria-label="Tracked issues" className="min-w-0 divide-y divide-border" onKeyDown={focusRow}>
+    <ul aria-label={label} className="min-w-0 divide-y divide-border" onKeyDown={focusRow}>
       {items.map((item) => {
-        const { issue, sessionId, branchName } = item;
+        const { id, issue, sessionId, branchName } = item;
+        const problem = actionProblem?.(item);
         const action = sessionId ? "Open session" : "Start session";
         const selectable = onAction && (sessionId || !item.merged);
         const metadata = [
@@ -64,19 +69,19 @@ export function IssueList({
           .join(" · ");
         return (
           <li
-            key={issue.id}
-            data-issue-id={issue.id}
+            key={id}
+            data-issue-id={id}
             className={cn(
               "flex flex-wrap items-start justify-between gap-2 px-2 py-2.5",
-              selectedId === issue.id && "bg-surface-2",
+              selectedId === id && "bg-surface-2",
             )}
           >
             <div className="min-w-0 flex-1 basis-60">
               <button
                 type="button"
                 data-issue-title
-                aria-pressed={selectedId === issue.id}
-                onClick={() => onInspect(issue.id)}
+                aria-pressed={selectedId === id}
+                onClick={() => onInspect(id)}
                 className="block w-full break-words rounded text-left text-sm font-medium hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
               >
                 <span className="text-muted tabular-nums">#{issue.number}</span> {issue.title}
@@ -90,15 +95,15 @@ export function IssueList({
                   variant="secondary"
                   size="sm"
                   icon={<Play className="size-3.5" />}
-                  disabled={pending}
-                  onClick={() => onAction(issue.id)}
+                  disabled={pending || !!problem}
+                  onClick={() => onAction(id)}
                   aria-label={`${action} for #${issue.number} ${issue.title}`}
                 >
                   {action}
                 </Button>
-                {actionDetail && !sessionId && (
+                {(problem || actionDetail) && !sessionId && (
                   <p className="mt-1 max-w-60 break-words text-xs text-muted">
-                    {actionDetail(item)}
+                    {problem ?? actionDetail?.(item)}
                   </p>
                 )}
               </div>

@@ -1,4 +1,4 @@
-import { GitHubIssueUrl, type TrackedIssue } from "@switchyard/protocol";
+import { GitHubIssueUrl, type SyncedIssue } from "@switchyard/protocol";
 import type { ReactNode } from "react";
 import { Markdown } from "../../components/intent/Markdown";
 import { Button } from "../../components/ui/Button";
@@ -6,9 +6,11 @@ import { useResource } from "../../lib/useResource";
 import { isApiError } from "../../sync/api";
 import { cleanGitHubText } from "../code/githubLogic";
 import { getIssueDescription } from "../workboard/api";
+import { type IssueLocator, issueLocatorKey } from "./model";
 
 export interface IssuePreviewProps {
-  issue: TrackedIssue;
+  locator: IssueLocator;
+  issue: SyncedIssue;
   branchName?: string | null;
   sessionId?: string | null;
   children?: ReactNode;
@@ -16,15 +18,20 @@ export interface IssuePreviewProps {
 
 /** Mounted only while inspecting an issue. Key the request and its state to that issue. */
 export function IssuePreview(props: IssuePreviewProps) {
-  return <IssueDetails key={props.issue.id} {...props} />;
+  const key = JSON.stringify([
+    issueLocatorKey(props.locator),
+    props.issue.repository,
+    props.issue.number,
+  ]);
+  return <IssueDetails key={key} {...props} />;
 }
 
-function IssueDetails({ issue, branchName, sessionId, children }: IssuePreviewProps) {
-  const { data, error, loading, reload } = useResource(issue.id, (signal) =>
-    getIssueDescription(issue.id, signal),
+function IssueDetails({ locator, issue, branchName, sessionId, children }: IssuePreviewProps) {
+  const { data, error, loading, reload } = useResource(issueLocatorKey(locator), (signal) =>
+    getIssueDescription(locator, signal),
   );
   const url = GitHubIssueUrl.safeParse(issue.url).data;
-  const branch = branchName ?? issue.branch ?? issue.branches[0];
+  const branch = branchName ?? issue.branches[0];
   return (
     <article aria-label={`Issue #${issue.number}`} className="min-w-0 space-y-4 break-words">
       <header className="space-y-1">
@@ -107,7 +114,9 @@ function IssueDetails({ issue, branchName, sessionId, children }: IssuePreviewPr
             <p role="status" className="text-sm text-muted">
               Description unavailable.
               {isApiError(error, "unsupported_capability") &&
-                " Update the source host to read it here."}
+                (locator.kind === "repository"
+                  ? " Update a checkout’s host agent to read it here."
+                  : " Update the source host to read it here.")}
             </p>
             <Button type="button" size="sm" onClick={reload}>
               Retry description

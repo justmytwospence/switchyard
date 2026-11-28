@@ -19,6 +19,7 @@ import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
 import { ScopeSelect } from "../scopes/ScopeSelect";
 import {
+  BoardColumnCoverage,
   BoardIssueDetail,
   BoardIssueList,
   LayoutControl,
@@ -67,6 +68,7 @@ export function WorkBoardDesktop({ board }: { board: WorkBoard }) {
           <p className="ml-auto truncate text-xs text-subtle">{board.describe(board.scope)}</p>
         )}
       </header>
+      {board.hydrated && board.prefs.layout !== "issues" && <BoardColumnCoverage board={board} />}
       {!board.hydrated ? (
         <LoadingState label="Loading the board…" />
       ) : board.prefs.layout === "issues" ? (

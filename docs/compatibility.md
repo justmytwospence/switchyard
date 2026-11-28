@@ -102,6 +102,10 @@ The other direction is not supported: a CLI or SDK from 0.21 against an older co
 
 The host wire does not change: `tracker.*` commands, the `trackers.v1` and `trackers.board.v1` features and `Session.place.terminalId` keep their names.
 
+## Open issues by repository
+
+The optional host feature `trackers.repositoryIssues.v1` gates repository issue page and single-issue reads. Hosts that only support `trackers.v1`, `trackers.board.v1`, or `trackers.description.v1` keep their existing tracked-issue paths. When no eligible checkout host supports repository reads, Switchyard explains the upgrade and leaves the GitHub link and prompt-based session creation available. Repository results are not added to the sync snapshot. Migration 24 stores only durable issue-to-work associations; back up the coordinator database as described in [operations.md](operations.md#upgrading) before upgrading, because a schema-23 coordinator cannot read schema 24.
+
 ## Terminal transport
 
 Hosts with [terminal sessions](terminal-sessions.md) enabled run interactive `pi` in a pty instead of `pi --mode rpc`, with the `switchyard-terminal.js` extension as the control channel. `gate-terminal.test.ts` runs the same real-Pi checks through it: prompt, a select answered remotely and one answered in the terminal, steer, abort, detach and reattach, stop. Pi features the extension API does not expose are listed under the doc's Limits.

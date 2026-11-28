@@ -11,6 +11,7 @@ import { useFilter } from "../../prefs";
 import { discoveryContext, scopeRepositoryLabel } from "../discovery/model";
 import { ScopeSelect } from "../scopes/ScopeSelect";
 import {
+  BoardColumnCoverage,
   BoardIssueDetail,
   BoardIssueList,
   LayoutControl,
@@ -111,6 +112,7 @@ export function WorkBoardMobile({ board }: { board: WorkBoard }) {
           />
         )}
       </header>
+      {board.hydrated && board.prefs.layout !== "issues" && <BoardColumnCoverage board={board} />}
       {board.prefs.layout === "issues" ? (
         <BoardIssueList board={board} />
       ) : (

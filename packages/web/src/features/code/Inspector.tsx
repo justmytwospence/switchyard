@@ -7,7 +7,7 @@ import { AdapterPanel } from "./AdapterPanel";
 import { adapterTabId } from "./adapterIdentity";
 import { ChangesTab, useWorkspaceDiff } from "./Changes";
 import type { InspectorTab } from "./context";
-import { ExtensionsDisclosure, TaskSection } from "./Details";
+import { ExtensionsDisclosure, SessionIssueDetails, TaskSection } from "./Details";
 import { FilesTab } from "./Files";
 import type { SessionContext } from "./hooks";
 import { GitHubStatus, PullRequest } from "./PullRequest";
@@ -64,6 +64,7 @@ export function Inspector({
       id: "task",
       body: (
         <div className="flex flex-col gap-4">
+          <SessionIssueDetails ctx={ctx} />
           <GitHubStatus ctx={ctx} state={github} onOpen={() => onTab("pr")} />
           <TaskSection ctx={ctx} actions={actions} />
           <ExtensionsDisclosure ctx={ctx} open={tab === "extensions"} />
