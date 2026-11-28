@@ -5,6 +5,7 @@ import { piAgentDir } from "@switchyard/adapter-sdk";
 import { detectPi, type PiDetection, terminalSupport } from "@switchyard/pi-runtime";
 import {
   ADAPTER_CONTRACT_FEATURE,
+  CHECKOUT_PROVISION_FEATURE,
   GIT_LOG_FEATURE,
   GITHUB_BOARD_FEATURE,
   GITHUB_ISSUES_FEATURE,
@@ -16,6 +17,7 @@ import {
 } from "@switchyard/protocol";
 import { AdapterCatalog } from "./adapters.js";
 import { AgentBroker } from "./agent-broker.js";
+import { checkoutCommandType } from "./checkout-provision.js";
 import { stopAllShells } from "./checks.js";
 import { CommandRouter, type HostTestHooks } from "./commands.js";
 import {
@@ -223,6 +225,7 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
         ISSUE_DESCRIPTION_FEATURE,
         REPOSITORY_ISSUES_FEATURE,
         GIT_LOG_FEATURE,
+        CHECKOUT_PROVISION_FEATURE,
       ],
       protocolVersion: PROTOCOL_VERSION,
       github: github.github,
@@ -231,7 +234,8 @@ export async function runHostAgent(opts: RunHostAgentOptions = {}): Promise<Host
     onCommand: (commandId, command) => {
       // A command still in flight when stop() closes the DB must not crash the process.
       router.handle(commandId, command).catch((err: unknown) => {
-        log.warn({ commandId, err: (err as Error)?.message }, "command aborted");
+        if (checkoutCommandType(command)) log.warn({ commandId }, "checkout command aborted");
+        else log.warn({ commandId, err: (err as Error)?.message }, "command aborted");
       });
     },
   });

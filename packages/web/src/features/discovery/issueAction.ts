@@ -1,4 +1,5 @@
-import type { Checkout, Host, OpenIssueRequest, Scope } from "@switchyard/protocol";
+import type { Checkout, Host, OpenIssueRequest, Project, Scope } from "@switchyard/protocol";
+import { isActiveProject } from "../../sync/store";
 import { discoveryWriteBackHint, sourceNeedsRefresh } from "../scopes/describe";
 import type { IssueInventoryItem, IssueLocator } from "./model";
 
@@ -9,6 +10,7 @@ export interface IssueActionOptions {
   checkouts?: Record<string, Pick<Checkout, "projectId" | "hostId">>;
   hosts?: Record<string, Pick<Host, "name">>;
   scopes?: Record<string, Scope>;
+  projects?: Record<string, Pick<Project, "catalog">>;
 }
 
 interface ActionCopy {
@@ -24,6 +26,7 @@ export type IssueAction = ActionCopy &
         locator: IssueLocator;
         request: Pick<OpenIssueRequest, "hostId" | "prompt"> & { profileId?: string };
       }
+    | { kind: "prepare"; locator: IssueLocator }
     | { kind: "none" }
   );
 
@@ -47,10 +50,32 @@ export function issueAction(
 
   const { issue, locator, sourceId } = item;
   const { hostId, profileId } = options;
+  const project = options.projects?.[item.projectId];
+  if (project && !isActiveProject(project)) {
+    return {
+      kind: "none",
+      label: "This previous project is not available for new work",
+      consequences: [],
+    };
+  }
   const sourceScope = sourceId ? options.scopes?.[sourceId] : undefined;
   const source = sourceScope?.source;
   if ((source && sourceNeedsRefresh(source)) || (sourceId && options.scopes && !source)) {
     return { kind: "none", label: "Refresh the source before starting", consequences: [] };
+  }
+  if (
+    project?.catalog?.state === "listed" &&
+    options.checkouts &&
+    !Object.values(options.checkouts).some(
+      (c) => c.projectId === item.projectId && (!hostId || c.hostId === hostId),
+    )
+  ) {
+    return {
+      kind: "prepare",
+      label: "Prepare a checkout",
+      consequences: ["Choose a host and confirm the checkout before starting the session."],
+      locator,
+    };
   }
   const sourceHostId = source?.hostId;
   const branch = item.branchName;

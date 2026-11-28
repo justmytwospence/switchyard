@@ -23,6 +23,7 @@ import { sql as terminals } from "./migrations/021_terminals.js";
 import { sql as terminalPresence } from "./migrations/022_terminal_presence.js";
 import { sql as scopesClients } from "./migrations/023_scopes_clients.js";
 import { sql as issueWork } from "./migrations/024_issue_work.js";
+import { sql as projectCatalog } from "./migrations/025_project_catalog.js";
 
 export interface Migration {
   version: number;
@@ -56,6 +57,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 22, name: "022_terminal_presence", sql: terminalPresence },
   { version: 23, name: "023_scopes_clients", sql: scopesClients },
   { version: 24, name: "024_issue_work", sql: issueWork },
+  { version: 25, name: "025_project_catalog", sql: projectCatalog },
 ];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

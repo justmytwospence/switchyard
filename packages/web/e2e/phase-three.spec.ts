@@ -11,6 +11,8 @@ import {
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Page } from "@playwright/test";
+import { fixtureRepository } from "../../test-fixtures/dist/index.js";
+import { seedCatalogProject } from "./fixtures/catalog";
 import type { E2EState } from "./state";
 import { type Api, test as base, createSession, expect, poll, uid, viewportOf } from "./support";
 
@@ -91,8 +93,10 @@ const test = base.extend<{ isolated: Isolated }>({
     writeFileSync(join(path, "README.md"), "# isolated phase three fixture\n");
     git("add", "README.md");
     git("commit", "-qm", "test: initialize phase-three fixture");
-    const repository = `${REPOSITORY}-${suffix}`;
-    git("remote", "add", "origin", `https://github.com/${repository}.git`);
+    const [owner, name] = REPOSITORY.split("/");
+    const repo = fixtureRepository(owner, `${name}-${suffix}`);
+    const repository = `${repo.owner}/${repo.name}`;
+    git("remote", "add", "origin", repo.cloneUrl);
     const fixture: Isolated = {
       repository,
       state,
@@ -105,10 +109,11 @@ const test = base.extend<{ isolated: Isolated }>({
       ),
     };
     scenario(fixture);
-    const project = await api("POST", "/api/projects", {
-      hostId: state.hostId,
-      path,
+    const listed = await seedCatalogProject(api, state.root, `phase-three-${suffix}`, repo);
+    await api("POST", `/api/projects/${listed.id}/checkouts`, { hostId: state.hostId, path });
+    const project = await api("PATCH", `/api/projects/${listed.id}`, {
       name: `Phase three ${suffix}`,
+      defaultHostId: state.hostId,
       maxConcurrentRuns: 1,
     });
     const workspaceId = await poll("isolated main workspace", async () => {
@@ -142,7 +147,7 @@ async function visibility(page: Page, value: "hidden" | "visible") {
   }, value);
 }
 
-test.describe("phase three real-stack verification (only model and gh are fake)", () => {
+test.describe("phase three real-stack verification (model and GitHub are fake)", () => {
   test.beforeEach(async ({ signIn }) => {
     await signIn();
   });

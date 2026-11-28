@@ -1,10 +1,16 @@
 # GitHub
 
-This describes the phase 3 implementation under development, not a reviewed or shipped release.
+## Repository catalog
+
+Connect a private GitHub App in Settings › Projects, install it on the intended account, and select repositories on GitHub. Refresh the connection after installation. The catalog works without an online execution host; failed refreshes retain the last complete listing. A confirmed removal prevents new work but preserves history and local files. Existing projects that cannot be matched remain under previous projects; ambiguous history requires an explicit choice.
+
+The app has read-only contents access. Preparing a checkout is a separate confirmation: Switchyard reuses a verified checkout or offers to clone into the host's checkout location. The checkout location must already be a directory on the selected host. Switchyard never clones during catalog sync. The clone grant is not kept for later fetches, pushes, Git LFS, Pi, `gh`, or issue and board operations.
+
+App keys live separately from the database under `<dataDir>/catalog-secrets/`. Back up and restore that directory securely alongside the database; a database restored without its keys requires reconnecting the provider. Rotate or revoke compromised apps on GitHub and reconnect. Configure reverse proxies to omit query strings and authorization headers from access logs, especially on the registration return route.
 
 ## Host setup
 
-Install `gh` on each workspace host and authenticate as the host user, for example `gh auth login --hostname github.com`; check with `gh auth status --hostname github.com`. Switchyard uses that host's existing login and stores no GitHub token on the coordinator. Only github.com is supported, not GitHub Enterprise hosts. Missing `gh`, missing or expired authentication, inaccessible repositories and offline hosts are surfaced as availability or discovery reasons, not proof that no PR exists.
+Install `gh` on each workspace host and authenticate as the host user, for example `gh auth login --hostname github.com`; check with `gh auth status --hostname github.com`. Issue, pull request and board operations use that host's existing login; the separate repository catalog connection does not sign in `gh` or Pi. Only github.com is supported, not GitHub Enterprise hosts. Missing `gh`, missing or expired authentication, inaccessible repositories and offline hosts are surfaced as availability or discovery reasons, not proof that no PR exists.
 
 ## Pull requests
 

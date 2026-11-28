@@ -100,6 +100,7 @@ export const ProjectFolder = z
   .refine(isProjectFolderPath, "must be an absolute path or start with ~/");
 export const UpdateHostRequest = z.object({
   projectFolders: z.array(ProjectFolder).max(20).optional(),
+  checkoutRoot: ProjectFolder.nullable().optional(),
 });
 export const ProjectScanResult = ProjectScan.extend({
   added: z.array(

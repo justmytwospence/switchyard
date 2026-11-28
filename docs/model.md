@@ -25,7 +25,7 @@ A scope never depends on the client a session was started in or is shown in, so 
 | Component | What it is | Who owns the truth |
 |---|---|---|
 | Host | A machine that runs agents and holds checkouts | The host: filesystem, git and processes |
-| Project | A repository | Its git remote identity |
+| Project | A provider-listed repository, possibly without a checkout | Provider authority and immutable repository ID; Switchyard owns the Project ID and history |
 | **Branch** | A project on a branch: the card on the Board. Derived, never stored | Workspaces, sessions and tracked issues |
 | Workspace | A branch's checkout on one host: the main checkout or a git worktree, with its git state | The host |
 | Session | A Pi agent in a workspace. One per branch is **primary**; other sessions on the branch are **extras**; subagents hang off the session that started them | Pi owns the conversation; Switchyard owns which session is primary |

@@ -18,6 +18,11 @@ export function createLogger(
     level: opts.level ?? process.env.SWITCHYARD_LOG_LEVEL ?? "info",
     redact: { paths: REDACT_PATHS, censor: "[redacted]" },
     base: { app: "switchyard-coordinator" },
+    serializers: {
+      req(req) {
+        return { method: req.method, url: req.url?.split("?")[0] };
+      },
+    },
   };
   return opts.destination ? pino(options, opts.destination) : pino(options);
 }

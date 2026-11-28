@@ -14,6 +14,7 @@ import {
   type TrackedIssue,
   type Workspace,
 } from "@switchyard/protocol";
+import { isActiveProject } from "../../sync/store";
 
 export interface DiscoveryContext {
   coverage: "all" | "projects" | "pins";
@@ -25,30 +26,35 @@ export interface DiscoveryContext {
 /** The scope sets coverage. Neither current issue results nor local/online checkouts set it. */
 export function discoveryContext(
   scope: Scope | null,
-  projects: readonly Pick<Project, "id">[],
+  projects: readonly Pick<Project, "id" | "catalog">[],
 ): DiscoveryContext {
   if (scope?.mode === "pinned") return { coverage: "pins", projectIds: [], fixedProjectId: null };
   if (!scope || scope.projectIds === null)
     return { coverage: "all", projectIds: null, fixedProjectId: null };
   const projectIds = [...new Set(scope.projectIds)];
   const fixedProjectId =
-    projectIds.length === 1 && projects.some((p) => p.id === projectIds[0]) ? projectIds[0]! : null;
+    projectIds.length === 1 && projects.some((p) => p.id === projectIds[0] && isActiveProject(p))
+      ? projectIds[0]!
+      : null;
   return { coverage: "projects", projectIds, fixedProjectId };
 }
 
 /** Resolved choices for a local refinement, not a second scope. */
-export function discoveryProjects<T extends Pick<Project, "id" | "name">>(
+export function discoveryProjects<T extends Pick<Project, "id" | "name" | "catalog">>(
   scope: Scope | null,
   projects: readonly T[],
 ): T[] {
   const { projectIds } = discoveryContext(scope, projects);
   const covered = projectIds === null ? null : new Set(projectIds);
   return projects
-    .filter((p) => !covered || covered.has(p.id))
+    .filter((p) => isActiveProject(p) && (!covered || covered.has(p.id)))
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
-export function githubRepository(project: Pick<Project, "repoIdentity">): string | null {
+export function githubRepository(
+  project: Pick<Project, "repoIdentity" | "catalog">,
+): string | null {
+  if (!isActiveProject(project)) return null;
   const prefix = "https://github.com/";
   const identity = project.repoIdentity;
   return identity?.startsWith(prefix)
@@ -64,7 +70,7 @@ export type InventoryIntent<T> =
   | { kind: "pins"; coverage: "pins"; project: null };
 
 /** Pick the inventory before applying the query or the subset. No result set can widen coverage. */
-export function inventoryIntent<T extends Pick<Project, "id" | "repoIdentity">>(
+export function inventoryIntent<T extends Pick<Project, "id" | "repoIdentity" | "catalog">>(
   scope: Scope | null,
   entry: IssueEntry,
   projectId: string | null,

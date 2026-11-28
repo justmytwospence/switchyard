@@ -16,6 +16,7 @@ import { Dialog, Sheet } from "../../components/ui/Overlay";
 import { Select } from "../../components/ui/Select";
 import { ErrorState } from "../../components/ui/states";
 import { TextArea, TextInput } from "../../components/ui/TextArea";
+import { TextLink } from "../../components/ui/TextLink";
 import { toast } from "../../components/ui/Toast";
 import { loadDraft, setDraftNow } from "../../drafts";
 import { useFilter, usePrefs } from "../../prefs";
@@ -35,6 +36,7 @@ import { ScopeRepository } from "../discovery/ScopeRepository";
 import { rememberIssueSession, useIssueInventory } from "../discovery/useIssueInventory";
 import { currentScopeId } from "../scopes/selection";
 import { effectiveWhere, useSelectedWhere, whereLabel } from "../scopes/where";
+import { CheckoutPrepare } from "../settings/CheckoutPrepare";
 import { openIssue } from "../workboard/api";
 import { codeApi } from "./api";
 import {
@@ -45,6 +47,7 @@ import {
   newSessionDefaults,
   newSessionProject,
   orderProjectsForScope,
+  sessionHostIds,
   uniqueBranch,
   workspaceLabel,
   worktreePath,
@@ -59,7 +62,7 @@ function useNewSessionForm(
   open: boolean,
   initialProjectId: string | null,
   scope: Scope | null,
-  /** The host to start on when the project has a checkout there and it is online (a host Where). */
+  /** An explicit run location from the host filter. */
   preferHostId: string | null = null,
 ) {
   const allProjects = useProjects();
@@ -82,7 +85,7 @@ function useNewSessionForm(
   );
 
   const [projectId, setProjectId] = useState("");
-  const [hostId, setHostId] = useState("");
+  const [chosenHostId, setHostId] = useState("");
   const [workspaceId, setWorkspaceId] = useState(NEW);
   const [checkoutId, setCheckoutId] = useState("");
   const [branch, setBranch] = useState("");
@@ -122,22 +125,27 @@ function useNewSessionForm(
     [checkouts, projectId],
   );
   const hostIds = useMemo(
-    () =>
-      [...new Set(projectCheckouts.map((c) => c.hostId))].sort((a, b) =>
-        (hosts[a]?.name ?? "").localeCompare(hosts[b]?.name ?? ""),
-      ),
-    [projectCheckouts, hosts],
+    () => (project ? sessionHostIds(project, projectCheckouts, hosts) : []),
+    [project, projectCheckouts, hosts],
   );
+  const defaults = project
+    ? newSessionDefaults(
+        project,
+        projectCheckouts,
+        projectWorkspaces,
+        hosts,
+        preferHostId ?? undefined,
+      )
+    : null;
+  const hostId = chosenHostId || defaults?.hostId || "";
 
   // Project-dependent defaults.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-default when the flow opens or the project changes
   useEffect(() => {
     if (!open || !project) return;
-    const prefer = preferHostId && hostOnline(hosts[preferHostId]) ? preferHostId : undefined;
-    const d = newSessionDefaults(project, projectCheckouts, projectWorkspaces, hosts, prefer);
-    setHostId(d.hostId);
-    setWorkspaceId(d.workspaceId ?? NEW);
-    setCheckoutId(d.checkoutId ?? "");
+    setHostId(defaults?.hostId ?? "");
+    setWorkspaceId(defaults?.workspaceId ?? NEW);
+    setCheckoutId(defaults?.checkoutId ?? "");
     setProfileId("");
     setBase("");
     setBranch("");
@@ -183,7 +191,7 @@ function useNewSessionForm(
   // A new choice of workspace starts from opening its session again.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the workspace changes
   useEffect(() => setAnother(false), [workspaceId]);
-  const checkout = checkouts[checkoutId] ?? hostCheckouts[0];
+  const checkout = hostCheckouts.find((c) => c.id === checkoutId) ?? hostCheckouts[0];
   const host = hosts[hostId];
   const suggested = useMemo(
     () =>
@@ -195,18 +203,27 @@ function useNewSessionForm(
   );
   const effectiveBranch = branchTouched ? branch : suggested;
 
-  let problem: string | null = null;
-  if (!project) problem = "Choose a project.";
-  else if (hostIds.length === 0)
-    problem = "This project has no checkout yet. Add one in Settings › Projects.";
-  else if (!host) problem = "Choose a host.";
-  else if (!hostOnline(host)) problem = `${host.name} is offline.`;
+  const needsCheckout =
+    !checkout || (!!project?.catalog && !hostWorkspaces.some((w) => w.checkoutId === checkout.id));
+  let placementProblem: string | null = null;
+  if (!project) placementProblem = "Choose an active project.";
+  else if (!host)
+    placementProblem = project.catalog
+      ? "Connect or select a host before starting."
+      : "Attach an existing checkout in Settings › Projects.";
+  else if (!hostOnline(host))
+    placementProblem = `${host.name} is offline. Reconnect it or choose another host.`;
   else if (!host.piCompatible) {
-    problem = `Pi ${host.piVersion ?? "(not found)"} on ${host.name} is outside the tested range.`;
-  } else if (mode === "existing" && !workspace) problem = "Choose a workspace.";
-  else if (mode !== "existing" && !checkout)
-    problem = `No checkout of ${project.name} on ${host.name}.`;
-  else if (mode === "new") problem = branchProblem(effectiveBranch);
+    placementProblem = `Update Pi on ${host.name}; ${host.piVersion ?? "no Pi installation"} is outside the tested range.`;
+  } else if (needsCheckout) placementProblem = "Prepare a checkout on this host before starting.";
+
+  const problem =
+    placementProblem ??
+    (mode === "existing" && !workspace
+      ? "Choose a workspace."
+      : mode === "new"
+        ? branchProblem(effectiveBranch)
+        : null);
 
   let summary: { text: string; path: string } | null = null;
   if (workspace) {
@@ -261,6 +278,8 @@ function useNewSessionForm(
     setAdvancedOpen,
     suggested,
     effectiveBranch,
+    needsCheckout,
+    placementProblem,
     problem,
     summary,
     reset: () => {
@@ -309,6 +328,7 @@ export function NewSessionFlow({
   const where = effectiveWhere(storedWhere, hostsById);
   const f = useNewSessionForm(open, projectId, scope, where?.kind === "host" ? where.id : null);
   const [submitting, setSubmitting] = useState(false);
+  const [preparingCheckout, setPreparingCheckout] = useState(false);
   const inFlight = useRef(false);
   const promptProject = useRef<string | null>(null);
   const issueBack = useRef<HTMLButtonElement>(null);
@@ -349,6 +369,7 @@ export function NewSessionFlow({
         hosts: hostsById,
         checkouts,
         scopes: knownScopes,
+        projects: projectsById,
       })
     : null;
   const issueCollision =
@@ -449,7 +470,7 @@ export function NewSessionFlow({
     !linked &&
     (scope.projectIds === null || scope.projectIds.includes(f.projectId));
   const create = async () => {
-    if (inFlight.current) return;
+    if (inFlight.current || preparingCheckout) return;
     if (launchMode === "issue") {
       const state = useSyncStore.getState();
       const freshScope = selectedScope ? state.scopes[selectedScope] : null;
@@ -471,6 +492,7 @@ export function NewSessionFlow({
         hosts: state.hosts,
         checkouts: state.checkouts,
         scopes: state.scopes,
+        projects: state.projects,
       });
       if (freshAction.kind !== "start") return;
       inFlight.current = true;
@@ -570,7 +592,10 @@ export function NewSessionFlow({
 
   const promptBody =
     f.projects.length === 0 ? (
-      <p className="text-sm text-muted">Add a project in Settings first.</p>
+      <p className="text-sm text-muted">
+        Connect GitHub in <TextLink to="/settings/projects">Settings › Projects</TextLink> to select
+        repositories.
+      </p>
     ) : (
       <form
         className="flex min-w-0 flex-col gap-3"
@@ -609,13 +634,19 @@ export function NewSessionFlow({
               <button
                 type="button"
                 className="text-sm text-accent"
+                disabled={preparingCheckout}
                 onClick={() => setOverrideDestination(true)}
               >
                 Choose a different repository
               </button>
             </>
           ) : (
-            <ProjectPicker projects={f.projects} value={f.projectId} onChange={f.setProjectId} />
+            <ProjectPicker
+              projects={f.projects}
+              value={f.projectId}
+              onChange={f.setProjectId}
+              disabled={preparingCheckout}
+            />
           )}
           <label htmlFor={`${id}-ws`} className="sr-only">
             Workspace
@@ -641,7 +672,7 @@ export function NewSessionFlow({
               New worktree…
             </option>
           </select>
-          {f.hostIds.length > 1 && (
+          {(f.hostIds.length > 1 || (!!f.project?.catalog && f.hostIds.length > 0)) && (
             <>
               <label htmlFor={`${id}-host`} className="sr-only">
                 Host
@@ -650,10 +681,11 @@ export function NewSessionFlow({
                 id={`${id}-host`}
                 className={CHIP_SELECT}
                 value={f.hostId}
+                disabled={preparingCheckout}
                 onChange={(e) => f.changeHost(e.target.value)}
               >
                 {f.hostIds.map((h) => (
-                  <option key={h} value={h} disabled={!hostOnline(f.hosts[h])}>
+                  <option key={h} value={h}>
                     {f.hosts[h]?.name ?? "Removed host"}
                     {hostOnline(f.hosts[h]) ? "" : " (offline)"}
                   </option>
@@ -847,27 +879,17 @@ export function NewSessionFlow({
           ? "Refreshing repository issues…"
           : !f.project || f.projectId !== selectedIssue.projectId
             ? "Choose a project."
-            : f.hostIds.length === 0
-              ? "This project has no checkout yet. Add one in Settings › Projects."
-              : !f.host
-                ? "Choose a host."
-                : !hostOnline(f.host)
-                  ? `${f.host.name} is offline.`
-                  : !f.host.piCompatible
-                    ? `Pi ${f.host.piVersion ?? "(not found)"} on ${f.host.name} is outside the tested range.`
-                    : !f.checkout
-                      ? `No checkout of ${f.project.name} on ${f.host.name}.`
-                      : null;
+            : f.placementProblem;
   const problem = launchMode === "issue" ? issueProblem : f.problem;
   const repoMode = inventory.kind === "repository";
   const searchLabel = repoMode ? "Search repository issues" : "Search tracked issues";
   const entryProject = projectsById[explicitProjectId ?? projectId ?? ""];
   const explicitBrowse = entryProject && githubRepository(entryProject);
   const close = () => {
-    if (!inFlight.current) onClose();
+    if (!inFlight.current && !preparingCheckout) onClose();
   };
   const changeMode = (mode: "prompt" | "issue") => {
-    if (inFlight.current || mode === launchMode) return;
+    if (inFlight.current || preparingCheckout || mode === launchMode) return;
     if (mode === "issue") promptProject.current = f.projectId;
     else if (promptProject.current) f.setProjectId(promptProject.current);
     setLaunchMode(mode);
@@ -881,6 +903,7 @@ export function NewSessionFlow({
           type="button"
           variant={launchMode === "prompt" ? "primary" : "secondary"}
           aria-pressed={launchMode === "prompt"}
+          disabled={preparingCheckout}
           onClick={() => changeMode("prompt")}
         >
           Write a prompt
@@ -889,6 +912,7 @@ export function NewSessionFlow({
           type="button"
           variant={launchMode === "issue" ? "primary" : "secondary"}
           aria-pressed={launchMode === "issue"}
+          disabled={preparingCheckout}
           onClick={() => changeMode("issue")}
         >
           From an issue
@@ -1003,7 +1027,7 @@ export function NewSessionFlow({
                 type="button"
                 size="sm"
                 variant="ghost"
-                disabled={submitting}
+                disabled={submitting || preparingCheckout}
                 onClick={() => {
                   setIssueId(null);
                   setTrackedPreview(false);
@@ -1038,17 +1062,19 @@ export function NewSessionFlow({
               )}
               {!selectedIssue.sessionId && (
                 <div className="flex flex-wrap gap-2">
-                  {f.hostIds.length > 1 && (
+                  {(f.hostIds.length > 1 || (!!f.project?.catalog && f.hostIds.length > 0)) && (
                     <label className="text-sm" htmlFor={`${id}-issue-host`}>
                       Host{" "}
                       <Select
                         id={`${id}-issue-host`}
                         value={f.hostId}
+                        disabled={preparingCheckout}
                         onChange={(e) => f.changeHost(e.target.value)}
                       >
                         {f.hostIds.map((host) => (
-                          <option key={host} value={host} disabled={!hostOnline(f.hosts[host])}>
+                          <option key={host} value={host}>
                             {f.hosts[host]?.name ?? "Removed host"}
+                            {hostOnline(f.hosts[host]) ? "" : " (offline)"}
                           </option>
                         ))}
                       </Select>
@@ -1078,6 +1104,22 @@ export function NewSessionFlow({
           {errorBox}
         </form>
       )}
+      {f.project?.catalog?.state === "listed" &&
+        (f.needsCheckout || preparingCheckout) &&
+        (launchMode === "prompt" ||
+          (!!selectedIssue &&
+            selectedIssue.projectId === f.projectId &&
+            !selectedIssue.sessionId &&
+            !selectedIssue.merged)) && (
+          <CheckoutPrepare
+            key={JSON.stringify([f.project.id, f.hostId])}
+            project={f.project}
+            host={f.host}
+            hasCheckout={!!f.checkout}
+            attachFallback
+            onBusyChange={setPreparingCheckout}
+          />
+        )}
     </div>
   );
 
@@ -1097,17 +1139,19 @@ export function NewSessionFlow({
           {shortcut} to {reuse ? "open" : "start"}
         </span>
       ) : null}
-      <Button onClick={close} disabled={submitting}>
+      <Button onClick={close} disabled={submitting || preparingCheckout}>
         Cancel
       </Button>
       <Button
         variant="primary"
         busy={submitting}
-        disabled={!!problem || (launchMode === "issue" && issueCollision)}
+        disabled={!!problem || preparingCheckout || (launchMode === "issue" && issueCollision)}
         onClick={() => void create()}
       >
         {launchMode === "issue"
-          ? (action?.label ?? "Start session")
+          ? action?.kind === "open" || action?.kind === "start"
+            ? action.label
+            : "Start session"
           : reuse
             ? "Open session"
             : "Start session"}
@@ -1121,7 +1165,7 @@ export function NewSessionFlow({
         open={open}
         onClose={close}
         title="New session"
-        dismissOnBackdrop={!submitting}
+        dismissOnBackdrop={!submitting && !preparingCheckout}
         className="max-w-xl"
         footer={footer}
       >
@@ -1135,7 +1179,7 @@ export function NewSessionFlow({
       open={open}
       onClose={close}
       title="New session"
-      dismissOnBackdrop={!submitting}
+      dismissOnBackdrop={!submitting && !preparingCheckout}
       footer={footer}
     >
       {body}

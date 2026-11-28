@@ -148,8 +148,15 @@ export function waitForSignal(): Promise<NodeJS.Signals> {
 
 export async function coordinatorStart(ctx: Ctx, flags: CoordinatorFlags): Promise<void> {
   const opts = coordinatorOptions(flags, ctx.env);
-  const c = createCoordinator(opts);
-  await c.start();
+  const { CatalogBridge } = await import("../catalog/bridge.js");
+  const repositoryProvider = new CatalogBridge(opts.dataDir);
+  const c = createCoordinator({ ...opts, repositoryProvider });
+  try {
+    await c.start();
+  } catch (error) {
+    repositoryProvider.stop();
+    throw error;
+  }
   writeEndpoint(opts.dataDir, {
     localUrl: localUrlFor(opts.listen!, c.port),
     publicUrl: c.config.publicUrl,
@@ -161,7 +168,11 @@ export async function coordinatorStart(ctx: Ctx, flags: CoordinatorFlags): Promi
   );
   const sig = await waitForSignal();
   ctx.err(`${sig}: stopping coordinator`);
-  await c.stop();
+  try {
+    await c.stop();
+  } finally {
+    repositoryProvider.stop();
+  }
 }
 
 /** A URL this machine can use to reach a coordinator bound to `listen`. */

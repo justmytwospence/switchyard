@@ -107,6 +107,8 @@ export const Host = z.object({
   /** Folders on the host whose git repositories become projects (absolute or ~/...). */
   projectFolders: z.array(z.string()).optional(),
   projectScan: ProjectScan.nullable().optional(),
+  checkoutRoot: z.string().nullable().optional(),
+  checkoutProvision: z.boolean().optional(),
   /** Subscription limits (host-reported, refreshed every few minutes). */
   usage: z.array(ProviderUsage).optional(),
   github: HostGitHub.optional(),
@@ -128,6 +130,14 @@ export const Project = z.object({
   id: Id,
   name: z.string().min(1),
   repoIdentity: z.string(),
+  catalog: z
+    .object({
+      state: z.enum(["listed", "delisted", "legacy"]),
+      authority: z.string().optional(),
+      externalId: z.string().optional(),
+      fullName: z.string().optional(),
+    })
+    .optional(),
   defaultProfileId: Id.nullable(),
   defaultHostId: Id.nullable(),
   maxConcurrentRuns: z.number().int().min(1).max(32),

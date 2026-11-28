@@ -40,6 +40,8 @@ const Origin = z.enum(["human", "automation"]);
 
 /** Host feature: the host answers `workspace.log` and `workspace.diff` with `rev`. */
 export const GIT_LOG_FEATURE = "gitLog.v1";
+/** Host feature: safe checkout preview, confirmed clone, and targeted checkout location. */
+export const CHECKOUT_PROVISION_FEATURE = "checkout.provision.v1";
 /** A narrower diff: only uncommitted work, or one commit (full SHA) against its first parent. */
 export const DiffRev = z.string().regex(/^(uncommitted|[0-9a-f]{40})$/);
 export type DiffRev = z.infer<typeof DiffRev>;
@@ -156,6 +158,28 @@ export const HostCommand = z.discriminatedUnion("type", [
     instructions: z.string().nullable(),
   }),
   z.object({ type: z.literal("checkout.inspect"), path: z.string() }),
+  z.strictObject({
+    type: z.literal("checkout.preview"),
+    root: z.string().min(1).max(4096),
+    folderName: z.string().min(1).max(128),
+  }),
+  z.strictObject({
+    type: z.literal("checkout.provision"),
+    root: z.string().min(1).max(4096),
+    folderName: z.string().min(1).max(128),
+    expectedPath: z.string().min(1).max(4096),
+    cloneUrl: z.string().min(1).max(4096),
+    /** Only carried by a confirmed live command. Never persist or replay this payload. */
+    grant: z.strictObject({
+      token: z
+        .string()
+        .min(1)
+        .max(4096)
+        .refine((token) => !/[^!-~]/.test(token)),
+      expiresAt: z.iso.datetime({ offset: true }),
+    }),
+  }),
+  z.strictObject({ type: z.literal("checkout.locate"), cwd: z.string().min(1).max(4096) }),
   z.object({ type: z.literal("projects.scan"), folder: z.string().min(1) }),
   z.object({
     type: z.literal("projects.suggest"),
@@ -281,6 +305,19 @@ export const CheckoutInfo = z.object({
   defaultBranch: z.string(),
 });
 export type CheckoutInfo = z.infer<typeof CheckoutInfo>;
+
+export const CheckoutPreviewResult = z.object({
+  path: z.string(),
+  root: z.string(),
+  state: z.enum(["missing", "existing", "collision"]),
+  checkout: CheckoutInfo.optional(),
+});
+export type CheckoutPreviewResult = z.infer<typeof CheckoutPreviewResult>;
+
+export const CheckoutLocateResult = z
+  .object({ checkout: CheckoutInfo, worktreePath: z.string() })
+  .nullable();
+export type CheckoutLocateResult = z.infer<typeof CheckoutLocateResult>;
 
 export const ScannedRepository = CheckoutInfo.extend({ name: z.string() });
 export type ScannedRepository = z.infer<typeof ScannedRepository>;

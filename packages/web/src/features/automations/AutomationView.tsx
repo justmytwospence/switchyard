@@ -601,8 +601,8 @@ function BasicsSection({
           hint={
             projects.length === 0 ? (
               <>
-                No projects yet.{" "}
-                <TextLink to="/settings/projects">Add a project in Settings</TextLink>.
+                No active projects.{" "}
+                <TextLink to="/settings/projects">Connect a repository in Settings</TextLink>.
               </>
             ) : undefined
           }

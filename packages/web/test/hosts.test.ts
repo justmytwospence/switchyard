@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { checkoutRootProblem } from "../src/features/settings/CheckoutLocationCard";
+import { checkoutFolderProblem } from "../src/features/settings/CheckoutPrepare";
 import { disconnectedHostsTitle, hostSetupScript } from "../src/features/settings/HostsSection";
-import { parseProjectFolders, scanSummary } from "../src/features/settings/projectFolders";
 
 describe("hostSetupScript", () => {
   it("installs, enrolls, then installs the service", () => {
@@ -20,38 +21,20 @@ describe("disconnectedHostsTitle", () => {
   });
 });
 
-describe("project folders", () => {
-  const scan = {
-    state: "done" as const,
-    startedAt: "2026-11-02T10:00:00.000Z",
-    finishedAt: "2026-11-02T10:00:00.000Z",
-    repositories: 5,
-    projectsCreated: 2,
-    checkoutsAdded: 3,
-    errors: ["/x: missing"],
-  };
-  const now = Date.parse("2026-11-02T10:00:10.000Z");
-
-  it("parses one folder per line and reports the first problem", () => {
-    expect(parseProjectFolders(" ~/Projects \n\n/srv/x\n")).toEqual({
-      folders: ["~/Projects", "/srv/x"],
-      problem: null,
-    });
-    expect(parseProjectFolders("~/a\nrel/b").problem).toBe(
-      '"rel/b" is not an absolute path or a ~/ path.',
-    );
-    const many = Array.from({ length: 21 }, (_, i) => `/f${i}`).join("\n");
-    expect(parseProjectFolders(many).problem).toBe("Use at most 20 folders.");
+describe("checkout location", () => {
+  it("allows exactly one absolute or home path, or a blank value to disable clones", () => {
+    for (const root of [" ~/Projects ", "/srv/repos", ""]) {
+      expect(checkoutRootProblem(root)).toBeNull();
+    }
+    for (const root of ["relative/path", "~/a\n/srv/b", "~other/Projects"]) {
+      expect(checkoutRootProblem(root)).not.toBeNull();
+    }
   });
 
-  it("summarizes each scan state", () => {
-    expect(scanSummary(undefined)).toBe("Not scanned yet.");
-    expect(scanSummary({ ...scan, state: "running" }, now)).toBe("Scanning…");
-    expect(scanSummary(scan, now)).toBe(
-      "Last scanned just now: 5 repositories, 3 new checkouts, 2 new projects.",
-    );
-    expect(scanSummary({ ...scan, state: "failed" }, now)).toBe(
-      "Last scan failed just now: /x: missing",
-    );
+  it("requires a safe single folder name after a collision", () => {
+    expect(checkoutFolderProblem("repo-copy")).toBeNull();
+    for (const folder of ["", ".", "..", ".git", ".GIT", "../escape", "nested/repo", "a\\b"]) {
+      expect(checkoutFolderProblem(folder)).not.toBeNull();
+    }
   });
 });

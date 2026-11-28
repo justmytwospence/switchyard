@@ -242,6 +242,7 @@ export function BoardIssueList({ board }: { board: WorkBoard }) {
           }}
           pending={board.pending}
           showRepo={!context.fixedProjectId && inventory.kind !== "repository"}
+          actionLabel={board.actionLabel}
           actionDetail={board.actionDetail}
           actionProblem={board.actionProblem}
         />
@@ -288,7 +289,7 @@ export function BoardIssueDetail({ board }: { board: WorkBoard }) {
               void board.action(item.id);
             }}
           >
-            {item.sessionId ? "Open session" : "Start session"}
+            {board.actionLabel(item)}
           </Button>
           {!item.sessionId && (
             <p className="text-xs text-muted">{problem ?? board.actionDetail(item)}</p>

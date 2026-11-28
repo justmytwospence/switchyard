@@ -5,6 +5,7 @@ import { Popover } from "../../components/ui/Popover";
 import { TextInput } from "../../components/ui/TextArea";
 import { cn } from "../../lib/cn";
 import { matchesProject, repoLabel } from "../../lib/repo";
+import { isActiveProject } from "../../sync/store";
 
 /** More projects than this: a searchable picker instead of a native select. */
 export const PROJECT_SEARCH_THRESHOLD = 8;
@@ -15,19 +16,22 @@ const CHIP_BUTTON =
   "tap inline-flex h-9 min-w-0 max-w-full items-center gap-1 rounded-full border border-border bg-surface px-3 text-base text-text md:h-8 md:text-sm hover:bg-surface-2";
 
 export function ProjectPicker({
-  projects,
+  projects: allProjects,
   value,
   onChange,
+  disabled,
 }: {
   projects: Project[];
   value: string;
   onChange: (id: string) => void;
+  disabled?: boolean;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const projects = useMemo(() => allProjects.filter(isActiveProject), [allProjects]);
   const shown = useMemo(() => projects.filter((p) => matchesProject(p, query)), [projects, query]);
   const current = projects.find((p) => p.id === value);
 
@@ -40,9 +44,15 @@ export function ProjectPicker({
         <select
           id={id}
           className={CHIP_SELECT}
-          value={value}
+          value={current ? value : ""}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
         >
+          {!current && (
+            <option value="" disabled>
+              Choose a project
+            </option>
+          )}
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -58,8 +68,9 @@ export function ProjectPicker({
   };
   return (
     <Popover
-      open={open}
+      open={open && !disabled}
       onOpenChange={(o) => {
+        if (disabled) return;
         setOpen(o);
         if (o) {
           setQuery("");
@@ -74,6 +85,7 @@ export function ProjectPicker({
         <button
           type="button"
           {...p}
+          disabled={disabled}
           aria-label={`Project: ${current?.name ?? "none"}`}
           className={CHIP_BUTTON}
         >

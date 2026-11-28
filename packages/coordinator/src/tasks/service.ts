@@ -12,6 +12,7 @@ import {
 import type { z } from "zod";
 import type { CoordinatorContext } from "../context.js";
 import { parse } from "../http.js";
+import { requireWorkProject, type WorkProjectContext } from "../work-projects.js";
 import { detectCycle } from "./state.js";
 
 type TaskContext = Pick<CoordinatorContext, "store">;
@@ -111,7 +112,7 @@ export function validateParent(
 
 /** Shared synchronous constructor; joins the caller's transaction and never launches work. */
 export function createTask(
-  ctx: TaskContext,
+  ctx: WorkProjectContext,
   input: CreateTaskInput,
   origin: Task["origin"],
   agentOrigin?: Task["agentOrigin"],
@@ -121,7 +122,7 @@ export function createTask(
     body.githubIssueUrl === undefined ? undefined : githubIssueFromUrl(body.githubIssueUrl);
   const { store } = ctx;
   return store.tx(() => {
-    store.projects.require(body.projectId);
+    requireWorkProject(ctx, body.projectId);
     const id = newId("tsk");
     validateDependencies(ctx, id, body.projectId, body.title, body.dependencies);
     const parentTaskId = body.parentTaskId ?? null;

@@ -51,6 +51,32 @@ export async function inspectCheckout(
   return CheckoutInfo.parse(r);
 }
 
+/** Preserve the ID of a checkout already recorded at this host path. */
+export function recordInspectedCheckout(
+  ctx: CoordinatorContext,
+  projectId: string,
+  hostId: string,
+  info: CheckoutInfo,
+): Checkout {
+  return ctx.store.tx(() => {
+    const existing = ctx.store.checkouts.list("host_id = ? AND path = ?", [hostId, info.root])[0];
+    if (existing && existing.projectId !== projectId) {
+      throw new SwitchyardError("conflict", "This checkout belongs to another project");
+    }
+    if (existing?.commonDir === info.commonDir && existing.defaultBranch === info.defaultBranch)
+      return existing;
+    return ctx.store.putCheckout({
+      id: existing?.id ?? newId("chk"),
+      projectId,
+      hostId,
+      path: info.root,
+      commonDir: info.commonDir,
+      defaultBranch: info.defaultBranch,
+      createdAt: existing?.createdAt ?? ctx.store.nowIso(),
+    });
+  });
+}
+
 /** Record (or refresh) a workspace the coordinator asked a host to create. */
 export function recordCreatedWorkspace(
   ctx: CoordinatorContext,
@@ -94,11 +120,18 @@ function rehomeSessions(ctx: CoordinatorContext, checkout: Checkout, active: Wor
   for (const s of ctx.store.sessions.list("host_id = ? AND archived_at IS NULL", [
     checkout.hostId,
   ])) {
-    if (s.provenance !== "imported" || s.runId || s.taskId || !s.cwd) continue;
+    if (
+      s.provenance !== "imported" ||
+      s.runId ||
+      s.taskId ||
+      !s.cwd ||
+      (s.projectId && s.projectId !== checkout.projectId)
+    )
+      continue;
     const local = under(s);
     if (!local || local.id === s.workspaceId) continue;
     const ws = ctx.store.workspaceContaining(checkout.hostId, s.cwd);
-    if (!ws || ws.id === s.workspaceId) continue;
+    if (!ws || ws.id === s.workspaceId || ws.checkoutId !== checkout.id) continue;
     ctx.store.putSession({ ...s, workspaceId: ws.id, projectId: ws.projectId });
   }
 }
@@ -110,6 +143,7 @@ function rehomeSessions(ctx: CoordinatorContext, checkout: Checkout, active: Wor
 export async function refreshCheckoutWorkspaces(
   ctx: CoordinatorContext,
   checkout: Checkout,
+  opts: { beforeRecord?: () => void; requiredWorktreePath?: string } = {},
 ): Promise<Workspace[]> {
   const raw = await ctx.hostHub.request<unknown>(checkout.hostId, {
     type: "workspace.discover",
@@ -119,7 +153,20 @@ export async function refreshCheckoutWorkspaces(
   const list = DiscoveredWorktree.array().parse(
     Array.isArray(raw) ? raw : ((raw as { worktrees?: unknown })?.worktrees ?? []),
   );
+  if (
+    opts.requiredWorktreePath !== undefined &&
+    !list.some((wt) => wt.path === opts.requiredWorktreePath && !wt.bare && !wt.prunable)
+  ) {
+    throw new SwitchyardError("conflict", "The worktree changed before discovery completed");
+  }
   return ctx.store.tx(() => {
+    opts.beforeRecord?.();
+    if (opts.requiredWorktreePath !== undefined) {
+      const existing = ctx.store.workspaceByPath(checkout.hostId, opts.requiredWorktreePath);
+      if (existing && existing.checkoutId !== checkout.id) {
+        throw new SwitchyardError("conflict", "This workspace belongs to another checkout");
+      }
+    }
     const now = ctx.store.nowIso();
     const seen = new Set<string>();
     const out: Workspace[] = [];
@@ -127,6 +174,7 @@ export async function refreshCheckoutWorkspaces(
       if (wt.bare || wt.prunable) continue;
       seen.add(wt.path);
       const existing = ctx.store.workspaceByPath(checkout.hostId, wt.path);
+      if (existing && existing.checkoutId !== checkout.id) continue;
       const next: Workspace = {
         id: existing?.id ?? newId("wsp"),
         checkoutId: checkout.id,
@@ -189,7 +237,11 @@ export function baseFor(ctx: CoordinatorContext, ws: Workspace): string | null {
 export async function removeWorkspace(
   ctx: CoordinatorContext,
   id: string,
-  opts: { force: { dirty: boolean; unmerged: boolean }; deleteBranch?: boolean },
+  opts: {
+    force: { dirty: boolean; unmerged: boolean };
+    deleteBranch?: boolean;
+    beforeSend?: () => void;
+  },
 ): Promise<void> {
   const ws = ctx.store.workspaces.require(id);
   if (ws.provenance === "main") {
@@ -207,13 +259,17 @@ export async function removeWorkspace(
   }
   requireConnected(ctx, ws.hostId);
   const checkout = ctx.store.checkouts.require(ws.checkoutId);
-  await ctx.hostHub.request(ws.hostId, {
-    type: "workspace.remove",
-    path: ws.path,
-    checkoutPath: checkout.path,
-    base: baseFor(ctx, ws),
-    force: opts.force,
-    ...(opts.deleteBranch ? { deleteBranch: true } : {}),
-  });
+  await ctx.hostHub.request(
+    ws.hostId,
+    {
+      type: "workspace.remove",
+      path: ws.path,
+      checkoutPath: checkout.path,
+      base: baseFor(ctx, ws),
+      force: opts.force,
+      ...(opts.deleteBranch ? { deleteBranch: true } : {}),
+    },
+    opts.beforeSend ? { beforeSend: opts.beforeSend } : {},
+  );
   ctx.store.archiveWorkspace(ws);
 }

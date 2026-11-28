@@ -1,17 +1,7 @@
-import { basename } from "node:path";
-import {
-  HostEnrollRequest,
-  ProjectSuggestions,
-  type ProjectSuggestionsResponse,
-  SwitchyardError,
-  UpdateHostRequest,
-} from "@switchyard/protocol";
+import { HostEnrollRequest, SwitchyardError, UpdateHostRequest } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import type { CoordinatorContext } from "../context.js";
 import { deviceOf, parse } from "../http.js";
-import { isTooOld, normalizeProjectFolders } from "../project-folders.js";
-import { requireService } from "../services.js";
-import { requireConnected } from "../sessions/service.js";
 import { enrollmentResponse } from "./devices.js";
 
 export function registerHostRoutes(app: FastifyInstance, ctx: CoordinatorContext): void {
@@ -41,65 +31,32 @@ export function registerHostRoutes(app: FastifyInstance, ctx: CoordinatorContext
     return { ...host, adapters: ctx.store.adaptersByHost()[id] ?? [] };
   });
 
-  /** Change a host's settings (its project folders); new folders are scanned in the background. */
+  /** Change the clone destination without scanning or moving existing checkouts. */
   app.patch("/api/hosts/:id", async (req) => {
     const { id } = req.params as { id: string };
-    const body = parse(UpdateHostRequest, req.body);
-    let scan = false;
-    const host = ctx.store.tx(() => {
-      const h = ctx.store.hosts.require(id);
-      if (h.revokedAt) throw new SwitchyardError("forbidden", "This host was revoked");
-      const next = { ...h };
-      if (body.projectFolders !== undefined) {
-        const folders = normalizeProjectFolders(body.projectFolders);
-        scan =
-          folders.length > 0 && JSON.stringify(folders) !== JSON.stringify(h.projectFolders ?? []);
-        next.projectFolders = folders;
-      }
-      return ctx.store.putHost(next);
-    });
-    if (scan && ctx.hostHub.isConnected(id)) {
-      requireService(ctx, "projectFolders").background(id);
+    if (req.body && typeof req.body === "object" && "projectFolders" in req.body) {
+      throw new SwitchyardError(
+        "unsupported_capability",
+        "Projects come from your Git provider. Set this host's Checkout location instead.",
+      );
     }
-    return host;
+    const { checkoutRoot } = parse(UpdateHostRequest, req.body);
+    return ctx.store.tx(() => {
+      const host = ctx.store.hosts.require(id);
+      if (host.revokedAt) throw new SwitchyardError("forbidden", "This host was revoked");
+      if (checkoutRoot === undefined || checkoutRoot === host.checkoutRoot) return host;
+      return ctx.store.putHost({ ...host, checkoutRoot });
+    });
   });
 
-  /** Scan the host's project folders now and wait for the result. */
-  app.post("/api/hosts/:id/scan-projects", async (req) => {
-    const { id } = req.params as { id: string };
-    return requireService(ctx, "projectFolders").scan(id);
+  app.post("/api/hosts/:id/scan-projects", async () => {
+    throw new SwitchyardError(
+      "unsupported_capability",
+      "Folder scanning is no longer available. Select repositories on your Git provider instead.",
+    );
   });
 
-  /** Repositories used with Pi on this host recently that are not projects yet. */
-  app.get(
-    "/api/hosts/:id/project-suggestions",
-    async (req): Promise<ProjectSuggestionsResponse> => {
-      const { id } = req.params as { id: string };
-      requireConnected(ctx, id);
-      let raw: unknown;
-      try {
-        raw = await ctx.hostHub.request(
-          id,
-          { type: "projects.suggest", days: 30 },
-          { timeoutMs: 30_000 },
-        );
-      } catch (err) {
-        if (isTooOld(err)) {
-          throw new SwitchyardError(
-            "unsupported_capability",
-            "Update the host agent to get project suggestions",
-          );
-        }
-        throw err;
-      }
-      const known = new Set(ctx.store.checkouts.list("host_id = ?", [id]).map((c) => c.path));
-      return {
-        suggestions: ProjectSuggestions.parse(raw)
-          .suggestions.filter((s) => !known.has(s.rootPath))
-          .map((s) => ({ ...s, name: basename(s.rootPath), preselected: s.sessionCount >= 3 })),
-      };
-    },
-  );
+  app.get("/api/hosts/:id/project-suggestions", async () => ({ suggestions: [] }));
 
   const revoke = async (req: { params: unknown }) => {
     const { id } = req.params as { id: string };

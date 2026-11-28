@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { appendFile, copyFile, lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -71,6 +71,79 @@ export function runGit(
         resolvePromise(result);
       },
     );
+  });
+}
+
+/** Isolated Git for checkout inspection and provisioning. It never captures Git diagnostics. */
+export function runCheckoutGit(
+  cwd: string,
+  args: string[],
+  opts: { config?: [string, string][]; httpsOnly?: boolean; timeoutMs?: number } = {},
+): Promise<{ stdout: string; code: number | null; timedOut: boolean }> {
+  const env: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    LC_ALL: "C",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_ALLOW_PROTOCOL: opts.httpsOnly ? "https" : "",
+    // A configured checkout root can itself be inside a repo. Do not let clone see its config.
+    ...(opts.httpsOnly ? { GIT_CEILING_DIRECTORIES: dirname(cwd) } : {}),
+  };
+  if (opts.config) {
+    env.GIT_CONFIG_COUNT = String(opts.config.length);
+    for (const [i, [key, value]] of opts.config.entries()) {
+      env[`GIT_CONFIG_KEY_${i}`] = key;
+      env[`GIT_CONFIG_VALUE_${i}`] = value;
+    }
+  }
+  return new Promise((resolvePromise) => {
+    const child = spawn("git", ["--no-pager", ...args], {
+      cwd,
+      env,
+      detached: true,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let timedOut = false;
+    let overflow = false;
+    let failed = false;
+    // git may start a transport helper. Don't let it outlive a timed-out clone.
+    const kill = () => {
+      if (child.pid === undefined) return;
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // The process group may already be gone.
+      }
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      kill();
+    }, opts.timeoutMs ?? 3_000);
+    child.stdout.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > 1024 * 1024) {
+        overflow = true;
+        kill();
+      } else {
+        chunks.push(chunk);
+      }
+    });
+    child.on("error", () => {
+      failed = true;
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const ok = !timedOut && !overflow && !failed;
+      resolvePromise({
+        stdout: ok ? Buffer.concat(chunks).toString() : "",
+        code: ok ? code : null,
+        timedOut,
+      });
+    });
   });
 }
 

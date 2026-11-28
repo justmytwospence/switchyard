@@ -70,6 +70,7 @@ export {
   type PasskeyAvailability,
 } from "./owner.js";
 export { PASSKEY_CHALLENGE_TTL_MS, Passkeys } from "./passkeys.js";
+export type { RepositoryProvider } from "./project-catalog.js";
 export {
   DEFAULT_NOTIFICATION_SETTINGS,
   type PushSender,

@@ -11,6 +11,7 @@ interface IssueListProps {
   onAction?: (id: string) => void;
   pending?: boolean;
   showRepo?: boolean;
+  actionLabel?: (item: IssueInventoryItem) => string;
   actionDetail?: (item: IssueInventoryItem) => string;
   actionProblem?: (item: IssueInventoryItem) => string | null;
   label?: string;
@@ -38,6 +39,7 @@ export function IssueList({
   onAction,
   pending,
   showRepo = true,
+  actionLabel,
   actionDetail,
   actionProblem,
   label = "Tracked issues",
@@ -47,7 +49,7 @@ export function IssueList({
       {items.map((item) => {
         const { id, issue, sessionId, branchName } = item;
         const problem = actionProblem?.(item);
-        const action = sessionId ? "Open session" : "Start session";
+        const action = actionLabel?.(item) ?? (sessionId ? "Open session" : "Start session");
         const selectable = onAction && (sessionId || !item.merged);
         const metadata = [
           showRepo && issue.repository,

@@ -5,9 +5,10 @@ import { BACK_STATE } from "../../app/useBackTo";
 import { useBreakpoint } from "../../app/useBreakpoint";
 import { EmptyState, LastKnownNote } from "../../components/ui/states";
 import { cn } from "../../lib/cn";
-import { useSyncStore } from "../../sync/store";
+import { isActiveProject, useSyncStore } from "../../sync/store";
 import { AdaptersSection } from "./AdaptersSection";
 import { BackupsSection } from "./BackupsSection";
+import { CATALOG_CONNECT_PATH, CatalogConnect, CatalogConnectReturn } from "./CatalogConnections";
 import { ClientsSection } from "./ClientsSection";
 import { DeviceSection } from "./DeviceSection";
 import { DiagnosticsSection } from "./DiagnosticsSection";
@@ -16,7 +17,7 @@ import { NotificationsSection } from "./NotificationsSection";
 import { PoliciesSection } from "./PoliciesSection";
 import { ProfilesSection } from "./ProfilesSection";
 import { ProjectDetail } from "./ProjectDetail";
-import { ProjectCreate, ProjectsSection } from "./ProjectsSection";
+import { ProjectsSection } from "./ProjectsSection";
 import { ScopesSection } from "./ScopesSection";
 import { SignInSection } from "./SignInSection";
 import { SECTION_GROUPS, settingsPath } from "./shared";
@@ -45,7 +46,9 @@ export default function SettingsView() {
       <Route path="trackers" element={<Navigate to={settingsPath("scopes")} replace />} />
       <Route path="sign-in" element={<SignInSection />} />
       <Route path="projects" element={<ProjectsSection />} />
-      <Route path="projects/new" element={<ProjectCreate />} />
+      <Route path="projects/new" element={<Navigate to={CATALOG_CONNECT_PATH} replace />} />
+      <Route path="projects/connect" element={<CatalogConnect />} />
+      <Route path="projects/connect/return" element={<CatalogConnectReturn />} />
       <Route path="projects/:projectId" element={<ProjectDetail />} />
       <Route path="scopes" element={<ScopesSection />} />
       <Route path="profiles" element={<ProfilesSection />} />
@@ -145,7 +148,7 @@ function useSummaries(): Record<string, string | undefined> {
           Object.keys(clients).length,
         "client",
       ),
-      projects: plural(Object.keys(projects).length, "project"),
+      projects: plural(Object.values(projects).filter(isActiveProject).length, "project"),
       profiles: plural(Object.keys(profiles).length, "profile"),
       adapters: plural(adapterCount, "adapter"),
     };

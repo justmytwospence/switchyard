@@ -14,6 +14,7 @@ import type { CoordinatorContext } from "./context.js";
 import { assertPolicyLaunchHost, currentPolicyLaunchRequirement } from "./policies/launch.js";
 import { failSession, requireConnected, resolveProfile } from "./sessions/service.js";
 import type { IssueWork, Store } from "./store.js";
+import { requireWorkProject } from "./work-projects.js";
 import { worktreeDirOf } from "./workspaces.js";
 
 /** Branch name for "Start work": `<number>-<slug of the title>`. */
@@ -264,19 +265,20 @@ export class IssueWorkService {
   ): Promise<{ session: Session; created: boolean }> {
     return this.serialize(projectId, nodeId, async () => {
       const { store, hostHub } = this.ctx;
+      requireWorkProject(this.ctx, projectId);
       const scopeId = opts.scopeId ?? opts.viewId;
       if (scopeId) store.scopes.require(scopeId);
       if (
         opts.hostId &&
         !store.checkouts.list("project_id = ?", [projectId]).some((c) => c.hostId === opts.hostId)
       ) {
-        throw new SwitchyardError(
-          "invalid_request",
-          "The requested host has no checkout of this project",
-        );
+        throw new SwitchyardError("conflict", "Prepare a checkout on this host", {
+          hostId: opts.hostId,
+        });
       }
       let target = await read();
       const current = () => {
+        requireWorkProject(this.ctx, projectId);
         if (target.issue.itemId !== nodeId)
           throw new SwitchyardError("conflict", "The issue changed; refresh and try again");
         target.assertCurrent();

@@ -1,5 +1,7 @@
 # Pi compatibility
 
+Hosts without `checkout.provision.v1` cannot perform managed clone preparation, but can still use existing verified checkouts. New hosts retain the old scan and suggestion wire handlers for older coordinators. Retired folder writes and scans on a new coordinator return guidance rather than creating projects; `hosts folders` reads the new location for migration.
+
 Switchyard drives Pi through `pi --mode rpc`, one child process per live session, with its own JSONL client (`packages/pi-runtime`) and a bridge extension (`dist/bridge/switchyard-bridge.js`) loaded with `-e`.
 
 - **Pi version tested:** 1.4.0 (Homebrew `pi-coding-agent` 1.4.0), on Node 26.13.0.

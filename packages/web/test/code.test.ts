@@ -56,6 +56,7 @@ import {
   scopeNote,
   sendModes,
   sendPlan,
+  sessionHostIds,
   sessionPlace,
   sessionStatus,
   sessionUsage,
@@ -965,6 +966,45 @@ describe("new session helpers", () => {
       hostId: "",
       workspaceId: null,
       checkoutId: null,
+    });
+  });
+});
+
+describe("catalog checkout placement", () => {
+  const repository = { ...project("prj_1", "app"), catalog: { state: "listed" } } as const;
+  const mac = host("mac", { checkoutRoot: "~/Projects", checkoutProvision: true });
+  const nuc = host("nuc", { checkoutRoot: null, checkoutProvision: false });
+  const hosts = { mac, nuc };
+  const checkout: Checkout = {
+    id: "checkout",
+    projectId: repository.id,
+    hostId: nuc.id,
+    path: "/srv/app",
+    commonDir: "/srv/app/.git",
+    defaultBranch: "main",
+    createdAt: T0,
+  };
+
+  it("can use the catalog without any host and defaults to the host that can prepare", () => {
+    expect(newSessionDefaults(repository, [], [], {})).toEqual({
+      hostId: "",
+      checkoutId: null,
+      workspaceId: null,
+    });
+    expect(newSessionDefaults(repository, [], [], hosts)).toEqual({
+      hostId: mac.id,
+      checkoutId: null,
+      workspaceId: null,
+    });
+  });
+
+  it("allows a different host even when an older host has a usable checkout", () => {
+    expect(sessionHostIds(repository, [checkout], hosts)).toEqual([mac.id, nuc.id]);
+    expect(newSessionDefaults(repository, [checkout], [], hosts).checkoutId).toBe(checkout.id);
+    expect(newSessionDefaults(repository, [checkout], [], hosts, mac.id)).toEqual({
+      hostId: mac.id,
+      checkoutId: null,
+      workspaceId: null,
     });
   });
 });

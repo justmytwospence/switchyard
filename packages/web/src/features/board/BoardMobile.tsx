@@ -24,7 +24,7 @@ import { TabPanel, Tabs } from "../../components/ui/Tabs";
 import { TextLink } from "../../components/ui/TextLink";
 import { useSwipeTabs } from "../../lib/useSwipeTabs";
 import { useFilter } from "../../prefs";
-import { useSyncStore, useTask } from "../../sync/store";
+import { isActiveProject, useSyncStore, useTask } from "../../sync/store";
 import { ScopeSelect } from "../scopes/ScopeSelect";
 import {
   BoardNotices,
@@ -108,7 +108,7 @@ export function BoardMobile() {
     navigate(ROUTES.task(t.id), { state: BACK_STATE });
   };
 
-  const noProjects = hydrated && Object.keys(projects).length === 0;
+  const noProjects = hydrated && !Object.values(projects).some(isActiveProject);
   const renderList = (state: TaskState) =>
     board.columns[state].length === 0 ? (
       <p className="px-1 py-3 text-sm text-muted">No {STATE_LABELS[state]} tasks.</p>
@@ -195,7 +195,7 @@ export function BoardMobile() {
           </Button>
         </div>
         {noProjects && (
-          <p className="px-3 pb-2 text-xs text-muted">Add a project to create tasks.</p>
+          <p className="px-3 pb-2 text-xs text-muted">Connect a repository to create tasks.</p>
         )}
         {searchShown && (
           <div id={searchId} className="px-3 pb-2">
@@ -249,12 +249,12 @@ export function BoardMobile() {
       >
         {!hydrated ? (
           <LoadingState label="Loading tasks…" />
-        ) : noProjects ? (
+        ) : noProjects && board.totalTasks === 0 ? (
           <EmptyState
             icon={<SquareKanban className="size-8" />}
-            title="No projects yet"
-            description="Tasks belong to a project. Add a project from a host checkout first."
-            action={{ label: "Add a project", to: ROUTES.settings("projects") }}
+            title="No active projects"
+            description="Share a repository on GitHub to start planning tasks."
+            action={{ label: "Open Projects", to: ROUTES.settings("projects") }}
           />
         ) : board.totalTasks === 0 ? (
           <EmptyState

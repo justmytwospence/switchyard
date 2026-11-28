@@ -46,6 +46,7 @@ import {
   startOnHost,
 } from "../sessions/service.js";
 import { refreshSubagentTranscript, SUBAGENT_READ_ONLY } from "../sessions/subagents.js";
+import { requireWorkProject } from "../work-projects.js";
 
 function requireLiveSession(ctx: CoordinatorContext, s: Session): void {
   if (s.readOnly) throw new SwitchyardError("forbidden", SUBAGENT_READ_ONLY);
@@ -147,8 +148,10 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   ): Session {
     const ws = ctx.store.workspaceByPath(hostId, native.cwd);
     const projectId = projectIdIn ?? ws?.projectId ?? null;
-    if (projectId) ctx.store.projects.require(projectId);
-    const project = projectId ? ctx.store.projects.get(projectId) : null;
+    if (ws && projectId !== ws.projectId) {
+      throw new SwitchyardError("invalid_request", "The native session belongs to another project");
+    }
+    const project = projectId ? ctx.store.projects.require(projectId) : null;
     const host = ctx.store.hosts.require(hostId);
     const now = ctx.store.nowIso();
     const id = newId("ses");
@@ -364,13 +367,16 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
     const s = get(idOf(req));
     const body = parse(BranchRequest, req.body);
     requireSessionControls(ctx, s);
+    const checkProject = () => {
+      if (s.projectId) requireWorkProject(ctx, s.projectId);
+    };
+    checkProject();
     const r = HostBranchResult.parse(
-      await ctx.hostHub.request(s.hostId, {
-        type: "session.branch",
-        sessionId: s.id,
-        entryId: body.entryId,
-        fork: body.fork,
-      }),
+      await ctx.hostHub.request(
+        s.hostId,
+        { type: "session.branch", sessionId: s.id, entryId: body.entryId, fork: body.fork },
+        { beforeSend: checkProject },
+      ),
     );
     if (!r.sessionFile) return { session: null, prefill: r.prefill };
     const native = await ctx.hostHub.request<{
@@ -548,9 +554,11 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
   });
 
   app.post("/api/sessions/:id/takeover", async (req) => takeover(ctx, idOf(req)));
-  app.post("/api/sessions/:id/return-to-automation", async (req) =>
-    returnToAutomation(ctx, idOf(req)),
-  );
+  app.post("/api/sessions/:id/return-to-automation", async (req) => {
+    const s = get(idOf(req));
+    if (s.projectId) requireWorkProject(ctx, s.projectId);
+    return returnToAutomation(ctx, s.id);
+  });
 
   /** Resume with `--session <file>`; refuses without a native handle. */
   async function resumeSession(s: Session): Promise<void> {
@@ -564,6 +572,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: CoordinatorCont
       throw new SwitchyardError("conflict", `Session is already ${s.runtime}`);
     }
     if (s.readOnly) throw new SwitchyardError("forbidden", SUBAGENT_READ_ONLY);
+    if (s.projectId) requireWorkProject(ctx, s.projectId);
     requireUsableHost(ctx, s.hostId);
     const prev = s.runtime;
     const starting = ctx.store.putSession({ ...s, runtime: "starting", runtimeDetail: null });

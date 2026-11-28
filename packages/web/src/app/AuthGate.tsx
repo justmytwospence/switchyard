@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router";
 import { ErrorState, LoadingState } from "../components/ui/states";
+import { CATALOG_RETURN_PATH, takeCatalogReturn } from "../features/settings/catalogReturn";
 import { useSyncStore } from "../sync/store";
 import { checkAuth, saveReturnTo, useAuth } from "./auth";
 
@@ -14,6 +15,7 @@ export function AuthGate() {
   const location = useLocation();
 
   if (status === "unauthenticated") {
+    if (location.pathname === CATALOG_RETURN_PATH) takeCatalogReturn();
     const target = location.pathname + location.search + location.hash;
     saveReturnTo(target);
     return <Navigate to={`/sign-in?next=${encodeURIComponent(target)}`} replace />;

@@ -13,7 +13,8 @@ import { TextArea, TextInput } from "../../components/ui/TextArea";
 import { toast } from "../../components/ui/Toast";
 import { repoLabel } from "../../lib/repo";
 import { apiPatch, apiPost, errorMessage } from "../../sync/api";
-import { useHosts, useSyncStore } from "../../sync/store";
+import { isActiveProject, useHosts, useSyncStore } from "../../sync/store";
+import { CheckoutPrepare } from "./CheckoutPrepare";
 import { SectionPage, settingsPath, splitLines, useHydrated, validateAbsolutePath } from "./shared";
 import { WorkspacesCard } from "./WorkspacesCard";
 import { WORKTREE_DIR_HINT, worktreeDirProblem } from "./worktreeDir";
@@ -89,6 +90,12 @@ export function ProjectDetail() {
       }
     >
       <LastKnownNote />
+      {!isActiveProject(project) && (
+        <p className="text-sm text-muted">
+          This previous project is not connected to the catalog. Its checkouts and history are kept,
+          but new work is unavailable.
+        </p>
+      )}
       {refreshErrors && refreshErrors.length > 0 && (
         <div
           role="alert"
@@ -374,23 +381,53 @@ function CheckoutsCard({
     [checkoutsById, project.id],
   );
   const [adding, setAdding] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [hostId, setHostId] = useState("");
+  const id = useId();
+  const active = isActiveProject(project);
+  const selectedHost =
+    hostsById[hostId] ??
+    hosts.find((h) => h.connectivity === "connected" && h.checkoutProvision && h.checkoutRoot) ??
+    hosts.find((h) => h.connectivity === "connected") ??
+    hosts[0];
   return (
     <Card
       title="Checkouts"
-      description="Clones of this repository. Add one per host that should run this project."
+      description="Prepare a checkout or attach an existing clone on a host where you want to work."
       actions={
-        <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
-          Add checkout
-        </Button>
+        active && (
+          <>
+            {project.catalog && (
+              <Button
+                size="sm"
+                aria-expanded={preparing}
+                disabled={busy || adding}
+                onClick={() => setPreparing(!preparing)}
+              >
+                {preparing ? "Close preparation" : "Prepare checkout"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              icon={<Plus className="size-4" />}
+              disabled={busy}
+              onClick={() => setAdding(true)}
+            >
+              Attach existing checkout
+            </Button>
+          </>
+        )
       }
     >
       {checkouts.length === 0 ? (
-        <EmptyState
-          className="py-4"
-          title="No checkouts"
-          description="Add a checkout so sessions and runs have somewhere to work."
-          action={{ label: "Add checkout", onClick: () => setAdding(true) }}
-        />
+        !preparing && (
+          <EmptyState
+            className="py-4"
+            title="No checkout yet"
+            description="A checkout gives sessions and runs somewhere to work."
+          />
+        )
       ) : (
         <ul className="flex min-w-0 flex-col divide-y divide-border">
           {checkouts.map((c) => {
@@ -410,12 +447,43 @@ function CheckoutsCard({
           })}
         </ul>
       )}
-      <AddCheckoutDialog
-        open={adding}
-        onClose={() => setAdding(false)}
-        project={project}
-        hosts={hosts}
-      />
+      {active && preparing && (
+        <div className="space-y-3">
+          {hosts.length > 0 && (
+            <Field id={id} label="Checkout host">
+              <Select
+                id={id}
+                value={selectedHost?.id ?? ""}
+                disabled={busy}
+                onChange={(e) => setHostId(e.target.value)}
+              >
+                {hosts.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                    {h.connectivity !== "connected" ? " (offline)" : ""}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <CheckoutPrepare
+            key={selectedHost?.id}
+            project={project}
+            host={selectedHost}
+            hasCheckout={checkouts.some((c) => c.hostId === selectedHost?.id)}
+            onBusyChange={setBusy}
+            onPrepared={() => setPreparing(false)}
+          />
+        </div>
+      )}
+      {active && (
+        <AddCheckoutDialog
+          open={adding}
+          onClose={() => setAdding(false)}
+          project={project}
+          hosts={hosts}
+        />
+      )}
     </Card>
   );
 }
@@ -474,7 +542,7 @@ function AddCheckoutDialog({
       open={open}
       onClose={close}
       dismissOnBackdrop={!busy}
-      title="Add checkout"
+      title="Attach existing checkout"
       description={`Another clone of ${project.repoIdentity}.`}
       footer={
         <>
@@ -488,7 +556,7 @@ function AddCheckoutDialog({
             busy={busy}
             disabled={connected.length === 0}
           >
-            Add checkout
+            Attach checkout
           </Button>
         </>
       }

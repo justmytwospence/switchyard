@@ -1,16 +1,15 @@
 // @module-tag slow
-import type { HostCommand } from "@switchyard/protocol";
+import { FakeRepositoryProvider, fixtureRepository } from "@switchyard/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
-import { normalizeProjectFolders, uniqueProjectName } from "../src/project-folders.js";
 import {
-  type CommandHandler,
   enrollHost,
   FakeHost,
   startCoordinator,
+  syncFixtureProject,
   type TestCoordinator,
-  until,
 } from "./helpers.js";
 
+const APP_REPO = fixtureRepository("me", "app");
 let t: TestCoordinator | undefined;
 let host: FakeHost | undefined;
 afterEach(async () => {
@@ -20,243 +19,56 @@ afterEach(async () => {
   t = undefined;
 });
 
-function repo(name: string, root: string, repoIdentity: string) {
-  return { name, root, commonDir: `${root}/.git`, repoIdentity, defaultBranch: "main" };
-}
-
-const handler: CommandHandler = (cmd: HostCommand) => {
-  switch (cmd.type) {
-    case "checkout.inspect":
-      return repo("app", "/repos/app", "https://github.com/me/app");
-    case "workspace.discover":
-      return [];
-    case "projects.scan":
-      if (cmd.folder === "/p") {
-        return {
-          folder: "/p",
-          repositories: [
-            repo("app", "/p/app", "https://github.com/me/app"),
-            repo("App", "/p/App", "https://github.com/me/other"),
-            repo("lib", "/p/lib", "local:lib"),
-          ],
-        };
-      }
-      if (cmd.folder === "/q") {
-        return { folder: "/q", repositories: [repo("tool", "/q/tool", "local:tool")] };
-      }
-      return {
-        __error: { code: "not_found", message: `${cmd.folder} does not exist on this host` },
-      };
-    default:
-      return null;
-  }
-};
-
-async function setup(h: CommandHandler = handler) {
-  t = await startCoordinator({ projectScanIntervalMs: 0 });
-  const creds = await enrollHost(t);
-  host = await FakeHost.connect(t, creds, h);
-  const p = await t.admin("POST", "/api/projects", {
-    name: "App",
-    hostId: creds.hostId,
-    path: "/repos/app",
+async function setup() {
+  const coordinator = await startCoordinator({
+    repositoryProvider: new FakeRepositoryProvider(() => [APP_REPO]),
   });
-  expect(p.status).toBe(201);
-  return { creds, project: p.body };
+  t = coordinator;
+  const project = await syncFixtureProject(coordinator.c, APP_REPO);
+  const creds = await enrollHost(coordinator);
+  host = await FakeHost.connect(coordinator, creds);
+  return { coordinator, project, creds, path: `/api/hosts/${creds.hostId}` };
 }
 
-async function poll(fn: () => Promise<boolean>, timeoutMs = 5000): Promise<void> {
-  const end = Date.now() + timeoutMs;
-  while (!(await fn())) {
-    if (Date.now() > end) throw new Error("poll timed out");
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
-
-async function scanState(hostId: string) {
-  return (await t!.admin("GET", `/api/hosts/${hostId}`)).body.projectScan;
-}
-
-async function projects() {
-  return (await t!.admin("GET", "/api/projects")).body as { id: string; name: string }[];
-}
-
-describe("helpers", () => {
-  it("normalizes folders and makes names unique", () => {
-    expect(
-      normalizeProjectFolders(["~/Projects/", " ~/Projects", "/srv/x", "/", "~/", ""]),
-    ).toEqual(["~/Projects", "/srv/x", "/", "~"]);
-    expect(uniqueProjectName(["a"], "b", "NUC")).toBe("b");
-    expect(uniqueProjectName(["A"], "a", "NUC")).toBe("a (NUC)");
-    expect(uniqueProjectName(["a", "a (NUC)"], "a", "NUC")).toBe("a (NUC) 2");
-  });
-});
-
-describe("project folders", () => {
-  it("validates and normalizes folders", async () => {
-    const { creds } = await setup();
-    const bad = await t!.admin("PATCH", `/api/hosts/${creds.hostId}`, {
-      projectFolders: ["rel/path"],
-    });
+describe("host checkout location", () => {
+  it("defaults to ~/Projects, rejects relative roots, and accepts absolute, tilde, or cleared roots", async () => {
+    const { coordinator, path } = await setup();
+    const initial = await coordinator.admin("GET", path);
+    expect(initial.body.checkoutRoot).toBe("~/Projects");
+    const bad = await coordinator.admin("PATCH", path, { checkoutRoot: "rel/path" });
     expect(bad.status).toBe(400);
     expect(bad.body.error.code).toBe("invalid_request");
-    await host!.close();
-    const ok = await t!.admin("PATCH", `/api/hosts/${creds.hostId}`, {
-      projectFolders: ["~/Projects/", "~/Projects", "/srv/x"],
-    });
-    expect(ok.status).toBe(200);
-    expect(ok.body.projectFolders).toEqual(["~/Projects", "/srv/x"]);
-  });
 
-  it("scans folders into projects and checkouts, idempotently", async () => {
-    const { creds, project } = await setup();
-    await host!.close();
-    await t!.admin("PATCH", `/api/hosts/${creds.hostId}`, { projectFolders: ["/p", "/q", "/x"] });
-    // Connecting with folders and no previous scan starts one; wait for it.
-    host = await FakeHost.connect(t!, creds, handler);
-    await poll(async () => (await scanState(creds.hostId))?.state === "done");
-    const scan = await scanState(creds.hostId);
-    expect(scan).toMatchObject({ repositories: 4, checkoutsAdded: 4, projectsCreated: 3 });
-    expect(scan.errors).toEqual(["/x: /x does not exist on this host"]);
-    expect((await projects()).map((p) => p.name).sort()).toEqual([
-      "App",
-      "App (fake-host)",
-      "lib",
-      "tool",
-    ]);
-    const detail = await t!.admin("GET", `/api/projects/${project.id}`);
-    expect(detail.body.checkouts.map((c: { path: string }) => c.path).sort()).toEqual([
-      "/p/app",
-      "/repos/app",
-    ]);
-
-    const again = await t!.admin("POST", `/api/hosts/${creds.hostId}/scan-projects`);
-    expect(again.status).toBe(200);
-    expect(again.body).toMatchObject({
-      state: "done",
-      repositories: 4,
-      checkoutsAdded: 0,
-      added: [],
-    });
-    expect(await projects()).toHaveLength(4);
-  });
-
-  async function scanWith(repos: ReturnType<typeof repo>[]) {
-    const h: CommandHandler = (cmd: HostCommand) => {
-      if (cmd.type === "checkout.inspect") return repo("app", "/repos/app", "local:abc");
-      if (cmd.type === "workspace.discover") return [];
-      if (cmd.type === "projects.scan") return { folder: "/r", repositories: repos };
-      return null;
-    };
-    const { creds } = await setup(h);
-    await host!.close();
-    await t!.admin("PATCH", `/api/hosts/${creds.hostId}`, { projectFolders: ["/r"] });
-    host = await FakeHost.connect(t!, creds, h);
-    await poll(async () => (await scanState(creds.hostId))?.state === "done");
-    return {
-      scan: await scanState(creds.hostId),
-      all: (await t!.admin("GET", "/api/projects")).body as {
-        name: string;
-        repoIdentity: string;
-      }[],
-    };
-  }
-
-  it("adopts the remote identity of a project added without one", async () => {
-    const { scan, all } = await scanWith([
-      repo("app", "/repos/app", "https://github.com/me/app"),
-      repo("lib", "/r/lib", "https://github.com/me/lib"),
-    ]);
-    expect(all.find((p) => p.name === "App")?.repoIdentity).toBe("https://github.com/me/app");
-    expect(scan).toMatchObject({ checkoutsAdded: 1, projectsCreated: 1 });
-  });
-
-  it("keeps a local identity when another project has the remote", async () => {
-    const { all } = await scanWith([
-      repo("lib", "/r/lib", "https://github.com/me/app"),
-      repo("app", "/repos/app", "https://github.com/me/app"),
-    ]);
-    expect(all.find((p) => p.name === "App")?.repoIdentity).toBe("local:abc");
-  });
-
-  it("reports hosts too old to scan and offline hosts", async () => {
-    const { creds } = await setup((cmd) =>
-      cmd.type === "projects.scan"
-        ? { __error: { code: "invalid_request", message: "Invalid command: no" } }
-        : handler(cmd, ""),
-    );
-    await host!.close();
-    await t!.admin("PATCH", `/api/hosts/${creds.hostId}`, { projectFolders: ["/p"] });
-    const offline = await t!.admin("POST", `/api/hosts/${creds.hostId}/scan-projects`);
-    expect(offline.body.error.code).toBe("host_unreachable");
-
-    host = await FakeHost.connect(t!, creds, (cmd) =>
-      cmd.type === "projects.scan"
-        ? { __error: { code: "invalid_request", message: "Invalid command: no" } }
-        : null,
-    );
-    // The connect itself may start a scan: wait for it to settle, then scan explicitly.
-    await until(() => host!.commands.some((c) => c.command.type === "projects.scan"));
-    const r = await t!.admin("POST", `/api/hosts/${creds.hostId}/scan-projects`);
-    expect(r.body.error.code).toBe("unsupported_capability");
-    expect(r.body.error.message).toMatch(/cannot scan project folders/);
-    const h = await t!.admin("GET", `/api/hosts/${creds.hostId}`);
-    expect(h.body.projectScan.state).toBe("failed");
-  });
-
-  it("scans after folders are saved and when a host reconnects", async () => {
-    const { creds } = await setup();
-    await t!.admin("PATCH", `/api/hosts/${creds.hostId}`, { projectFolders: ["/q"] });
-    let names: string[] = [];
-    for (let i = 0; i < 100 && !names.includes("tool"); i++) {
-      names = (await projects()).map((p) => p.name);
-      await new Promise((r) => setTimeout(r, 20));
+    for (const checkoutRoot of ["/srv/repos", "~/Repositories", null]) {
+      const patch = await coordinator.admin("PATCH", path, { checkoutRoot });
+      expect(patch.status).toBe(200);
+      expect(patch.body.checkoutRoot).toBe(checkoutRoot);
+      expect((await coordinator.admin("GET", path)).body.checkoutRoot).toBe(checkoutRoot);
     }
-    expect(names).toContain("tool");
-
-    const scans = () => host!.commands.filter((c) => c.command.type === "projects.scan").length;
-    await host!.close();
-    host = await FakeHost.connect(t!, creds, handler);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(scans()).toBe(0); // scanned less than a minute ago
-    await host!.close();
-    t!.clock.advance(2 * 60_000);
-    host = await FakeHost.connect(t!, creds, handler);
-    await until(() => scans() === 1);
-  });
-});
-
-describe("project suggestions", () => {
-  const suggest: CommandHandler = (cmd: HostCommand) => {
-    if (cmd.type === "projects.suggest") {
-      return {
-        suggestions: [
-          { rootPath: "/repos/app", sessionCount: 9, lastActivityAt: "2026-11-01T10:00:00.000Z" },
-          { rootPath: "/repos/new", sessionCount: 3, lastActivityAt: "2026-11-01T09:00:00.000Z" },
-          { rootPath: "/repos/few", sessionCount: 1, lastActivityAt: "2026-11-01T08:00:00.000Z" },
-        ],
-      };
-    }
-    return handler(cmd);
-  };
-
-  it("drops existing checkouts and preselects repositories with 3 or more sessions", async () => {
-    const { creds } = await setup(suggest);
-    const r = await t!.admin("GET", `/api/hosts/${creds.hostId}/project-suggestions`);
-    expect(r.status).toBe(200);
-    expect(r.body.suggestions).toEqual([
-      expect.objectContaining({ rootPath: "/repos/new", name: "new", preselected: true }),
-      expect.objectContaining({ rootPath: "/repos/few", name: "few", preselected: false }),
-    ]);
   });
 
-  it("reports an old host as unsupported", async () => {
-    const { creds } = await setup((cmd) =>
-      cmd.type === "projects.suggest"
-        ? { __error: { code: "invalid_request", message: "Invalid command: projects.suggest" } }
-        : handler(cmd),
-    );
-    const r = await t!.admin("GET", `/api/hosts/${creds.hostId}/project-suggestions`);
-    expect(r.body.error.code).toBe("unsupported_capability");
+  it("does not scan, create projects, or attach checkouts on save or reconnect", async () => {
+    const { coordinator, project, creds, path } = await setup();
+    const patch = await coordinator.admin("PATCH", path, { checkoutRoot: "/repos" });
+    expect(patch.status).toBe(200);
+    expect(host!.commands).toEqual([]);
+    await host!.close();
+    host = await FakeHost.connect(coordinator, creds);
+    const projects = await coordinator.admin("GET", "/api/projects");
+    expect(projects.body.map((p: { id: string }) => p.id)).toEqual([project.id]);
+    expect(coordinator.c.store.checkouts.list()).toEqual([]);
+    expect(host.commands).toEqual([]);
+  });
+
+  it("retires folder writes and scans, and returns no legacy project suggestions", async () => {
+    const { coordinator, path } = await setup();
+    const folders = await coordinator.admin("PATCH", path, { projectFolders: ["/repos"] });
+    expect(folders.body.error.code).toBe("unsupported_capability");
+    const scan = await coordinator.admin("POST", `${path}/scan-projects`);
+    expect(scan.body.error.code).toBe("unsupported_capability");
+    const suggestions = await coordinator.admin("GET", `${path}/project-suggestions`);
+    expect(suggestions.status).toBe(200);
+    expect(suggestions.body.suggestions).toEqual([]);
+    expect(host!.commands).toEqual([]);
   });
 });

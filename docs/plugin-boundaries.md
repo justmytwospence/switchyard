@@ -15,6 +15,7 @@ Switchyard should follow an evolving Pi setup without duplicating its workflows 
 - Planning and Pi todo items belong to their plugins; a Switchyard board task is a separate core lifecycle object, not a mirror of every todo.
 - Pi background subprocess jobs and subagent workflows belong to their plugins; host-service and session lifecycle remain core. Existing core agent and task orchestration primitives remain core.
 - Plugin approval interfaces can present a workflow, but core authorization, takeover and policy enforcement cannot depend on their presence.
+- Repository membership and durable Project identity belong to core; a separate provider worker supplies catalog data and clone grants, while hosts own checkout paths and Git state. Without a provider, retain the last complete catalog and history; do not scan hosts to invent projects. Without host provisioning capability, existing verified checkouts remain usable.
 - herdr and tmux are client modules, and GitHub is a scope module. Core records what a client reports and what you bound it to, and what a scope's source syncs; it never branches on a module's kind. Without them, the web app and scopes of projects you choose still work.
 
 Current adapters are plugin-owned. This contract does not call for migrating working policy or orchestration code. Generalize a primitive when two independent modules or plugins need it, not an entire plugin workflow.

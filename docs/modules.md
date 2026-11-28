@@ -26,7 +26,7 @@ What belongs to core and what to each of these is the [ownership contract](plugi
 The coordinator never runs code: it keeps state, decides what runs where and relays. So a module is never loaded into it. A module is a process somewhere else that speaks one of the coordinator's contracts, with its own revocable credential:
 
 - a client module runs on the machine it shows things on and signs in as a device (`switchyard login`);
-- the GitHub scope module runs `gh` on a host, under that host's credential and GitHub login, so the coordinator stores no GitHub token;
+- the GitHub scope module runs `gh` on a host, under that host's credential and GitHub login; the separate repository catalog worker holds GitHub App credentials in the coordinator data directory;
 - a trigger module is whatever sends the request: another service, a CI job, a cron line.
 
 Core never branches on a kind's name. It records what a module reports and what you chose for it, and it asks about capabilities (a host's features, a client's capabilities in its hello), not about who is asking. With a module absent, everything else works: without the GitHub module a scope is projects you choose, and without a client module there is the web app.

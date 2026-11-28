@@ -4,6 +4,7 @@ import type { CoordinatorContext } from "./context.js";
 import { requireService } from "./services.js";
 import { archiveSession } from "./sessions/control.js";
 import { createSession } from "./sessions/service.js";
+import { canWorkOnProject, requireWorkProject } from "./work-projects.js";
 import {
   refreshCheckoutWorkspaces,
   refreshWorkspaceStatus,
@@ -82,6 +83,7 @@ export class WorkspaceLifecycleService {
       for (const p of store.projects.list()) {
         if (!p.ensureSessions && !p.removeLanded) continue;
         for (const checkout of store.checkouts.list("project_id = ?", [p.id])) {
+          if (!canWorkOnProject(this.ctx, p.id)) break;
           if (!this.ctx.hostHub.isConnected(checkout.hostId)) continue;
           try {
             await refreshCheckoutWorkspaces(this.ctx, checkout);
@@ -114,7 +116,7 @@ export class WorkspaceLifecycleService {
 
   private async removeIfLanded(w: Workspace, now: number): Promise<void> {
     const { store, log } = this.ctx;
-    if (!w.branch) return;
+    if (!w.branch || !canWorkOnProject(this.ctx, w.projectId)) return;
     const sessions = this.sessionsOf(w);
     if (sessions.some((s) => BUSY.includes(s.runtime))) return;
     // A Pi the user started is theirs: never remove its worktree from under it.
@@ -139,6 +141,7 @@ export class WorkspaceLifecycleService {
       log.warn({ err, workspaceId: w.id }, "landed check: status failed");
       return notLanded();
     }
+    if (!canWorkOnProject(this.ctx, w.projectId)) return;
     if (dirty || !head || head !== pr.headRefOid) return notLanded();
     const seen = store.getSetting<number | null>(landedKey(w.id), null);
     if (seen === null) {
@@ -147,10 +150,17 @@ export class WorkspaceLifecycleService {
     }
     if (now - seen < LANDED_GRACE_MS) return;
     try {
-      for (const s of sessions) await archiveSession(this.ctx, s.id);
+      for (const s of sessions) {
+        if (!canWorkOnProject(this.ctx, w.projectId)) return;
+        await archiveSession(this.ctx, s.id);
+      }
+      if (!canWorkOnProject(this.ctx, w.projectId)) return;
       await removeWorkspace(this.ctx, w.id, {
         force: { dirty: false, unmerged: true },
         deleteBranch: true,
+        beforeSend: () => {
+          requireWorkProject(this.ctx, w.projectId);
+        },
       });
       log.info({ workspaceId: w.id, branch: w.branch, pr: pr.number }, "removed landed workspace");
     } catch (err) {
@@ -163,7 +173,7 @@ export class WorkspaceLifecycleService {
   private async ensureSession(p: Project, w: Workspace, now: number): Promise<void> {
     const { store, log } = this.ctx;
     const current = store.workspaces.get(w.id);
-    if (!current || current.archivedAt) return;
+    if (!current || current.archivedAt || !canWorkOnProject(this.ctx, p.id)) return;
     if (store.getSetting<number | null>(ensuredKey(w.id), null) !== null) return;
     if (current.github?.pullRequest?.state === "MERGED") return;
     if (this.sessionsOf(current).length > 0) {

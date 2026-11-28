@@ -1,8 +1,8 @@
 /**
  * Cross-package integration harness: a real coordinator (temp data dir, port 0), a real host agent
  * (temp config and state dirs) running the installed Pi against the scripted mock model, a temp
- * git repository registered as a project, and enrolled client devices (terminal bearer, browser
- * and PWA cookies).
+ * git repository attached to a catalog-backed project, and enrolled client devices (terminal
+ * bearer, browser and PWA cookies).
  */
 import { execFileSync } from "node:child_process";
 import {
@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { enroll, type HostAgentHandle, runHostAgent, silentLogger } from "@switchyard/host-agent";
 import type {
+  CatalogRepository,
   EventEnvelope,
   HostCommand,
   Interaction,
@@ -28,7 +29,9 @@ import type {
   Task,
 } from "@switchyard/protocol";
 import {
+  FakeRepositoryProvider,
   fixtureExtensionPath,
+  fixtureRepository,
   type MockModelServer,
   type MockReply,
   type MockRequest,
@@ -51,7 +54,9 @@ import {
   createLogger,
   type PushTarget,
 } from "../../src/index.js";
-import { sharedPolicyEvaluator } from "../helpers.js";
+import { attachFixtureCheckout, sharedPolicyEvaluator, syncFixtureProject } from "../helpers.js";
+
+const TEST_REPO = fixtureRepository("switchyard-fixture", "repo");
 
 // ---- small utilities --------------------------------------------------------------------------
 
@@ -367,6 +372,10 @@ export class Integration {
   readonly clients: WsClient[] = [];
   project: any = null;
   devices: { terminal: Device; desktop: Device; mobile: Device } | null = null;
+  private readonly repositories = new Map<string, CatalogRepository>();
+  private readonly repositoryProvider = new FakeRepositoryProvider(() => [
+    ...this.repositories.values(),
+  ]);
   private running = false;
   private disposal?: Promise<void>;
 
@@ -410,7 +419,8 @@ export class Integration {
     requirePi();
     this.mock = await startMockModel(this.opts.script ?? stepScript);
     this.pi = makePiEnv({ mockUrl: this.mock.url });
-    this.repo = makeRepo();
+    const project = await this.listProject(TEST_REPO);
+    this.repo = makeRepo({ remote: TEST_REPO.cloneUrl });
     this.opts.prepareRepo?.(this.repo.path);
     // Host enrollment through the admin API and the host agent's own `enroll()`.
     const e = await this.api("POST", "/api/hosts/enrollments", { as: "admin" });
@@ -423,18 +433,30 @@ export class Integration {
     });
     this.hostId = cfg.hostId;
     await this.startAgent();
-    const p = await this.api("POST", "/api/projects", {
-      as: "admin",
-      body: {
-        name: "Repo",
-        hostId: this.hostId,
-        path: this.repo.path,
-        checks: this.opts.project?.checks ?? [],
-        maxConcurrentRuns: this.opts.project?.maxConcurrentRuns ?? 1,
-      },
+    this.project = await this.attachProject(project.id, this.repo.path, {
+      name: "Repo",
+      defaultHostId: this.hostId,
+      checks: this.opts.project?.checks ?? [],
+      maxConcurrentRuns: this.opts.project?.maxConcurrentRuns ?? 1,
     });
-    if (p.status !== 201) throw new Error(`project: ${JSON.stringify(p.body)}`);
-    this.project = p.body;
+  }
+
+  async listProject(repository: CatalogRepository) {
+    this.repositories.set(repository.externalId, repository);
+    return syncFixtureProject(this.c, repository);
+  }
+
+  async attachProject(
+    projectId: string,
+    path: string,
+    settings?: Parameters<typeof attachFixtureCheckout>[3],
+  ) {
+    return attachFixtureCheckout(
+      (method, path, body) => this.api(method, path, { body }),
+      projectId,
+      { hostId: this.hostId, path },
+      settings,
+    );
   }
 
   get url(): string {
@@ -455,6 +477,7 @@ export class Integration {
       workspaceLifecycleTickMs: 0,
       scopeSyncTickMs: 0,
       policyEvaluator: sharedPolicyEvaluator,
+      repositoryProvider: this.repositoryProvider,
       pushSender: async (sub: PushTarget, payload: PushPayload) => {
         pushes.push({ endpoint: sub.endpoint, payload });
       },
@@ -488,7 +511,13 @@ export class Integration {
         configPath: this.configPath,
         stateDir: this.stateDir,
         piBin: overrides.piBin ?? piBin(),
-        env: this.pi!.env,
+        // The dummy GitHub origin is an identity only; never use the operator's gh login.
+        env: {
+          ...this.pi!.env,
+          GH_CONFIG_DIR: join(this.stateDir, "gh"),
+          GH_TOKEN: "",
+          GITHUB_TOKEN: "",
+        },
         extraExtensions: [fixtureExtensionPath(), ...(this.opts.extraExtensions ?? [])],
         ownerAdapterDir: this.ownerAdapterDir,
         handleSignals: false,

@@ -15,7 +15,7 @@ import {
 import { defaultDoctorDeps, printDoctor, runDoctor } from "./commands/doctor.js";
 import { herdrDaemon, herdrNew, herdrPair, herdrPane, herdrStatus } from "./commands/herdr.js";
 import { hostBackup, hostEnroll, hostPiExtension, hostRun, hostStatus } from "./commands/host.js";
-import { hostsFolders, hostsList, hostsScan } from "./commands/hosts.js";
+import { hostsFolders, hostsList, hostsLocation, hostsScan } from "./commands/hosts.js";
 import {
   scopesCreate,
   scopesDelete,
@@ -80,6 +80,14 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     })
     // Subcommands copy this at creation, so it must come before any `.command(...)`.
     .exitOverride();
+
+  program
+    .command("catalog-worker", { hidden: true })
+    .requiredOption("--data-dir <dir>")
+    .action(async (o) => {
+      const { runCatalogWorker } = await import("./catalog/worker.js");
+      await runCatalogWorker(o.dataDir);
+    });
 
   program
     .command("up")
@@ -231,16 +239,25 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
     if (code !== 0) throw new CliError("doctor found failures", code, true);
   });
 
-  const hosts = program.command("hosts").description("Hosts and their project folders");
+  const hosts = program.command("hosts").description("Hosts and their checkout locations");
   connectionOptions(hosts.command("list").description("List hosts"))
     .option("--json", "JSON output")
     .action((o) => hostsList(ctx, { ...connFlags(o), json: o.json }));
   connectionOptions(
     hosts
+      .command("location <host>")
+      .description("Show or change a host's checkout location (quote ~)"),
+  )
+    .option("--set <path>", "set the checkout location")
+    .option("--clear", "disable new managed clones")
+    .option("--json", "JSON output")
+    .action(async (ref, o) => {
+      await hostsLocation(ctx, ref, { ...connFlags(o), set: o.set, clear: o.clear, json: o.json });
+    });
+  connectionOptions(
+    hosts
       .command("folders <host>")
-      .description(
-        "Show or change a host's project folders (absolute or ~/... on the host; quote ~ so your shell does not expand it)",
-      ),
+      .description("Deprecated: show the checkout location and migration guidance"),
   )
     .option("--set <folder...>", "replace the folders")
     .option("--add <folder...>", "add folders")
@@ -258,9 +275,7 @@ export function buildProgram(ctx: Ctx = defaultCtx()): Command {
       });
     });
   connectionOptions(
-    hosts
-      .command("scan <host>")
-      .description("Scan a host's project folders now and add new repositories as projects"),
+    hosts.command("scan <host>").description("Retired: projects come from your Git provider"),
   )
     .option("--json", "JSON output")
     .action(async (ref, o) => {

@@ -49,6 +49,25 @@ const tasksOf = (h: Harness, id: string) =>
   h.t.c.store.tasks.list("automation_id = ?", [id], "created_at, rowid");
 
 describe("scheduler", () => {
+  it("does not fire or record occurrences for an inactive project", async () => {
+    const h = await setup("2026-05-01T00:00:00Z");
+    const cron = await automation(h, {
+      trigger: { kind: "cron", expr: "0 * * * *", timezone: "UTC" },
+    });
+    const manual = await automation(h, { trigger: { kind: "manual" } });
+    const { store } = h.t.c;
+    const project = store.projects.require(h.project.id);
+    store.putProject({ ...project, catalog: { ...project.catalog, state: "delisted" } });
+    h.t.clock.now = Date.parse("2026-05-01T05:30:00Z");
+    scheduler(h).tick();
+    expect((await h.t.admin("POST", `/api/automations/${manual.id}/run`, {})).status).toBe(409);
+    expect(store.occurrences.list()).toEqual([]);
+    expect(store.tasks.list()).toEqual([]);
+    expect(
+      (await h.t.admin("PATCH", `/api/automations/${cron.id}`, { enabled: false })).status,
+    ).toBe(200);
+  });
+
   it("fires 09:00 America/Denver across the DST change", async () => {
     const h = await setup("2026-03-06T20:00:00Z");
     const a = await automation(h, {

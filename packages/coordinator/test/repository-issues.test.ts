@@ -37,6 +37,7 @@ function fixture() {
   };
   const hostHub = {
     isConnected: vi.fn().mockReturnValue(true),
+    connectedHostIds: vi.fn().mockReturnValue(["a", "b", "z"]),
     supportsRepositoryIssues: vi.fn().mockReturnValue(true),
     request,
   };
@@ -75,6 +76,28 @@ describe("repository issues", () => {
     expect(f.request).toHaveBeenCalledTimes(1);
     expect(f.request.mock.calls[0]![0]).toBe("a");
   });
+  it("reads through a connected capable host without a checkout", async () => {
+    const f = fixture();
+    f.store.checkouts.list.mockReturnValue([]);
+    f.hostHub.connectedHostIds.mockReturnValue(["other"]);
+    f.hostHub.supportsRepositoryIssues.mockImplementation((id: string) => id === "other");
+    expect((await f.service.page("project")).items).toHaveLength(1);
+    expect(f.request).toHaveBeenCalledWith(
+      "other",
+      { type: "tracker.repoIssuesPage", repository: "acme/repo" },
+      expect.anything(),
+    );
+
+    f.hostHub.supportsRepositoryIssues.mockReturnValue(false);
+    await expect(f.service.page("project")).rejects.toMatchObject({
+      code: "unsupported_capability",
+      message: "No connected host can read repository issues using gh",
+    });
+    f.hostHub.connectedHostIds.mockReturnValue([]);
+    await expect(f.service.page("project")).rejects.toMatchObject({ code: "host_unreachable" });
+    expect(f.request).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects repository escape in a host response", async () => {
     const f = fixture();
     f.request.mockResolvedValue({

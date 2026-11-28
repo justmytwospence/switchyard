@@ -5,19 +5,23 @@ import {
   type Run,
   type Task,
 } from "@switchyard/protocol";
+import { FakeRepositoryProvider, fixtureRepository } from "@switchyard/test-fixtures";
 import type { CreateCoordinatorOptions } from "../src/index.js";
 import { requireService } from "../src/index.js";
 import {
+  attachFixtureCheckout,
   enrollHost,
   FakeHost,
   hostSession,
   NO_REPLY,
   startCoordinator,
+  syncFixtureProject,
   type TestCoordinator,
   until,
 } from "./helpers.js";
 
 export const ROOT = "/repos/app";
+const APP_REPO = fixtureRepository("me", "app");
 
 /** Host-side state of the smart fake host. */
 export class HostState {
@@ -46,7 +50,7 @@ export function smartHandler(state: HostState, override?: () => Override | undef
         return {
           root: ROOT,
           commonDir: `${ROOT}/.git`,
-          repoIdentity: `https://github.com/me/${Math.random().toString(36).slice(2)}`,
+          repoIdentity: APP_REPO.webUrl,
           defaultBranch: "main",
         };
       case "workspace.discover":
@@ -149,8 +153,10 @@ export async function setupHarness(
     schedulerTickMs: 0,
     workspaceLifecycleTickMs: 0,
     scopeSyncTickMs: 0,
+    repositoryProvider: new FakeRepositoryProvider(() => [APP_REPO]),
     ...opts.coordinator,
   });
+  const project = await syncFixtureProject(t.c, APP_REPO);
   const creds = await enrollHost(t);
   const state = new HostState();
   const h = { t, creds, state, override: undefined } as Harness;
@@ -163,15 +169,17 @@ export async function setupHarness(
     await h.host.close();
     await h.host.open({ capabilities: opts.capabilities });
   }
-  const p = await t.admin("POST", "/api/projects", {
-    name: "App",
-    hostId: creds.hostId,
-    path: ROOT,
-    checks: opts.checks ?? [],
-    maxConcurrentRuns: opts.maxConcurrentRuns ?? 1,
-  });
-  if (p.status !== 201) throw new Error(`project: ${JSON.stringify(p.body)}`);
-  h.project = p.body;
+  h.project = await attachFixtureCheckout(
+    t.admin,
+    project.id,
+    { hostId: creds.hostId, path: ROOT },
+    {
+      name: "App",
+      defaultHostId: creds.hostId,
+      checks: opts.checks ?? [],
+      maxConcurrentRuns: opts.maxConcurrentRuns ?? 1,
+    },
+  );
   return h;
 }
 

@@ -34,6 +34,74 @@ got="$("$bin" --version)"
 [[ "$got" == "$version" ]] || { echo "FAIL version: $got != $version"; exit 1; }
 echo "ok version $got"
 
+# The unbundled CLI also has to start the private IPC worker. Registration begin is offline.
+node --input-type=module - "$root/packages/cli/dist/main.js" "$tmp" <<'JS'
+import assert from "node:assert/strict";
+import { fork } from "node:child_process";
+import { once } from "node:events";
+
+const [entry, tmp] = process.argv.slice(2);
+const worker = fork(entry, ["catalog-worker", "--data-dir", `${tmp}/compiled-data`], {
+  execArgv: [], stdio: ["ignore", "ignore", "ignore", "ipc"],
+});
+const exited = once(worker, "exit");
+const timeout = setTimeout(() => worker.kill("SIGKILL"), 10_000);
+try {
+  const response = Promise.race([
+    once(worker, "message").then(([message]) => message),
+    exited.then(() => { throw new Error("Compiled catalog worker exited without replying"); }),
+  ]);
+  worker.send({ id: 1, method: "beginRegistration", args: [{
+    connectionId: "smoke", account: "switchyard-smoke", accountType: "personal",
+    returnUrl: "https://switchyard.invalid/settings/projects/connect/return", state: "smoke-state",
+  }] });
+  const reply = await response;
+  assert.equal(reply.id, 1);
+  assert.equal(new URL(reply.value.url).origin, "https://github.com");
+  assert.equal(JSON.parse(reply.value.fields.manifest).public, false);
+} finally {
+  if (worker.connected) worker.disconnect();
+  try { assert.deepEqual(await exited, [0, null]); } finally { clearTimeout(timeout); }
+}
+console.log("ok compiled catalog worker");
+JS
+
+# Mock only the external GitHub API, inside the packaged worker. The authenticated connection,
+# catalog sync, real checkout attachment and existing policy smoke use the installed package.
+cat > "$tmp/github-fixture.mjs" <<'JS'
+import { generateKeyPairSync } from "node:crypto";
+
+if (process.argv[2] === "catalog-worker") {
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input);
+    if (url.origin !== "https://api.github.com") return fetch(input, init);
+    switch (url.pathname) {
+      case "/app-manifests/smoke-registration/conversions":
+        return Response.json({
+          id: 100, slug: "switchyard-smoke",
+          owner: { id: 101, type: "User", login: "switchyard-smoke" },
+          pem: generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({
+            type: "pkcs8", format: "pem",
+          }),
+        });
+      case "/app/installations":
+        return Response.json([{ id: 102, app_id: 100, account: { id: 101, type: "User" } }]);
+      case "/app/installations/102/access_tokens":
+        return Response.json({ token: "smoke-list-token", expires_at: "2099-01-01T00:00:00Z" });
+      case "/installation/repositories":
+        return Response.json({ total_count: 1, repositories: [{
+          id: 103, owner: { login: "switchyard-smoke" }, name: "policy-smoke", default_branch: "main",
+        }] });
+      case "/installation/token":
+        return new Response(null, { status: 204 });
+      default:
+        return new Response(null, { status: 404 });
+    }
+  };
+}
+JS
+
 HOME="$tmp/home" PI_CODING_AGENT_DIR="$tmp/home/pi" \
   SWITCHYARD_HOST_CONFIG="$tmp/home/host.json" SWITCHYARD_STATE_DIR="$tmp/home/state" \
   SWITCHYARD_OIDC_ISSUER= SWITCHYARD_OIDC_CLIENT_ID= SWITCHYARD_PUBLIC_URL= \
@@ -41,6 +109,7 @@ HOME="$tmp/home" PI_CODING_AGENT_DIR="$tmp/home/pi" \
   node --input-type=module - "$bin" "$port" "$tmp" <<'JS' &
 import { execFileSync, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 const [bin, port, tmp] = process.argv.slice(2);
 // Install handlers before starting anything; an early shell exit must not strand up.
@@ -52,6 +121,7 @@ const log = openSync(`${tmp}/up.log`, "a", 0o600);
 const child = spawn(bin, ["up", "--bind", "127.0.0.1", "--port", port,
   "--data-dir", `${tmp}/data`, "--no-open"], {
   detached: true, stdio: ["ignore", log, log],
+  env: { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(`${tmp}/github-fixture.mjs`).href}` },
 });
 closeSync(log);
 let exited = false;
@@ -152,8 +222,9 @@ echo "ok sign-in"
 # Create a local checkout and start a real packaged-host Pi session without prompting a model.
 # The coordinator's local admin credential stays in this process, never in arguments or logs.
 mkdir -p "$tmp/repo"
-git -C "$tmp/repo" init -q
-git -C "$tmp/repo" -c user.name=Smoke -c user.email=smoke@example.invalid commit -q --allow-empty -m 'chore: initialize smoke repository'
+git -C "$tmp/repo" init -q -b main
+git -C "$tmp/repo" -c user.name=Smoke -c user.email=smoke@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m 'chore: initialize smoke repository'
+git -C "$tmp/repo" remote add origin 'https://github.com/switchyard-smoke/policy-smoke.git'
 node --input-type=module - "$port" "$tmp/data/admin.token" "$tmp/repo" <<'JS'
 import assert from "node:assert/strict";
 import { readFileSync, realpathSync } from "node:fs";
@@ -171,12 +242,12 @@ async function api(method, path, body, authenticated = true) {
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(30000),
   });
-  const data = await response.json();
+  const data = response.status === 204 ? null : await response.json();
   return { status: response.status, data };
 }
 async function ok(method, path, body, status = 200) {
   const result = await api(method, path, body);
-  if (result.status !== status) throw new Error(`${method} ${path}: HTTP ${result.status} (${result.data.error?.code ?? "unexpected response"})`);
+  if (result.status !== status) throw new Error(`${method} ${path}: HTTP ${result.status} (${result.data?.error?.code ?? "unexpected response"})`);
   return result.data;
 }
 async function waitFor(label, fn) {
@@ -190,10 +261,30 @@ async function waitFor(label, fn) {
 assert.equal((await api("GET", "/api/policies", undefined, false)).status, 401);
 const host = await waitFor("local host", async () =>
   (await ok("GET", "/api/hosts")).find((h) => h.connectivity === "connected" && h.piCompatible));
-const project = await ok("POST", "/api/projects", {
-  name: "Packaged policy smoke", hostId: host.id, path: realpathSync(repo),
+const connections = "/api/catalog/connections";
+assert.equal((await api("GET", connections, undefined, false)).status, 401);
+const registration = await ok("POST", `${connections}/begin`, {
+  account: "switchyard-smoke", accountType: "personal",
+});
+const manifest = JSON.parse(registration.fields.manifest);
+assert.equal(manifest.public, false);
+assert.deepEqual(manifest.default_permissions, { contents: "read" });
+assert.equal(new URL(manifest.redirect_url).pathname, "/settings/projects/connect/return");
+const state = new URL(registration.url).searchParams.get("state");
+assert.ok(state);
+await ok("POST", `${connections}/complete`, { state, code: "smoke-registration" }, 204);
+const { connections: [connection] } = await ok("GET", connections);
+assert.equal(connection.state, "pending");
+const refreshed = await ok("POST", `${connections}/${connection.id}/refresh`);
+assert.equal(refreshed.connections[0].state, "ready");
+const project = (await ok("GET", "/api/projects")).find((p) => p.catalog?.externalId === "103");
+assert.equal(project?.repoIdentity, "https://github.com/switchyard-smoke/policy-smoke");
+assert.equal(project.defaultHostId, null);
+console.log("ok packaged catalog worker");
+const attached = await ok("POST", `/api/projects/${project.id}/checkouts`, {
+  hostId: host.id, path: realpathSync(repo),
 }, 201);
-const workspace = project.workspaces.find((w) => w.provenance === "main");
+const workspace = attached.workspaces.find((w) => w.provenance === "main");
 assert.ok(workspace, "main workspace discovered");
 const session = await ok("POST", "/api/sessions", {
   projectId: project.id, workspace: { existingId: workspace.id }, prompt: "", title: "Policy smoke",

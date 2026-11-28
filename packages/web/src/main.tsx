@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, useNavigate } from "react-router";
 import { checkAuth, initAuth } from "./app/auth";
 import { AppRoutes } from "./app/routes";
+import { captureCatalogReturn } from "./features/settings/catalogReturn";
 import { closeResolvedNotifications } from "./push";
 
 /** Notification clicks on an open window navigate in place (see sw.ts). */
@@ -33,6 +34,7 @@ function ServiceWorkerNavigation() {
   return null;
 }
 
+captureCatalogReturn();
 initAuth();
 if (
   !/^\/(sign-in|enroll)/.test(location.pathname) ||

@@ -1,8 +1,10 @@
 import type {
   AttentionItem,
+  Checkout,
   EventEnvelope,
   Interaction,
   Panel,
+  Project,
   Run,
   Session,
   StreamDelta,
@@ -11,6 +13,7 @@ import type {
   TaskState,
   Tone,
   TranscriptItem,
+  Workspace,
 } from "@switchyard/protocol";
 import { useEffect, useMemo } from "react";
 import { create } from "zustand";
@@ -68,6 +71,7 @@ export interface SyncStore extends SyncData {
   upsertInteraction(interaction: Interaction): void;
   /** Insert a session from an HTTP response; never replaces one sync already delivered. */
   upsertSessionIfMissing(session: Session): void;
+  recordPreparedCheckout(checkout: Checkout, workspaces: Workspace[]): void;
   /** Fetch the newest transcript page (or reload it after a resync). */
   loadTranscript(sessionId: string, opts?: { force?: boolean }): Promise<void>;
   /** Fetch the page before the oldest loaded item. */
@@ -160,6 +164,18 @@ export const useSyncStore = create<SyncStore>()((set, get) => ({
       return { interactions: { ...s.interactions, [interaction.id]: interaction } };
     });
   },
+  recordPreparedCheckout(checkout, workspaces) {
+    set((s) => ({
+      checkouts: s.checkouts[checkout.id]
+        ? s.checkouts
+        : { ...s.checkouts, [checkout.id]: checkout },
+      workspaces: {
+        ...Object.fromEntries(workspaces.filter((w) => !w.archivedAt).map((w) => [w.id, w])),
+        ...s.workspaces,
+      },
+    }));
+  },
+
   upsertSessionIfMissing(session) {
     set((s) =>
       s.sessions[session.id] ? {} : { sessions: { ...s.sessions, [session.id]: session } },
@@ -359,11 +375,19 @@ export const useAutomation = (id: string | null | undefined) =>
 export const useInteraction = (id: string | null | undefined) =>
   useSyncStore((s) => (id ? s.interactions[id] : undefined));
 
-export function useProjects() {
+/** Older snapshots do not carry catalog state. Their projects keep working until upgraded. */
+export function isActiveProject(project: Pick<Project, "catalog">): boolean {
+  return project.catalog === undefined || project.catalog.state === "listed";
+}
+
+export function useProjects(includeHistory = false) {
   const projects = useSyncStore((s) => s.projects);
   return useMemo(
-    () => Object.values(projects).sort((a, b) => a.name.localeCompare(b.name)),
-    [projects],
+    () =>
+      Object.values(projects)
+        .filter((p) => includeHistory || isActiveProject(p))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [projects, includeHistory],
   );
 }
 

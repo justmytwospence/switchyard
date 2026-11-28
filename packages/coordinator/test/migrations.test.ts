@@ -33,9 +33,48 @@ function upTo(db: Db, version: number): void {
 }
 
 describe("coordinator migrations", () => {
+  it("025 preserves Project references and turns a sole project folder into a checkout location", () => {
+    const db = dbAt(24);
+    const host = db.prepare(
+      "INSERT INTO hosts (id,name,credential_hash,json,created_at) VALUES (?,?,?,?,?)",
+    );
+    for (const [id, folders] of [
+      ["mac", ["~/Projects"]],
+      ["nuc", ["/one", "/two"]],
+      ["new", []],
+    ] as const) {
+      host.run(id, id, `hash-${id}`, JSON.stringify({ projectFolders: folders }), "2026-11-28");
+    }
+    db.prepare("INSERT INTO projects VALUES (?,?,?,?,?)").run(
+      "p",
+      "https://github.com/o/r",
+      '{"name":"Custom"}',
+      "now",
+      "now",
+    );
+    db.prepare("INSERT INTO checkouts VALUES (?,?,?,?,?)").run("c", "p", "mac", "/current", "{}");
+    expect(migrate(db)).toBe(25);
+    expect(
+      db
+        .prepare("SELECT id,json_extract(json,'$.checkoutRoot') AS root FROM hosts ORDER BY id")
+        .all(),
+    ).toEqual([
+      { id: "mac", root: "~/Projects" },
+      { id: "new", root: "~/Projects" },
+      { id: "nuc", root: null },
+    ]);
+    expect(db.prepare("SELECT json FROM projects WHERE id='p'").get()?.json).toBe(
+      '{"name":"Custom","catalog":{"state":"legacy"}}',
+    );
+    expect(db.prepare("SELECT project_id,path FROM checkouts WHERE id='c'").get()).toEqual({
+      project_id: "p",
+      path: "/current",
+    });
+    db.close();
+  });
   it("024 creates sparse issue work keyed by project and node, allowing shared branches", () => {
     const db = dbAt(23);
-    expect(migrate(db)).toBe(24);
+    expect(migrate(db)).toBe(LATEST_MIGRATION);
     const insert = db.prepare(`INSERT INTO issue_work
       (project_id, github_issue_node_id, number, url, title, branch, workspace_id, pending_session_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);

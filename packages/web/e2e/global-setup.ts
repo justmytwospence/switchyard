@@ -1,7 +1,7 @@
 /**
  * Starts the real stack for the browser tests: a coordinator serving packages/web/dist, a host
- * agent running real Pi against the mock model (with the fixture extensions), a temp git repo
- * registered as a project, and seed data created through the REST API with the admin token.
+ * agent running real Pi against the mock model (with the fixture extensions), and a temp Git
+ * checkout attached to a catalog Project. Seed data uses the REST API with the admin token.
  * Nothing is built here: run `pnpm build` first.
  */
 import {
@@ -23,6 +23,7 @@ import { createCoordinator, createLogger } from "../../coordinator/dist/index.js
 import { runHostAgent } from "../../host-agent/dist/index.js";
 import {
   fixtureExtensionPath,
+  fixtureRepository,
   type MockScript,
   makePiEnv,
   makeRepo,
@@ -30,6 +31,7 @@ import {
   startMockModel,
   when,
 } from "../../test-fixtures/dist/index.js";
+import { e2eRepositoryProvider, seedCatalogProject } from "./fixtures/catalog";
 import { E2E_PORT, E2E_URL, type E2EState } from "./state";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -199,7 +201,8 @@ export default async function globalSetup(): Promise<void> {
   };
 
   // Repo with uncommitted changes in the main checkout: Changes lists three files.
-  const repo = makeRepo();
+  const demoRepo = fixtureRepository("switchyard-e2e", "demo");
+  const repo = makeRepo({ remote: demoRepo.cloneUrl });
   writeFileSync(join(repo.path, "README.md"), "# test repo\n\nEdited by the e2e setup.\n");
   mkdirSync(join(repo.path, "src"), { recursive: true });
   const wide = `export const wide = "${"x".repeat(400)}";\n`;
@@ -219,9 +222,9 @@ export default async function globalSetup(): Promise<void> {
     webDist,
     rateLimits: false,
     setupHint: false,
+    repositoryProvider: e2eRepositoryProvider(root),
     logger: createLogger({ level: "info", destination: createWriteStream(logFile) }),
   });
-  await coordinator.start();
   const adminToken = coordinator.adminToken;
 
   const api = async (method: string, path: string, body?: unknown): Promise<Json> => {
@@ -239,36 +242,12 @@ export default async function globalSetup(): Promise<void> {
     return json;
   };
 
-  // Host enrollment with the admin token.
-  const enrollment = await api("POST", "/api/hosts/enrollments");
-  const hostRes = await fetch(`${E2E_URL}/api/hosts/enroll`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: enrollment.token, name: "e2e-host", platform: process.platform }),
-  });
-  if (hostRes.status !== 201) throw new Error(`host enroll failed: ${await hostRes.text()}`);
-  const { hostId, credential } = (await hostRes.json()) as { hostId: string; credential: string };
-
-  const hostLogger = createLogger({ level: "info", destination: createWriteStream(hostLog) });
-  const agent = await runHostAgent({
-    config: { coordinatorUrl: E2E_URL, hostId, credential, name: "e2e-host" },
-    stateDir: join(root, "host-state"),
-    piBin: piBin(),
-    env: hostEnv,
-    extraExtensions: [fixtureExtensionPath(), join(here, "fixtures", "ask-extension.js")],
-    // Core bundles no adapters: the e2e ask-user-question adapter is an owner adapter.
-    ownerAdapterDir: join(here, "fixtures", "adapters"),
-    handleSignals: false,
-    terminalSessions: false,
-    backoffMs: [100, 200, 500],
-    logger: hostLogger as never,
-  });
-
+  let agent: Awaited<ReturnType<typeof runHostAgent>> | undefined;
   let tornDown = false;
   const teardown = async (keep = !!process.env.SY_E2E_KEEP) => {
     if (tornDown) return;
     tornDown = true;
-    await agent.stop().catch(() => {});
+    await agent?.stop().catch(() => {});
     await coordinator.stop().catch(() => {});
     await mock.close().catch(() => {});
     if (keep) {
@@ -282,15 +261,46 @@ export default async function globalSetup(): Promise<void> {
   (globalThis as { __syE2ETeardown?: () => Promise<void> }).__syE2ETeardown = () => teardown();
 
   try {
+    await coordinator.start();
+    // Listing a Project requires only the catalog, even before the first host enrolls.
+    const listed = await seedCatalogProject(api, root, demoRepo.owner, demoRepo);
+
+    const enrollment = await api("POST", "/api/hosts/enrollments");
+    const hostRes = await fetch(`${E2E_URL}/api/hosts/enroll`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: enrollment.token,
+        name: "e2e-host",
+        platform: process.platform,
+      }),
+    });
+    if (hostRes.status !== 201) throw new Error(`host enroll failed: ${await hostRes.text()}`);
+    const { hostId, credential } = (await hostRes.json()) as { hostId: string; credential: string };
+
+    const hostLogger = createLogger({ level: "info", destination: createWriteStream(hostLog) });
+    agent = await runHostAgent({
+      config: { coordinatorUrl: E2E_URL, hostId, credential, name: "e2e-host" },
+      stateDir: join(root, "host-state"),
+      piBin: piBin(),
+      env: hostEnv,
+      extraExtensions: [fixtureExtensionPath(), join(here, "fixtures", "ask-extension.js")],
+      // Core bundles no adapters: the e2e ask-user-question adapter is an owner adapter.
+      ownerAdapterDir: join(here, "fixtures", "adapters"),
+      handleSignals: false,
+      terminalSessions: false,
+      backoffMs: [100, 200, 500],
+      logger: hostLogger as never,
+    });
     await waitFor("host connected", async () => {
       const h = await api("GET", `/api/hosts/${hostId}`);
       return (h.host ?? h).connectivity === "connected";
     });
 
-    const project = await api("POST", "/api/projects", {
-      hostId,
-      path: repo.path,
+    await api("POST", `/api/projects/${listed.id}/checkouts`, { hostId, path: repo.path });
+    const project = await api("PATCH", `/api/projects/${listed.id}`, {
       name: "Demo project",
+      defaultHostId: hostId,
       maxConcurrentRuns: 1,
     });
     const workspaceId: string = await waitFor("main workspace", async () => {

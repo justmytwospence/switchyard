@@ -3,7 +3,7 @@
 A scope is a named part of your work. Sessions and the Board can show one scope, and a herdr or tmux [client](clients.md) can mirror one. There are two kinds:
 
 - **Projects you choose.** A set of projects (or every project), plus any session you pin. A scope can also hold only what you pin.
-- **GitHub.** The scope has a GitHub **source**: the issues assigned to you in one owner, or every open issue on a Projects board. Its issues arrive on the Board, get a worktree and a session, and are cleaned up when they merge. GitHub keeps the scope's projects: the repositories the source covers.
+- **GitHub.** The scope has a GitHub **source**: the issues assigned to you in one owner, or every open issue on a Projects board. Its issues arrive on the Board, get a worktree and a session, and are cleaned up when they merge. The Git provider catalog supplies the active projects; the source selects which repositories' issues the scope follows.
 
 A scope is not a permission: every signed-in client can open any session, whatever scope it shows.
 

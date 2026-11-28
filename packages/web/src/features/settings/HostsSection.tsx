@@ -30,13 +30,13 @@ import { formatRelative, formatTime } from "../../lib/time";
 import { apiPost } from "../../sync/api";
 import { useHosts, useSyncStore } from "../../sync/store";
 import { AdapterStatus } from "./AdaptersSection";
+import { CheckoutLocationCard } from "./CheckoutLocationCard";
 import {
   createEnrollment,
   type Enrollment,
   EnrollmentStatus,
   ExpiryCountdown,
 } from "./EnrollmentPanel";
-import { ProjectFoldersCard } from "./ProjectFoldersCard";
 import {
   KeyValues,
   PiCompat,
@@ -405,7 +405,7 @@ export function HostDetail() {
         )}
       </Card>
 
-      <ProjectFoldersCard host={host} />
+      <CheckoutLocationCard key={host.id} host={host} />
 
       <Card
         title="Checkout mappings"

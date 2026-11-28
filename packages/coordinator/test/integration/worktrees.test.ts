@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Workspace } from "@switchyard/protocol";
-import { makeRepo } from "@switchyard/test-fixtures";
+import { fixtureRepository, makeRepo } from "@switchyard/test-fixtures";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { git, Integration, tempDir, worktreePaths } from "./harness.js";
 
@@ -11,8 +11,8 @@ describe("worktrees via the API", { timeout: 120_000 }, () => {
   let env: Integration;
   let external: string;
   beforeAll(async () => {
-    env = await Integration.create();
     external = join(tempDir("sy-int-ext-"), "ext-wt");
+    env = await Integration.create();
   });
   afterAll(async () => {
     await env?.dispose();
@@ -123,20 +123,19 @@ describe("worktrees via the API", { timeout: 120_000 }, () => {
   });
 
   it("uses the project's worktree folder: worktreeDir 'wt' creates <repo>/wt/feat-x", async () => {
-    const repo = makeRepo({ remote: "https://example.invalid/acme/wt-folder.git" });
+    const repository = fixtureRepository("switchyard-fixture", "wt-folder");
+    const repo = makeRepo({ remote: repository.cloneUrl });
     try {
-      const bad = await env.api("POST", "/api/projects", {
-        body: { name: "Escapes", hostId: env.hostId, path: repo.path, worktreeDir: "../x" },
+      const listed = await env.listProject(repository);
+      const bad = await env.api("PATCH", `/api/projects/${listed.id}`, {
+        body: { worktreeDir: "../x" },
       });
       expect(bad.status).toBe(400);
       expect(bad.body.error.code).toBe("invalid_request");
 
-      const p = await env.api("POST", "/api/projects", {
-        body: { name: "Custom folder", hostId: env.hostId, path: repo.path, worktreeDir: "wt" },
-      });
-      expect(p.status).toBe(201);
-      expect(p.body.worktreeDir).toBe("wt");
-      const checkoutId = p.body.checkouts[0].id as string;
+      const project = await env.attachProject(listed.id, repo.path, { worktreeDir: "wt" });
+      expect(project.worktreeDir).toBe("wt");
+      const checkoutId = project.checkouts[0].id as string;
       const discover = env.hostCommands.filter(
         (c) => c.type === "workspace.discover" && c.checkoutPath === repo.path,
       );
@@ -157,17 +156,17 @@ describe("worktrees via the API", { timeout: 120_000 }, () => {
       ).toMatchObject({ worktreeDir: "wt" });
 
       // Discovery classifies by the same folder.
-      const refreshed = await env.ok("POST", `/api/projects/${p.body.id}/refresh`);
+      const refreshed = await env.ok("POST", `/api/projects/${project.id}/refresh`);
       expect(refreshed.errors).toEqual([]);
       const found = (refreshed.workspaces as Workspace[]).find((w) => w.path === ws.path);
       expect(found?.provenance).toBe("managed");
 
       // The folder is a project setting: PATCH validates it the same way.
-      const patched = await env.api("PATCH", `/api/projects/${p.body.id}`, {
+      const patched = await env.api("PATCH", `/api/projects/${project.id}`, {
         body: { worktreeDir: "/abs" },
       });
       expect(patched.status).toBe(400);
-      const ok = await env.ok("PATCH", `/api/projects/${p.body.id}`, {
+      const ok = await env.ok("PATCH", `/api/projects/${project.id}`, {
         body: { worktreeDir: ".git/worktrees-switchyard" },
       });
       expect(ok.worktreeDir).toBe(".git/worktrees-switchyard");

@@ -22,6 +22,7 @@ import {
   POLICY_LAUNCH_UNAVAILABLE,
 } from "../policies/launch.js";
 import { LIVE_RUNTIMES, resolveProfile } from "../sessions/service.js";
+import { canWorkOnProject, requireWorkProject } from "../work-projects.js";
 import { predictedWorktreePath, recordCreatedWorkspace, worktreeDirOf } from "../workspaces.js";
 import { putTaskState, raiseFailed, saveRun, shortError } from "./common.js";
 import { defaultBranch, isLiveRun, LIVE_RUN_STATES } from "./state.js";
@@ -183,8 +184,13 @@ export class Dispatcher {
     });
     on("host.disconnected", ({ hostId }: { hostId: string }) => this.onHostLost(hostId));
     on("event", (e: { type: string; data: unknown }) => {
-      if (e.type === "settings.updated" || e.type === "project.updated") this.schedule();
-      else if (e.type === "session.updated" && this.sessionMayFree(e.data as Session))
+      if (
+        e.type === "settings.updated" ||
+        e.type === "project.updated" ||
+        e.type === "checkout.updated"
+      ) {
+        this.schedule();
+      } else if (e.type === "session.updated" && this.sessionMayFree(e.data as Session))
         this.schedule();
     });
     if (this.opts.tickMs > 0) {
@@ -303,8 +309,16 @@ export class Dispatcher {
         );
       }
     }
-    const project = store.projects.get(task.projectId);
-    if (!project) return wait("invalid_configuration", "The task's project no longer exists");
+    let project: Project;
+    try {
+      project = requireWorkProject(this.ctx, task.projectId);
+    } catch (err) {
+      if (!(err instanceof SwitchyardError)) throw err;
+      return wait(
+        "invalid_configuration",
+        err.code === "not_found" ? "The task's project no longer exists" : err.message,
+      );
+    }
     if (!opts.manual) {
       if (store.dispatchPaused) return wait("dispatch_paused", "Dispatch is paused");
       if (!project.automationEnabled) {
@@ -329,6 +343,9 @@ export class Dispatcher {
     const host = store.hosts.get(target.hostId);
     if (!host || host.revokedAt) {
       return wait("invalid_configuration", "The task's host is unknown or was revoked");
+    }
+    if (!store.checkouts.count("project_id = ? AND host_id = ?", [project.id, host.id])) {
+      return wait("invalid_configuration", "Prepare a checkout on this host");
     }
     if (!this.ctx.hostHub.isConnected(host.id)) {
       return wait("host_offline", `Host ${host.name} is offline`);
@@ -431,6 +448,9 @@ export class Dispatcher {
     const { store } = this.ctx;
     const session = task.sessionId ? store.sessions.get(task.sessionId) : undefined;
     if (session && !session.archivedAt && !session.readOnly) {
+      if (task.policy.hostId && task.policy.hostId !== session.hostId) {
+        return { wait: "invalid_configuration", error: "The task's session is on another host" };
+      }
       const ws = session.workspaceId ? store.workspaces.get(session.workspaceId) : undefined;
       if (ws && !ws.archivedAt) {
         return {
@@ -476,7 +496,7 @@ export class Dispatcher {
       store.checkouts.list("project_id = ?", [project.id])[0]?.hostId ??
       null;
     if (!hostId) {
-      return { wait: "invalid_configuration", error: "No host is configured for this project" };
+      return { wait: "invalid_configuration", error: "Prepare a checkout on this host" };
     }
     const r = this.newWorktree(task, project, hostId);
     if ("error" in r) return r;
@@ -493,11 +513,7 @@ export class Dispatcher {
       hostId,
     ])[0];
     if (!checkout) {
-      const name = this.ctx.store.hosts.get(hostId)?.name ?? hostId;
-      return {
-        wait: "invalid_configuration",
-        error: `Project ${project.name} has no checkout on host ${name}`,
-      };
+      return { wait: "invalid_configuration", error: "Prepare a checkout on this host" };
     }
     const policy = task.policy.workspace.mode === "new_worktree" ? task.policy.workspace : null;
     return {
@@ -595,6 +611,7 @@ export class Dispatcher {
     const { store } = this.ctx;
     const run = store.tx(() => {
       const task = { ...store.tasks.require(taskId), ...(opts.taskPatch ?? {}) };
+      requireWorkProject(this.ctx, task.projectId);
       const now = store.nowIso();
       const prev = task.currentRunId ? store.runs.get(task.currentRunId) : undefined;
       const queued = prev?.state === "queued" ? prev : undefined;
@@ -823,7 +840,18 @@ export class Dispatcher {
       return;
     }
     this.inflight.add(runId);
+    let projectBlocked = false;
+    let launchSent = false;
+    const checkProject = () => {
+      try {
+        requireWorkProject(this.ctx, store.tasks.require(run.taskId).projectId);
+      } catch (err) {
+        projectBlocked = true;
+        throw err;
+      }
+    };
     try {
+      checkProject();
       if (cmd.type === "session.prompt") {
         await hostHub.request(
           run.hostId,
@@ -833,7 +861,7 @@ export class Dispatcher {
             controlRevision: run.controlRevision,
             mode: "automation",
           },
-          { commandId: `ctl_${run.dispatchKey}_${run.controlRevision}` },
+          { commandId: `ctl_${run.dispatchKey}_${run.controlRevision}`, beforeSend: checkProject },
         );
         if (this.stopped) return;
         if (this.isHuman(runId)) {
@@ -841,6 +869,7 @@ export class Dispatcher {
           return;
         }
       }
+      checkProject();
       // A control receipt may have awaited I/O. Recheck current rules at the first effect;
       // thereafter resend the frozen command, never strengthen/weaken an uncertain launch.
       const frozen = store.getSetting<HostCommand | null>(
@@ -857,6 +886,10 @@ export class Dispatcher {
         commandId: `cmd_${run.dispatchKey}`,
         preserveLaunchCommand: true,
         timeoutMs: cmd.type === "dispatch.start" ? this.opts.startTimeoutMs : undefined,
+        beforeSend: () => {
+          checkProject();
+          launchSent = true;
+        },
       });
       if (this.stopped) return;
       if (this.isHuman(runId)) {
@@ -876,8 +909,9 @@ export class Dispatcher {
       if (this.stopped) return;
       const e = shortError(err);
       if (e.code === "timeout" || e.code === "host_unreachable") this.markUncertain(runId);
-      else if (this.isHuman(runId)) this.markUncertain(runId);
-      else this.applyFailure(runId, e, true);
+      else if (this.isHuman(runId) || (projectBlocked && (launchSent || run.state === "uncertain")))
+        this.markUncertain(runId);
+      else this.applyFailure(runId, e, !projectBlocked);
     } finally {
       this.inflight.delete(runId);
     }
@@ -1178,6 +1212,8 @@ export class Dispatcher {
         details.started === true || details.state === "started" || details.stage === "started";
       const retry =
         mayRetry &&
+        !!task &&
+        canWorkOnProject(this.ctx, task.projectId) &&
         !started &&
         !DETERMINISTIC_ERRORS.has(error.code) &&
         run.controlMode === "automation" &&
@@ -1264,7 +1300,14 @@ export class Dispatcher {
     }
     if (this.stopped) return;
     if (!result.known) {
-      // The host never saw it: resend with the same dispatchKey.
+      // The host never saw it: do not start new work for a project removed in the meantime.
+      try {
+        requireWorkProject(this.ctx, this.ctx.store.tasks.require(run.taskId).projectId);
+      } catch (err) {
+        this.applyFailure(run.id, shortError(err), false);
+        return;
+      }
+      // Otherwise resend with the same dispatchKey.
       this.markUncertain(run.id);
       await this.send(run.id);
       return;

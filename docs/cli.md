@@ -17,13 +17,13 @@ Everything is one command, `switchyard`. Install it with `npm install -g @spence
 | `herdr daemon` / `pane` / `new` / `status` / `pair` | The herdr client module: mirror Switchyard into a herdr session, a space per workspace and a tab per active branch ([modules/herdr](../modules/herdr/README.md)); `pair` writes the env file (how to run switchyard, which client.json) and records `--scope`, `--all` or `--none` |
 | `tmux daemon` / `pane` / `new` / `status` / `pair` | The tmux client module: mirror Switchyard into a tmux session, a window per active branch ([modules/tmux](../modules/tmux/README.md)) |
 | `scopes list` / `create` / `edit` / `delete` / `pin` / `unpin` / `sync` | Scopes: named parts of your work that clients can mirror, and the web navigator and Board can select ([scopes.md](scopes.md)). A scope is projects you choose and pins (`--mode`, `--project`), or has a GitHub source (`--github-host <host> --owner <login>`, optionally `--board`, `--follow`, `--write-back`): your assigned issues, or a board's open issues, with worktrees for their branches. `edit --no-github` removes the source; `sync` syncs it now; `list` shows the source, the clients MIRRORED IN each scope, the last sync and its error |
-| `hosts list` / `folders` / `scan` | List hosts; show or change a host's project folders (`--set`, `--add`, `--remove`, `--clear`; quote `~`); scan them now |
+| `hosts list` / `location` | List hosts; show or change a checkout location with `location <host> [--set <path> | --clear]` (quote `~`). Clearing disables new managed clones, not existing checkouts |
 | `sessions list` / `import` | List sessions; import an inactive Pi session file |
 | `tasks create` / `list` / `move` | Create, list and move tasks |
 | `automations list` / `run` | List automations; fire one now |
 | `doctor` | Check Node, Pi, git, the coordinator, sign-in, credentials, the host link and push (PASS/FAIL/WARN) |
 
-List commands accept `--json`.
+List commands accept `--json`. `hosts folders <host>` reads the location with migration guidance; its old mutation flags and `hosts scan` are retired. Projects come from the connected Git provider, not host folder scans.
 
 The names these had before 0.21 still work and print a notice: `views` and `trackers` (now `scopes`; `trackers create --host` is `scopes create --github-host`, and `trackers delete` is `scopes edit --no-github`), `terminals` (now `clients`) and `--view` (now `--scope`). They will be removed.
 

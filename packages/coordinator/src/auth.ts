@@ -234,6 +234,8 @@ export class Auth {
         piVersion: null,
         piCompatible: false,
         capabilities: null,
+        checkoutRoot: "~/Projects",
+        checkoutProvision: false,
         connectivity: "unreachable",
         lastSeenAt: null,
         revokedAt: null,

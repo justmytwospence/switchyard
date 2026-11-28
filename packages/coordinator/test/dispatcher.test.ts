@@ -84,7 +84,60 @@ describe("dispatcher", () => {
     expect(task(h, tk.id)).toMatchObject({ state: "in_progress", sessionId: session.id });
   });
 
-  it("a lost receipt makes the launch uncertain; reconcile adopts a known dispatch", async () => {
+  it("waits on the selected host without reserving a run, then reacts to checkout.updated", async () => {
+    h = await setupHarness();
+    const second = await enrollHost(h.t, "second");
+    extra = await FakeHost.connect(h.t, second, (cmd) => {
+      if (cmd.type === "dispatch.start") {
+        return { sessionId: cmd.sessionId, workspacePath: "/second/app/.worktrees/task" };
+      }
+      return null;
+    });
+    const tk = await createTask(h, { state: "ready", policy: { hostId: second.hostId } });
+    expect(dispatcherOf(h).eligibility(tk)).toEqual({
+      eligible: false,
+      wait: "invalid_configuration",
+      message: "Prepare a checkout on this host",
+    });
+    expect(h.t.c.store.runs.list()).toHaveLength(0);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(0);
+    expect(commandsOf(extra, "dispatch.start")).toHaveLength(0);
+
+    h.t.c.store.putCheckout({
+      id: "chk_placement",
+      projectId: h.project.id,
+      hostId: second.hostId,
+      path: "/second/app",
+      commonDir: "/second/app/.git",
+      defaultBranch: "main",
+      createdAt: h.t.c.store.nowIso(),
+    });
+    const run = await untilRun(h, tk.id, "running");
+    expect(run.hostId).toBe(second.hostId);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(0);
+  });
+
+  it("leaves Ready tasks waiting and rejects new tasks for inactive projects", async () => {
+    h = await setupHarness();
+    const { store } = h.t.c;
+    const project = store.projects.require(h.project.id);
+    const tk = await createTask(h);
+    store.putProject({ ...project, catalog: { state: "legacy" } });
+    store.putTask({ ...tk, state: "ready" });
+    dispatcherOf(h).tick();
+    expect(dispatcherOf(h).eligibility(task(h, tk.id))).toMatchObject({
+      eligible: false,
+      message: expect.stringMatching(/catalog/),
+    });
+    expect((await h.t.admin("POST", `/api/tasks/${tk.id}/run-now`)).status).toBe(409);
+    expect(
+      (await h.t.admin("POST", "/api/tasks", { projectId: project.id, title: "New" })).status,
+    ).toBe(409);
+    expect(store.runs.list()).toHaveLength(0);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(0);
+  });
+
+  it("adopts a known dispatch after a lost receipt even if its project is delisted", async () => {
     h = await setupHarness({ coordinator: { dispatcher: { tickMs: 0, startTimeoutMs: 300 } } });
     let swallow = true;
     h.override = (cmd) => {
@@ -102,15 +155,35 @@ describe("dispatcher", () => {
     const run = await untilRun(h, tk.id, "uncertain");
     const elig = await h.t.admin("GET", `/api/tasks/${tk.id}/eligibility`);
     expect(elig.body).toMatchObject({ eligible: false, wait: "not_ready" });
-    swallow = false;
     await h.host.close();
+    const project = h.t.c.store.projects.require(h.project.id);
+    h.t.c.store.putProject({ ...project, catalog: { ...project.catalog, state: "delisted" } });
+    swallow = false;
     await h.host.open();
     const adopted = await untilRun(h, tk.id, "running");
     expect(adopted.id).toBe(run.id);
-    expect(commandsOf(h.host, "dispatch.reconcile").map((c) => c.dispatchKey)).toEqual([run.id]);
+    // Project updates and reconnect can both trigger read-only reconciliation. Only the launch
+    // itself must never be replayed.
+    expect(new Set(commandsOf(h.host, "dispatch.reconcile").map((c) => c.dispatchKey))).toEqual(
+      new Set([run.id]),
+    );
     expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
     const session = h.t.c.store.sessions.require(run.sessionId!);
     expect(session.cwd).toBe(`${ROOT}/.worktrees/x`);
+  });
+
+  it("does not resend an unaccepted launch after delisting", async () => {
+    h = await setupHarness({ coordinator: { dispatcher: { tickMs: 0, startTimeoutMs: 100 } } });
+    h.override = (cmd) => (cmd.type === "dispatch.start" ? NO_REPLY : undefined);
+    const tk = await createTask(h, { state: "ready" });
+    await untilRun(h, tk.id, "uncertain");
+    const { store } = h.t.c;
+    const project = store.projects.require(h.project.id);
+    store.putProject({ ...project, catalog: { ...project.catalog, state: "delisted" } });
+    await dispatcherOf(h).reconcileHost(h.creds.hostId);
+    expect(runOf(h, tk.id).state).toBe("failed");
+    expect(commandsOf(h.host, "dispatch.reconcile")).toHaveLength(1);
+    expect(commandsOf(h.host, "dispatch.start")).toHaveLength(1);
   });
 
   it("re-asks a connected host about an uncertain launch on the store clock", async () => {

@@ -7,6 +7,13 @@ import {
   type Receipt,
   SwitchyardError,
 } from "@switchyard/protocol";
+import {
+  checkoutCommandError,
+  checkoutCommandType,
+  locateCheckout,
+  previewCheckout,
+  provisionCheckout,
+} from "./checkout-provision.js";
 import { runChecks } from "./checks.js";
 import type { HostDb } from "./db/index.js";
 import type { Dispatcher } from "./dispatch.js";
@@ -28,9 +35,9 @@ import type { SessionSupervisor } from "./supervisor.js";
 import type { WorkspaceService } from "./workspaces.js";
 
 export interface HostTestHooks {
-  /** Return true to store the receipt but not send it (simulates a lost receipt). */
+  /** Return true to store but not send the receipt. Clone grants are redacted. */
   dropReceipt?(commandId: string, command: HostCommand): boolean;
-  /** Called for every command received, including duplicates. */
+  /** Called for every valid command received, including duplicates, with clone grants redacted. */
   onCommand?(command: HostCommand): void;
 }
 
@@ -82,6 +89,8 @@ export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostComm
   "session.importable",
   "session.readNative",
   "checkout.inspect",
+  "checkout.preview",
+  "checkout.locate",
   "projects.scan",
   "projects.suggest",
   "workspace.discover",
@@ -124,6 +133,8 @@ const RERUNNABLE = new Set<HostCommand["type"]>([
   "session.importable",
   "session.readNative",
   "checkout.inspect",
+  "checkout.preview",
+  "checkout.locate",
   "projects.scan",
   "projects.suggest",
   "workspace.discover",
@@ -159,6 +170,7 @@ export function toErrorBody(err: unknown): ErrorBody {
 export function queueKey(command: HostCommand): string | null {
   if (READ_ONLY_COMMANDS.has(command.type)) return null;
   if (command.type === "workspace.prMerge") return `workspace:${command.path}`;
+  if (command.type === "checkout.provision") return `checkout:${command.expectedPath}`;
   if (command.type === "session.deliverMessage") return `message:${command.sessionId}`;
   if (command.type === "checks.run") return `checks:${command.sessionId}`;
   // Control commands get their own per-session lane. A prompt that runs a slash command which
@@ -245,7 +257,10 @@ export class CommandRouter {
           ok: false,
           error: {
             code: "internal",
-            message: RESTARTED_WHILE_RUNNING,
+            message:
+              type === "checkout.provision"
+                ? `${RESTARTED_WHILE_RUNNING}. Check checkout status before trying again.`
+                : RESTARTED_WHILE_RUNNING,
             details: { type },
           },
         };
@@ -261,6 +276,11 @@ export class CommandRouter {
   handle(commandId: string, raw: unknown): Promise<Receipt> {
     const parsed = HostCommand.safeParse(raw);
     const command = parsed.success ? parsed.data : null;
+    const checkoutType = checkoutCommandType(raw);
+    const observed =
+      command?.type === "checkout.provision"
+        ? { ...command, grant: { ...command.grant, token: "[redacted]" } }
+        : command;
     const entry: CommandLogEntry = {
       commandId,
       type: command?.type ?? String((raw as { type?: unknown })?.type ?? "unknown"),
@@ -276,9 +296,9 @@ export class CommandRouter {
     };
     this.commandLog.push(entry);
     if (this.commandLog.length > 1000) this.commandLog.shift();
-    if (command) {
+    if (observed) {
       try {
-        this.opts.testHooks?.onCommand?.(command);
+        this.opts.testHooks?.onCommand?.(observed);
       } catch {
         // test hooks never break routing
       }
@@ -287,14 +307,14 @@ export class CommandRouter {
     const stored = this.storedReceipt(commandId);
     if (stored) {
       entry.outcome = "duplicate";
-      this.deliver(stored, command);
+      this.deliver(stored, observed);
       return Promise.resolve(stored);
     }
     const running = this.inflight.get(commandId);
     if (running) {
       entry.outcome = "duplicate";
       return running.then((r) => {
-        this.deliver(r, command);
+        this.deliver(r, observed);
         return r;
       });
     }
@@ -307,7 +327,9 @@ export class CommandRouter {
           ok: false,
           error: {
             code: "invalid_request",
-            message: `Invalid command: ${parsed.error?.message.slice(0, 500)}`,
+            message: checkoutType
+              ? "Invalid checkout command."
+              : `Invalid command: ${parsed.error?.message.slice(0, 500)}`,
           },
         };
       } else {
@@ -327,7 +349,7 @@ export class CommandRouter {
           const result = await this.execute(command);
           receipt = { commandId, ok: true, result: result ?? null };
         } catch (err) {
-          const error = toErrorBody(err);
+          const error = checkoutType ? checkoutCommandError(err) : toErrorBody(err);
           if (error.code === "internal") {
             this.opts.log.error(
               { commandId, type: command.type, err: error.message },
@@ -344,7 +366,7 @@ export class CommandRouter {
           [commandId, JSON.stringify(receipt), new Date().toISOString()],
         ),
       );
-      this.deliver(receipt, command);
+      this.deliver(receipt, observed);
       return receipt;
     };
 
@@ -503,6 +525,12 @@ export class CommandRouter {
         return sup.compact(c.sessionId, c.instructions);
       case "checkout.inspect":
         return inspectCheckout(c.path);
+      case "checkout.preview":
+        return previewCheckout(c.root, c.folderName);
+      case "checkout.provision":
+        return provisionCheckout(c);
+      case "checkout.locate":
+        return locateCheckout(c.cwd);
       case "projects.scan":
         return scanProjectFolder(c.folder);
       case "projects.suggest":

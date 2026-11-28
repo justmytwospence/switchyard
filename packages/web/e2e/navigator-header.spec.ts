@@ -381,62 +381,31 @@ test.describe("Sessions navigator header", () => {
     await expect(question).toHaveAttribute("href", `/code/${state.sessions.question}`);
   });
 
-  test("with no projects, Pi history suggestions are one line linking to Settings", async ({
+  test("with an empty catalog the navigator links to Projects without looking for local repos", async ({
     page,
   }, info) => {
     const phone = viewportOf(info) === "mobile";
-    // No projects, even when other tests add some meanwhile: their updates become deletions.
-    const noProject = (e: any) =>
-      e?.type === "project.updated"
-        ? { ...e, type: "project.deleted", data: { id: e.data.id } }
-        : e;
-    await rewriteSync(
-      page,
-      (key, value) => (key === "projects" && Array.isArray(value) ? [] : value),
-      (m) =>
-        m.type === "event"
-          ? { ...m, event: noProject(m.event) }
-          : m.type === "replay"
-            ? { ...m, events: m.events.map(noProject) }
-            : m,
+    await rewriteSync(page, (key, value) =>
+      (key === "projects" || key === "sessions") && Array.isArray(value) ? [] : value,
     );
-    await page.route("**/api/hosts/*/project-suggestions", (route) =>
-      route.fulfill({
-        json: {
-          suggestions: Array.from({ length: 7 }, (_, i) => ({
-            rootPath: `/Users/someone/Projects/a-repository-with-a-long-name-${i}`,
-            name: `repo-${i}`,
-            sessionCount: 10 + i,
-            lastActivityAt: new Date().toISOString(),
-            preselected: true,
-          })),
-        },
-      }),
-    );
+    let suggestions = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.endsWith("/project-suggestions")) suggestions++;
+    });
     await page.goto("/code");
     const nav = page.getByTestId("navigator");
-    await expect(nav.getByText("Add a project", { exact: true }).first()).toBeVisible();
-    const line = nav.getByTestId("project-suggestions-line");
-    await expect(line).toContainText("7 repositories found in your Pi history");
-    await expect(nav.getByTestId("project-suggestions")).toHaveCount(0);
+    await expect(nav.getByText("No active projects", { exact: true })).toBeVisible();
     await expect(nav.getByTestId("new-session")).toBeDisabled();
-    // Nothing to filter yet: no search, filters or status.
     await expect(nav.getByTestId("navigator-filters")).toHaveCount(0);
-    await expect(nav.getByRole("radiogroup", { name: "Session filter" })).toHaveCount(0);
     if (!phone) {
       const sep = page.getByRole("separator", { name: "Resize navigator" });
       await sep.focus();
       await page.keyboard.press("Home");
     }
     expect(await headerProblems(page)).toEqual([]);
-    const lineBox = (await line.boundingBox())!;
-    const navBox = (await nav.boundingBox())!;
-    expect(lineBox.x + lineBox.width).toBeLessThanOrEqual(navBox.x + navBox.width);
-    await line.getByRole("link", { name: "Review" }).click();
+    await nav.getByRole("link", { name: "Open Projects" }).click();
     await expect(page).toHaveURL(/\/settings\/projects/);
-    // The full list is in Settings, its paths wrapping inside the card.
-    const card = page.getByTestId("project-suggestions");
-    await expect(card).toBeVisible();
-    expect(await card.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
+    expect(suggestions).toBe(0);
   });
 });

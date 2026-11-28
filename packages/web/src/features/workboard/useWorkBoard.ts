@@ -5,7 +5,7 @@ import { BACK_STATE } from "../../app/useBackTo";
 import { toast } from "../../components/ui/Toast";
 import { useFilter } from "../../prefs";
 import { errorMessage, isApiError } from "../../sync/api";
-import { useSyncStore } from "../../sync/store";
+import { isActiveProject, useSyncStore } from "../../sync/store";
 import { codeApi } from "../code/api";
 import { issueAction } from "../discovery/issueAction";
 import { discoveryContext, discoveryProjects, type IssueInventoryItem } from "../discovery/model";
@@ -62,8 +62,10 @@ export interface WorkBoard {
   action: (id: string) => Promise<void>;
   pending: boolean;
   actionError: string | null;
+  actionLabel: (item: IssueInventoryItem) => string;
   actionDetail: (item: IssueInventoryItem) => string;
   actionProblem: (item: IssueInventoryItem) => string | null;
+  cardActionLabel: (id: string) => string;
   cardActionDetail: (id: string) => string;
   cardActionProblem: (id: string) => string | null;
   canDrop: (card: BoardCard, column: BoardColumn) => { ok: true } | { ok: false; reason: string };
@@ -100,7 +102,7 @@ export function useWorkBoard(): WorkBoard {
     { projectId: null, subset: "notStarted" },
   );
   const [sort, setSort] = useFilter<"number" | "priority">("discovery-sort", "number");
-  const projectList = Object.values(projects);
+  const projectList = Object.values(projects).filter(isActiveProject);
   const context = discoveryContext(scope, projectList);
   const projectId = context.fixedProjectId
     ? null
@@ -172,6 +174,11 @@ export function useWorkBoard(): WorkBoard {
     try {
       const b = card.branch;
       if (b?.projectId && b.branch) {
+        const p = useSyncStore.getState().projects[b.projectId];
+        if (p && !isActiveProject(p)) {
+          toast.error("This previous project is not available for new work.");
+          return;
+        }
         const r = await codeApi.openBranch({
           projectId: b.projectId,
           branch: b.branch,
@@ -196,8 +203,19 @@ export function useWorkBoard(): WorkBoard {
     if (!item) return;
     const intent = issueAction(item, fresh);
     if (intent.kind === "open") return go(intent.sessionId);
-    if (intent.kind !== "start" || (item.locator.kind === "repository" && inventory.loading))
+    if (item.locator.kind === "repository" && inventory.loading) return;
+    if (intent.kind === "prepare") {
+      navigate("/code", {
+        state: {
+          newSession: true,
+          mode: "issue",
+          projectId: item.projectId,
+          issue: intent.locator,
+        },
+      });
       return;
+    }
+    if (intent.kind !== "start") return;
     busy.current = true;
     setPending(true);
     setFailure(null);
@@ -232,10 +250,18 @@ export function useWorkBoard(): WorkBoard {
     }
   };
 
+  const intentFor = (item: IssueInventoryItem) =>
+    issueAction(item, { hosts, checkouts, scopes, projects });
+  const actionLabel = (item: IssueInventoryItem) => {
+    const intent = intentFor(item);
+    return intent.kind === "none" ? "Start session" : intent.label;
+  };
   const actionProblem = (item: IssueInventoryItem) => {
-    const intent = issueAction(item, { hosts, checkouts, scopes });
+    const intent = intentFor(item);
     if (intent.kind === "none") return intent.label;
-    return intent.kind === "start" && item.locator.kind === "repository" && inventory.loading
+    return (intent.kind === "start" || intent.kind === "prepare") &&
+      item.locator.kind === "repository" &&
+      inventory.loading
       ? "Refreshing repository issues…"
       : null;
   };
@@ -274,16 +300,20 @@ export function useWorkBoard(): WorkBoard {
     action,
     pending,
     actionError,
-    actionDetail: (item) =>
-      issueAction(item, { hosts, checkouts, scopes }).consequences.join(" · "),
+    actionLabel,
+    actionDetail: (item) => intentFor(item).consequences.join(" · "),
     actionProblem,
+    cardActionLabel: (id) => {
+      const item = allItems.find((candidate) => candidate.id === id);
+      return item ? actionLabel(item) : "Start session";
+    },
     cardActionProblem: (id) => {
       const item = allItems.find((candidate) => candidate.id === id);
       return item ? actionProblem(item) : null;
     },
     cardActionDetail: (id) => {
       const item = allItems.find((candidate) => candidate.id === id);
-      return item ? issueAction(item, { hosts, checkouts, scopes }).consequences.join(" · ") : "";
+      return item ? intentFor(item).consequences.join(" · ") : "";
     },
     total: columns.reduce((n, c) => n + c.cards.length, 0),
     canDrop: (card, column) => canDrop(card, column, mode, github),

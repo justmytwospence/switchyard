@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+export { connectFixtureCatalog, FakeRepositoryProvider, fixtureRepository } from "./catalog.js";
 export { makeRepo, type TempRepo } from "./git-repo.js";
 export {
   type MockModelServer,

@@ -156,7 +156,20 @@ export function newSessionProject(input: {
   return pick ?? input.ordered[0]?.id ?? "";
 }
 
-/** Host: the requested one, else the project default if online, else the first online host with a checkout. */
+/** A listed repository can be prepared on any enrolled host. Older snapshots only know checkouts. */
+export function sessionHostIds(
+  project: Project,
+  checkouts: Checkout[],
+  hosts: Record<string, Host>,
+) {
+  const ids = new Set(checkouts.map((c) => c.hostId));
+  if (project.catalog?.state === "listed") {
+    for (const h of Object.values(hosts)) if (!h.revokedAt) ids.add(h.id);
+  }
+  return [...ids].sort((a, b) => (hosts[a]?.name ?? "").localeCompare(hosts[b]?.name ?? ""));
+}
+
+/** Prefer a requested host, then an online checkout, then a host that can prepare one. */
 export function newSessionDefaults(
   project: Project,
   checkouts: Checkout[],
@@ -164,13 +177,23 @@ export function newSessionDefaults(
   hosts: Record<string, Host>,
   hostId?: string,
 ): NewSessionDefaults {
-  const hostIds = [...new Set(checkouts.map((c) => c.hostId))];
+  const known = [...new Set(checkouts.map((c) => c.hostId))];
+  const candidates = sessionHostIds(project, checkouts, hosts);
   const def = project.defaultHostId;
+  const canPrepare = (id: string) =>
+    hostOnline(hosts[id]) &&
+    hosts[id]?.piCompatible &&
+    hosts[id]?.checkoutProvision &&
+    hosts[id]?.checkoutRoot;
   const pick =
-    (hostId && hostIds.includes(hostId) ? hostId : undefined) ??
-    (def && hostIds.includes(def) && hostOnline(hosts[def]) ? def : undefined) ??
-    hostIds.find((id) => hostOnline(hosts[id])) ??
-    hostIds[0] ??
+    (hostId && candidates.includes(hostId) ? hostId : undefined) ??
+    (def && known.includes(def) && hostOnline(hosts[def]) ? def : undefined) ??
+    known.find((id) => hostOnline(hosts[id])) ??
+    (def && candidates.includes(def) && canPrepare(def) ? def : undefined) ??
+    candidates.find(canPrepare) ??
+    candidates.find((id) => hostOnline(hosts[id])) ??
+    known[0] ??
+    candidates[0] ??
     "";
   const main =
     workspaces.find((w) => w.hostId === pick && !w.archivedAt && w.provenance === "main") ?? null;

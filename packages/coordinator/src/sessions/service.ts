@@ -15,6 +15,7 @@ import {
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
 import { assertPolicyLaunchHost, currentPolicyLaunchRequirement } from "../policies/launch.js";
+import { requireWorkProject } from "../work-projects.js";
 import { predictedWorktreePath, recordCreatedWorkspace, worktreeDirOf } from "../workspaces.js";
 
 export const LIVE_RUNTIMES: Session["runtime"][] = ["starting", "idle", "running", "waiting_input"];
@@ -137,6 +138,10 @@ export async function startOnHost(
 ): Promise<Session> {
   // Resume/clone/new process all use stored identity/profile and the associated run's limits.
   session = ctx.store.sessions.require(session.id);
+  const checkProject = () => {
+    if (session.projectId) requireWorkProject(ctx, session.projectId);
+  };
+  checkProject();
   const run = ctx.store.runForSession(session);
   const requirement = currentPolicyLaunchRequirement(ctx, {
     sessionId: session.id,
@@ -167,7 +172,7 @@ export async function startOnHost(
     result = await ctx.hostHub.request<{ nativeHandle?: NativeHandle | null } | undefined>(
       session.hostId,
       cmd,
-      { timeoutMs: ctx.config.sessionStartTimeoutMs },
+      { timeoutMs: ctx.config.sessionStartTimeoutMs, beforeSend: checkProject },
     );
   } catch (err) {
     if (err instanceof SwitchyardError && err.code === "timeout") {
@@ -224,21 +229,29 @@ export function pinIfOutsideScope(
 /** Create a workspace through the host and record it. */
 export async function createWorkspace(
   ctx: CoordinatorContext,
-  project: Project,
   checkout: Checkout,
   branch: string,
   base: string | null | undefined,
 ): Promise<Workspace> {
+  const project = requireWorkProject(ctx, checkout.projectId);
   requireConnected(ctx, checkout.hostId);
   const baseBranch = base ?? checkout.defaultBranch;
-  const result = await ctx.hostHub.request<Record<string, unknown> | undefined>(checkout.hostId, {
-    type: "workspace.create",
-    checkoutPath: checkout.path,
-    branch,
-    base: baseBranch,
-    setupCommand: project.setupCommand,
-    worktreeDir: worktreeDirOf(project),
-  });
+  const result = await ctx.hostHub.request<Record<string, unknown> | undefined>(
+    checkout.hostId,
+    {
+      type: "workspace.create",
+      checkoutPath: checkout.path,
+      branch,
+      base: baseBranch,
+      setupCommand: project.setupCommand,
+      worktreeDir: worktreeDirOf(project),
+    },
+    {
+      beforeSend: () => {
+        requireWorkProject(ctx, project.id);
+      },
+    },
+  );
   const predicted = predictedWorktreePath(checkout, project, branch);
   return recordCreatedWorkspace(ctx, project, checkout, {
     path: typeof result?.path === "string" ? result.path : predicted,
@@ -264,7 +277,7 @@ export function createSession(
   },
   recordAssociation?: (session: Session) => void,
 ): { session: Session; started: Promise<void> } {
-  const project = ctx.store.projects.require(input.projectId);
+  const project = requireWorkProject(ctx, input.projectId);
   const profile = resolveProfile(ctx, input.profileId, project);
   let hostId: string;
   let workspace: Workspace | null = null;
@@ -339,7 +352,7 @@ export function createSession(
     try {
       let s = session;
       if (!("existingId" in choice)) {
-        const ws = await createWorkspace(ctx, project, checkout!, choice.newBranch, choice.base);
+        const ws = await createWorkspace(ctx, checkout!, choice.newBranch, choice.base);
         ctx.log.info(
           { sessionId: session.id, ms: Date.now() - t0 },
           "session start: worktree ready",

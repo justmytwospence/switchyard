@@ -1,5 +1,6 @@
 import type { Automation } from "@switchyard/protocol";
 import type { CoordinatorContext } from "../context.js";
+import { canWorkOnProject } from "../work-projects.js";
 import { cronFor, nextOccurrences } from "./describe.js";
 import type { AutomationService } from "./service.js";
 
@@ -103,7 +104,7 @@ export class Scheduler {
     const { store } = this.ctx;
     store.tx(() => {
       const a = store.automations.get(automationId);
-      if (!a?.enabled) return;
+      if (!a?.enabled || !canWorkOnProject(this.ctx, a.projectId)) return;
       const from = new Date(a.lastEvaluatedAt ?? a.createdAt);
       if (now <= from) return;
       const due = enumerate(a, from, now);

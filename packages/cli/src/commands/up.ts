@@ -161,8 +161,15 @@ export async function startStandalone(
   if (flags.dev && !ctx.env.SWITCHYARD_LOG_LEVEL) process.env.SWITCHYARD_LOG_LEVEL = "debug";
   const opts = upOptions(flags, ctx.env);
   // `up` prints the first sign-in link itself below, so no "run switchyard pair" hint.
-  const coordinator = createCoordinator({ ...opts, setupHint: false });
-  await coordinator.start();
+  const { CatalogBridge } = await import("../catalog/bridge.js");
+  const repositoryProvider = new CatalogBridge(opts.dataDir);
+  const coordinator = createCoordinator({ ...opts, setupHint: false, repositoryProvider });
+  try {
+    await coordinator.start();
+  } catch (error) {
+    repositoryProvider.stop();
+    throw error;
+  }
   let firstLink: string | null;
   try {
     firstLink = await firstSignInLink(
@@ -173,6 +180,7 @@ export async function startStandalone(
     );
   } catch (err) {
     await coordinator.stop();
+    repositoryProvider.stop();
     throw err;
   }
   const localUrl = localUrlFor(opts.listen, coordinator.port);
@@ -190,6 +198,7 @@ export async function startStandalone(
     host = await runHostAgent({ config, stateDir: paths.stateDir, handleSignals: false });
   } catch (err) {
     await coordinator.stop();
+    repositoryProvider.stop();
     throw err;
   }
   return {
@@ -198,8 +207,12 @@ export async function startStandalone(
     localUrl,
     firstLink,
     async stop() {
-      await host.stop();
-      await coordinator.stop();
+      try {
+        await host.stop();
+        await coordinator.stop();
+      } finally {
+        repositoryProvider.stop();
+      }
     },
   };
 }

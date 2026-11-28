@@ -5,6 +5,7 @@ import {
   AgentRequestFrame,
   AgentResultFrame,
   AttentionReason,
+  CHECKOUT_PROVISION_FEATURE,
   CompletedUsageWatermark,
   type CoordinatorToHost,
   contributionSlot,
@@ -140,6 +141,16 @@ const FALLBACK_PROFILE: Profile = {
 
 const WsOpen = 1;
 
+function uncertainCheckout(code: "host_unreachable" | "timeout") {
+  return new SwitchyardError(
+    code,
+    "Clone outcome is unknown. Check checkout status before retrying.",
+    {
+      checkCheckoutStatus: true,
+    },
+  );
+}
+
 /**
  * The host link: authenticates `/ws/host`, projects host events into the store (deduped by
  * eventId, acked by hostSeq), forwards stream deltas, tracks connectivity and correlates
@@ -155,6 +166,7 @@ export class HostHub {
   private pingTimer: NodeJS.Timeout | null = null;
   private terminalSink: TerminalSink | null = null;
   private agentHandler: AgentRequestHandler | null = null;
+  private importedCheckoutHandler: ((session: Session) => void) | null = null;
   private availableAgentFeatures: ReadonlySet<string> = new Set();
 
   constructor(
@@ -182,7 +194,11 @@ export class HostHub {
     this.unreachableTimers.clear();
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
-      p.reject(new SwitchyardError("host_unreachable", "Coordinator shutting down"));
+      p.reject(
+        p.command.type === "checkout.provision" && p.sent
+          ? uncertainCheckout("host_unreachable")
+          : new SwitchyardError("host_unreachable", "Coordinator shutting down"),
+      );
     }
     this.pending.clear();
     for (const c of this.conns.values()) c.socket.close(1001, "coordinator stopping");
@@ -191,6 +207,19 @@ export class HostHub {
 
   setTerminalSink(sink: TerminalSink): void {
     this.terminalSink = sink;
+  }
+
+  setImportedCheckoutHandler(handler: (session: Session) => void): void {
+    this.importedCheckoutHandler = handler;
+  }
+
+  supportsCheckoutProvision(hostId: string): boolean {
+    const conn = this.conns.get(hostId);
+    return (
+      !!conn &&
+      this.isCurrentSocket(hostId, conn.socket) &&
+      conn.features.has(CHECKOUT_PROVISION_FEATURE)
+    );
   }
 
   /** Separate request lane: never await agent tools behind host events or command receipts. */
@@ -249,7 +278,8 @@ export class HostHub {
   /**
    * Send a command and resolve with its receipt (ok or error). Rejects `host_unreachable` when
    * the host is not connected and `timeout` after `timeoutMs`. Commands still awaiting a receipt
-   * are re-sent with the same commandId when the host reconnects.
+   * are normally re-sent with the same commandId when the host reconnects. A checkout
+   * provision carries a live grant and is always single-send.
    */
   send(
     hostId: string,
@@ -261,9 +291,18 @@ export class HostHub {
       beforeSend?: BeforeSend;
     } = {},
   ): Promise<Receipt> {
-    let parsed = HostCommand.parse(command);
+    const provision = command.type === "checkout.provision";
+    const validated = HostCommand.safeParse(command);
+    if (!validated.success) {
+      return Promise.reject(
+        provision
+          ? new SwitchyardError("invalid_request", "Invalid checkout provision command")
+          : validated.error,
+      );
+    }
+    let parsed = validated.data;
     const conn = this.conns.get(hostId);
-    if (!conn || conn.socket.readyState !== WsOpen) {
+    if (!conn || !this.isCurrentSocket(hostId, conn.socket)) {
       const name = this.store.hosts.get(hostId)?.name ?? hostId;
       return Promise.reject(
         new SwitchyardError("host_unreachable", `Host ${name} is not connected`, { hostId }),
@@ -283,6 +322,11 @@ export class HostHub {
     if (!this.supportsCommand(conn, parsed)) {
       return Promise.reject(
         new SwitchyardError("unsupported_capability", `Host does not support ${parsed.type}`),
+      );
+    }
+    if (provision && opts.commandId !== undefined) {
+      return Promise.reject(
+        new SwitchyardError("invalid_request", "Checkout provision requires a fresh command ID"),
       );
     }
     const commandId = opts.commandId ?? newId("cmd");
@@ -321,10 +365,12 @@ export class HostHub {
       const timer = setTimeout(() => {
         this.pending.delete(commandId);
         reject(
-          new SwitchyardError("timeout", `Host did not answer ${parsed.type} in time`, {
-            hostId,
-            commandId,
-          }),
+          provision && pending.sent
+            ? uncertainCheckout("timeout")
+            : new SwitchyardError("timeout", `Host did not answer ${parsed.type} in time`, {
+                hostId,
+                commandId,
+              }),
         );
       }, timeoutMs);
       timer.unref();
@@ -376,6 +422,8 @@ export class HostHub {
           `Host does not support ${command.type}`,
         );
       }
+      if (command.type === "checkout.provision" && pending.sent)
+        throw uncertainCheckout("host_unreachable");
       if (pending.command.type === "workspace.prMerge" && pending.sent)
         throw new SwitchyardError("conflict", "An uncertain merge must not be retransmitted");
       if (
@@ -402,11 +450,34 @@ export class HostHub {
     // The synchronous guard may itself have withdrawn the command or closed the connection.
     if (this.pending.get(commandId) === pending && this.isCurrentSocket(pending.hostId, socket)) {
       pending.sent = true;
-      socket.send(pending.frame);
+      if (pending.command.type !== "checkout.provision") {
+        socket.send(pending.frame);
+        return;
+      }
+      const failed = () => {
+        if (this.pending.get(commandId) !== pending) return;
+        clearTimeout(pending.timer);
+        this.pending.delete(commandId);
+        pending.reject(uncertainCheckout("host_unreachable"));
+      };
+      try {
+        socket.send(pending.frame, (err) => {
+          if (err) failed();
+        });
+      } catch {
+        failed();
+      }
     }
   }
 
   private supportsCommand(conn: Conn, command: HostCommand): boolean {
+    if (
+      command.type === "checkout.preview" ||
+      command.type === "checkout.provision" ||
+      command.type === "checkout.locate"
+    ) {
+      return conn.features.has(CHECKOUT_PROVISION_FEATURE);
+    }
     if (
       ["workspace.prView", "workspace.prFailedLogs", "workspace.prMerge"].includes(command.type)
     ) {
@@ -587,12 +658,12 @@ export class HostHub {
     const hostId = hello.hostId;
     const old = this.conns.get(hostId);
     const features = new Set(
-      [...this.availableAgentFeatures, ADAPTER_CONTRACT_FEATURE].filter((f) =>
-        hello.features?.includes(f),
+      [...this.availableAgentFeatures, ADAPTER_CONTRACT_FEATURE, CHECKOUT_PROVISION_FEATURE].filter(
+        (f) => hello.features?.includes(f),
       ),
     );
-    // An unresolved external merge is never automatically replayed, including on replacement.
-    if (old) this.rejectPendingMerges(hostId);
+    // A clone grant or unresolved external merge must not be replayed, even on replacement.
+    this.rejectConnectionBoundCommands(hostId);
     this.conns.set(hostId, {
       socket,
       alive: true,
@@ -618,6 +689,7 @@ export class HostHub {
         agentVersion: hello.agentVersion,
         piVersion: hello.piVersion,
         piCompatible: hello.piCompatible,
+        checkoutProvision: features.has(CHECKOUT_PROVISION_FEATURE),
         capabilities: hello.capabilities,
         github: hello.github,
         connectivity: "connected",
@@ -851,19 +923,28 @@ export class HostHub {
 
   // ---- connectivity ----------------------------------------------------------------------
 
-  private rejectPendingMerges(hostId: string): void {
+  private rejectConnectionBoundCommands(hostId: string): void {
     for (const [id, pending] of this.pending) {
-      if (pending.hostId !== hostId || pending.command.type !== "workspace.prMerge") continue;
+      if (pending.hostId !== hostId) continue;
+      const type = pending.command.type;
+      if (type !== "workspace.prMerge" && type !== "checkout.provision") continue;
       clearTimeout(pending.timer);
       this.pending.delete(id);
       pending.reject(
-        new SwitchyardError("host_unreachable", "Merge connection lost; refresh before retrying"),
+        type === "checkout.provision" && pending.sent
+          ? uncertainCheckout("host_unreachable")
+          : new SwitchyardError(
+              "host_unreachable",
+              type === "workspace.prMerge"
+                ? "Merge connection lost; refresh before retrying"
+                : "Checkout connection lost before sending the clone request",
+            ),
       );
     }
   }
 
   private onDisconnected(hostId: string): void {
-    this.rejectPendingMerges(hostId);
+    this.rejectConnectionBoundCommands(hostId);
     this.terminalSink?.disconnected(hostId);
     this.log.info({ hostId }, "host disconnected");
     this.setConnectivity(hostId, "reconnecting");
@@ -1140,9 +1221,13 @@ export class HostHub {
         lastAssistantText: null,
         createdAt: now,
         ...partial,
-        // Hosts send null ids for sessions the coordinator did not create: map them by cwd.
-        workspaceId: partial.workspaceId ?? ws?.id ?? null,
-        projectId: partial.projectId ?? ws?.projectId ?? null,
+        // A hand-started session's placement comes from known workspaces, not host-supplied IDs.
+        workspaceId:
+          (partial.provenance === "imported" ? ws?.id : (partial.workspaceId ?? ws?.id)) ?? null,
+        projectId:
+          (partial.provenance === "imported"
+            ? ws?.projectId
+            : (partial.projectId ?? ws?.projectId)) ?? null,
         id,
         hostId,
         connectivity,
@@ -1222,6 +1307,17 @@ export class HostHub {
     }
     if (existing && JSON.stringify(existing) === JSON.stringify(next)) return;
     this.store.putSession(next);
+    if (
+      next.provenance === "imported" &&
+      next.projectId === null &&
+      next.workspaceId === null &&
+      next.archivedAt === null &&
+      next.cwd &&
+      (next.cwd !== existing?.cwd || existing.archivedAt !== null) &&
+      this.supportsCheckoutProvision(hostId)
+    ) {
+      this.store.afterCommit(() => this.importedCheckoutHandler?.(next));
+    }
     // Its Pi is gone: questions it asked can no longer be answered.
     if (!isLiveRuntime(next.runtime)) this.attention.endSessionInput(id);
     if (partial.bridge !== undefined) {

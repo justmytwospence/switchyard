@@ -51,6 +51,11 @@ export function WorkCard({
   const inspectable = !!card.issue && card.issueInspectable !== false;
   const startProblem =
     inspectable && card.issue && !card.sessionId ? board.cardActionProblem(card.issue.id) : null;
+  const actionLabel = card.sessionId
+    ? "Open session"
+    : inspectable && card.issue
+      ? board.cardActionLabel(card.issue.id)
+      : "Start session";
   const openWork = () => {
     saveBoardAnchor(board, card.issue?.id ?? card.key);
     void (inspectable && card.issue && !card.sessionId
@@ -77,7 +82,7 @@ export function WorkCard({
       ? [
           {
             id: "open",
-            label: card.sessionId ? "Open session" : "Start session",
+            label: actionLabel,
             icon: <Play className="size-4" />,
             onSelect: openWork,
             disabled: !!startProblem,
@@ -234,7 +239,7 @@ export function WorkCard({
               data-board-card-focus
               onClick={openWork}
             >
-              {card.sessionId ? "Open session" : "Start session"}
+              {actionLabel}
             </Button>
           )}
         {card.branch && card.sessionId && inspectable && (
@@ -253,7 +258,7 @@ export function WorkCard({
               data-board-card-focus
               onClick={openWork}
             >
-              Start session
+              {actionLabel}
             </Button>
           )}
         {!phone && targets.length > 0 && (

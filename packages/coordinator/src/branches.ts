@@ -7,6 +7,7 @@ import {
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "./context.js";
 import { createSession, pinIfOutsideScope } from "./sessions/service.js";
+import { requireWorkProject } from "./work-projects.js";
 import { refreshCheckoutWorkspaces } from "./workspaces.js";
 
 export interface OpenBranchInput {
@@ -44,7 +45,7 @@ export function branchPlacement(
   input: Pick<OpenBranchInput, "projectId" | "branch" | "hostId">,
 ) {
   const { store } = ctx;
-  const project = store.projects.require(input.projectId);
+  const project = requireWorkProject(ctx, input.projectId);
   const checkouts = store.checkouts.list("project_id = ?", [project.id]);
   const matches = store.workspaces
     .list("project_id = ? AND archived_at IS NULL", [project.id])
@@ -61,14 +62,13 @@ export function branchPlacement(
       : undefined;
   const hostId =
     input.hostId ?? busiest?.hostId ?? matches[0]?.hostId ?? defaultHost ?? checkouts[0]?.hostId;
-  if (!hostId) throw new SwitchyardError("invalid_request", "This project has no checkout");
+  if (!hostId) throw new SwitchyardError("conflict", "Prepare a checkout before opening a branch");
   const workspace = matches.find((w) => w.hostId === hostId);
   const checkout =
     checkouts.find((c) => c.hostId === hostId && c.id === workspace?.checkoutId) ??
     checkouts.find((c) => c.hostId === hostId);
   if (!checkout) {
-    const name = store.hosts.get(hostId)?.name ?? hostId;
-    throw new SwitchyardError("invalid_request", `No checkout of this project on ${name}`);
+    throw new SwitchyardError("conflict", "Prepare a checkout on this host", { hostId });
   }
   return { project, checkout, workspace };
 }
@@ -114,7 +114,11 @@ export async function openBranch(
     prompt: input.prompt ?? "",
     ...(input.title ? { title: input.title } : {}),
   };
-  issue?.beforeProvision(checkout);
+  const beforeProvision = () => {
+    requireWorkProject(ctx, project.id);
+    issue?.beforeProvision(checkout);
+  };
+  beforeProvision();
   if (needsPreparation) {
     try {
       const preparation = await ctx.hostHub.request<{ ok?: boolean }>(
@@ -125,10 +129,7 @@ export async function openBranch(
           branch: input.branch,
           ...(issue?.strictRemote ? { strict: true } : {}),
         },
-        {
-          timeoutMs: 60_000,
-          ...(issue ? { beforeSend: () => issue.beforeProvision(checkout) } : {}),
-        },
+        { timeoutMs: 60_000, beforeSend: beforeProvision },
       );
       if ("requireRemoteBranch" in input && input.requireRemoteBranch && preparation?.ok !== true) {
         throw new SwitchyardError(
@@ -140,7 +141,7 @@ export async function openBranch(
       if ("requireRemoteBranch" in input && input.requireRemoteBranch) throw err;
       ctx.log.debug({ err, branch: input.branch }, "open branch: prepareBranch failed");
     }
-    issue?.beforeProvision(checkout);
+    beforeProvision();
     const preparedPrimary = existing();
     if (preparedPrimary) return { session: preparedPrimary, created: false };
   }

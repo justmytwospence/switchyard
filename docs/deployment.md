@@ -10,6 +10,8 @@ Pick the pattern that fits where you run it. None of them requires a particular 
 
 Requirements: Node >=24 and pnpm 12 (to build from source), git, and Pi >=1.4.0 <1.7.0 on every host that runs sessions (see [compatibility.md](compatibility.md)). Policy-protected sessions require Pi 1.5.0; older supported Pi versions remain available for basic unprotected operation. The container image needs only Docker for the coordinator.
 
+The optional GitHub catalog worker ships with the coordinator and uses the same persistent data directory. It does not listen on a port. Outbound HTTPS to GitHub's API is required; the owner's browser, not GitHub, opens the registration return URL. Do not log query strings on `/settings/projects/connect/return` at the proxy. Hosts receiving private clone grants must connect over HTTPS (loopback HTTP is supported for local standalone use).
+
 ## Choosing a pattern
 
 | You want | Use |

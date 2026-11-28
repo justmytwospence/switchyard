@@ -196,6 +196,34 @@ describe("scope source sync", () => {
     expect(events()).toBe(before);
   });
 
+  it("matches the listed project at a recycled slug even if it has no checkout", async () => {
+    const old = store().projects.require(h.project.id);
+    store().putProject({ ...old, catalog: { state: "legacy" } });
+    const id = "prj_recycled_slug";
+    store().putProject({
+      ...old,
+      id,
+      defaultHostId: null,
+      catalog: { state: "listed", authority: "github.com", externalId: "recycled", fullName: REPO },
+    });
+    items = [item(1, { branches: ["topic"] })];
+    const scope = await create({ worktrees: true });
+    expect(store().scopes.require(scope.id).projectIds).toEqual([id]);
+    expect(tracked(scope.id)).toEqual([
+      expect.objectContaining({ projectId: id, workspaceId: null }),
+    ]);
+    const r = await h.t.admin(
+      "POST",
+      `/api/issues/${encodeURIComponent(tracked(scope.id)[0]!.id)}/open`,
+      {},
+    );
+    expect(r.status).toBe(409);
+    expect(r.body.error.message).toMatch(/Prepare a checkout/);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
+    expect(commandsOf(h.host, "tracker.prepareBranch")).toHaveLength(0);
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
+  });
+
   it("drops vanished issues unless the result was truncated", async () => {
     items = [item(1), item(2)];
     const t = await create();
@@ -1090,6 +1118,26 @@ describe("board write-back", () => {
     items = [item(1, { branches: ["feat/x"], board: board("Todo") })];
     await create({ board: withBoard.board });
     expect(commandsOf(h.host, "tracker.setStatus")).toHaveLength(0);
+  });
+
+  it("does not write back or open work for a delisted project", async () => {
+    items = [item(1, { board: board("Todo") })];
+    const scope = await create(withBoard);
+    const issue = tracked(scope.id)[0]!;
+    const project = store().projects.require(h.project.id);
+    store().putProject({ ...project, catalog: { ...project.catalog, state: "delisted" } });
+    expect((await h.t.admin("POST", trackedOpen(issue.id), {})).status).toBe(409);
+    expect(
+      (
+        await h.t.admin("POST", `/api/issues/${encodeURIComponent(issue.id)}/status`, {
+          status: "Review",
+        })
+      ).status,
+    ).toBe(409);
+    await sync(scope.id);
+    expect(store().scopes.require(scope.id).projectIds).toEqual([]);
+    expect(commandsOf(h.host, "tracker.setStatus")).toHaveLength(0);
+    expect(commandsOf(h.host, "tracker.startIssue")).toHaveLength(0);
   });
 
   it("sets a column by hand and maps skips to conflicts", async () => {

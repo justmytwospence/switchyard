@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { isIP } from "node:net";
 import {
   ADAPTER_CONTRACT_FEATURE,
   AGENT_FRAME_MAX_BYTES,
@@ -7,12 +8,12 @@ import {
   AgentReceiptPeekRequest,
   type AgentRequestFrame,
   type AgentResultFrame,
+  CHECKOUT_PROVISION_FEATURE,
   CoordinatorToHost,
   GIT_LOG_FEATURE,
   GITHUB_BOARD_FEATURE,
   GITHUB_ISSUES_FEATURE,
   HostAgentRequestFrame,
-  type HostCommand,
   type HostEvent,
   type HostEventType,
   type HostToCoordinator,
@@ -31,6 +32,7 @@ import {
   type TermServerToViewer,
 } from "@switchyard/protocol";
 import WebSocket from "ws";
+import { checkoutCommandType } from "./checkout-provision.js";
 import type { HostDb } from "./db/index.js";
 import type { Logger } from "./logger.js";
 
@@ -50,6 +52,7 @@ const HOST_FEATURES: readonly string[] = [
   ISSUE_DESCRIPTION_FEATURE,
   REPOSITORY_ISSUES_FEATURE,
   GIT_LOG_FEATURE,
+  CHECKOUT_PROVISION_FEATURE,
 ];
 
 export interface AgentRequestOptions {
@@ -130,6 +133,20 @@ export function hostSocketUrl(coordinatorUrl: string): string {
   return u.toString();
 }
 
+function allowsCloneGrant(coordinatorUrl: string): boolean {
+  const parsed = new URL(coordinatorUrl);
+  if (parsed.protocol === "https:") return true;
+  if (parsed.protocol !== "http:") return false;
+  // Check the literal authority too: WHATWG URL normalizes shorthand and integer IPv4 forms.
+  // Never allow a hostname (including localhost) to qualify based on DNS.
+  const host = /^http:\/\/(\[[0-9a-f:]+\]|[0-9.]+)(?=[:/?#]|$)/i.exec(coordinatorUrl)?.[1];
+  return (
+    host !== undefined &&
+    ((host.startsWith("[") && parsed.hostname === "[::1]") ||
+      (isIP(host) === 4 && host.startsWith("127.") && host === parsed.hostname))
+  );
+}
+
 /**
  * The host's outbound link to the coordinator. Durable events go through the SQLite outbox:
  * `emit()` inserts a row (inside the caller's transaction when there is one) and the link sends
@@ -156,6 +173,7 @@ export class CoordinatorLink {
   private lastPruneAt = 0;
   private flushScheduled = false;
   private advertisedFeatures = new Set<string>();
+  private hostFeatures = new Set<string>();
   private features = new Set<string>();
   private pendingAgent = new Map<string, PendingAgentRequest>();
 
@@ -441,13 +459,13 @@ export class CoordinatorLink {
           (f) => f === ADAPTER_CONTRACT_FEATURE || AGENT_FEATURES.some((known) => known === f),
         ),
       );
-      const hostFeatures = (hello.features ?? []).filter((f) => HOST_FEATURES.includes(f));
+      this.hostFeatures = new Set((hello.features ?? []).filter((f) => HOST_FEATURES.includes(f)));
       this.send({
         ...hello,
         type: "hello",
         hostId: this.opts.hostId,
         credential: this.opts.credential,
-        features: [...this.advertisedFeatures, ...hostFeatures],
+        features: [...this.advertisedFeatures, ...this.hostFeatures],
       });
       this.startPing(ws);
       this.events.emit("connected");
@@ -458,8 +476,9 @@ export class CoordinatorLink {
       let json: unknown;
       try {
         json = JSON.parse(raw.toString());
-      } catch (err) {
-        this.opts.log.warn({ err: (err as Error).message }, "invalid coordinator frame");
+      } catch {
+        // JSON parser errors may quote the malformed frame (including clone credentials).
+        this.opts.log.warn("invalid coordinator frame");
         return;
       }
       const agent = json as { type?: unknown; requestId?: unknown; runtimeId?: unknown } | null;
@@ -498,9 +517,11 @@ export class CoordinatorLink {
         return;
       }
       const loose = json as { type?: unknown; commandId?: unknown; command?: unknown } | null;
-      if (loose?.type === "command" && typeof loose.commandId === "string") {
+      if (loose?.type === "command") {
         // Let the router answer an invalid command with an invalid_request receipt.
-        this.opts.onCommand(loose.commandId, loose.command);
+        if (typeof loose.commandId === "string")
+          this.dispatchCommand(loose.commandId, loose.command);
+        else this.opts.log.warn("invalid coordinator command frame");
         return;
       }
       this.opts.log.warn({ err: parsed.error.message }, "invalid coordinator frame");
@@ -524,6 +545,41 @@ export class CoordinatorLink {
       this.events.emit("disconnected", { code, reason });
       this.scheduleReconnect();
     });
+  }
+
+  private dispatchCommand(commandId: string, command: unknown): void {
+    const checkout = checkoutCommandType(command);
+    if (checkout) {
+      if (!this.ready) return;
+      if (!this.hostFeatures.has(CHECKOUT_PROVISION_FEATURE)) {
+        this.sendReceipt({
+          commandId,
+          ok: false,
+          error: {
+            code: "unsupported_capability",
+            message: "Checkout provisioning is not advertised on this link.",
+          },
+        });
+        return;
+      }
+      if (checkout === "checkout.provision" && !allowsCloneGrant(this.opts.coordinatorUrl)) {
+        this.sendReceipt({
+          commandId,
+          ok: false,
+          error: {
+            code: "forbidden",
+            message: "Checkout cloning requires an HTTPS or literal loopback coordinator URL.",
+          },
+        });
+        return;
+      }
+    }
+    try {
+      this.opts.onCommand(commandId, command);
+    } catch (err) {
+      if (checkout) this.opts.log.error("checkout command dispatch failed");
+      else this.opts.log.error({ err: (err as Error).message }, "command dispatch failed");
+    }
   }
 
   private onFrame(frame: CoordinatorToHost): void {
@@ -562,11 +618,7 @@ export class CoordinatorLink {
         this.db.tx(() => this.recordAck(frame.hostSeq));
         return;
       case "command":
-        try {
-          this.opts.onCommand(frame.commandId, frame.command as HostCommand);
-        } catch (err) {
-          this.opts.log.error({ err: (err as Error).message }, "command dispatch failed");
-        }
+        this.dispatchCommand(frame.commandId, frame.command);
         return;
       case "ping":
         this.send({ type: "pong" });

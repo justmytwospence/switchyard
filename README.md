@@ -37,7 +37,7 @@ flowchart TB
 
 There are three kinds of parts:
 
-- **The coordinator** is the one always-on service. It keeps tasks, schedules, notifications, devices and the shared view of every session, and it decides what runs where. It never runs an agent and never holds your provider credentials, so it can live anywhere: a container, a small server, or your laptop.
+- **The coordinator** is the one always-on service. It keeps tasks, schedules, notifications, devices and the shared view of every session, and it decides what runs where. It never runs an agent or holds your model-provider credentials, so it can live anywhere: a container, a small server, or your laptop.
 - **Hosts** are your machines. A host agent runs Pi as your OS user, with your repositories, worktrees, Pi packages and model logins, and connects *outbound* to the coordinator. A host needs no open ports, and a laptop can come and go: its sessions keep running while the coordinator is down, and the events catch up when it returns.
 - **Clients** show scopes: a scope is a named part of your work, and a herdr or tmux client can mirror one scope, everything, or nothing. The web app works on desktop and as an installed app on a phone; in a terminal you get Pi's own TUI for any session (`switchyard tui`, or a whole herdr session mirroring Switchyard), and the scriptable CLI works over the same API. Any client can watch, answer and steer a session; none of them owns it.
 
@@ -86,7 +86,7 @@ sequenceDiagram
 | **Scopes** | Named parts of your work: projects you choose and sessions you pin, or the GitHub issues assigned to you (or every open issue on a Projects board), with worktrees for their branches and card moves on your board ([scopes.md](docs/scopes.md)) |
 | **Clients** | The web app, the phone and the CLI, and herdr and tmux sessions that mirror a scope as a tab per active branch ([clients.md](docs/clients.md)) |
 | **Sessions** | Persistent Pi conversations on any host; the same live session in every client; steer or queue follow-ups; take over and return to automation; resume after crashes with the same conversation (never a silent new one); import existing Pi sessions; switch model and effort, see context use and compact, a slash-command picker |
-| **Workspaces** | A git worktree per branch inside the repository, discovery of worktrees you made yourself, setup commands, `.worktreeinclude` to copy ignored files such as `.env` into new worktrees, removal that refuses to lose uncommitted or unmerged work, and project folders per host whose repositories are added automatically |
+| **Workspaces** | A git worktree per branch inside the repository, discovery of worktrees you made yourself, setup commands, `.worktreeinclude` to copy ignored files such as `.env` into new worktrees, removal that refuses to lose uncommitted or unmerged work, and a checkout location per host, with explicit reuse or clone of provider-listed repositories |
 | **Tasks and automations** | A task board (Backlog, Ready, In progress, Review, Done) for dispatched work; dependencies with cycle detection; priorities; per-project concurrency limits; a Queue view explaining why queued work waits |
 | **Review** | Changed files and diffs on desktop and phone, line comments sent as one follow-up, request changes, accept |
 | **Bounded continuation** | Optional: keep the agent working toward an objective, within a maximum number of continuations, a time limit and token or cost caps, ending in your checks and your review |
@@ -154,7 +154,7 @@ Settings › Hosts › Add host shows these three commands with your token fille
 
 - **A server is owned before it serves anything.** Off localhost, the owner is declared in an OpenID Connect configuration (required). There is never an "unclaimed" web page.
 - **Only you add devices.** A browser gets in by single sign-on that matches the configured owner or by a passkey; a terminal is approved from a browser that is already signed in. Each device has its own credential that you can revoke; signing out of an identity provider never breaks an installed app.
-- **Hosts dial out** with their own revocable credentials; the coordinator holds no provider credentials and needs no access to your home directory or Docker socket.
+- **Hosts dial out** with their own revocable credentials; the coordinator needs no access to your home directory or Docker socket. Repository catalog app keys are stored separately in its data directory.
 - **Agents run with the host user's privileges.** Running the coordinator in a container does not sandbox the agents; run hosts as a user whose access you are comfortable giving an agent.
 
 Details: [docs/auth.md](docs/auth.md) and the [privilege model](docs/deployment.md#privilege-model).

@@ -29,7 +29,7 @@ import { EmptyState, LoadingState } from "../../components/ui/states";
 import { TextLink } from "../../components/ui/TextLink";
 import { cn } from "../../lib/cn";
 import { usePrefs } from "../../prefs";
-import { useSyncStore } from "../../sync/store";
+import { isActiveProject, useSyncStore } from "../../sync/store";
 import { ScopeSelect } from "../scopes/ScopeSelect";
 import {
   BoardNotices,
@@ -187,7 +187,7 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
 
   const activeTask = activeId ? tasks[activeId] : undefined;
   const drawerTask = taskId ? tasks[taskId] : undefined;
-  const noProjects = hydrated && Object.keys(projects).length === 0;
+  const noProjects = hydrated && !Object.values(projects).some(isActiveProject);
   const runs = useSyncStore((s) => s.runs);
   const dropOf = (state: TaskState): "valid" | "invalid" | null => {
     if (!activeTask || state === activeTask.state) return null;
@@ -204,7 +204,7 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
         <SearchBox board={board} className="w-56 max-w-full" />
         <FilterButton board={board} />
         <div className="ml-auto flex items-center gap-2">
-          {noProjects && <span className="text-xs text-muted">Add a project first</span>}
+          {noProjects && <span className="text-xs text-muted">No active projects</span>}
           <Button
             variant="primary"
             icon={<Plus className="size-4" />}
@@ -228,12 +228,12 @@ export function BoardDesktop({ taskId }: { taskId?: string }) {
 
       {!hydrated ? (
         <LoadingState label="Loading tasks…" />
-      ) : noProjects ? (
+      ) : noProjects && board.totalTasks === 0 ? (
         <EmptyState
           icon={<SquareKanban className="size-8" />}
-          title="No projects yet"
-          description="Tasks belong to a project. Add a project from a host checkout to start planning work."
-          action={{ label: "Add a project", to: ROUTES.settings("projects") }}
+          title="No active projects"
+          description="Share a repository on GitHub to start planning tasks."
+          action={{ label: "Open Projects", to: ROUTES.settings("projects") }}
         />
       ) : board.totalTasks === 0 ? (
         <EmptyState

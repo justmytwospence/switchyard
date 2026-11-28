@@ -140,6 +140,22 @@ describe("remove landed", () => {
     expect(ws.archivedAt).not.toBeNull();
   });
 
+  it("leaves a landed worktree untouched when the project is delisted during the check", async () => {
+    await lifecycle().tick(0);
+    const project = store().projects.require(h.project.id);
+    const prev = h.override!;
+    h.override = (cmd, id) => {
+      if (cmd.type === "workspace.status") {
+        store().putProject({ ...project, catalog: { ...project.catalog, state: "delisted" } });
+      }
+      return prev(cmd, id);
+    };
+    await lifecycle().tick(LANDED_GRACE_MS);
+    await lifecycle().tick(LANDED_GRACE_MS * 2);
+    expect(removes()).toHaveLength(0);
+    expect(store().workspaceByPath(h.creds.hostId, WT)?.archivedAt).toBeNull();
+  });
+
   const neverRemoves = async () => {
     await lifecycle().tick(0);
     await lifecycle().tick(LANDED_GRACE_MS * 2);

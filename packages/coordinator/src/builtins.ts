@@ -12,13 +12,14 @@ import { NotificationRouter } from "./attention/router.js";
 import { Scheduler } from "./automations/scheduler.js";
 import { AutomationService } from "./automations/service.js";
 import { CacheAlertService } from "./cache-alerts.js";
+import { CheckoutProvisionService } from "./checkout-provision.js";
 import type { CoordinatorContext } from "./context.js";
 import { GitHubService } from "./github.js";
 import { parse } from "./http.js";
 import { IssueWorkService } from "./issue-work.js";
 import type { PolicyOwner } from "./policies/contracts.js";
 import { PolicyService, type PolicyServiceOptions } from "./policies/service.js";
-import { PROJECT_SCAN_INTERVAL_MS, ProjectFolderService } from "./project-folders.js";
+import { ProjectCatalog, type RepositoryProvider } from "./project-catalog.js";
 import { type PushSender, PushService } from "./push.js";
 import { RepositoryIssuesService } from "./repository-issues.js";
 import { registerAutomationRoutes } from "./routes/automations.js";
@@ -47,8 +48,9 @@ export interface BuiltinOptions {
   checksTimeoutMs?: number;
   /** Desktop "recently active" window for notification routing (default 5 min). */
   desktopRecentMs?: number;
-  /** Project folder rescan interval (default 10 min; 0 disables the timer). */
+  /** @deprecated Old test callers may still pass this; project folders are not scanned. */
   projectScanIntervalMs?: number;
+  repositoryProvider?: RepositoryProvider;
   /** Prompt-cache alert tick (default 15 s; 0 disables the timer). */
   cacheAlertTickMs?: number;
   /** Worktree session and landed-removal tick (default 5 min; 0 disables the timer). */
@@ -178,9 +180,7 @@ export function installBuiltins(
   const notifications = new NotificationRouter(ctx, push, {
     desktopRecentMs: opts.desktopRecentMs ?? 5 * 60_000,
   });
-  const projectFolders = new ProjectFolderService(ctx, {
-    intervalMs: opts.projectScanIntervalMs ?? PROJECT_SCAN_INTERVAL_MS,
-  });
+  const catalog = new ProjectCatalog(ctx, opts.repositoryProvider);
   const cacheAlerts = new CacheAlertService(ctx, { tickMs: opts.cacheAlertTickMs ?? 15_000 });
   const github = new GitHubService(ctx);
   const workspaceLifecycle = new WorkspaceLifecycleService(ctx, {
@@ -201,13 +201,17 @@ export function installBuiltins(
     scheduler,
     push,
     notifications,
-    projectFolders,
+    catalog,
+    checkoutProvision: new CheckoutProvisionService(ctx),
     workspaceLifecycle,
     scopeSources,
     issueWork: new IssueWorkService(ctx),
     repositoryIssues: new RepositoryIssuesService(ctx),
   };
   for (const [name, svc] of Object.entries(services)) ctx.services.set(name, svc);
+  ctx.hostHub.setImportedCheckoutHandler((session) => {
+    void services.checkoutProvision.adoptImported(session);
+  });
   registerPolicyRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
   registerIssueRoutes(app, ctx);
@@ -225,7 +229,7 @@ export function installBuiltins(
       notifications.start();
       dispatcher.start();
       scheduler.start();
-      projectFolders.start();
+      catalog.start();
       cacheAlerts.start();
       messages.start();
       github.start();
@@ -240,7 +244,7 @@ export function installBuiltins(
       workspaceLifecycle.stop();
       github.stop();
       cacheAlerts.stop();
-      projectFolders.stop();
+      catalog.stop();
       scheduler.stop();
       dispatcher.stop();
       notifications.stop();

@@ -21,7 +21,7 @@ Later, to run agents on more machines, run the coordinator as a server and enrol
 
 ## 3. Your first session
 
-1. In Settings › Projects, add a project: the path of a git repository on the host.
+1. In Settings › Projects, connect GitHub and select repositories on GitHub. Choose a host and prepare a checkout, reviewing the location before reusing or cloning it.
 2. On Sessions, choose **New session**, pick the project and a branch, and write what you want done. A new branch gets its own git worktree inside the repository (`<repo>/.worktrees/<branch>`).
 3. Watch it work. When Pi or a plugin asks a question, it shows as a card; answer it there.
 

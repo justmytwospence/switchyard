@@ -15,6 +15,7 @@ import { getService } from "../services.js";
 import { putTaskState, shortError, taskDoneAt } from "../tasks/common.js";
 import { createTask } from "../tasks/service.js";
 import { isLiveRun } from "../tasks/state.js";
+import { canWorkOnProject, requireWorkProject } from "../work-projects.js";
 import {
   dateTimeIn,
   describeTrigger,
@@ -166,6 +167,7 @@ export class AutomationService {
 
   create(raw: unknown): Automation {
     const input = parse(AutomationInput, raw);
+    requireWorkProject(this.ctx, input.projectId);
     this.validate(input);
     const { store } = this.ctx;
     const now = store.now();
@@ -200,6 +202,9 @@ export class AutomationService {
         ...base
       } = cur;
       const input = parse(AutomationInput, { ...base, ...patch });
+      if (input.projectId !== cur.projectId || (input.enabled && !cur.enabled)) {
+        requireWorkProject(this.ctx, input.projectId);
+      }
       this.validate(input);
       const now = store.now();
       const restart =
@@ -303,6 +308,7 @@ export class AutomationService {
         };
       }
       const a = store.automations.require(automationId);
+      requireWorkProject(this.ctx, a.projectId);
       const now = store.now();
       const occ: Occurrence = {
         id: newId("occ"),
@@ -483,11 +489,18 @@ export class AutomationService {
         controlRevision: run.controlRevision,
       };
       store.afterCommit(() => {
-        hostHub.request(session.hostId, cmd, { commandId: `app_${occurrenceId}` }).catch((err) => {
-          const e = shortError(err);
-          this.ctx.log.warn({ err, taskId: task.id }, "append follow-up failed");
-          this.markAppendFailed(occurrenceId, `Follow-up could not be sent: ${e.message}`);
-        });
+        hostHub
+          .request(session.hostId, cmd, {
+            commandId: `app_${occurrenceId}`,
+            beforeSend: () => {
+              requireWorkProject(this.ctx, task.projectId);
+            },
+          })
+          .catch((err) => {
+            const e = shortError(err);
+            this.ctx.log.warn({ err, taskId: task.id }, "append follow-up failed");
+            this.markAppendFailed(occurrenceId, `Follow-up could not be sent: ${e.message}`);
+          });
       });
       store.putTask({ ...task, lastActivityAt: store.nowIso(), updatedAt: store.nowIso() });
       return;
@@ -532,6 +545,7 @@ export class AutomationService {
       const doneAt = taskDoneAt(this.ctx, task.id) ?? task.updatedAt;
       for (const a of store.automations.list("enabled = 1")) {
         if (a.trigger.kind !== "dependency" || a.trigger.taskId !== task.id) continue;
+        if (!canWorkOnProject(this.ctx, a.projectId)) continue;
         try {
           this.fire(a.id, {
             key: `dep:${task.id}:${doneAt}`,
@@ -552,7 +566,7 @@ export class AutomationService {
   private releaseQueued(automationId: string): void {
     const { store } = this.ctx;
     const a = store.automations.get(automationId);
-    if (!a) return;
+    if (!a || !canWorkOnProject(this.ctx, a.projectId)) return;
     const occ = store.occurrences.list(
       "automation_id = ? AND state = 'queued'",
       [automationId],

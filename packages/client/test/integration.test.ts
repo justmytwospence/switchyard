@@ -1,16 +1,21 @@
 // @module-tag slow
 import { afterEach, expect, it } from "vitest";
 import {
+  attachFixtureCheckout,
   enrollDevice,
   enrollHost,
   FakeHost,
   hostSession,
   startCoordinator,
+  syncFixtureProject,
   type TestCoordinator,
   until,
 } from "../../coordinator/test/helpers.js";
-import { project } from "../../terminal/test/fixtures.js";
+import { FakeRepositoryProvider, fixtureRepository } from "../../test-fixtures/src/catalog.js";
 import { type EventNotice, SwitchyardClient } from "../src/index.js";
+
+const DEMO_REPO = fixtureRepository("example", "demo", "example.test");
+const demoProvider = () => new FakeRepositoryProvider(() => [DEMO_REPO], DEMO_REPO.authority);
 
 let coordinator: TestCoordinator | undefined;
 let client: SwitchyardClient | undefined;
@@ -25,8 +30,12 @@ afterEach(async () => {
 });
 
 it("uses the real local coordinator for REST tasks and projected WebSocket events", async () => {
-  coordinator = await startCoordinator({ dispatcher: { tickMs: 0 }, schedulerTickMs: 0 });
-  coordinator.c.store.putProject(project());
+  coordinator = await startCoordinator({
+    dispatcher: { tickMs: 0 },
+    schedulerTickMs: 0,
+    repositoryProvider: demoProvider(),
+  });
+  const project = await syncFixtureProject(coordinator.c, DEMO_REPO);
   const device = await enrollDevice(coordinator);
   client = new SwitchyardClient({
     coordinatorUrl: coordinator.c.localUrl,
@@ -35,10 +44,10 @@ it("uses the real local coordinator for REST tasks and projected WebSocket event
   const notices: EventNotice[] = [];
   const stop = client.events.subscribe((notice) => notices.push(notice));
   await until(() => notices.some((n) => n.type === "reset"));
-  const task = await client.tasks.create({ projectId: "prj_1", title: "Integration" });
+  const task = await client.tasks.create({ projectId: project.id, title: "Integration" });
   expect(task.state).toBe("backlog");
   expect(
-    (await client.tasks.list({ projectId: "prj_1", state: ["backlog"] })).map((t) => t.id),
+    (await client.tasks.list({ projectId: project.id, state: ["backlog"] })).map((t) => t.id),
   ).toContain(task.id);
   await expect(
     client.tasks.waitForState(task.id, "backlog", { timeoutMs: 5000 }),
@@ -48,14 +57,15 @@ it("uses the real local coordinator for REST tasks and projected WebSocket event
 });
 
 it("uses actual session creation, prompts, transcript pages, deltas and epoch resets", async () => {
-  coordinator = await startCoordinator();
+  coordinator = await startCoordinator({ repositoryProvider: demoProvider() });
+  const listed = await syncFixtureProject(coordinator.c, DEMO_REPO);
   const creds = await enrollHost(coordinator);
   host = await FakeHost.connect(coordinator, creds, (command) => {
     if (command.type === "checkout.inspect")
       return {
         root: "/repos/demo",
         commonDir: "/repos/demo/.git",
-        repoIdentity: "https://example.test/demo",
+        repoIdentity: DEMO_REPO.webUrl,
         defaultBranch: "main",
       };
     if (command.type === "workspace.discover")
@@ -81,20 +91,18 @@ it("uses actual session creation, prompts, transcript pages, deltas and epoch re
       };
     return null;
   });
-  const result = await coordinator.admin("POST", "/api/projects", {
-    name: "Demo",
+  const project = await attachFixtureCheckout(coordinator.admin, listed.id, {
     hostId: creds.hostId,
     path: "/repos/demo",
   });
-  expect(result.status).toBe(201);
   const device = await enrollDevice(coordinator);
   client = new SwitchyardClient({
     coordinatorUrl: coordinator.c.localUrl,
     credential: device.credential,
   });
   const created = await client.sessions.create({
-    projectId: result.body.id,
-    workspace: { existingId: result.body.workspaces[0].id },
+    projectId: project.id,
+    workspace: { existingId: project.workspaces[0].id },
   });
   expect(created.id).toBeTruthy();
   await host.event("session.updated", hostSession(created.id, { runtime: "idle" }));

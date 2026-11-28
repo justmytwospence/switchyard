@@ -596,6 +596,24 @@ describe("issue action intent", () => {
     expect(issueInventory(input([merged]), opts({ subset: "notStarted" }))).toEqual([]);
   });
 
+  it("prepares a listed project's checkout on the requested host before issue work", () => {
+    const item = getItem(issue("a"));
+    const projects = { [item.projectId]: { catalog: { state: "listed" as const } } };
+    const checkouts = { local: { projectId: item.projectId, hostId: "local" } };
+    expect(issueAction(item, { projects, checkouts: {} })).toMatchObject({
+      kind: "prepare",
+      locator: item.locator,
+    });
+    expect(issueAction(item, { projects, checkouts }).kind).toBe("start");
+    expect(issueAction(item, { projects, checkouts, hostId: "remote" }).kind).toBe("prepare");
+    expect(
+      issueAction(item, {
+        projects: { [item.projectId]: { catalog: { state: "delisted" } } },
+        checkouts,
+      }),
+    ).toMatchObject({ kind: "none" });
+  });
+
   it("uses only the user's instruction, never a fake issue prompt or a scope pin", () => {
     const item = getItem(issue("a"));
     expect(issueAction(item, { instruction: "   " })).toEqual({

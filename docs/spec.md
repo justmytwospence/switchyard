@@ -666,7 +666,7 @@ Provide history separate from development-board tasks.
 
 Hosts, devices, projects, Pi profiles, adapters, notifications, backups, diagnostics.
 
-Host detail shows capabilities, connectivity, project folders, checkout mappings, and version compatibility. Every Git repository directly inside a host's project folders becomes a project (or another checkout of the project with the same remote): scanned when the folders change, when the host connects, every 10 minutes and on demand; nothing is removed automatically. A project added before its repository had a remote takes the remote's identity at the next scan, unless another project already has it.
+Host detail shows capabilities, connectivity, checkout location, checkout mappings, and version compatibility. The connected Git provider owns the active repository list, even with no hosts online. A host's checkout location defaults to `~/Projects`; saving it does not scan. Preparing a checkout previews reuse or a clone for confirmation. Clearing the location disables new managed clones without removing existing checkouts.
 
 ## 16. Notifications and presence
 

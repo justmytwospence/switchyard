@@ -3,15 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   hostsFolders,
   hostsList,
+  hostsLocation,
   hostsScan,
   resolveHost,
-  scanLine,
 } from "../src/commands/hosts.js";
+import { main } from "../src/main.js";
 import { stubFetch, testCtx } from "./helpers.js";
 
 const conn = { coordinator: "http://coord", credential: "cred" };
 const T = "2026-11-02T10:00:00.000Z";
-
 function host(id: string, name: string, over: Record<string, unknown> = {}) {
   return {
     id,
@@ -28,110 +28,94 @@ function host(id: string, name: string, over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+const NUC = host("hst_1", "NUC", { checkoutRoot: "/srv" });
+const MAC = host("hst_2", "MacBook-Pro", { checkoutRoot: null });
 
-const NUC = host("hst_1", "NUC", { projectFolders: ["/srv"] });
-const MAC = host("hst_2", "MacBook-Pro");
-
-describe("resolveHost", () => {
-  it("matches ids and unique names, and explains failures", async () => {
+describe("hosts commands", () => {
+  it("wires location flags through the CLI", async () => {
+    const { fetch, calls } = stubFetch({
+      "GET /api/hosts": () => [NUC],
+      "PATCH /api/hosts/hst_1": (c) => ({ ...NUC, ...(c.body as object) }),
+    });
+    const ctx = testCtx(fetch);
+    expect(
+      await main(
+        [
+          "node",
+          "switchyard",
+          "hosts",
+          "location",
+          "NUC",
+          "--set",
+          "~/Projects",
+          "--coordinator",
+          "http://coord",
+          "--credential",
+          "cred",
+        ],
+        ctx,
+      ),
+    ).toBe(0);
+    expect(calls.at(-1)?.body).toEqual({ checkoutRoot: "~/Projects" });
+  });
+  it("resolves ids and unique names and ignores revoked hosts", async () => {
     const { fetch } = stubFetch({
       "GET /api/hosts": () => [
         NUC,
         MAC,
-        host("hst_3", "Twin"),
-        host("hst_4", "twin"),
-        host("hst_5", "Gone", { revokedAt: T }),
+        host("3", "Twin"),
+        host("4", "twin"),
+        host("5", "Gone", { revokedAt: T }),
       ],
     });
     const api = new ApiClient({ coordinatorUrl: "http://coord", credential: "c", fetch });
     expect((await resolveHost(api, "hst_2")).name).toBe("MacBook-Pro");
     expect((await resolveHost(api, "nuc")).id).toBe("hst_1");
     await expect(resolveHost(api, "TWIN")).rejects.toThrow(/Several hosts/);
-    await expect(resolveHost(api, "Gone")).rejects.toThrow(/Unknown host "Gone"/);
+    await expect(resolveHost(api, "Gone")).rejects.toThrow(/Unknown host/);
   });
-});
-
-describe("hosts commands", () => {
-  it("lists hosts with their folders", async () => {
+  it("lists locations and reads one as text or JSON", async () => {
     const { fetch } = stubFetch({ "GET /api/hosts": () => [NUC, MAC] });
     const ctx = testCtx(fetch);
     await hostsList(ctx, conn);
-    expect(ctx.lines[0]).toMatch(/^ID\s+NAME\s+STATUS\s+AGENT\s+PROJECT FOLDERS$/);
-    expect(ctx.lines[1]).toMatch(/hst_1\s+NUC\s+connected\s+0\.4\.0\s+\/srv$/);
-    expect(ctx.lines[2]).toMatch(/MacBook-Pro.*-$/);
+    expect(ctx.lines[0]).toMatch(/CHECKOUT LOCATION/);
+    expect(ctx.lines[1]).toMatch(/\/srv$/);
+    expect(ctx.lines[2]).toMatch(/-$/);
+    await hostsLocation(ctx, "NUC", conn);
+    expect(ctx.lines.at(-1)).toBe("Checkout location on NUC: /srv");
+    await hostsLocation(ctx, "MacBook-Pro", { ...conn, json: true });
+    expect(JSON.parse(ctx.lines.at(-1)!).checkoutRoot).toBeNull();
   });
-
-  it("adds a folder with PATCH", async () => {
+  it("sets and clears the root without scanning", async () => {
     const { fetch, calls } = stubFetch({
       "GET /api/hosts": () => [NUC],
       "PATCH /api/hosts/hst_1": (c) => ({ ...NUC, ...(c.body as object) }),
     });
     const ctx = testCtx(fetch);
-    await hostsFolders(ctx, "NUC", { ...conn, add: ["~/Projects", "/srv"] });
-    expect(calls.find((c) => c.method === "PATCH")!.body).toEqual({
-      projectFolders: ["/srv", "~/Projects"],
-    });
-    expect(ctx.lines[0]).toBe("Project folders on NUC: /srv, ~/Projects");
-    expect(ctx.lines[1]).toMatch(/Scanning in the background/);
-  });
-
-  it("refuses conflicting flags and unknown folders", async () => {
-    const { fetch } = stubFetch({ "GET /api/hosts": () => [NUC] });
-    const ctx = testCtx(fetch);
-    await expect(hostsFolders(ctx, "NUC", { ...conn, set: ["/a"], add: ["/b"] })).rejects.toThrow(
-      /on its own/,
-    );
-    await expect(hostsFolders(ctx, "NUC", { ...conn, remove: ["/nope"] })).rejects.toThrow(
-      /not a project folder of NUC/,
-    );
-  });
-
-  it("shows folders and the last scan", async () => {
-    const scan = {
-      state: "done",
-      startedAt: T,
-      finishedAt: T,
-      repositories: 3,
-      projectsCreated: 1,
-      checkoutsAdded: 2,
-      errors: ["/x: missing"],
-    };
-    const { fetch } = stubFetch({ "GET /api/hosts": () => [{ ...NUC, projectScan: scan }] });
-    const ctx = testCtx(fetch);
-    await hostsFolders(ctx, "NUC", conn);
-    expect(ctx.lines[0]).toBe("/srv");
-    expect(ctx.lines[1]).toMatch(
-      /^Last scanned .*: 3 repositories, 2 new checkouts, 1 new projects\.$/,
-    );
-    expect(ctx.lines[2]).toBe("! /x: missing");
-    expect(scanLine(null)).toEqual(["Not scanned yet."]);
-    expect(scanLine({ ...scan, state: "failed" } as never)[0]).toMatch(/failed .*: \/x: missing/);
-  });
-
-  it("scans and prints what was added", async () => {
-    const { fetch } = stubFetch({
-      "GET /api/hosts": () => [NUC],
-      "POST /api/hosts/hst_1/scan-projects": () => ({
-        state: "done",
-        startedAt: T,
-        finishedAt: T,
-        repositories: 2,
-        projectsCreated: 1,
-        checkoutsAdded: 2,
-        errors: ["/y: nope"],
-        added: [
-          { projectId: "p1", name: "app", path: "/srv/app", newProject: true },
-          { projectId: "p2", name: "lib", path: "/srv/lib", newProject: false },
-        ],
-      }),
-    });
-    const ctx = testCtx(fetch);
-    await hostsScan(ctx, "NUC", conn);
-    expect(ctx.lines).toEqual([
-      "Scanned NUC: 2 repositories, 2 new checkouts, 1 new projects",
-      "+ app  /srv/app (new project)",
-      "+ lib  /srv/lib",
-      "! /y: nope",
+    await hostsLocation(ctx, "NUC", { ...conn, set: "~/Projects" });
+    await hostsLocation(ctx, "NUC", { ...conn, clear: true, json: true });
+    expect(calls.filter((c) => c.method === "PATCH").map((c) => c.body)).toEqual([
+      { checkoutRoot: "~/Projects" },
+      { checkoutRoot: null },
     ]);
+    expect(JSON.parse(ctx.lines.at(-1)!).checkoutRoot).toBeNull();
+    expect(calls.every((c) => c.method !== "POST")).toBe(true);
+    await expect(hostsLocation(ctx, "NUC", { ...conn, set: "/a", clear: true })).rejects.toThrow(
+      /not both/,
+    );
+  });
+  it("guides legacy reads and rejects all legacy mutations without requests", async () => {
+    const { fetch, calls } = stubFetch({ "GET /api/hosts": () => [NUC] });
+    const ctx = testCtx(fetch);
+    await hostsFolders(ctx, "NUC", { ...conn, json: true });
+    expect(JSON.parse(ctx.lines[0]!).checkoutRoot).toBe("/srv");
+    expect(ctx.errors.join(" ")).toMatch(/hosts location/);
+    for (const flags of [{ set: ["/a"] }, { add: ["/a"] }, { remove: ["/a"] }, { clear: true }]) {
+      await expect(hostsFolders(ctx, "NUC", { ...conn, ...flags })).rejects.toThrow(
+        /hosts location/,
+      );
+    }
+    await expect(hostsScan(ctx, "NUC", conn)).rejects.toThrow(/Git provider/);
+    expect(calls).toHaveLength(1);
   });
 });

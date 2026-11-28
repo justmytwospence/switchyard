@@ -35,8 +35,7 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: CoordinatorCo
   app.post("/api/workspaces", async (req, reply) => {
     const body = parse(CreateWorkspaceRequest, req.body);
     const checkout = ctx.store.checkouts.require(body.checkoutId);
-    const project = ctx.store.projects.require(checkout.projectId);
-    const ws = await createWorkspace(ctx, project, checkout, body.branch, body.base);
+    const ws = await createWorkspace(ctx, checkout, body.branch, body.base);
     return reply.code(201).send(ws);
   });
 

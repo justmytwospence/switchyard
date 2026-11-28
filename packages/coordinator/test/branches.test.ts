@@ -96,6 +96,26 @@ describe("open branch", () => {
     expect(commandsOf(h.host, "tracker.prepareBranch")[0]).toMatchObject({ branch: "feat/z" });
   });
 
+  it("records a worktree already created but does not start Pi after delisting", async () => {
+    const previous = h.override!;
+    h.override = (cmd, id) => {
+      if (cmd.type === "workspace.create") {
+        const p = store().projects.require(h.project.id);
+        store().putProject({ ...p, catalog: { ...p.catalog, state: "delisted" } });
+      }
+      return previous(cmd, id);
+    };
+    const r = await open({ branch: "feat/removed" });
+    expect(r.status).toBe(202);
+    await until(() => store().sessions.get(r.body.session.id)?.runtime === "failed");
+    expect(
+      store().workspaceByPath(h.creds.hostId, `${ROOT}/.worktrees/feat-removed`),
+    ).toBeDefined();
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(1);
+    expect(commandsOf(h.host, "session.start")).toHaveLength(0);
+    expect(commandsOf(h.host, "workspace.remove")).toHaveLength(0);
+  });
+
   it("picks the host that has the branch, then the project default", async () => {
     const creds2 = await enrollHost(h.t, "second");
     const host2 = await FakeHost.connect(
@@ -123,8 +143,45 @@ describe("open branch", () => {
   it("rejects a host without a checkout of the project", async () => {
     const creds2 = await enrollHost(h.t, "second");
     const r = await open({ branch: "main", hostId: creds2.hostId });
-    expect(r.status).toBe(400);
-    expect(r.body.error.message).toBe("No checkout of this project on second");
+    expect(r.status).toBe(409);
+    expect(r.body.error.message).toBe("Prepare a checkout on this host");
+  });
+
+  it("keeps history readable and live sessions stoppable while blocking fresh work", async () => {
+    const started = await open({ branch: "main" });
+    const id = started.body.session.id;
+    await until(() => !!store().sessions.get(id)?.nativeHandle);
+    const project = store().projects.require(h.project.id);
+    store().putProject({ ...project, catalog: { ...project.catalog, state: "delisted" } });
+    store().putSession({ ...store().sessions.require(id), runtime: "idle" });
+
+    expect((await h.t.admin("GET", `/api/sessions/${id}`)).status).toBe(200);
+    expect((await h.t.admin("GET", `/api/workspaces/${mainWs().id}`)).status).toBe(200);
+    expect((await h.t.admin("POST", `/api/sessions/${id}/stop`)).status).toBe(200);
+    expect(commandsOf(h.host, "session.abort")).toHaveLength(1);
+    store().putSession({ ...store().sessions.require(id), runtime: "stopped" });
+    expect((await h.t.admin("POST", `/api/sessions/${id}/resume`)).status).toBe(409);
+    expect((await open({ branch: "feat/new" })).status).toBe(409);
+    expect(
+      (
+        await h.t.admin("POST", "/api/sessions", {
+          projectId: project.id,
+          workspace: { existingId: mainWs().id },
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await h.t.admin("POST", "/api/workspaces", {
+          checkoutId: mainWs().checkoutId,
+          branch: "feat/new",
+        })
+      ).status,
+    ).toBe(409);
+    expect(store().sessions.list()).toHaveLength(1);
+    expect(commandsOf(h.host, "session.start")).toHaveLength(1);
+    expect(commandsOf(h.host, "workspace.create")).toHaveLength(0);
+    expect(commandsOf(h.host, "tracker.prepareBranch")).toHaveLength(0);
   });
 
   it("pins to the scope when the scope would not show it", async () => {

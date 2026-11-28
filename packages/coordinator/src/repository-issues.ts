@@ -17,30 +17,66 @@ import { requireService } from "./services.js";
 export class RepositoryIssuesService {
   constructor(private readonly ctx: CoordinatorContext) {}
 
-  private locator(projectId: string) {
-    const { store, hostHub } = this.ctx;
-    const project = store.projects.require(projectId);
+  private repository(projectId: string) {
+    const project = this.ctx.store.projects.require(projectId);
     const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)$/i.exec(project.repoIdentity);
     const parsed = GitHubRepository.safeParse(match?.[1]);
     if (!parsed.success)
       throw new SwitchyardError("invalid_request", "Project is not a GitHub repository");
+    return { project, repository: parsed.data };
+  }
+
+  /** Prefer the existing `gh` authority on checkout hosts; listing itself needs no checkout. */
+  private readLocator(projectId: string) {
+    const { store, hostHub } = this.ctx;
+    const { project, repository } = this.repository(projectId);
+    const capable = (id: string) => hostHub.isConnected(id) && hostHub.supportsRepositoryIssues(id);
+    const hosts = hostHub.connectedHostIds().sort();
+    const checkoutHosts = store.checkouts
+      .list("project_id = ?", [projectId])
+      .map((c) => c.hostId)
+      .sort();
+    const defaultHost = project.defaultHostId;
+    const hostId =
+      (defaultHost && checkoutHosts.includes(defaultHost) && capable(defaultHost)
+        ? defaultHost
+        : undefined) ??
+      checkoutHosts.find(capable) ??
+      hosts.find(capable);
+    if (!hostId) {
+      throw new SwitchyardError(
+        hosts.length ? "unsupported_capability" : "host_unreachable",
+        "No connected host can read repository issues using gh",
+      );
+    }
+    return { repository, hostId };
+  }
+
+  private mutationLocator(projectId: string) {
+    const { store, hostHub } = this.ctx;
+    const { project, repository } = this.repository(projectId);
     const checkouts = store.checkouts
       .list("project_id = ?", [projectId])
       .sort((a, b) => a.hostId.localeCompare(b.hostId) || a.id.localeCompare(b.id));
+    if (!checkouts.length) {
+      throw new SwitchyardError("conflict", "Prepare a checkout before starting issue work");
+    }
     const connected = checkouts.filter((c) => hostHub.isConnected(c.hostId));
-    if (!connected.length)
+    if (!connected.length) {
       throw new SwitchyardError(
         "host_unreachable",
         "No connected host has a checkout of this project",
       );
+    }
     const capable = connected.filter((c) => hostHub.supportsRepositoryIssues(c.hostId));
     const checkout = capable.find((c) => c.hostId === project.defaultHostId) ?? capable[0];
-    if (!checkout)
+    if (!checkout) {
       throw new SwitchyardError(
         "unsupported_capability",
         "Connected checkout hosts do not support repository issues",
       );
-    return { repository: parsed.data, hostId: checkout.hostId, checkout };
+    }
+    return { repository, hostId: checkout.hostId, checkout };
   }
 
   private verify(projectId: string, repository: string): void {
@@ -61,7 +97,7 @@ export class RepositoryIssuesService {
   }
 
   async page(projectId: string, after?: string): Promise<RepoIssuesPage> {
-    const { repository, hostId } = this.locator(projectId);
+    const { repository, hostId } = this.readLocator(projectId);
     const raw = await this.ctx.hostHub.request(
       hostId,
       {
@@ -89,7 +125,7 @@ export class RepositoryIssuesService {
       opts,
       "repository",
       async () => {
-        const { repository, hostId, checkout } = this.locator(projectId);
+        const { repository, hostId, checkout } = this.mutationLocator(projectId);
         const changed = () =>
           new SwitchyardError(
             "conflict",
@@ -142,7 +178,7 @@ export class RepositoryIssuesService {
   }
 
   async description(projectId: string, number: number): Promise<IssueDescriptionResult> {
-    const { repository, hostId } = this.locator(projectId);
+    const { repository, hostId } = this.readLocator(projectId);
     const raw = await this.ctx.hostHub.request(
       hostId,
       { type: "tracker.describeIssue", repository, number },

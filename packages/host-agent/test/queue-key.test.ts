@@ -76,6 +76,8 @@ describe("read-only and checkout lanes", () => {
       { type: "session.importable" },
       { type: "session.readNative", sessionFile: "/x.jsonl" },
       { type: "checkout.inspect", path: "/r" },
+      { type: "checkout.preview", root: "/r", folderName: "repo" },
+      { type: "checkout.locate", cwd: "/r/repo/.worktrees/branch" },
       { type: "projects.scan", folder: "/p" },
       { type: "projects.suggest", days: 30 },
       { type: "workspace.discover", checkoutPath: "/r", worktreeDir: ".worktrees" },
@@ -109,6 +111,16 @@ describe("read-only and checkout lanes", () => {
     ).toBe("workspace:/r");
     expect(new Set(reads.map((c) => c.type))).toEqual(READ_ONLY_COMMANDS);
     for (const c of reads) expect(queueKey(c)).toBeNull();
+    expect(
+      queueKey({
+        type: "checkout.provision",
+        root: "/r",
+        folderName: "repo",
+        expectedPath: "/r/repo",
+        cloneUrl: "https://github.com/owner/repo.git",
+        grant: { token: "fixture", expiresAt: "2100-01-01T00:00:00Z" },
+      }),
+    ).toBe("checkout:/r/repo");
     expect(
       queueKey({
         type: "workspace.create",

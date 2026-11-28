@@ -1,80 +1,70 @@
-import { DEFAULT_WORKTREE_DIR, type Project } from "@switchyard/protocol";
-import { ChevronRight, FolderGit2, FolderPlus, Plus, Search } from "lucide-react";
-import { type FormEvent, useId, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import type { Project } from "@switchyard/protocol";
+import { ChevronRight, FolderGit2, Plus, Search } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
-import { Button, buttonClasses } from "../../components/ui/Button";
-import { Card } from "../../components/ui/Card";
-import { Field, fieldControlProps } from "../../components/ui/Field";
-import { Select } from "../../components/ui/Select";
-import { InlineStatus } from "../../components/ui/StatusChip";
-import {
-  EmptyState,
-  InlineError,
-  LastKnownNote,
-  LoadingState,
-  UnsupportedCapability,
-} from "../../components/ui/states";
+import { buttonClasses } from "../../components/ui/Button";
+import { EmptyState, LastKnownNote, LoadingState } from "../../components/ui/states";
 import { TextInput } from "../../components/ui/TextArea";
-import { TextLink } from "../../components/ui/TextLink";
-import { toast } from "../../components/ui/Toast";
 import { matchesProject, repoLabel } from "../../lib/repo";
-import { apiPost } from "../../sync/api";
-import { useHosts, useProjects, useSyncStore } from "../../sync/store";
-import { ProjectSuggestions } from "./ProjectSuggestions";
-import { SectionPage, settingsPath, useHydrated, validateAbsolutePath } from "./shared";
-import { WORKTREE_DIR_HINT, worktreeDirProblem } from "./worktreeDir";
+import { isActiveProject, useProjects, useSyncStore } from "../../sync/store";
+import {
+  CATALOG_CONNECT_PATH,
+  CatalogConnections,
+  useCatalogConnections,
+} from "./CatalogConnections";
+import { SectionPage, settingsPath, useHydrated } from "./shared";
 
 export const projectPath = (id: string) => settingsPath(`projects/${encodeURIComponent(id)}`);
 
-/** Settings › Projects. */
 export function ProjectsSection() {
   const hydrated = useHydrated();
-  const projects = useProjects();
-  const hosts = useHosts().filter((h) => !h.revokedAt && h.connectivity === "connected");
+  const projects = useProjects(true);
+  const catalog = useCatalogConnections();
   const [query, setQuery] = useState("");
-  const shown = projects.filter((p) => matchesProject(p, query));
+  const active = projects.filter(isActiveProject);
+  const previous = projects.filter((p) => !isActiveProject(p));
+  const shown = active.filter((p) => matchesProject(p, query));
   const checkouts = useSyncStore((s) => s.checkouts);
-  const workspaces = useSyncStore((s) => s.workspaces);
   const counts = useMemo(() => {
-    const out: Record<string, { checkouts: number; workspaces: number }> = {};
-    const get = (id: string) => {
-      out[id] ??= { checkouts: 0, workspaces: 0 };
-      return out[id];
-    };
-    for (const c of Object.values(checkouts)) get(c.projectId).checkouts++;
-    for (const w of Object.values(workspaces)) if (!w.archivedAt) get(w.projectId).workspaces++;
+    const out: Record<string, number> = {};
+    for (const c of Object.values(checkouts)) out[c.projectId] = (out[c.projectId] ?? 0) + 1;
     return out;
-  }, [checkouts, workspaces]);
+  }, [checkouts]);
+  const status = catalog.inventory;
+  const hasConflicts = !!status?.conflicts.length;
+  const hasCompleteList =
+    !hasConflicts && status?.connections.some((c) => c.state === "ready" && c.lastSyncedAt);
 
   return (
     <SectionPage
       testId="settings-projects"
       title="Projects"
-      description="A project is one repository. It can have checkouts on several hosts. Repositories in a host's project folders are added automatically."
+      description="Your Git provider determines which repositories are projects. Each project can have checkouts on several hosts or none at all."
       actions={
-        <Link
-          to={settingsPath("projects/new")}
-          state={BACK_STATE}
-          className={buttonClasses("primary")}
-        >
-          <Plus aria-hidden className="size-4" />
-          New project
-        </Link>
+        status?.available && (
+          <Link to={CATALOG_CONNECT_PATH} state={BACK_STATE} className={buttonClasses("primary")}>
+            <Plus aria-hidden className="size-4" />
+            Connect GitHub
+          </Link>
+        )
       }
     >
       <LastKnownNote />
-      {hosts.map((h) => (
-        <ProjectSuggestions key={h.id} host={h} />
-      ))}
+      <CatalogConnections catalog={catalog} projects={projects} />
       {!hydrated ? (
         <LoadingState label="Loading projects…" />
-      ) : projects.length === 0 ? (
+      ) : active.length === 0 ? (
         <EmptyState
           icon={<FolderGit2 className="size-8" />}
-          title="No projects yet"
-          description="Create a project from a Git checkout on one of your hosts."
-          action={{ label: "New project", to: settingsPath("projects/new") }}
+          title={hasCompleteList ? "No repositories selected" : "No active projects"}
+          description={
+            hasCompleteList
+              ? "Manage repositories on GitHub to share more, then refresh the connection."
+              : hasConflicts
+                ? "Resolve the matching previous projects above to list those repositories."
+                : "Repositories appear here after you connect an account and share repositories on GitHub."
+          }
         />
       ) : (
         <>
@@ -100,233 +90,65 @@ export function ProjectsSection() {
               action={{ label: "Clear search", onClick: () => setQuery("") }}
             />
           ) : (
-            <ul className="overflow-hidden rounded-lg border border-border bg-surface">
-              {shown.map((p) => (
-                <li key={p.id} className="border-b border-border last:border-b-0">
-                  <ProjectRow project={p} counts={counts[p.id]} />
-                </li>
-              ))}
-            </ul>
+            <ProjectRows projects={shown} counts={counts} />
           )}
         </>
       )}
+      {previous.length > 0 && (
+        <details className="space-y-2 rounded-lg border border-border bg-surface p-3">
+          <summary className="tap cursor-pointer text-sm font-medium">
+            Previous projects — not connected ({previous.length})
+          </summary>
+          <p className="text-xs text-muted">
+            Checkouts and session history are kept. These projects are not available for new work.
+          </p>
+          <ProjectRows projects={previous} counts={counts} />
+        </details>
+      )}
     </SectionPage>
   );
 }
 
-function ProjectRow({
-  project: p,
+function ProjectRows({
+  projects,
   counts,
 }: {
-  project: Project;
-  counts?: { checkouts: number; workspaces: number };
+  projects: Project[];
+  counts: Record<string, number>;
 }) {
-  const c = counts ?? { checkouts: 0, workspaces: 0 };
   return (
-    <Link
-      to={projectPath(p.id)}
-      state={BACK_STATE}
-      className="tap flex min-w-0 items-center gap-3 px-4 py-2 hover:bg-surface-2"
-    >
-      <FolderGit2 aria-hidden className="size-4 shrink-0 text-muted" />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm font-medium">{p.name}</span>
-        <span className="truncate text-xs text-muted" title={p.repoIdentity}>
-          {repoLabel(p.repoIdentity)}
-        </span>
-        <span className="flex flex-wrap gap-x-2 text-xs text-subtle">
-          <span>
-            {c.checkouts} checkout{c.checkouts === 1 ? "" : "s"}
-          </span>
-          <span>
-            {c.workspaces} workspace{c.workspaces === 1 ? "" : "s"}
-          </span>
-          {!p.automationEnabled && <span>Auto-start off</span>}
-        </span>
-      </span>
-      <ChevronRight aria-hidden className="size-4 shrink-0 text-subtle" />
-    </Link>
-  );
-}
-
-/** Settings › Projects › New. */
-export function ProjectCreate() {
-  const hydrated = useHydrated();
-  const hosts = useHosts();
-  const profilesById = useSyncStore((s) => s.profiles);
-  const profiles = useMemo(
-    () => Object.values(profilesById).sort((a, b) => a.name.localeCompare(b.name)),
-    [profilesById],
-  );
-  const connected = hosts.filter((h) => h.connectivity === "connected");
-  const navigate = useNavigate();
-  const ids = useId();
-  const [name, setName] = useState("");
-  const [hostId, setHostId] = useState("");
-  const [path, setPath] = useState("");
-  const [profileId, setProfileId] = useState("");
-  const [worktreeDir, setWorktreeDir] = useState(DEFAULT_WORKTREE_DIR);
-  const [submitted, setSubmitted] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  const effectiveHost = hostId || connected[0]?.id || "";
-  const nameError = submitted && !name.trim() ? "Enter a project name." : null;
-  const hostError = submitted && !effectiveHost ? "Choose a connected host." : null;
-  const pathError = submitted || path ? validateAbsolutePath(path) : null;
-  const worktreeDirError = worktreeDirProblem(worktreeDir);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setSubmitted(true);
-    if (!name.trim() || !effectiveHost || validateAbsolutePath(path) || worktreeDirError) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await apiPost<{ id?: string }>("/api/projects", {
-        name: name.trim(),
-        hostId: effectiveHost,
-        path: path.trim(),
-        defaultProfileId: profileId || null,
-        worktreeDir: worktreeDir.trim(),
-      });
-      toast.success(`Project ${name.trim()} created`);
-      navigate(res?.id ? projectPath(res.id) : settingsPath("projects"), { replace: true });
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const back = { to: settingsPath("projects"), label: "Projects" };
-  if (!hydrated)
-    return (
-      <SectionPage title="New project" back={back}>
-        <LoadingState />
-      </SectionPage>
-    );
-
-  return (
-    <SectionPage
-      title="New project"
-      description="Switchyard inspects the checkout on the host, then discovers its worktrees."
-      back={back}
-    >
-      {connected.length === 0 && (
-        <UnsupportedCapability
-          capability="Creating a project"
-          reason={
-            hosts.length === 0
-              ? "No hosts are enrolled. Add a host first."
-              : "No host is connected. The checkout is inspected on its host, so the host must be online."
-          }
-          fallback={
-            <TextLink to={settingsPath("hosts")} variant="action">
-              Open hosts
-            </TextLink>
-          }
-        />
-      )}
-      <Card>
-        <form className="flex min-w-0 flex-col gap-4" onSubmit={submit} noValidate>
-          <Field id={`${ids}-name`} label="Name" error={nameError}>
-            <TextInput
-              id={`${ids}-name`}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoComplete="off"
-              {...fieldControlProps(`${ids}-name`, { error: nameError })}
-            />
-          </Field>
-          <Field
-            id={`${ids}-host`}
-            label="Host"
-            hint="Only connected hosts are listed."
-            error={hostError}
-          >
-            <Select
-              id={`${ids}-host`}
-              value={effectiveHost}
-              onChange={(e) => setHostId(e.target.value)}
-              disabled={connected.length === 0}
-              {...fieldControlProps(`${ids}-host`, { hint: true, error: hostError })}
+    <ul className="overflow-hidden rounded-lg border border-border bg-surface">
+      {projects.map((p) => {
+        const count = counts[p.id] ?? 0;
+        return (
+          <li key={p.id} className="border-b border-border last:border-b-0">
+            <Link
+              to={projectPath(p.id)}
+              state={BACK_STATE}
+              className="tap flex min-w-0 items-center gap-3 px-4 py-2 hover:bg-surface-2"
             >
-              {connected.length === 0 && <option value="">No connected hosts</option>}
-              {connected.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field
-            id={`${ids}-path`}
-            label="Checkout path on the host"
-            hint="Absolute path of an existing Git checkout, e.g. /Users/me/src/app."
-            error={pathError}
-          >
-            <TextInput
-              id={`${ids}-path`}
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="/Users/me/src/app"
-              autoComplete="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              className="font-mono"
-              {...fieldControlProps(`${ids}-path`, { hint: true, error: pathError })}
-            />
-          </Field>
-          <Field
-            id={`${ids}-worktree`}
-            label="Worktree folder"
-            hint={WORKTREE_DIR_HINT}
-            error={worktreeDirError}
-          >
-            <TextInput
-              id={`${ids}-worktree`}
-              value={worktreeDir}
-              onChange={(e) => setWorktreeDir(e.target.value)}
-              placeholder={DEFAULT_WORKTREE_DIR}
-              autoComplete="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              className="font-mono"
-              {...fieldControlProps(`${ids}-worktree`, { hint: true, error: worktreeDirError })}
-            />
-          </Field>
-          <Field id={`${ids}-profile`} label="Default Pi profile (optional)">
-            <Select
-              id={`${ids}-profile`}
-              value={profileId}
-              onChange={(e) => setProfileId(e.target.value)}
-            >
-              <option value="">None</option>
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <InlineError error={error} />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="submit"
-              variant="primary"
-              busy={busy}
-              icon={<FolderPlus className="size-4" />}
-              disabled={connected.length === 0}
-            >
-              Create project
-            </Button>
-            {connected.length === 0 && (
-              <InlineStatus icon={FolderPlus} label="Needs a connected host" />
-            )}
-          </div>
-        </form>
-      </Card>
-    </SectionPage>
+              <FolderGit2 aria-hidden className="size-4 shrink-0 text-muted" />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-medium">{p.name}</span>
+                <span className="truncate text-xs text-muted" title={p.repoIdentity}>
+                  {p.catalog?.fullName ?? repoLabel(p.repoIdentity)}
+                </span>
+                <span className="flex flex-wrap gap-x-2 text-xs text-subtle">
+                  {p.catalog?.fullName && (
+                    <span>Repository account: {p.catalog.fullName.split("/")[0]}</span>
+                  )}
+                  <span>
+                    {count} checkout{count === 1 ? "" : "s"}
+                  </span>
+                  {p.catalog?.state === "delisted" && <span>Removed from catalog</span>}
+                  {p.catalog?.state === "legacy" && <span>Not connected</span>}
+                </span>
+              </span>
+              <ChevronRight aria-hidden className="size-4 shrink-0 text-subtle" />
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

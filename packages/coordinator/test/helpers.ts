@@ -2,18 +2,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
+  CatalogRepository,
   CoordinatorToHost,
   HostCommand,
   HostEvent,
+  Project,
   Receipt,
   ServerToClient,
 } from "@switchyard/protocol";
+import { connectFixtureCatalog } from "@switchyard/test-fixtures";
 import { WebSocket } from "ws";
 import {
   type Coordinator,
   type CreateCoordinatorOptions,
   createCoordinator,
   createLogger,
+  requireService,
 } from "../src/index.js";
 import { evaluateRules, validateRule } from "../src/policies/evaluator.js";
 
@@ -109,6 +113,47 @@ export async function startCoordinator(
       rmSync(dir, { recursive: true, force: true });
     },
   };
+}
+
+/** Sync the configured fake provider and find the resulting Project by its catalog binding. */
+export async function syncFixtureProject(c: Coordinator, repository: CatalogRepository) {
+  await connectFixtureCatalog(requireService(c.ctx, "catalog"));
+  const project = c.store.projects
+    .list()
+    .find(
+      (p) =>
+        p.catalog?.state === "listed" &&
+        p.catalog.authority === repository.authority &&
+        p.catalog.externalId === repository.externalId,
+    );
+  if (!project) throw new Error(`Fixture repository is not listed: ${repository.webUrl}`);
+  return project;
+}
+
+/** Apply project settings before discovery, attach the verified checkout, and return its view. */
+export async function attachFixtureCheckout(
+  admin: (
+    method: string,
+    path: string,
+    body?: unknown,
+  ) => Promise<Pick<ApiResult, "status" | "body">>,
+  projectId: string,
+  checkout: { hostId: string; path: string },
+  settings?: Partial<
+    Pick<Project, "name" | "defaultHostId" | "checks" | "maxConcurrentRuns" | "worktreeDir">
+  >,
+) {
+  const path = `/api/projects/${projectId}`;
+  const request = async (method: string, path: string, body?: unknown) => {
+    const result = await admin(method, path, body);
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`${method} ${path}: ${result.status} ${JSON.stringify(result.body)}`);
+    }
+    return result.body;
+  };
+  if (settings) await request("PATCH", path, settings);
+  await request("POST", `${path}/checkouts`, checkout);
+  return request("GET", path);
 }
 
 export async function enrollHost(

@@ -1,12 +1,15 @@
 // @module-tag slow
 import type { HostCommand, HostCommandOf } from "@switchyard/protocol";
+import { FakeRepositoryProvider, fixtureRepository } from "@switchyard/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  attachFixtureCheckout,
   enrollHost,
   FakeHost,
   hostSession,
   sleep,
   startCoordinator,
+  syncFixtureProject,
   type TestCoordinator,
   until,
 } from "./helpers.js";
@@ -25,15 +28,18 @@ afterEach(async () => {
 });
 
 const ROOT = "/repos/app";
+const APP_REPO = fixtureRepository("me", "app");
+const UNLISTED_ROOT = "/repos/unlisted";
 
 function gitHandler(cmd: HostCommand): unknown {
   switch (cmd.type) {
     case "checkout.inspect":
       if (cmd.path === "/not/git") return { __error: { code: "not_a_git_repo", message: "no" } };
       return {
-        root: ROOT,
-        commonDir: `${ROOT}/.git`,
-        repoIdentity: "https://github.com/me/app",
+        root: cmd.path,
+        commonDir: `${cmd.path}/.git`,
+        repoIdentity:
+          cmd.path === UNLISTED_ROOT ? "https://github.com/me/unlisted" : APP_REPO.webUrl,
         defaultBranch: "main",
       };
     case "workspace.discover":
@@ -76,20 +82,24 @@ function gitHandler(cmd: HostCommand): unknown {
 }
 
 async function setup(options: Parameters<typeof startCoordinator>[0] = {}) {
-  t = await startCoordinator(options);
+  t = await startCoordinator({
+    repositoryProvider: new FakeRepositoryProvider(() => [APP_REPO]),
+    ...options,
+  });
+  const listed = await syncFixtureProject(t.c, APP_REPO);
   const creds = await enrollHost(t);
   host = await FakeHost.connect(t, creds, gitHandler);
-  const p = await t.admin("POST", "/api/projects", {
-    name: "App",
-    hostId: creds.hostId,
-    path: ROOT,
-  });
-  expect(p.status).toBe(201);
-  return { creds, project: p.body };
+  const project = await attachFixtureCheckout(
+    t.admin,
+    listed.id,
+    { hostId: creds.hostId, path: ROOT },
+    { name: "App", defaultHostId: creds.hostId },
+  );
+  return { creds, project };
 }
 
 describe("projects and workspaces", () => {
-  it("creates a project from checkout.inspect and discovers workspaces", async () => {
+  it("attaches a verified checkout to a listed project and discovers workspaces", async () => {
     const { creds, project } = await setup();
     expect(project.repoIdentity).toBe("https://github.com/me/app");
     expect(project.defaultHostId).toBe(creds.hostId);
@@ -101,18 +111,16 @@ describe("projects and workspaces", () => {
     const main = project.workspaces.find((w: { provenance: string }) => w.provenance === "main");
     expect(main.branch).toBe("main");
 
-    const dupe = await t!.admin("POST", "/api/projects", {
-      name: "x",
-      hostId: creds.hostId,
-      path: ROOT,
-    });
-    expect(dupe.status).toBe(409);
-    const bad = await t!.admin("POST", "/api/projects", {
-      name: "x",
-      hostId: creds.hostId,
-      path: "/not/git",
-    });
+    const checkoutPath = `/api/projects/${project.id}/checkouts`;
+    const dupe = await t!.admin("POST", checkoutPath, { hostId: creds.hostId, path: ROOT });
+    expect(dupe.body.checkout.id).toBe(project.checkouts[0].id);
+    const bad = await t!.admin("POST", checkoutPath, { hostId: creds.hostId, path: "/not/git" });
     expect(bad.body.error.code).toBe("not_a_git_repo");
+    const mismatch = await t!.admin("POST", checkoutPath, {
+      hostId: creds.hostId,
+      path: UNLISTED_ROOT,
+    });
+    expect(mismatch.body.error.code).toBe("repo_mismatch");
 
     const ws = await t!.admin("POST", "/api/workspaces", {
       checkoutId: project.checkouts[0].id,
@@ -137,6 +145,18 @@ describe("projects and workspaces", () => {
       .latestEvents("workspace.updated", 50)
       .find((e) => (e.data as { id: string }).id === ws.body.id)!;
     expect((last.data as { archivedAt: string | null }).archivedAt).not.toBeNull();
+  });
+
+  it("does not create projects through the legacy POST, even for a valid checkout", async () => {
+    const { creds, project } = await setup();
+    const result = await t!.admin("POST", "/api/projects", {
+      name: "Unlisted",
+      hostId: creds.hostId,
+      path: UNLISTED_ROOT,
+    });
+    expect(result.status).toBe(409);
+    expect(result.body.error.message).toContain("Projects come from your Git provider");
+    expect(t!.c.store.projects.list().map((p) => p.id)).toEqual([project.id]);
   });
 });
 

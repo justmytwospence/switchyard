@@ -28,6 +28,7 @@ import {
 } from "./issue-work.js";
 import { requireService } from "./services.js";
 import { createWorkspace } from "./sessions/service.js";
+import { canWorkOnProject, hasWorkMembership, requireWorkProject } from "./work-projects.js";
 import { refreshCheckoutWorkspaces } from "./workspaces.js";
 
 const GITHUB = "https://github.com/";
@@ -44,10 +45,14 @@ function sourceConfig({
   return JSON.stringify(config);
 }
 
-/** The project whose checkout is this GitHub repository. */
+/** The listed project for this repository, whether or not it has a checkout. */
 export function projectForRepository(projects: Project[], repository: string): Project | undefined {
   const want = `${GITHUB}${repository}`.toLowerCase();
-  return projects.find((p) => p.repoIdentity.toLowerCase() === want);
+  const matches = (p: Project) => p.repoIdentity.toLowerCase() === want;
+  return (
+    projects.find((p) => p.catalog?.state === "listed" && matches(p)) ??
+    projects.find((p) => p.catalog === undefined && matches(p))
+  );
 }
 
 /**
@@ -60,6 +65,7 @@ export function inScope(
 ): boolean {
   const identity = project.repoIdentity;
   return (
+    hasWorkMembership(project) &&
     identity.toLowerCase().startsWith(GITHUB) &&
     repositoryInScope(source, identity.slice(GITHUB.length))
   );
@@ -318,7 +324,9 @@ export class ScopeSourceService {
           continue;
         }
         const id = trackedIssueId(scopeId, item.itemId);
-        const prev = store.issues.get(id);
+        const prior = store.issues.get(id);
+        // Never carry a branch or workspace association across project identities.
+        const prev = prior?.projectId === project.id ? prior : undefined;
         const next: TrackedIssue = {
           id,
           scopeId,
@@ -433,7 +441,8 @@ export class ScopeSourceService {
   ): Promise<void> {
     const { store, hostHub } = this.ctx;
     const issue = store.issues.get(issueId);
-    if (!issue || !projectMatchesIssue(store, issue)) return;
+    if (!issue || !projectMatchesIssue(store, issue) || !canWorkOnProject(this.ctx, project.id))
+      return;
     const { branch, work, remote } = issueWorkBranch(store, project.id, item);
     if (!branch || item.pullRequest?.state === "MERGED") return;
     const update = (workspaceId: string | null) => {
@@ -479,6 +488,7 @@ export class ScopeSourceService {
         ws = find();
       }
     }
+    if (!canWorkOnProject(this.ctx, project.id) || !projectMatchesIssue(store, issue)) return;
     // A source that only watches never makes a worktree. A durable manual link on
     // an absent worktree also doesn't let another board recreate it automatically.
     if (!ws && (!sourceMakesWorktrees(source) || (!remote && work?.workspaceId))) return;
@@ -493,7 +503,18 @@ export class ScopeSourceService {
             branch,
             ...(hostHub.supportsStrictIssueBranches(checkout.hostId) ? { strict: true } : {}),
           },
-          { timeoutMs: 60_000 },
+          {
+            timeoutMs: 60_000,
+            beforeSend: () => {
+              requireWorkProject(this.ctx, project.id);
+              if (!projectMatchesIssue(store, issue)) {
+                throw new SwitchyardError(
+                  "conflict",
+                  "The issue repository changed; refresh the source",
+                );
+              }
+            },
+          },
         );
         if (preparation?.ok !== true) {
           throw new SwitchyardError(
@@ -502,7 +523,8 @@ export class ScopeSourceService {
           );
         }
       }
-      ws = await createWorkspace(this.ctx, project, checkout, branch, null);
+      if (!projectMatchesIssue(store, issue)) return;
+      ws = await createWorkspace(this.ctx, checkout, branch, null);
     }
     update(ws!.id);
   }
@@ -512,7 +534,7 @@ export class ScopeSourceService {
     const { store } = this.ctx;
     const board = source.board!;
     const issue = store.issues.get(issueId);
-    if (!issue?.board) return;
+    if (!issue?.board || !canWorkOnProject(this.ctx, issue.projectId)) return;
     const target =
       item.pullRequest?.state === "OPEN" && board.onReview
         ? board.onReview
@@ -543,6 +565,13 @@ export class ScopeSourceService {
     optionId: string,
   ): Promise<IssueSetStatusResult> {
     const board = issue.board!;
+    const checkProject = () => {
+      requireWorkProject(this.ctx, issue.projectId);
+      if (!projectMatchesIssue(this.ctx.store, issue)) {
+        throw new SwitchyardError("conflict", "The issue repository changed; refresh the source");
+      }
+    };
+    checkProject();
     const raw = await this.ctx.hostHub.request(
       source.hostId,
       {
@@ -557,7 +586,7 @@ export class ScopeSourceService {
         allowShared: source.moveShared,
         allowUnassigned: sourceFollow(source) === "board",
       },
-      { timeoutMs: 30_000 },
+      { timeoutMs: 30_000, beforeSend: checkProject },
     );
     return IssueSetStatusResult.parse(raw);
   }
@@ -669,6 +698,7 @@ export class ScopeSourceService {
         ) {
           throw new SwitchyardError("conflict", "The issue changed; refresh and try again");
         }
+        requireWorkProject(this.ctx, issue.projectId);
         const ws = store.workspaces.require(workspaceId);
         const problem = issueLinkProblem(issue, ws, store.issues.list());
         if (problem) throw new SwitchyardError("conflict", problem);

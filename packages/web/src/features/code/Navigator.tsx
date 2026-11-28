@@ -48,6 +48,7 @@ import { cn } from "../../lib/cn";
 import { LONG_PRESS_CLASS, useLongPress } from "../../lib/useLongPress";
 import { useFilter } from "../../prefs";
 import {
+  isActiveProject,
   useHosts,
   useProjects,
   useSession,
@@ -67,7 +68,6 @@ import {
   type Where,
   whereLabel,
 } from "../scopes/where";
-import { ProjectSuggestions } from "../settings/ProjectSuggestions";
 import { AdapterSlot } from "./AdapterSlots";
 import { sessionMenuItems } from "./ConversationHeader";
 import { useSessionContext } from "./hooks";
@@ -304,7 +304,8 @@ export function Navigator({
     Number(prefs.query !== "") +
     Number(prefs.filter === "attention");
   const anyFilter = activeFilters >= 2;
-  const ready = hydrated && hosts.length > 0 && projectList.length > 0;
+  const canStart = hydrated && hosts.length > 0 && projectList.length > 0;
+  const ready = canStart || (hydrated && Object.values(sessions).some((s) => !s.archivedAt));
   const clearFilters = () => {
     setSelectedScopeId(null);
     setWhere(null);
@@ -347,7 +348,7 @@ export function Navigator({
   let body: ReactNode;
   if (!hydrated) {
     body = <LoadingState label="Loading sessions…" />;
-  } else if (hosts.length === 0) {
+  } else if (hosts.length === 0 && list.rows.length === 0 && list.sections.length === 0) {
     body = (
       <EmptyState
         icon={<Server className="size-8" />}
@@ -356,23 +357,19 @@ export function Navigator({
         action={{ label: "Connect a host", to: "/settings/hosts" }}
         secondaryAction={
           projectList.length === 0
-            ? { label: "Add a project", to: "/settings/projects" }
+            ? { label: "Connect GitHub", to: "/settings/projects" }
             : undefined
         }
       />
     );
-  } else if (projectList.length === 0) {
-    const first = hosts.find((h) => !h.revokedAt && h.connectivity === "connected");
+  } else if (projectList.length === 0 && list.rows.length === 0 && list.sections.length === 0) {
     body = (
-      <>
-        <EmptyState
-          icon={<FolderGit2 className="size-8" />}
-          title="Add a project"
-          description="Point Switchyard at a Git checkout on one of your hosts to start sessions there."
-          action={{ label: "Add a project", to: "/settings/projects" }}
-        />
-        {first && <ProjectSuggestions host={first} compact />}
-      </>
+      <EmptyState
+        icon={<FolderGit2 className="size-8" />}
+        title="No active projects"
+        description="Connect GitHub in Settings to see the repositories you share."
+        action={{ label: "Open Projects", to: "/settings/projects" }}
+      />
     );
   } else if (!counts[prefs.filter]) {
     const kept = navOutsideRow(list);
@@ -455,7 +452,8 @@ export function Navigator({
           const host = section.hostId ? hostsMap[section.hostId] : null;
           const location: Where | null =
             host && !host.revokedAt ? { kind: "host", id: host.id } : null;
-          const project = section.projectId ? projects[section.projectId] : null;
+          const previous = section.projectId ? projects[section.projectId] : null;
+          const project = previous && isActiveProject(previous) ? previous : null;
           return (
             <SessionGroup
               key={section.key}
@@ -543,12 +541,12 @@ export function Navigator({
             className="col-start-4 row-start-1 rounded-lg"
             icon={<Plus aria-hidden className="size-4" />}
             onClick={() => onNewSession()}
-            disabled={!ready}
+            disabled={!canStart}
             title={
               hydrated && hosts.length === 0
                 ? "Connect a host to start sessions"
                 : hydrated && projectList.length === 0
-                  ? "Add a project to start sessions"
+                  ? "Connect GitHub to start project sessions"
                   : undefined
             }
           >

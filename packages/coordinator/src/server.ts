@@ -24,6 +24,7 @@ import { AUTH_RATE_LIMIT, HOSTS_RATE_LIMIT, RateLimiter } from "./rate-limit.js"
 import { registerAttentionRoutes } from "./routes/attention.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerBranchRoutes } from "./routes/branches.js";
+import { registerCatalogRoutes } from "./routes/catalog.js";
 import { registerClientRoutes } from "./routes/clients.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerGitHubRoutes } from "./routes/github.js";
@@ -328,6 +329,7 @@ export function createCoordinator(opts: CreateCoordinatorOptions): Coordinator {
   registerDeviceRoutes(app, ctx);
   registerHostRoutes(app, ctx);
   registerProjectRoutes(app, ctx);
+  registerCatalogRoutes(app, ctx);
   registerWorkspaceRoutes(app, ctx);
   registerBranchRoutes(app, ctx);
   registerGitHubRoutes(app, ctx);

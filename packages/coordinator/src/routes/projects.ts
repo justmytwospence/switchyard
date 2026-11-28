@@ -1,18 +1,18 @@
 import {
   AddCheckoutRequest,
-  type Checkout,
+  CheckoutPreviewRequest,
+  CheckoutProvisionRequest,
   CreateProjectRequest,
-  newId,
+  isListedProject,
   type Project,
   SwitchyardError,
   UpdateProjectRequest,
 } from "@switchyard/protocol";
 import type { FastifyInstance } from "fastify";
 import type { CoordinatorContext } from "../context.js";
-import { parse } from "../http.js";
-import { newProject } from "../project-folders.js";
-import { requireConnected } from "../sessions/service.js";
-import { inspectCheckout, refreshCheckoutWorkspaces, worktreeDirOf } from "../workspaces.js";
+import { deviceOf, parse } from "../http.js";
+import { requireService } from "../services.js";
+import { refreshCheckoutWorkspaces, worktreeDirOf } from "../workspaces.js";
 
 /** Projects stored before 0.2 have no worktree folder: report the default. */
 function withDefaults(p: Project): Project {
@@ -33,59 +33,23 @@ function projectView(ctx: CoordinatorContext, p: Project) {
 }
 
 export function registerProjectRoutes(app: FastifyInstance, ctx: CoordinatorContext): void {
-  app.get("/api/projects", async () =>
-    ctx.store.projects.list(undefined, [], "created_at").map(withDefaults),
-  );
+  app.get("/api/projects", async (req) => {
+    const includeHistory = (req.query as { includeHistory?: string }).includeHistory === "true";
+    const projects = ctx.store.projects.list(undefined, [], "created_at");
+    return (includeHistory ? projects : projects.filter(isListedProject)).map(withDefaults);
+  });
 
   app.get("/api/projects/:id", async (req) =>
     projectView(ctx, ctx.store.projects.require((req.params as { id: string }).id)),
   );
 
-  /** Inspect the checkout on the host, create Project + Checkout, then discover workspaces. */
+  /** Compatibility: old clients may attach to a listed project, but cannot create a project. */
   app.post("/api/projects", async (req, reply) => {
-    const body = parse(CreateProjectRequest, req.body);
-    requireConnected(ctx, body.hostId);
-    if (body.defaultProfileId) ctx.store.profiles.require(body.defaultProfileId);
-    const info = await inspectCheckout(ctx, body.hostId, body.path);
-    const now = ctx.store.nowIso();
-    const { project, checkout } = ctx.store.tx(() => {
-      const dupe = ctx.store.projects.list("repo_identity = ?", [info.repoIdentity])[0];
-      if (dupe) {
-        throw new SwitchyardError(
-          "conflict",
-          `Project ${dupe.name} already tracks ${info.repoIdentity}; add a checkout to it instead`,
-          { projectId: dupe.id },
-        );
-      }
-      const project = newProject({
-        name: body.name,
-        repoIdentity: info.repoIdentity,
-        hostId: body.hostId,
-        now,
-        defaultProfileId: body.defaultProfileId,
-        setupCommand: body.setupCommand,
-        checks: body.checks,
-        maxConcurrentRuns: body.maxConcurrentRuns,
-        worktreeDir: body.worktreeDir,
-      });
-      const checkout: Checkout = {
-        id: newId("chk"),
-        projectId: project.id,
-        hostId: body.hostId,
-        path: info.root,
-        commonDir: info.commonDir,
-        defaultBranch: info.defaultBranch,
-        createdAt: now,
-      };
-      ctx.store.putProject(project);
-      ctx.store.putCheckout(checkout);
-      return { project, checkout };
-    });
-    try {
-      await refreshCheckoutWorkspaces(ctx, checkout);
-    } catch (err) {
-      req.log.warn({ err, projectId: project.id }, "workspace discovery failed");
-    }
+    const { hostId, path } = parse(CreateProjectRequest, req.body);
+    const project = await requireService(ctx, "checkoutProvision").attachFromLegacyCreate(
+      hostId,
+      path,
+    );
     return reply.code(201).send(projectView(ctx, project));
   });
 
@@ -108,38 +72,29 @@ export function registerProjectRoutes(app: FastifyInstance, ctx: CoordinatorCont
   app.post("/api/projects/:id/checkouts", async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = parse(AddCheckoutRequest, req.body);
-    const project = ctx.store.projects.require(id);
-    requireConnected(ctx, body.hostId);
-    const info = await inspectCheckout(ctx, body.hostId, body.path);
-    if (info.repoIdentity !== project.repoIdentity) {
-      throw new SwitchyardError(
-        "repo_mismatch",
-        `${info.root} is ${info.repoIdentity}, not ${project.repoIdentity}`,
-      );
-    }
-    const checkout = ctx.store.tx(() => {
-      const existing = ctx.store.checkouts.list("host_id = ? AND path = ?", [
-        body.hostId,
-        info.root,
-      ])[0];
-      if (existing) {
-        if (existing.projectId !== project.id) {
-          throw new SwitchyardError("conflict", "This checkout belongs to another project");
-        }
-        return existing;
-      }
-      return ctx.store.putCheckout({
-        id: newId("chk"),
-        projectId: project.id,
-        hostId: body.hostId,
-        path: info.root,
-        commonDir: info.commonDir,
-        defaultBranch: info.defaultBranch,
-        createdAt: ctx.store.nowIso(),
-      });
-    });
-    const workspaces = await refreshCheckoutWorkspaces(ctx, checkout);
-    return reply.code(201).send({ checkout, workspaces });
+    const result = await requireService(ctx, "checkoutProvision").attach(
+      id,
+      body.hostId,
+      body.path,
+    );
+    return reply.code(201).send(result);
+  });
+
+  app.post("/api/projects/:id/checkouts/preview", async (req) => {
+    const { id } = req.params as { id: string };
+    const { hostId, folderName } = parse(CheckoutPreviewRequest, req.body);
+    return requireService(ctx, "checkoutProvision").preview(
+      deviceOf(req).id,
+      id,
+      hostId,
+      folderName,
+    );
+  });
+
+  app.post("/api/projects/:id/checkouts/provision", async (req) => {
+    const { id } = req.params as { id: string };
+    const { previewId } = parse(CheckoutProvisionRequest, req.body);
+    return requireService(ctx, "checkoutProvision").provision(deviceOf(req).id, id, previewId);
   });
 
   /** Re-run `workspace.discover` for every checkout of the project on connected hosts. */

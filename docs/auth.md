@@ -2,6 +2,10 @@
 
 Switchyard has one owner. Browsers sign in with **single sign-on** (any OpenID Connect provider) or a **passkey**; terminals are **approved from a browser** that is already signed in; every machine that runs Pi is a **host** with its own credential. Every browser, phone and terminal that uses Switchyard is a **device** with its own revocable credential. This page explains how the owner is declared, how each kind of client gets in, and how to revoke them. [deployment.md](deployment.md) covers the network side.
 
+## Git provider connections are not sign-in
+
+**Connect GitHub** in Settings › Projects registers a private GitHub App for the chosen account. The installation determines which repositories Switchyard can list, not who can use Switchyard. The browser flow must return to the device that started it; restarting the connection is safe when the return expires. A confirmed private clone uses a short-lived repository-scoped, read-only grant. It does not install a login for Pi, Git or `gh`. See [github.md](github.md).
+
 ## Single sign-on is required
 
 - Unless `SWITCHYARD_PUBLIC_URL` is `localhost`, `127.x.x.x` or `::1`, the coordinator **refuses to start without single sign-on** ([below](#single-sign-on-oidc)). The owner is whoever matches the configured owner criteria, so a server is owned before it serves anything.

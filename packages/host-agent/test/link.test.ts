@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import {
   AGENT_FRAME_MAX_BYTES,
   type AgentRequestFrame,
+  CHECKOUT_PROVISION_FEATURE,
   type HostToCoordinator,
 } from "@switchyard/protocol";
 import { makeRepo, type TempRepo } from "@switchyard/test-fixtures";
@@ -61,6 +62,7 @@ describe("coordinator link", () => {
     expect(["darwin", "linux"]).toContain(hello.platform);
     expect(typeof hello.agentVersion).toBe("string");
     expect(typeof hello.piCompatible).toBe("boolean");
+    expect(hello.features).toContain(CHECKOUT_PROVISION_FEATURE);
     await h.coord.waitEvent((e) => e.type === "adapters.updated", 5000, "adapters.updated");
     const adapters = h.coord.eventsOf("adapters.updated").at(-1)!.data as {
       adapters: { id: string; tier: string; status: string }[];

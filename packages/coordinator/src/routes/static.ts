@@ -50,6 +50,10 @@ export async function registerStaticRoutes(
     const apiLike =
       path.startsWith("/api/") || path.startsWith("/ws/") || path.startsWith("/adapter-frames/");
     if (hasWeb && !apiLike && (req.method === "GET" || req.method === "HEAD")) {
+      if (path === "/settings/projects/connect/return") {
+        reply.header("Referrer-Policy", "no-referrer");
+        return reply.header("Cache-Control", "no-store").sendFile("index.html");
+      }
       return reply.header("Cache-Control", "no-cache").sendFile("index.html");
     }
     return sendError(reply, new SwitchyardError("not_found", `No route ${req.method} ${path}`));
