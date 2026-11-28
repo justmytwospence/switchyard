@@ -1,6 +1,7 @@
 import {
   type GitHubScope,
   type GitHubSource,
+  IssueDescriptionResult,
   IssueSetStatusResult,
   IssueSyncResult,
   issueLinkProblem,
@@ -162,6 +163,32 @@ export class ScopeSourceService {
     const p = this.syncOnce(scopeId).finally(() => this.inFlight.delete(scopeId));
     this.inFlight.set(scopeId, p);
     return p;
+  }
+
+  async describeIssue(issueId: string): Promise<IssueDescriptionResult> {
+    const { store, hostHub } = this.ctx;
+    const issue = store.issues.require(issueId);
+    const source = this.sourced(issue.scopeId).source;
+    if (!hostHub.isConnected(source.hostId))
+      throw new SwitchyardError("host_unreachable", "Source host is offline");
+    const raw = await hostHub.request(
+      source.hostId,
+      { type: "tracker.describeIssue", repository: issue.repository, number: issue.number },
+      { timeoutMs: 15_000 },
+    );
+    const current = store.issues.get(issueId);
+    const currentSource = store.scopes.get(issue.scopeId)?.source;
+    if (
+      !current ||
+      current.scopeId !== issue.scopeId ||
+      current.itemId !== issue.itemId ||
+      current.repository !== issue.repository ||
+      current.number !== issue.number ||
+      currentSource?.hostId !== source.hostId
+    ) {
+      throw new SwitchyardError("conflict", "Issue or source changed while reading description");
+    }
+    return IssueDescriptionResult.parse(raw);
   }
 
   /** A scope with a source, else a conflict. */

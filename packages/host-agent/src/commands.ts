@@ -56,7 +56,13 @@ export interface CommandRouterOptions {
   delivery?: Pick<MessageDeliveryWorker, "accept" | "getStatus">;
   github?: Pick<
     GitHubService,
-    "refresh" | "failedLogs" | "merge" | "syncIssues" | "startIssue" | "setIssueStatus"
+    | "refresh"
+    | "failedLogs"
+    | "merge"
+    | "syncIssues"
+    | "describeIssue"
+    | "startIssue"
+    | "setIssueStatus"
   >;
   /** Environment for checks. */
   env?: Record<string, string | undefined>;
@@ -85,6 +91,7 @@ export const READ_ONLY_COMMANDS: ReadonlySet<HostCommandType> = new Set<HostComm
   "workspace.prView",
   "workspace.prFailedLogs",
   "tracker.sync",
+  "tracker.describeIssue",
   "dispatch.reconcile",
 ]);
 /** Read-only commands in flight at once. */
@@ -124,6 +131,7 @@ const RERUNNABLE = new Set<HostCommand["type"]>([
   "workspace.prView",
   "workspace.prFailedLogs",
   "tracker.sync",
+  "tracker.describeIssue",
 ]);
 
 /** Map any thrown value to a protocol error body. */
@@ -525,6 +533,7 @@ export class CommandRouter {
         return github.merge(request);
       }
       case "tracker.sync":
+      case "tracker.describeIssue":
       case "tracker.startIssue":
       case "tracker.setStatus": {
         const github = this.opts.github;
@@ -532,6 +541,7 @@ export class CommandRouter {
           throw new SwitchyardError("unsupported_capability", "GitHub integration is unavailable");
         const { type: _type, ...request } = c;
         if (c.type === "tracker.sync") return github.syncIssues(request as never);
+        if (c.type === "tracker.describeIssue") return github.describeIssue(request as never);
         if (c.type === "tracker.startIssue") return github.startIssue(request as never);
         return github.setIssueStatus(request as never);
       }

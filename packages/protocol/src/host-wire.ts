@@ -24,6 +24,7 @@ import {
   HostGitHub,
 } from "./github.js";
 import {
+  IssueDescriptionRequest,
   IssueHostPrepareBranchRequest,
   IssueHostSetStatusRequest,
   IssueHostStartIssueRequest,
@@ -200,6 +201,7 @@ export const HostCommand = z.discriminatedUnion("type", [
   GitHubHostViewRequest.extend({ type: z.literal("workspace.prView") }),
   GitHubHostLogsRequest.extend({ type: z.literal("workspace.prFailedLogs") }),
   GitHubHostMergeRequest.extend({ type: z.literal("workspace.prMerge") }),
+  IssueDescriptionRequest.extend({ type: z.literal("tracker.describeIssue") }),
   IssueHostSyncRequest.extend({ type: z.literal("tracker.sync") }),
   IssueHostPrepareBranchRequest.extend({ type: z.literal("tracker.prepareBranch") }),
   IssueHostStartIssueRequest.extend({ type: z.literal("tracker.startIssue") }),

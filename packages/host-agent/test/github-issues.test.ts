@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { type Gh, issueSearch, setIssueStatus, syncIssues } from "../src/github-issues.js";
+import {
+  describeIssue,
+  type Gh,
+  issueSearch,
+  setIssueStatus,
+  syncIssues,
+} from "../src/github-issues.js";
 
 const REPO = "acme/app";
 
@@ -30,6 +36,30 @@ const vars = (args: string[]) =>
       .filter((a): a is string => a !== null)
       .map((a) => [a.slice(0, a.indexOf("=")), a.slice(a.indexOf("=") + 1)]),
   );
+
+describe("describeIssue", () => {
+  const req = { repository: REPO, number: 42 };
+  it("uses variables, accepts empty body and truncates without splitting Unicode", async () => {
+    const gh = vi.fn(async () => ({ data: { repository: { issue: { body: "" } } } }));
+    expect(await describeIssue(gh, req)).toEqual({ body: "", truncated: false });
+    const v = vars(gh.mock.calls[0]![0]);
+    expect(v).toMatchObject({ owner: "acme", name: "app", number: "42" });
+    expect(v.query).not.toContain("acme");
+    const body = `${"x".repeat(32767)}😀tail`;
+    expect(
+      await describeIssue(async () => ({ data: { repository: { issue: { body } } } }), req),
+    ).toEqual({ body: "x".repeat(32767), truncated: true });
+  });
+  it("rejects missing, malformed, and error replies", async () => {
+    for (const raw of [
+      { data: { repository: { issue: null } } },
+      { data: {} },
+      { errors: [{ message: "bad" }] },
+    ])
+      await expect(describeIssue(async () => raw, req)).rejects.toThrow();
+    await expect(describeIssue(async () => ({}), { ...req, number: 0 })).rejects.toThrow();
+  });
+});
 
 describe("issueSearch", () => {
   it("scopes to the owner or the listed repositories", () => {

@@ -116,6 +116,60 @@ async function create(body: Record<string, unknown> = {}): Promise<Sourced> {
   return sync(r.body.id);
 }
 
+describe("issue description", () => {
+  it("reads a stored locator without syncing or changing state", async () => {
+    items = [item(1)];
+    const scope = await create({ enabled: false });
+    const issue = tracked(scope.id)[0]!;
+    const previous = h.override!;
+    h.override = (cmd, id) =>
+      cmd.type === "tracker.describeIssue"
+        ? { body: "markdown", truncated: false }
+        : previous(cmd, id);
+    const before = (store().db.prepare("SELECT COUNT(*) AS n FROM events").get() as { n: number })
+      .n;
+    const syncCount = commandsOf(h.host, "tracker.sync").length;
+    const response = await h.t.admin(
+      "GET",
+      `/api/issues/${encodeURIComponent(issue.id)}/description`,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(
+      (await h.t.api("GET", `/api/issues/${encodeURIComponent(issue.id)}/description`)).status,
+    ).toBe(401);
+    expect(response.body).toEqual({ body: "markdown", truncated: false });
+    expect(commandsOf(h.host, "tracker.describeIssue")).toEqual([
+      expect.objectContaining({ repository: REPO, number: 1 }),
+    ]);
+    expect(commandsOf(h.host, "tracker.sync")).toHaveLength(syncCount);
+    expect((store().db.prepare("SELECT COUNT(*) AS n FROM events").get() as { n: number }).n).toBe(
+      before,
+    );
+    expect(store().tasks.list()).toHaveLength(0);
+    expect((await h.t.admin("GET", "/api/issues/missing/description")).status).toBe(404);
+  });
+
+  it("rejects malformed replies and changed source associations", async () => {
+    items = [item(1)];
+    const scope = await create();
+    const issue = tracked(scope.id)[0]!;
+    const previous = h.override!;
+    h.override = (cmd, id) =>
+      cmd.type === "tracker.describeIssue"
+        ? { body: "x".repeat(32769), truncated: false }
+        : previous(cmd, id);
+    await expect(service().describeIssue(issue.id)).rejects.toThrow();
+    h.override = (cmd, id) => {
+      if (cmd.type !== "tracker.describeIssue") return previous(cmd, id);
+      const current = store().scopes.require(scope.id);
+      store().scopes.upsert({ ...current, source: { ...current.source!, hostId: "other" } });
+      return { body: "secret", truncated: false };
+    };
+    await expect(service().describeIssue(issue.id)).rejects.toMatchObject({ code: "conflict" });
+  });
+});
+
 describe("scope source sync", () => {
   it("tracks one issue per assigned issue, creates no tasks and is idempotent", async () => {
     items = [item(1), item(2)];

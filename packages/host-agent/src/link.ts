@@ -17,6 +17,7 @@ import {
   type HostEventType,
   type HostToCoordinator,
   type HostToolPolicyContext,
+  ISSUE_DESCRIPTION_FEATURE,
   newId,
   type ProviderUsage,
   projectHostEvent,
@@ -45,6 +46,7 @@ const HOST_FEATURES: readonly string[] = [
   QUEUE_CLEAR_FEATURE,
   GITHUB_ISSUES_FEATURE,
   GITHUB_BOARD_FEATURE,
+  ISSUE_DESCRIPTION_FEATURE,
   GIT_LOG_FEATURE,
 ];
 

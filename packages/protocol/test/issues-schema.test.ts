@@ -4,6 +4,8 @@ import {
   GitHubSource,
   GitHubSourceInput,
   GitState,
+  IssueDescriptionRequest,
+  IssueDescriptionResult,
   Project,
   Scope,
   sourceBacklog,
@@ -13,6 +15,23 @@ import {
 } from "../src/index.js";
 
 const T = "2026-11-02T10:00:00.000Z";
+
+describe("issue description schemas", () => {
+  it("validates locator and bounded body", () => {
+    expect(IssueDescriptionRequest.safeParse({ repository: "acme/app", number: 1 }).success).toBe(
+      true,
+    );
+    for (const input of [
+      { repository: "../app", number: 1 },
+      { repository: "acme/app", number: 0 },
+      { repository: "acme/app", number: 1.5 },
+    ])
+      expect(IssueDescriptionRequest.safeParse(input).success).toBe(false);
+    expect(
+      IssueDescriptionResult.safeParse({ body: "x".repeat(32769), truncated: true }).success,
+    ).toBe(false);
+  });
+});
 
 describe("GitHub source schemas", () => {
   it("fills source defaults", () => {

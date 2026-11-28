@@ -19,6 +19,7 @@ import {
   HostToCoordinator,
   type HostToolPolicyContext,
   Interaction,
+  ISSUE_DESCRIPTION_FEATURE,
   isInputAttentionReason,
   isLiveRuntime,
   newId,
@@ -79,6 +80,7 @@ interface Conn {
   github: boolean;
   /** The host answers `tracker.*` commands (GitHub issue sync). */
   githubIssues: boolean;
+  issueDescription: boolean;
   /** The host's tracker.sync can follow a board and skip backlog columns. */
   githubBoard: boolean;
   /** The host answers `workspace.log` and `workspace.diff` with `rev`. */
@@ -398,6 +400,7 @@ export class HostHub {
     ) {
       return conn.githubIssues && conn.githubBoard;
     }
+    if (command.type === "tracker.describeIssue") return conn.issueDescription;
     if (command.type.startsWith("tracker.")) return conn.githubIssues;
     if (
       (command.type === "session.start" || command.type === "dispatch.start") &&
@@ -565,6 +568,7 @@ export class HostHub {
       features,
       github: hello.github !== undefined,
       githubIssues: hello.features?.includes(GITHUB_ISSUES_FEATURE) === true,
+      issueDescription: hello.features?.includes(ISSUE_DESCRIPTION_FEATURE) === true,
       githubBoard: hello.features?.includes(GITHUB_BOARD_FEATURE) === true,
       gitLog: hello.features?.includes(GIT_LOG_FEATURE) === true,
       queueClear: hello.features?.includes(QUEUE_CLEAR_FEATURE) === true,

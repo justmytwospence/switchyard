@@ -228,6 +228,7 @@ export class FakeHost {
               "policies.v1",
               "trackers.v1",
               "trackers.board.v1",
+              "trackers.description.v1",
               "gitLog.v1",
             ],
             capabilities: {

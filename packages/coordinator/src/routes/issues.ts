@@ -12,6 +12,11 @@ export function registerIssueRoutes(app: FastifyInstance, ctx: CoordinatorContex
 
   app.get("/api/issues", async () => store.issues.list(undefined, [], "created_at, rowid"));
 
+  app.get("/api/issues/:id/description", async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return service().describeIssue(idOf(req));
+  });
+
   app.post("/api/issues/:id/open", async (req, reply) => {
     const body = parse(OpenIssueRequest, req.body ?? {});
     const result = await service().openIssue(idOf(req), body);

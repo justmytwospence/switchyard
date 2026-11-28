@@ -90,6 +90,19 @@ function eventCount(tc: TestCoordinator, type: string): number {
 }
 
 describe("host link", () => {
+  it("does not infer description support from tracker sync", async () => {
+    t = await startCoordinator();
+    const creds = await enrollHost(t);
+    const h = await connectAgent(t, creds, ["trackers.v1"]);
+    await expect(
+      t.c.hostHub.request(creds.hostId, {
+        type: "tracker.describeIssue",
+        repository: "acme/app",
+        number: 1,
+      }),
+    ).rejects.toMatchObject({ code: "unsupported_capability" });
+    expect(h.inbox.messages.filter((m) => m.type === "command")).toHaveLength(0);
+  });
   it("authenticates hello, welcomes with ackedHostSeq and marks the host connected", async () => {
     t = await startCoordinator();
     const creds = await enrollHost(t);

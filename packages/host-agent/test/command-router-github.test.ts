@@ -37,6 +37,7 @@ function fixture() {
     failedLogs: vi.fn(async () => ({ jobs: [] })),
     merge: vi.fn(async () => ({ status: "outcome_unknown" })),
     syncIssues: vi.fn(async () => ({ login: "me", items: [], truncated: false })),
+    describeIssue: vi.fn(async () => ({ body: "hello", truncated: false })),
     startIssue: vi.fn(async () => ({ branch: "12-x" })),
     setIssueStatus: vi.fn(async () => ({ status: "moved" })),
   };
@@ -82,6 +83,21 @@ describe("GitHub issue host commands", () => {
     login: "me",
     allowShared: true,
   } as const;
+
+  it("routes description reads on the read lane and reuses receipts", async () => {
+    const f = fixture();
+    const command = { type: "tracker.describeIssue", repository: "acme/app", number: 12 } as const;
+    expect(queueKey(command)).toBeNull();
+    expect(await f.router.handle("read", command)).toMatchObject({
+      ok: true,
+      result: { body: "hello" },
+    });
+    expect(await f.router.handle("read", command)).toMatchObject({
+      ok: true,
+      result: { body: "hello" },
+    });
+    expect(f.github.describeIssue).toHaveBeenCalledTimes(1);
+  });
 
   it("routes to the GitHub service", async () => {
     const f = fixture();

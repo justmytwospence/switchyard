@@ -15,6 +15,8 @@ import {
   type GitHubThread,
   GitHubViewResult,
   type HostGitHub,
+  type IssueDescriptionRequest,
+  type IssueDescriptionResult,
   type IssueHostSetStatusRequest,
   type IssueHostStartIssueRequest,
   type IssueHostSyncRequest,
@@ -27,7 +29,7 @@ import { tailBytes } from "./checks.js";
 import { mapLimit } from "./concurrency.js";
 import type { HostDb } from "./db/index.js";
 import { normalizeRemote } from "./git.js";
-import { setIssueStatus, syncIssues } from "./github-issues.js";
+import { describeIssue, setIssueStatus, syncIssues } from "./github-issues.js";
 
 const JSON_BYTES = 2 * 1024 * 1024;
 const SNAPSHOT_BYTES = 512 * 1024;
@@ -1352,6 +1354,11 @@ export class GitHubService {
         jobs.some((j) => j.truncated),
       omittedJobs,
     });
+  }
+
+  describeIssue(req: IssueDescriptionRequest): Promise<IssueDescriptionResult> {
+    const deadline = Date.now() + 15_000;
+    return describeIssue((args) => this.json(args, process.cwd(), deadline), req);
   }
 
   /** The host user's issues for a scope's GitHub source (`tracker.sync`). */

@@ -1,11 +1,17 @@
 import type {
   IssueBoard,
+  IssueDescriptionResult,
   IssueHostSetStatusRequest,
   IssueHostSyncRequest,
   IssuePullRequest,
   IssueSetStatusResult,
   IssueSyncResult,
   SyncedIssue,
+} from "@switchyard/protocol";
+import {
+  ISSUE_DESCRIPTION_MAX_LENGTH,
+  IssueDescriptionRequest,
+  SwitchyardError,
 } from "@switchyard/protocol";
 
 /** Runs `gh` with these arguments and returns its parsed JSON output. */
@@ -71,6 +77,34 @@ async function graphql(gh: Gh, query: string, vars: Record<string, string | numb
   if (raw?.errors?.length)
     throw new Error(String(raw.errors[0]?.message ?? "GitHub GraphQL error"));
   return raw?.data;
+}
+
+/** Read one issue body without syncing or mutating its source. */
+export async function describeIssue(
+  gh: Gh,
+  input: IssueDescriptionRequest,
+): Promise<IssueDescriptionResult> {
+  const req = IssueDescriptionRequest.parse(input);
+  const [owner, name] = req.repository.split("/");
+  const data = await graphql(
+    gh,
+    "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){body}}}",
+    { owner, name, number: req.number },
+  );
+  if (data?.repository?.issue === null)
+    throw new SwitchyardError("not_found", "Issue not found on GitHub");
+  const body = data?.repository?.issue?.body;
+  if (typeof body !== "string") throw new Error("Invalid GitHub issue description response");
+  if (body.length <= ISSUE_DESCRIPTION_MAX_LENGTH) return { body, truncated: false };
+  let end = ISSUE_DESCRIPTION_MAX_LENGTH;
+  if (
+    body.charCodeAt(end - 1) >= 0xd800 &&
+    body.charCodeAt(end - 1) <= 0xdbff &&
+    body.charCodeAt(end) >= 0xdc00 &&
+    body.charCodeAt(end) <= 0xdfff
+  )
+    end--;
+  return { body: body.slice(0, end), truncated: true };
 }
 
 const same = (a: unknown, b: string) =>

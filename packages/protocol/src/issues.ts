@@ -14,6 +14,18 @@ const Id = z.string().min(1);
 export const GITHUB_ISSUES_FEATURE = "trackers.v1";
 /** Host feature: tracker.sync can follow a board and skip backlog columns. */
 export const GITHUB_BOARD_FEATURE = "trackers.board.v1";
+export const ISSUE_DESCRIPTION_FEATURE = "trackers.description.v1";
+export const ISSUE_DESCRIPTION_MAX_LENGTH = 32768;
+export const IssueDescriptionRequest = z.object({
+  repository: GitHubRepository,
+  number: z.number().int().safe().positive(),
+});
+export type IssueDescriptionRequest = z.infer<typeof IssueDescriptionRequest>;
+export const IssueDescriptionResult = z.object({
+  body: z.string().max(ISSUE_DESCRIPTION_MAX_LENGTH),
+  truncated: z.boolean(),
+});
+export type IssueDescriptionResult = z.infer<typeof IssueDescriptionResult>;
 
 /** Which issues a source follows: those assigned to you, or every open issue on its board. */
 export const IssueFollow = z.enum(["assigned", "board"]);
