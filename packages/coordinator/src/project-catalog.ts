@@ -10,6 +10,7 @@ import {
   SwitchyardError,
 } from "@switchyard/protocol";
 import type { CoordinatorContext } from "./context.js";
+import type { Store } from "./store.js";
 
 export interface RegistrationAccount {
   connectionId: string;
@@ -50,6 +51,26 @@ type HistoryConflict = {
 const json = <T>(row: { json: unknown }): T => JSON.parse(String(row.json)) as T;
 const sameRemote = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const displayName = (r: CatalogRepository) => `${r.owner}/${r.name}`;
+
+/** Local membership gate shared by HTTP and agent-side task creation. No network access. */
+export function requireListedRepository(store: Store, project: Project): Project {
+  if (!isListedProject(project)) {
+    throw new SwitchyardError(
+      "conflict",
+      "This repository is not in the connected Git provider catalog",
+    );
+  }
+  const { authority, externalId } = project.catalog!;
+  const rows = store.db
+    .prepare(`SELECT json_extract(c.json, '$.state') AS state
+    FROM catalog_connections c JOIN catalog_memberships m ON m.connection_id=c.id
+    WHERE m.authority=? AND m.external_id=?`)
+    .all(authority ?? "", externalId ?? "");
+  if (rows.length && rows.every((r) => r.state === "suspended")) {
+    throw new SwitchyardError("conflict", "The Git provider installation is suspended");
+  }
+  return project;
+}
 
 export class ProjectCatalog {
   private readonly inflight = new Map<string, Promise<void>>();
@@ -413,24 +434,7 @@ export class ProjectCatalog {
   }
 
   requireListedProject(id: string) {
-    const p = this.store.projects.require(id);
-    if (!isListedProject(p))
-      throw new SwitchyardError(
-        "conflict",
-        "This repository is not in the connected Git provider catalog",
-      );
-    const { authority, externalId } = p.catalog!;
-    const rows = this.db
-      .prepare(`SELECT c.json FROM catalog_connections c JOIN catalog_memberships m ON m.connection_id=c.id
-      WHERE m.authority=? AND m.external_id=?`)
-      .all(authority!, externalId!);
-    if (
-      rows.length &&
-      rows.every((r) => json<Connection>(r as { json: unknown }).state === "suspended")
-    ) {
-      throw new SwitchyardError("conflict", "The Git provider installation is suspended");
-    }
-    return p;
+    return requireListedRepository(this.store, this.store.projects.require(id));
   }
 
   repository(project: Project, requireCurrent = false) {

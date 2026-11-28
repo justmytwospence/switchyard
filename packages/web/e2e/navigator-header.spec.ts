@@ -12,7 +12,8 @@ async function rewriteSync(
     server.onMessage((message) => {
       if (typeof message !== "string") return ws.send(message);
       try {
-        ws.send(JSON.stringify(after(JSON.parse(message, reviver))));
+        const rewritten = after(JSON.parse(message, reviver));
+        if (rewritten !== null) ws.send(JSON.stringify(rewritten));
       } catch {
         ws.send(message);
       }
@@ -385,8 +386,20 @@ test.describe("Sessions navigator header", () => {
     page,
   }, info) => {
     const phone = viewportOf(info) === "mobile";
-    await rewriteSync(page, (key, value) =>
-      (key === "projects" || key === "sessions") && Array.isArray(value) ? [] : value,
+    // Parallel specs add Projects and sessions against the same coordinator. Keep those live
+    // events out of this browser as well as clearing the initial snapshot.
+    const onEmptyCatalog = (event: { type?: string }) =>
+      !event.type?.startsWith("project.") && !event.type?.startsWith("session.");
+    await rewriteSync(
+      page,
+      (key, value) =>
+        (key === "projects" || key === "sessions") && Array.isArray(value) ? [] : value,
+      (message) => {
+        if (message.type === "event" && !onEmptyCatalog(message.event)) return null;
+        if (message.type === "replay")
+          return { ...message, events: message.events.filter(onEmptyCatalog) };
+        return message;
+      },
     );
     let suggestions = 0;
     page.on("request", (request) => {

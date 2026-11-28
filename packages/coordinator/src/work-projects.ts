@@ -1,6 +1,6 @@
 import { isListedProject, type Project, SwitchyardError } from "@switchyard/protocol";
 import type { CoordinatorContext } from "./context.js";
-import { requireService } from "./services.js";
+import { requireListedRepository } from "./project-catalog.js";
 
 export type WorkProjectContext = CoordinatorContext | Pick<CoordinatorContext, "store">;
 
@@ -13,10 +13,7 @@ export function hasWorkMembership(project: Project): boolean {
 export function requireWorkProject(ctx: WorkProjectContext, id: string): Project {
   const project = ctx.store.projects.require(id);
   if (project.catalog === undefined) return project;
-  if (!("services" in ctx)) {
-    throw new SwitchyardError("conflict", "Project catalog is unavailable");
-  }
-  return requireService(ctx, "catalog").requireListedProject(id);
+  return requireListedRepository(ctx.store, project);
 }
 
 export function canWorkOnProject(ctx: CoordinatorContext, id: string): boolean {

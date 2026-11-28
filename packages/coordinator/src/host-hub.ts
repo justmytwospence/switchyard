@@ -79,6 +79,7 @@ interface Conn {
   socket: WebSocket;
   alive: boolean;
   features: Set<string>;
+  checkoutProvision: boolean;
   github: boolean;
   /** The host answers `tracker.*` commands (GitHub issue sync). */
   githubIssues: boolean;
@@ -215,11 +216,7 @@ export class HostHub {
 
   supportsCheckoutProvision(hostId: string): boolean {
     const conn = this.conns.get(hostId);
-    return (
-      !!conn &&
-      this.isCurrentSocket(hostId, conn.socket) &&
-      conn.features.has(CHECKOUT_PROVISION_FEATURE)
-    );
+    return !!conn && this.isCurrentSocket(hostId, conn.socket) && conn.checkoutProvision;
   }
 
   /** Separate request lane: never await agent tools behind host events or command receipts. */
@@ -476,7 +473,7 @@ export class HostHub {
       command.type === "checkout.provision" ||
       command.type === "checkout.locate"
     ) {
-      return conn.features.has(CHECKOUT_PROVISION_FEATURE);
+      return conn.checkoutProvision;
     }
     if (
       ["workspace.prView", "workspace.prFailedLogs", "workspace.prMerge"].includes(command.type)
@@ -658,16 +655,18 @@ export class HostHub {
     const hostId = hello.hostId;
     const old = this.conns.get(hostId);
     const features = new Set(
-      [...this.availableAgentFeatures, ADAPTER_CONTRACT_FEATURE, CHECKOUT_PROVISION_FEATURE].filter(
-        (f) => hello.features?.includes(f),
+      [...this.availableAgentFeatures, ADAPTER_CONTRACT_FEATURE].filter((f) =>
+        hello.features?.includes(f),
       ),
     );
+    const checkoutProvision = hello.features?.includes(CHECKOUT_PROVISION_FEATURE) === true;
     // A clone grant or unresolved external merge must not be replayed, even on replacement.
     this.rejectConnectionBoundCommands(hostId);
     this.conns.set(hostId, {
       socket,
       alive: true,
       features,
+      checkoutProvision,
       github: hello.github !== undefined,
       githubIssues: hello.features?.includes(GITHUB_ISSUES_FEATURE) === true,
       issueDescription: hello.features?.includes(ISSUE_DESCRIPTION_FEATURE) === true,
@@ -689,7 +688,7 @@ export class HostHub {
         agentVersion: hello.agentVersion,
         piVersion: hello.piVersion,
         piCompatible: hello.piCompatible,
-        checkoutProvision: features.has(CHECKOUT_PROVISION_FEATURE),
+        checkoutProvision,
         capabilities: hello.capabilities,
         github: hello.github,
         connectivity: "connected",
