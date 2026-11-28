@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { launcherFixture } from "./launcher-fixture";
 import { backToChat, createSession, expect, openSessionPanel, poll, test, uid } from "./support";
 
 test.skip(({ isMobile }) => !isMobile, "Mobile coding view only");
@@ -452,6 +453,26 @@ test.describe("mobile coding view", () => {
     await page.evaluate(() => document.documentElement.style.setProperty("--safe-top", "20px"));
     // The inset sits on a wrapper with no padding utility, so it is not lost to the header's py-1.
     await expect(top).toHaveCSS("padding-top", "20px");
+  });
+
+  test("issue browsing in the launcher never starts work", async ({ page, state }) => {
+    const fixture = await launcherFixture(page, state.projectId);
+    await page.goto("/code");
+    await page.getByTestId("new-session").tap();
+    const sheet = page.getByRole("dialog", { name: "New session" });
+    await sheet.getByRole("button", { name: "From an issue" }).tap();
+    await sheet.getByLabel("Search tracked issues").fill("Launcher fixture");
+    await sheet.getByLabel("Search tracked issues").press("Enter");
+    expect(fixture.counts()).toEqual({ descriptions: 0, mutations: 0 });
+    await sheet.getByRole("button", { name: /#1 Launcher fixture 1/ }).tap();
+    await expect(sheet.getByText("Fixture description")).toBeVisible();
+    await sheet.getByLabel("Search tracked issues").press("Enter");
+    expect(fixture.counts().mutations).toBe(0);
+    await sheet.getByRole("button", { name: /#2 Launcher fixture 2/ }).tap();
+    await expect(sheet.getByRole("heading", { name: "Launcher fixture 2" })).toBeVisible();
+    expect(fixture.counts()).toEqual({ descriptions: 2, mutations: 0 });
+    await sheet.getByRole("button", { name: "Cancel" }).tap();
+    expect(fixture.counts().mutations).toBe(0);
   });
 
   test("New session is one full-height sheet", async ({ page }, info) => {

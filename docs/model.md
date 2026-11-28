@@ -56,7 +56,8 @@ A scope never depends on the client a session was started in or is shown in, so 
 
 | Work | Where it shows |
 |---|---|
-| Not started: a tracked issue with no branch, or a worktree with no session | Board only (Not started, or Working with Start session) |
+| Not started: a tracked issue with no linked branch or worktree | Board (Not started) and New session → From an issue |
+| Linked branch or worktree with no session | Board (Working, unless its PR is in review or merged); linked issues also appear under All tracked issues |
 | Active: its session is live (starting, idle, running, waiting for input) | Sessions and Board |
 | Needs input: its live session has a question you can still answer (a dialog, a plan to approve, an adapter's question) | Sessions under Active and Needs input, Attention, and Board |
 | Stopped: its session is stopped, failed or interrupted | Sessions under All, and Board. In a GitHub scope, only when its branch is linked to one of the scope's issues or the session is pinned |
@@ -74,7 +75,7 @@ A branch's stage comes from facts, never from a status Switchyard stores:
 | In review | Its pull request is open |
 | Merged | Its pull request has merged |
 
-The Board shows branches by stage, or, for a GitHub scope with a Projects board, by that board's columns.
+The Board shows branches by stage, or, for a GitHub scope with a Projects board, by that board's columns. Its Issue list and New session's From an issue picker share the same tracked-issue inventory for the selected scope. A repository filter narrows that inventory; a scope covering one repository already sets the destination. Selecting an issue reads it. Only Start session provisions work.
 
 ## Tasks
 

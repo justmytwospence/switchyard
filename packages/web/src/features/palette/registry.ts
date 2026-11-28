@@ -6,7 +6,15 @@ export interface PaletteItem {
   id: string;
   title: string;
   subtitle?: string;
-  group: "Sessions" | "Tasks" | "Projects" | "Hosts" | "Settings" | "Actions" | "Extensions";
+  group:
+    | "Sessions"
+    | "Issues"
+    | "Tasks"
+    | "Projects"
+    | "Hosts"
+    | "Settings"
+    | "Actions"
+    | "Extensions";
   keywords?: string[];
   activityAt?: string;
   shortcut?: ShortcutId;

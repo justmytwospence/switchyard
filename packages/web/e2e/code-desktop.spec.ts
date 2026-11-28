@@ -1,4 +1,5 @@
 import type { Page, Request } from "@playwright/test";
+import { launcherFixture } from "./launcher-fixture";
 import { createSession, expect, poll, test, uid, viewportOf } from "./support";
 
 test.skip(({ isMobile }) => isMobile, "Desktop and compact coding view only");
@@ -729,6 +730,39 @@ test.describe("desktop coding view", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  test("palette inspects a scoped issue without starting it", async ({ page, state }) => {
+    const fixture = await launcherFixture(page, state.projectId);
+    await page.goto("/code");
+    await page.keyboard.press("ControlOrMeta+k");
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await palette.getByRole("combobox", { name: "Search" }).fill("Launcher fixture 1");
+    await palette.getByText("#1 Launcher fixture 1").click();
+    const launcher = page.getByRole("dialog", { name: "New session" });
+    await expect(launcher.getByRole("heading", { name: "Launcher fixture 1" })).toBeVisible();
+    await expect(launcher.getByText("Fixture description")).toBeVisible();
+    expect(fixture.counts()).toEqual({ descriptions: 1, mutations: 0 });
+    await launcher.getByRole("button", { name: "Cancel" }).click();
+    expect(fixture.counts().mutations).toBe(0);
+  });
+
+  test("starting a selected issue makes one explicit request", async ({ page, state, api }) => {
+    const fixture = await launcherFixture(page, state.projectId);
+    const session = await api("GET", `/api/sessions/${state.sessions.long}`);
+    await page.route("**/api/issues/*/open", (route) =>
+      route.fulfill({ json: { session, created: false } }),
+    );
+    await page.goto("/code");
+    await page.getByTestId("new-session").click();
+    const launcher = page.getByRole("dialog", { name: "New session" });
+    await launcher.getByRole("button", { name: "From an issue" }).click();
+    await launcher.getByRole("button", { name: /#1 Launcher fixture 1/ }).click();
+    await expect(launcher.getByText("Fixture description")).toBeVisible();
+    expect(fixture.counts().mutations).toBe(0);
+    await launcher.getByRole("button", { name: "Start session", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/code/${state.sessions.long}`));
+    expect(fixture.counts().mutations).toBe(1);
   });
 
   test("New session starts from a prompt in the main checkout", async ({ page, state }, info) => {

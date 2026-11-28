@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { BACK_STATE } from "../../app/useBackTo";
 import { useSyncStore } from "../../sync/store";
+import { issueInventory } from "../discovery/model";
 import { useSelectedScope } from "../scopes/selection";
 import { SECTIONS } from "../settings/shared";
 import type { PaletteItem } from "./registry";
@@ -26,6 +27,19 @@ export function useGlobalItems(): PaletteItem[] {
     const issueSet = scope ? issueBranchSet(scope, issueList) : null;
     const go = (path: string, state?: unknown) => () => navigate(path, { state });
     const items: PaletteItem[] = [];
+    for (const item of issueInventory(
+      { projects, issues, workspaces, sessions, scopes },
+      { scope, projectId: null, query: "", subset: "all", sort: "number" },
+    )) {
+      items.push({
+        id: `issue:${item.id}`,
+        title: `#${item.issue.number} ${item.issue.title}`,
+        subtitle: `${item.issue.repository} · ${item.origin}`,
+        keywords: [item.issue.repository, item.projectName, item.origin, String(item.issue.number)],
+        group: "Issues",
+        run: go("/code", { newSession: true, mode: "issue", issueId: item.id }),
+      });
+    }
     for (const s of Object.values(sessions)) {
       if (s.archivedAt) continue;
       items.push({
@@ -90,7 +104,7 @@ export function useGlobalItems(): PaletteItem[] {
       run: () => void,
       shortcut?: PaletteItem["shortcut"],
     ) => items.push({ id: `action:${id}`, title, group: "Actions", run, shortcut });
-    action("new", "New session", go("/code", { newSession: true }), "newSession");
+    action("new", "New session", go("/code", { newSession: true, mode: "prompt" }), "newSession");
     action("code", "Go to Sessions", go("/code"), "goCode");
     action("board", "Go to Board", go("/board"), "goBoard");
     action("attention", "Go to Attention", go("/attention"), "goAttention");

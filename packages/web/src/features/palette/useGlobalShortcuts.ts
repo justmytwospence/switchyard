@@ -46,7 +46,7 @@ export function useGlobalShortcuts(): void {
             usePalette.getState().setOpen(true);
             return;
           case "newSession":
-            navigate("/code", { state: { newSession: true } });
+            navigate("/code", { state: { newSession: true, mode: "prompt" } });
             return;
           case "goCode":
             navigate("/code");

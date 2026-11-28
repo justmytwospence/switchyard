@@ -69,7 +69,7 @@ sequenceDiagram
   Coord->>Host: Archive the sessions, remove the worktree
 ```
 
-1. **Work arrives or you start it.** A [scope](docs/scopes.md) with a GitHub source lists the issues assigned to you in the Board's Not started column. Starting one, or opening any branch from New session, makes its git worktree inside the repository (`<repo>/.worktrees/<branch>` by default) and its primary session. A branch that already has a session opens that session instead.
+1. **Work arrives or you start it.** Browse a [scope's](docs/scopes.md) tracked issues in Board → Issue list or New session → From an issue. Reading an issue doesn't start it. Explicitly starting it, or opening a branch that has no worktree yet, makes a git worktree inside the repository (`<repo>/.worktrees/<branch>` by default) and a primary session. A branch that already has a session opens that session instead.
 2. **The agent asks, you answer anywhere.** Questions and approvals from Pi and its plugins appear as cards in every client and as a notification on the device you are most likely to see. Answer once; every client shows the result.
 3. **You can step in.** Join from any client to watch and send messages, steer the current turn or queue a follow-up, or open Pi's own terminal for the session. A second session on the same branch is possible when you ask for it; it nests under the first.
 4. **The branch moves with its pull request.** Working, In review when the pull request opens, Merged when it merges. With write-back on, Switchyard moves the issue's card on your GitHub Projects board too.
@@ -82,7 +82,7 @@ sequenceDiagram
 | Area | What you get |
 |---|---|
 | **Branches** | One row per branch with its primary session; extra sessions and subagents nested under it; open a new or existing branch in one step; the same branch on two hosts is one row |
-| **Board** | Branches by stage (Not started, Working, In review, Merged), or by a GitHub Projects board's columns for a GitHub scope |
+| **Board** | Branch columns by stage or GitHub Projects status, plus a scoped Issue list for comparing, reading and starting tracked work |
 | **Scopes** | Named parts of your work: projects you choose and sessions you pin, or the GitHub issues assigned to you (or every open issue on a Projects board), with worktrees for their branches and card moves on your board ([scopes.md](docs/scopes.md)) |
 | **Clients** | The web app, the phone and the CLI, and herdr and tmux sessions that mirror a scope as a tab per active branch ([clients.md](docs/clients.md)) |
 | **Sessions** | Persistent Pi conversations on any host; the same live session in every client; steer or queue follow-ups; take over and return to automation; resume after crashes with the same conversation (never a silent new one); import existing Pi sessions; switch model and effort, see context use and compact, a slash-command picker |

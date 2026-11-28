@@ -42,6 +42,17 @@ describe("rankItems", () => {
 });
 
 describe("emptyQueryItems", () => {
+  it("keeps issues searchable without adding them to empty-query suggestions", () => {
+    const issue = item("issue:one", "#12 Fix login", { group: "Issues", keywords: ["acme/repo"] });
+    const action = item("action", "New session", { group: "Actions" });
+    expect(rankItems([issue, action], "acme/repo", []).map((i) => i.id)).toEqual(["issue:one"]);
+    expect(
+      emptyQueryItems([issue, action], { needsYou: new Set(), review: new Set() }).flatMap((s) =>
+        s.items.map((i) => i.id),
+      ),
+    ).toEqual(["action"]);
+  });
+
   it("keeps adapter entries in their own section without altering built-in actions", () => {
     const out = emptyQueryItems(
       [

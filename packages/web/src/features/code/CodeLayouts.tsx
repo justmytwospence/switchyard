@@ -50,6 +50,12 @@ export interface TabRequest {
   key: string;
 }
 
+interface NewSessionRequest {
+  projectId: string | null;
+  mode?: "prompt" | "issue";
+  issueId?: string;
+}
+
 interface LayoutProps {
   session: Session | undefined;
   sessionId: string | null;
@@ -66,12 +72,19 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
   const setPaneSize = usePrefs((s) => s.setPaneSize);
   const collapsed = usePrefs((s) => s.inspectorCollapsed);
   const setPref = usePrefs((s) => s.set);
-  const [newFor, setNewFor] = useState<{ projectId: string | null } | null>(null);
+  const [newFor, setNewFor] = useState<NewSessionRequest | null>(null);
   const location = useLocation();
   // biome-ignore lint/correctness/useExhaustiveDependencies: react to a palette request only
   useEffect(() => {
-    if ((location.state as { newSession?: boolean } | null)?.newSession) {
-      setNewFor({ projectId: null });
+    const request = location.state as
+      | (Partial<NewSessionRequest> & { newSession?: boolean })
+      | null;
+    if (request?.newSession) {
+      setNewFor({
+        projectId: request.projectId ?? null,
+        mode: request.mode,
+        issueId: request.issueId,
+      });
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state]);
@@ -138,6 +151,8 @@ export function CodeDesktop({ compact, ...props }: LayoutProps & { compact: bool
       <NewSessionFlow
         open={newFor !== null}
         projectId={newFor?.projectId ?? null}
+        initialMode={newFor?.mode}
+        initialIssueId={newFor?.issueId}
         onClose={() => setNewFor(null)}
         onCreated={onCreated}
         mobile={false}
@@ -286,12 +301,19 @@ function SessionPanes({
 /** Mobile: the session list at /code, one session screen at /code/:id. */
 export function CodeMobile(props: LayoutProps) {
   const navigate = useNavigate();
-  const [newFor, setNewFor] = useState<{ projectId: string | null } | null>(null);
+  const [newFor, setNewFor] = useState<NewSessionRequest | null>(null);
   const location = useLocation();
   // biome-ignore lint/correctness/useExhaustiveDependencies: react to a palette request only
   useEffect(() => {
-    if ((location.state as { newSession?: boolean } | null)?.newSession) {
-      setNewFor({ projectId: null });
+    const request = location.state as
+      | (Partial<NewSessionRequest> & { newSession?: boolean })
+      | null;
+    if (request?.newSession) {
+      setNewFor({
+        projectId: request.projectId ?? null,
+        mode: request.mode,
+        issueId: request.issueId,
+      });
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state]);
@@ -326,6 +348,8 @@ export function CodeMobile(props: LayoutProps) {
       <NewSessionFlow
         open={newFor !== null}
         projectId={newFor?.projectId ?? null}
+        initialMode={newFor?.mode}
+        initialIssueId={newFor?.issueId}
         onClose={() => setNewFor(null)}
         onCreated={onCreated}
         mobile
